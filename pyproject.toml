@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "dvlt",
     "numpy>=2.4.6",
     "pillow>=13.0.0",
     "python-dotenv>=1.2.4",
@@ -21,6 +22,7 @@ semantic-3d-refinement = "src:main"
 scannetpp-download = "src.loaders.scannetpp.download:main"
 scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
 run-pipeline = "src.pipeline:main"
+dejaview-predict = "src.backbone.dejaview:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
@@ -30,6 +32,20 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "src"
 module-root = ""
+
+[tool.uv.sources]
+dvlt = { git = "https://github.com/nv-tlabs/dvlt", rev = "f59bb18" }
+
+# dvlt pins exact old versions; use ours instead
+[tool.uv]
+override-dependencies = [
+    "torch>=2.14.1",
+    "torchvision>=0.21",
+    "numpy>=2.4.6",
+    "pillow>=13.0.0",
+    "matplotlib>=3.11.2",
+    "tqdm>=4.70.1",
+]
 
 [dependency-groups]
 dev = [

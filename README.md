@@ -42,6 +42,16 @@ end before the real models exist:
 uv run run-pipeline data/processed/scannetpp/7b6477cb95/views_n20_uniform_504.npz
 ```
 
+## Déjà View
+
+Runs the released `nvidia/dvlt` checkpoint (16 loop steps, weights download on
+first use) and saves depth, confidence, per-pixel rays and cameras next to the
+views as `dejaview_k16_<views>.npz` (load with `src.geometry.Geometry.load`):
+
+```bash
+uv run dejaview-predict data/processed/scannetpp/*/views_n20_uniform_504.npz
+```
+
 ## Layout
 
 ```
