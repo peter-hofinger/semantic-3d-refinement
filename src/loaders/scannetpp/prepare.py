@@ -9,13 +9,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from semantic_3d_refinement.data.frames import resize_view, select_frames, target_size
-from semantic_3d_refinement.data.scannetpp.config import load_config
-from semantic_3d_refinement.data.scannetpp.scene import ScannetppScene
-from semantic_3d_refinement.data.views import Views
+from src.loaders.frames import (
+    resize_view,
+    select_frames,
+    target_size,
+)
+from src.loaders.scannetpp.config import load_config
+from src.loaders.scannetpp.scene import ScannetppScene
+from src.loaders.views import Views
 
 if TYPE_CHECKING:
-    from semantic_3d_refinement.data.scannetpp.config import (
+    from src.loaders.scannetpp.config import (
         PrepareConfig,
         ScannetppConfig,
     )

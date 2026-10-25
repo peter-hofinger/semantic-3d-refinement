@@ -17,6 +17,7 @@ wheels/
 
 # Data (raw downloads and preprocessed outputs), repo root only
 /data/
+/outputs/
 
 # Tool caches
 .ruff_cache/

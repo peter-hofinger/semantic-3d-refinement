@@ -1,8 +1,12 @@
 import numpy as np
 import pytest
 
-from semantic_3d_refinement.data.frames import resize_view, select_frames, target_size
-from semantic_3d_refinement.data.scannetpp.assets import remote_path
+from src.loaders.frames import (
+    resize_view,
+    select_frames,
+    target_size,
+)
+from src.loaders.scannetpp.assets import remote_path
 
 
 def test_uniform_selection_spans_capture() -> None:

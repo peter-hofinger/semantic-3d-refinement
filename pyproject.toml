@@ -17,13 +17,19 @@ dependencies = [
 ]
 
 [project.scripts]
-semantic-3d-refinement = "semantic_3d_refinement:main"
-scannetpp-download = "semantic_3d_refinement.data.scannetpp.download:main"
-scannetpp-prepare = "semantic_3d_refinement.data.scannetpp.prepare:main"
+semantic-3d-refinement = "src:main"
+scannetpp-download = "src.loaders.scannetpp.download:main"
+scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
+run-pipeline = "src.pipeline:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
+
+# the code lives directly in src/ and is imported as `src`
+[tool.uv.build-backend]
+module-name = "src"
+module-root = ""
 
 [dependency-groups]
 dev = [
@@ -37,7 +43,7 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-src = ["src", "tests"]
+src = ["."]
 
 [tool.ruff.lint]
 select = ["ALL"]

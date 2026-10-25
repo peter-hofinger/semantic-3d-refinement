@@ -17,16 +17,16 @@ from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
-from semantic_3d_refinement.data.scannetpp.assets import (
+from src.loaders.scannetpp.assets import (
     ASSETS,
     METADATA_FILES,
     local_path,
     remote_path,
 )
-from semantic_3d_refinement.data.scannetpp.config import load_config
+from src.loaders.scannetpp.config import load_config
 
 if TYPE_CHECKING:
-    from semantic_3d_refinement.data.scannetpp.config import ScannetppConfig
+    from src.loaders.scannetpp.config import ScannetppConfig
 
 log = logging.getLogger(__name__)
 
