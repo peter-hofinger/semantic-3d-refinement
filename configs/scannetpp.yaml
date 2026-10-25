@@ -1,0 +1,33 @@
+# ScanNet++ download and preprocessing. Paths are relative to the repo root.
+
+data_root: data/scannetpp                # raw ScanNet++ layout: data/<scene_id>/...
+output_root: data/processed/scannetpp    # preprocessed views (.npz)
+
+# nvs_sem_val scenes: held out from backbone training
+scenes:
+  - 7b6477cb95   # office
+  - 5ee7c22ba0   # kitchen
+
+download:
+  root_url: https://scannetpp.mlsg.cit.tum.de/scannetpp/download/v2?version=v1&token=TOKEN&file=FILEPATH
+  metadata: true   # splits and class lists
+  assets:
+    - dslr_resized_undistorted_dir                # undistorted pinhole images, 1752x1168
+    - dslr_resized_undistorted_mask_dir
+    - dslr_nerfstudio_transform_undistorted_path  # intrinsics + poses for those images
+    - dslr_colmap_dir
+    - dslr_train_test_lists_path
+    - scan_mesh_path                              # laser-scan mesh (ground truth)
+    - scan_mesh_mask_path
+    - scan_mesh_segs_path                         # semantic + instance annotations
+    - scan_anno_json_path
+    - scan_sem_mesh_path
+    - iphone_video_path                           # continuous video, for SAM video mode
+    - iphone_pose_intrinsic_imu_path
+    - iphone_colmap_dir
+
+prepare:
+  num_frames: 20       # 16 to 24
+  sampling: uniform    # uniform (over capture order) | farthest (spread camera positions)
+  long_side: 504       # Déjà View input size
+  patch_size: 14       # output width and height are multiples of this
