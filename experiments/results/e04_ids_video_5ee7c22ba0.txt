@@ -1,0 +1,28 @@
+GT objects split over several predicted ids:
+  GT  31 wall               in 11 views -> 9 ids [4, 5, 6, 7, 10, 11, 12, 14, 3003]
+  GT  21 wall               in 19 views -> 7 ids [3, 4, 5, 6, 7, 11, 15]
+  GT  28 cabinet            in 10 views -> 4 ids [1, 9, 9000, 9003]
+  GT  29 wall               in 10 views -> 4 ids [4, 5, 7, 13]
+  GT  37 door               in 10 views -> 3 ids [9, 3003, 3004]
+  GT  32 wall               in 10 views -> 3 ids [8, 10, 3000]
+  GT  36 table              in 10 views -> 2 ids [5000, 5001]
+  GT  10 box                in  4 views -> 2 ids [12001, 12013]
+  GT   8 box                in  6 views -> 2 ids [12002, 12011]
+  GT  35 box                in  6 views -> 2 ids [12008, 12010]
+  GT  24 wall               in  2 views -> 2 ids [3, 6]
+  GT  25 wall               in  2 views -> 2 ids [8, 13]
+  GT  13 copy machine       in  2 views -> 2 ids [3001, 9002]
+predicted ids covering several GT objects (merges):
+  id     4 (wall) -> 21:wall, 29:wall, 31:wall
+  id     5 (wall) -> 21:wall, 29:wall, 31:wall
+  id     6 (wall) -> 21:wall, 24:wall, 31:wall
+  id     7 (wall) -> 21:wall, 29:wall, 31:wall
+  id     3 (wall) -> 21:wall, 24:wall
+  id 12001 (box) -> 9:box, 10:box
+  id 12002 (box) -> 8:box, 12:books
+  id  3003 (door) -> 31:wall, 37:door
+  id     8 (wall) -> 25:wall, 32:wall
+  id    10 (wall) -> 31:wall, 32:wall
+  id    11 (wall) -> 21:wall, 31:wall
+  id    13 (wall) -> 25:wall, 29:wall
+  id     9 (wall) -> 28:cabinet, 37:door

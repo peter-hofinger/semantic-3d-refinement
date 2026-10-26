@@ -108,6 +108,10 @@ def score(
         pairs = [(g, p) for g, p, _ in matches if g in scored]
         # predictions matching an unscored GT instance are neither right nor wrong
         ignored = {p for g, p, _ in matches if g not in scored}
+        # so are predictions lying mostly on unlabeled GT: nothing to judge them by
+        if NO_INSTANCE in g_ids:
+            on_unlabeled = inter[g_ids == NO_INSTANCE][0] > inter.sum(0) / 2
+            ignored |= set(p_ids[on_unlabeled].tolist())
         n_gt += len(scored)
         n_pred += len(set(p_ids.tolist()) - {NO_INSTANCE} - ignored)
         n_hit += len(pairs)
@@ -172,7 +176,7 @@ def contact_sheet(views: Views, seg: Segmentation, title: str, path: Path) -> No
     fig.suptitle(title)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=80)
+    fig.savefig(path, dpi=80, pil_kwargs={"quality": 85})
     plt.close(fig)
 
 
@@ -207,9 +211,9 @@ def main() -> None:
             s.merges,
         )
     stem = f"{views.scene_id}_{args.segmentation.stem}"
-    contact_sheet(views, pred, stem, args.figures / f"{stem}.png")
+    contact_sheet(views, pred, stem, args.figures / f"{stem}.jpg")
     gt_seg = Segmentation(np.where(gt.instance_ids >= 0, gt.instance_ids, -1))
-    gt_path = args.figures / f"{views.scene_id}_gt.png"
+    gt_path = args.figures / f"{views.scene_id}_gt.jpg"
     contact_sheet(views, gt_seg, f"{views.scene_id} ground truth", gt_path)
     log.info("figures -> %s", args.figures)
 

@@ -1,0 +1,10 @@
+GT objects split over several predicted ids:
+  GT  23 refrigerator       in  6 views -> 3 ids [16, 27, 66]
+  GT  21 wall               in 18 views -> 2 ids [10, 57]
+  GT  28 cabinet            in 10 views -> 2 ids [59, 67]
+  GT   3 microwave          in  2 views -> 2 ids [13, 38]
+  GT   9 box                in  5 views -> 2 ids [19, 21]
+  GT  34 box                in  6 views -> 2 ids [28, 35]
+  GT  26 electric box       in  5 views -> 2 ids [30, 37]
+predicted ids covering several GT objects (merges):
+  id    19 (box) -> 9:box, 10:box

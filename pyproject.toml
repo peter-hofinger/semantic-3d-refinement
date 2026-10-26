@@ -92,6 +92,14 @@ ignore = [
     "INP001",   # tests is not a package
     "D",        # no docstrings needed in tests
 ]
+"experiments/**/*.py" = [
+    "T201",     # experiment scripts report with print
+    "INP001",   # scripts, not a package
+    "E402",     # matplotlib backend is set before pyplot is imported
+    "S101",     # asserts are fine in one-off checks
+    "PLR2004",  # literal values in one-off checks
+    "E501",     # long report lines
+]
 "notebooks/**/*.ipynb" = [
     "T201",     # print is fine in notebooks
     "D",        # no docstrings needed in notebooks

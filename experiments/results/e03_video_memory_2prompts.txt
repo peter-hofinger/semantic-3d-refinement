@@ -1,0 +1,27 @@
+prompts: wall chair
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+Loading weights:   0%|          | 0/1797 [00:00<?, ?it/s]Loading weights:  16%|#6        | 289/1797 [00:00<00:00, 2872.78it/s]Loading weights:  32%|###2      | 577/1797 [00:00<00:01, 844.09it/s] Loading weights:  41%|####      | 729/1797 [00:01<00:02, 478.84it/s]Loading weights:  46%|####5     | 823/1797 [00:01<00:02, 380.28it/s]Loading weights:  49%|####9     | 889/1797 [00:01<00:02, 341.74it/s]Loading weights:  52%|#####2    | 939/1797 [00:02<00:02, 315.94it/s]Loading weights:  55%|#####4    | 980/1797 [00:02<00:02, 279.02it/s]Loading weights:  56%|#####6    | 1013/1797 [00:02<00:03, 251.63it/s]Loading weights:  58%|#####7    | 1041/1797 [00:02<00:03, 232.70it/s]Loading weights:  59%|#####9    | 1066/1797 [00:02<00:03, 232.04it/s]Loading weights:  61%|######    | 1090/1797 [00:03<00:03, 208.95it/s]Loading weights:  62%|######1   | 1111/1797 [00:03<00:03, 206.14it/s]Loading weights:  63%|######2   | 1132/1797 [00:03<00:03, 195.91it/s]Loading weights:  64%|######4   | 1152/1797 [00:03<00:03, 180.06it/s]Loading weights:  65%|######5   | 1170/1797 [00:03<00:03, 179.39it/s]Loading weights:  66%|######6   | 1194/1797 [00:03<00:03, 193.12it/s]Loading weights:  68%|######7   | 1214/1797 [00:03<00:03, 177.99it/s]Loading weights:  69%|######8   | 1237/1797 [00:03<00:02, 189.80it/s]Loading weights:  70%|#######   | 1262/1797 [00:04<00:02, 193.31it/s]Loading weights:  71%|#######1  | 1282/1797 [00:04<00:02, 188.85it/s]Loading weights:  72%|#######2  | 1302/1797 [00:04<00:02, 187.16it/s]Loading weights:  74%|#######3  | 1326/1797 [00:04<00:02, 190.33it/s]Loading weights:  75%|#######4  | 1346/1797 [00:04<00:02, 182.42it/s]Loading weights:  76%|#######5  | 1365/1797 [00:04<00:02, 182.91it/s]Loading weights:  77%|#######7  | 1391/1797 [00:04<00:02, 181.88it/s]Loading weights:  79%|#######8  | 1415/1797 [00:04<00:01, 193.93it/s]Loading weights:  80%|#######9  | 1437/1797 [00:04<00:01, 195.65it/s]Loading weights:  86%|########6 | 1552/1797 [00:05<00:00, 453.63it/s]Loading weights:  99%|#########8| 1777/1797 [00:05<00:00, 906.90it/s]Loading weights: 100%|##########| 1797/1797 [00:05<00:00, 346.84it/s]
+model on GPU: 1.72 GB
+[transformers] kernels library is not installed. NMS post-processing, hole filling, and sprinkle removal will be skipped. Install it with `pip install kernels` for better mask quality.
+frame  0    45.6s  objects   4  peak 2.68 GB
+frame  1    49.2s  objects   3  peak 2.68 GB
+frame  2    52.9s  objects   5  peak 2.68 GB
+frame  3    56.6s  objects   6  peak 2.68 GB
+frame  4    60.3s  objects   8  peak 2.68 GB
+frame  5    64.0s  objects   5  peak 2.69 GB
+frame  6    64.0s  objects   8  peak 2.69 GB
+frame  7    64.0s  objects   5  peak 2.69 GB
+frame  8    64.0s  objects   4  peak 2.69 GB
+frame  9    64.0s  objects   9  peak 2.69 GB
+frame 10    64.0s  objects   8  peak 2.69 GB
+frame 11    64.0s  objects   5  peak 2.69 GB
+frame 12    64.0s  objects   6  peak 2.69 GB
+frame 13    64.0s  objects   6  peak 2.69 GB
+frame 14    64.0s  objects   7  peak 2.69 GB
+frame 15    64.0s  objects  11  peak 2.69 GB
+frame 16    64.0s  objects  10  peak 2.69 GB
+frame 17    64.1s  objects   7  peak 2.69 GB
+frame 18    64.1s  objects   4  peak 2.69 GB
+frame 19    64.1s  objects   7  peak 2.69 GB

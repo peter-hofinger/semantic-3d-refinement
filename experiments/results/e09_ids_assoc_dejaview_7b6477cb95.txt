@@ -1,0 +1,15 @@
+GT objects split over several predicted ids:
+  GT  34 storage cabinet    in  7 views -> 4 ids [3, 42, 77, 110]
+  GT  35 storage cabinet    in  7 views -> 3 ids [3, 76, 90]
+  GT  44 floor              in  3 views -> 3 ids [57, 121, 129]
+  GT  79 table              in  7 views -> 2 ids [9, 68]
+  GT   2 window             in  2 views -> 2 ids [7, 122]
+  GT   5 ceiling lamp       in  6 views -> 2 ids [65, 143]
+  GT  64 coat rack          in  2 views -> 2 ids [46, 51]
+  GT  91 office chair       in  4 views -> 2 ids [69, 105]
+  GT  93 table              in  4 views -> 2 ids [9, 68]
+predicted ids covering several GT objects (merges):
+  id     9 (table) -> 55:table, 79:table, 93:table
+  id     3 (cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id    68 (table) -> 79:table, 93:table
+  id    26 (wall) -> 15:wall, 17:wall

@@ -1,0 +1,41 @@
+GT objects split over several predicted ids:
+  GT  52 monitor            in 13 views -> 6 ids [6000, 6001, 7001, 7002, 7003, 7008]
+  GT  37 monitor            in 12 views -> 5 ids [7003, 7004, 7005, 7007, 7008]
+  GT  53 office chair       in 13 views -> 4 ids [6000, 6003, 6004, 6006]
+  GT  83 wall               in 13 views -> 4 ids [0, 1, 3, 5]
+  GT  11 monitor            in  8 views -> 4 ids [6005, 7000, 7006, 7008]
+  GT  89 monitor            in  9 views -> 4 ids [7001, 7002, 7006, 7008]
+  GT  35 storage cabinet    in  8 views -> 3 ids [4, 6, 9000]
+  GT  43 wall               in 13 views -> 3 ids [1, 2, 3]
+  GT   5 ceiling lamp       in  5 views -> 3 ids [13000, 13002, 13003]
+  GT  12 wall               in 10 views -> 2 ids [1, 6]
+  GT  34 storage cabinet    in 12 views -> 2 ids [3004, 9001]
+  GT  48 whiteboard         in 10 views -> 2 ids [11000, 11001]
+  GT  55 table              in 12 views -> 2 ids [5000, 5002]
+  GT  56 trash can          in  6 views -> 2 ids [12001, 12005]
+  GT  58 office chair       in  8 views -> 2 ids [6001, 6003]
+  GT  77 office chair       in  8 views -> 2 ids [6002, 6005]
+  GT  79 table              in  7 views -> 2 ids [5000, 5001]
+  GT  90 monitor            in  6 views -> 2 ids [7005, 7009]
+  GT  61 box                in  5 views -> 2 ids [12002, 12003]
+predicted ids covering several GT objects (merges):
+  id  7008 (monitor) -> 11:monitor, 37:monitor, 52:monitor, 89:monitor
+  id     1 (wall) -> 12:wall, 43:wall, 83:wall
+  id  5000 (table) -> 55:table, 79:table, 93:table
+  id     3 (wall) -> 33:heater, 43:wall, 83:wall
+  id  9003 (cabinet) -> 54:cabinet, 78:cabinet, 92:cabinet
+  id 13000 (lamp) -> 5:ceiling lamp, 6:ceiling lamp, 41:ceiling lamp
+  id 11000 (whiteboard) -> 10:whiteboard, 48:whiteboard
+  id  6000 (chair) -> 52:monitor, 53:office chair
+  id  6001 (chair) -> 52:monitor, 58:office chair
+  id 12002 (box) -> 59:object, 61:box
+  id  7003 (monitor) -> 37:monitor, 52:monitor
+  id  7002 (monitor) -> 52:monitor, 89:monitor
+  id  6002 (chair) -> 77:office chair, 91:office chair
+  id  7001 (monitor) -> 52:monitor, 89:monitor
+  id  7006 (monitor) -> 11:monitor, 89:monitor
+  id  7005 (monitor) -> 37:monitor, 90:monitor
+  id  6005 (chair) -> 11:monitor, 77:office chair
+  id     6 (wall) -> 12:wall, 35:storage cabinet
+  id     7 (wall) -> 15:wall, 17:wall
+  id  6003 (chair) -> 53:office chair, 58:office chair
