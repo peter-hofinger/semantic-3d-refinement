@@ -15,7 +15,7 @@ from semantic_3d_refinement.refine import (
     refine,
     second_differences,
 )
-from semantic_3d_refinement.synthetic import room_scene
+from semantic_3d_refinement.synthetic import occlusion_scene, room_scene
 
 CFG = RefineConfig(device="cpu")
 
@@ -125,3 +125,19 @@ def test_pinhole_fit_recovers_a_pinhole_and_removes_per_patch_ray_noise() -> Non
     noisy = exact.copy()
     noisy[..., 3:5] += jitter.repeat(14, 0).repeat(14, 1) @ rot[:2, :2].T
     assert np.abs(fit_pinhole(noisy, rot)[..., 3:] - exact[..., 3:]).max() < 0.2 * np.abs(jitter).max()
+
+
+def test_occlusion_edge_is_cut_on_one_clean_contour() -> None:
+    scene_ = {k: torch.from_numpy(v) for k, v in occlusion_scene().items()}
+    gt, rays, normals, front = scene_["gt_depth"], scene_["rays"], scene_["normals"], scene_["front"].bool()
+    true_edge = front[:, 1:] != front[:, :-1]
+
+    def off_edge_jumps(edges: str) -> int:
+        cfg = BiniConfig(lambda_depth=100.0, edges=edges, device="cpu")
+        d = bini(normals, rays, scene_["depth"], cfg)[0]
+        jumps = (d.log()[:, 1:] - d.log()[:, :-1]).abs() > 0.05
+        return int((jumps & ~true_edge).sum())
+
+    assert off_edge_jumps("depth") == 0 < off_edge_jumps("bilateral")
+    d = bini(normals, rays, scene_["depth"], BiniConfig(lambda_depth=100.0, edges="depth", device="cpu"))[0]
+    assert ((d - gt).abs() / gt).max() < 0.05

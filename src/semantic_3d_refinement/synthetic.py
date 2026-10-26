@@ -71,6 +71,29 @@ def room_scene(  # noqa: PLR0913
     }
 
 
+def occlusion_scene(*, h: int = 96, w: int = 128, noise: float = 0.003, seed: int = 0) -> dict[str, np.ndarray]:
+    """Two fronto-parallel planes split by a slanted occluding edge, its prior softened into a 2-4 px ramp.
+
+    Feed-forward depth draws occlusion edges as such ramps; the normals (all facing the camera) carry no edge.
+    """
+    rays = pinhole_rays(h, w, focal=0.8 * w, yaw=0.0, origin=(0.0, 0.0, 0.0))
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    front = (u - w / 2) < 0.6 * (v - h / 2)
+    gt_depth = np.where(front, 2.0, 3.0)
+    log_depth = np.log(gt_depth)
+    for _ in range(2):
+        padded = np.pad(log_depth, 1, mode="edge")
+        log_depth = 0.25 * padded[1:-1, :-2] + 0.5 * padded[1:-1, 1:-1] + 0.25 * padded[1:-1, 2:]
+        padded = np.pad(log_depth, 1, mode="edge")
+        log_depth = 0.25 * padded[:-2, 1:-1] + 0.5 * padded[1:-1, 1:-1] + 0.25 * padded[2:, 1:-1]
+    depth = np.exp(log_depth + noise * np.random.default_rng(seed).standard_normal((h, w)))
+    normals = np.broadcast_to(np.array([0.0, 0.0, -1.0]), (h, w, 3))
+    return {
+        k: np.ascontiguousarray(x).astype(np.float32)
+        for k, x in {"depth": depth, "rays": rays, "gt_depth": gt_depth, "normals": normals, "front": front}.items()
+    }
+
+
 def main() -> None:
     """Write the room scene: `uv run python -m semantic_3d_refinement.synthetic --out data/synthetic_room.npz`."""
     parser = argparse.ArgumentParser()

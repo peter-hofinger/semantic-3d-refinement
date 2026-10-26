@@ -35,6 +35,8 @@ class BiniConfig:
     k: float = 2.0
     lambda_depth: float = 1e-4
     prior_sigma: float = 0.0
+    edges: str = "bilateral"
+    edge_tol: float = 0.02
     iters: int = 150
     tol: float = 1e-4
     cg_iters: int = 5000
@@ -46,6 +48,8 @@ class BiniConfig:
         assert self.k >= 0
         assert self.lambda_depth > 0
         assert self.prior_sigma >= 0
+        assert self.edges in {"bilateral", "depth"}, self.edges
+        assert self.edge_tol > 0
         assert self.iters >= 0 and self.cg_iters > 0
         assert self.tol > 0 and self.cg_tol > 0
 
@@ -107,6 +111,28 @@ def side_weights(z: Tensor, a: Tensor, k: float) -> list[tuple[Tensor, Tensor]]:
     wy = torch.sigmoid(k * ((a * pad(dy, (0, 0, 1, 0))).square() - (a * pad(dy, (0, 0, 0, 1))).square()))
     wx[:, 0], wx[:, -1], wy[0], wy[-1] = 1.0, 0.0, 1.0, 0.0
     return [(wx[:, :-1], 1 - wx[:, 1:]), (wy[:-1], 1 - wy[1:])]
+
+
+def cut_weights(z0: Tensor, terms: list, tol: float, window: int = 7) -> list[tuple[Tensor, Tensor]]:
+    """Weights that cut each occlusion edge of the prior along one closed contour; 0.5 elsewhere.
+
+    Each pixel lies above or below the local mid-depth (mean of the max and min of log depth in a window that spans
+    a soft edge). An edge (p, q) is cut where p and q lie on different sides and the prior's step departs from the
+    slope the normals imply by more than tol. A level set is closed, so the two surfaces cannot leak into each
+    other, and the pixels of a soft ramp join their side instead of a break picked row by row as BiNI's weights do.
+    """
+    pool = torch.nn.functional.max_pool2d
+    hi = pool(z0[None, None], window, stride=1, padding=window // 2)[0, 0]
+    lo = -pool(-z0[None, None], window, stride=1, padding=window // 2)[0, 0]
+    side = z0 > 0.5 * (hi + lo)
+    out = []
+    for (af, gf, ab, gb), dz, crossed in zip(
+        terms, diffs(z0), (side[:, 1:] != side[:, :-1], side[1:] != side[:-1]), strict=True
+    ):
+        r = (dz + 0.5 * (gf / af.clamp_min(1e-12) + gb / ab.clamp_min(1e-12))).abs()
+        keep = 0.5 * ~(crossed & (r > tol))
+        out.append((keep, keep.clone()))
+    return out
 
 
 def grid_score(normals: Tensor, patch: int = 14) -> float:
@@ -207,11 +233,15 @@ def bini(
     z0 = depth.double().log()
     a, terms = neighbor_terms(normals.double(), rays.double())
     z = z0.clone()
-    weights = [(torch.full_like(af, 0.5), torch.full_like(ab, 0.5)) for af, _, ab, _ in terms]
+    if cfg.edges == "depth":
+        weights = cut_weights(z0, terms, cfg.edge_tol)
+    else:
+        weights = [(torch.full_like(af, 0.5), torch.full_like(ab, 0.5)) for af, _, ab, _ in terms]
     log = [energy(z, z0, terms, weights, cfg)]
     for _ in range(cfg.iters):
         z = solve(z, z0, terms, weights, cfg)
-        weights = side_weights(z, a, cfg.k)
+        if cfg.edges == "bilateral":
+            weights = side_weights(z, a, cfg.k)
         log.append(energy(z, z0, terms, weights, cfg))
         if abs(log[-1] - log[-2]) <= cfg.tol * log[-2]:
             break
