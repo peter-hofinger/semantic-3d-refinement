@@ -34,11 +34,28 @@ PROMPTS = (
 )  # fmt: skip
 
 
+def load_prompts(paths: list[Path]) -> dict[str, str]:
+    """Prompt -> class from text files, in order, duplicates dropped.
+
+    One prompt per line; `prompt = class` makes the prompt a synonym whose masks get
+    that class (association only links masks of the same class). `#` starts a comment.
+    """
+    prompts: dict[str, str] = {}
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.split("#")[0].strip()  # noqa: PLW2901
+            if line:
+                prompt, _, cls = (s.strip() for s in line.partition("="))
+                prompts.setdefault(prompt, cls or prompt)
+    return prompts
+
+
 @dataclass
 class Sam3VideoSegmenter:
     """Treats the views as video frames; the tracker keeps instance ids across them."""
 
     prompts: tuple[str, ...] = PROMPTS
+    synonyms: dict[str, str] = field(default_factory=dict)  # prompt -> class
     checkpoint: str = CHECKPOINT
     _model: Any = field(default=None, init=False, repr=False)
     _processor: Any = field(default=None, init=False, repr=False)
@@ -83,7 +100,7 @@ class Sam3VideoSegmenter:
                     objs = res["object_ids"].cpu().numpy() + k * ID_STRIDE
                     _paint(ids[i], best[i], objs, scores, masks)
                     found.update(objs.tolist())
-            classes.update(dict.fromkeys(found, prompt))
+            classes.update(dict.fromkeys(found, self.synonyms.get(prompt, prompt)))
             log.info(
                 "  %-12s %3d tracks  %.0fs",
                 prompt,
@@ -102,6 +119,7 @@ class Sam3ImageSegmenter:
     """
 
     prompts: tuple[str, ...] = PROMPTS
+    synonyms: dict[str, str] = field(default_factory=dict)  # prompt -> class
     checkpoint: str = CHECKPOINT
     threshold: float = 0.5
     _model: Any = field(default=None, init=False, repr=False)
@@ -145,7 +163,8 @@ class Sam3ImageSegmenter:
                     masks = res["masks"].cpu().numpy().astype(bool)
                     scores = res["scores"].float().cpu().numpy()
                     _paint(ids[i], best[i], objs, scores, masks)
-                    classes.update(dict.fromkeys(objs.tolist(), prompt))
+                    cls = self.synonyms.get(prompt, prompt)
+                    classes.update(dict.fromkeys(objs.tolist(), cls))
             log.info("  view %2d: %3d masks", i, len(np.unique(ids[i])) - 1)
         return _drop_hidden(ids, classes)
 
@@ -184,6 +203,14 @@ def main() -> None:
         help="video: tracker ids across views; image: per-view ids (associate later)",
     )
     parser.add_argument(
+        "--prompts",
+        type=Path,
+        action="append",
+        help="prompt file (one per line, `prompt = class` for synonyms); repeat to "
+        "combine in order; default: the 16 built-in prompts. The file names go into "
+        "the output name: sam3<mode>-<stem>+<stem>_<views>.npz",
+    )
+    parser.add_argument(
         "--max-gpu-gb",
         type=float,
         default=3.5,
@@ -196,14 +223,26 @@ def main() -> None:
 
     total = torch.cuda.get_device_properties(0).total_memory / 1e9
     torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total))
-    segmenter = SEGMENTERS[args.mode]()
+    tag = f"sam3{args.mode}"
+    if args.prompts:
+        synonyms = load_prompts(args.prompts)
+        segmenter = SEGMENTERS[args.mode](prompts=tuple(synonyms), synonyms=synonyms)
+        tag += "-" + "+".join(p.stem for p in args.prompts)
+    else:
+        segmenter = SEGMENTERS[args.mode]()
     for path in args.views:
         views = Views.load(path)
-        log.info("%s: %d views, %d prompts", views.scene_id, len(views), len(PROMPTS))
+        log.info(
+            "%s: %d views, %d prompts, %d classes",
+            views.scene_id,
+            len(views),
+            len(segmenter.prompts),
+            len({segmenter.synonyms.get(p, p) for p in segmenter.prompts}),
+        )
         torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
         seg = segmenter.segment(views)
-        out = path.with_name(f"sam3{args.mode}_{path.stem}.npz")
+        out = path.with_name(f"{tag}_{path.stem}.npz")
         seg.save(out)
         log.info(
             "%s: %d instances in %d views, %.0fs, peak GPU %.2f GB -> %s",

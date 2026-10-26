@@ -1,0 +1,20 @@
+leaked pixels by predicted class (share of all leakage, rate within class):
+  wall          33.2%   rate 0.01
+  door          10.6%   rate 0.01
+  ceiling        8.4%   rate 0.01
+  floor          7.4%   rate 0.02
+  box            7.3%   rate 0.03
+  printer        6.2%   rate 0.01
+  crate          5.2%   rate 0.03
+  table          4.4%   rate 0.02
+top (predicted class -> GT class it leaks into):
+  wall         -> wall                21.3%
+  door         -> doorframe           10.3%
+  ceiling      -> ceiling lamp         5.8%
+  floor        -> floor                4.1%
+  printer      -> wall                 3.9%
+  box          -> box                  3.8%
+  crate        -> bottle crate         3.8%
+  wall         -> calendar             3.3%
+  wall         -> cabinet              2.8%
+  ceiling      -> wall                 2.6%

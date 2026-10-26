@@ -1,0 +1,18 @@
+GT objects split over several predicted ids:
+  GT  23 refrigerator       in  7 views -> 4 ids [27, 54, 65, 273] classes ['cabinet', 'paper', 'refrigerator', 'table']
+  GT   3 microwave          in 11 views -> 3 ids [75, 83, 296] classes ['box', 'microwave', 'printer']
+  GT   2 calendar           in  6 views -> 2 ids [8, 120] classes ['paper', 'poster']
+  GT   6 box                in  5 views -> 2 ids [10, 15] classes ['box', 'power strip']
+  GT  21 wall               in 18 views -> 2 ids [20, 257] classes ['wall']
+  GT  28 cabinet            in 10 views -> 2 ids [259, 276] classes ['cabinet', 'wall']
+  GT  41 light switch       in  2 views -> 2 ids [34, 283] classes ['light switch']
+  GT   9 box                in  5 views -> 2 ids [42, 44] classes ['box']
+  GT  34 box                in  6 views -> 2 ids [57, 67] classes ['box']
+  GT  26 electric box       in  5 views -> 2 ids [60, 72] classes ['cabinet', 'door']
+  GT  13 copy machine       in 12 views -> 2 ids [118, 275] classes ['cabinet', 'printer']
+  GT  39 calendar           in 10 views -> 2 ids [77, 102] classes ['light switch', 'paper']
+  GT  22 bottle crate       in  5 views -> 2 ids [95, 184] classes ['crate']
+  GT  17 bottle crate       in  5 views -> 2 ids [96, 221] classes ['crate', 'rack']
+  9 of 14 split objects have ids with different classes
+predicted ids covering several GT objects (merges):
+  id    42 (box) -> 9:box, 10:box

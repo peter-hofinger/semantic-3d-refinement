@@ -1,0 +1,3 @@
+# floor coverings that SAM 3 may not call "floor"; masks get class floor
+carpet = floor
+rug = floor

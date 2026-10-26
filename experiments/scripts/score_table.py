@@ -18,6 +18,9 @@ METHODS = {
     "image + assoc Deja View (E9)": (
         "sam3image_views_n20_uniform_504_assoc-dejaview_k16_views_n20_uniform_504"
     ),
+    "image top100 + assoc Deja View (E12)": (
+        "sam3image-top100_views_n20_uniform_504_assoc-dejaview_k16_views_n20_uniform_504"
+    ),
 }
 
 print(

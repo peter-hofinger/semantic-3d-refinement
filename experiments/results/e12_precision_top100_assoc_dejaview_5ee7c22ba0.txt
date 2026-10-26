@@ -1,0 +1,33 @@
+265 of 522 counted masks unmatched (precision 0.49)
+unmatched masks by predicted class:
+  bottle             79
+  container          33
+  box                26
+  wall               16
+  basket             16
+  storage cabinet    14
+  door               13
+  paper               9
+  crate               9
+  cloth               8
+  poster              6
+  marker              6
+  bucket              4
+  air vent            4
+  rack                3
+top (predicted class -> dominant GT class, >90% inside it or spanning):
+  bottle           -> bottle crate       inside   71
+  container        -> bottle crate       spans    14
+  container        -> bottle crate       inside   13
+  box              -> bottle crate       spans    13
+  basket           -> bottle crate       inside   12
+  door             -> cabinet            inside   11
+  wall             -> wall               inside   10
+  storage cabinet  -> cabinet            inside    8
+  cloth            -> refrigerator       inside    8
+  box              -> bottle crate       inside    8
+  bottle           -> bottle crate       spans     7
+  marker           -> refrigerator       inside    6
+  paper            -> cabinet            inside    4
+  crate            -> bottle crate       inside    4
+  container        -> trash bin          spans     4
