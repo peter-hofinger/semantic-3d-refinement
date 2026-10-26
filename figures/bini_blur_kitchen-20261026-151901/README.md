@@ -23,10 +23,7 @@ git `45ec80bfe588c09b0441fa6f925dc71e8475eb51`
   there. No prior setting can remove that: the weights would have to start from DSINE's normals instead.
 - Staircase artifacts at occlusion edges (monitors, table legs) appear in every setting and get slightly worse
   with sigma > 0, where Déjà View and DSINE disagree on where the edge is.
-- Blurring the prior buys no visible detail over plain BiNI with a lower lambda (sigma = 0, lambda = 100), matching the
-  office trade-off (figures/bini_blur_prior_tradeoff_office).
-- The 20-view kitchen run at sigma = 4, lambda = 1000 (runs/bini_blur_kitchen-20261026-151558, finished before the
-  stop) shows the same trade-off: angle to DSINE 12.1° → 7.9°, cross-view median 1.046% → 1.053% (slightly worse).
+- Blurring the prior buys no visible detail over plain BiNI with a lower lambda (sigma = 0, lambda = 100).
 
 ## compare
 
