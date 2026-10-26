@@ -9,12 +9,15 @@ bini:
   k: 2.0
   lambda_depth: 100.0   # chosen on office view 6 and kitchen view 13
   prior_sigma: 0.0   # a blurred prior added nothing here and diverged at lambda = 10
+  edges: depth   # bilateral (BiNI) | depth: cut on the prior's occlusion contours; bilateral leaves staircases
+  edge_tol: 0.02
   iters: 150
   tol: 1.0e-4
   cg_iters: 5000
   cg_tol: 1.0e-3
   device: cuda
-compare:   # the view under several depth-prior weights
-  - {lambda_depth: 1000.0}
-  - {lambda_depth: 100.0}
-  - {lambda_depth: 10.0}
+compare:   # BiNI's own edges, then occlusion-contour cuts under several depth-prior weights
+  - {edges: bilateral, lambda_depth: 100.0}
+  - {edges: depth, lambda_depth: 1000.0}
+  - {edges: depth, lambda_depth: 100.0}
+  - {edges: depth, lambda_depth: 10.0}

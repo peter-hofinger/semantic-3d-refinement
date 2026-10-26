@@ -49,7 +49,8 @@ CAPTIONS = {
     "fit of them, DSINE's prediction (rotated into the same frame), and the depth after BiNI integrates DSINE's "
     "normals against Déjà View's depth. Grid: patch-grid score, about 1 without a 14 px grid.",
     "detail_crops": "The same panels, zoomed where DSINE's normals carry the most detail.",
-    "compare": "The view under several depth-prior weights λ (lower lets DSINE's normals set more of the shape); "
+    "compare": "BiNI's own bilateral edges, then cuts on the prior's occlusion contours under several depth-prior "
+    "weights λ (lower lets DSINE's normals set more of the shape); "
     "bottom row zoomed where DSINE has the most detail. In brackets: median angle to DSINE's normals.",
     "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothness cost is bought down by "
     "spending data cost.",
@@ -379,7 +380,7 @@ def bini_compare(out: Path, raw: dict, data: dict[str, np.ndarray], refined: dic
         cfg = BiniConfig(**{**raw["bini"], **s, "device": device})
         img, angle = shade(bini(dsine, rays, depth, cfg)[0])
         blur_note = f", sigma = {cfg.prior_sigma:g}" if cfg.prior_sigma else ""
-        panels.append((f"BiNI, λ = {cfg.lambda_depth:g}{blur_note}  ({angle:.1f}°)", img))
+        panels.append((f"BiNI, {cfg.edges} edges, λ = {cfg.lambda_depth:g}{blur_note}  ({angle:.1f}°)", img))
     win = detail_window(panels[2][1], 112)
     fig, axes = plt.subplots(2, len(panels), figsize=(3.3 * len(panels), 5.2), constrained_layout=True)
     for c, (title, img) in enumerate(panels):
@@ -387,7 +388,7 @@ def bini_compare(out: Path, raw: dict, data: dict[str, np.ndarray], refined: dic
             axes[r, c].imshow(img[w], interpolation="nearest")
             axes[r, c].set_axis_off()
         axes[0, c].set_title(title, fontsize=8)
-    fig.suptitle("BiNI depth-prior weight (° = median angle to DSINE normals)", color=INK)
+    fig.suptitle("BiNI edges and depth-prior weight (° = median angle to DSINE normals)", color=INK)
     fig.savefig(out / "compare.png", dpi=150)
     plt.close(fig)
 
