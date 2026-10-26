@@ -5,7 +5,9 @@ for neighbors p, q = p + 1 along x or y, x_q lies on the plane of (x_p, n_p) iff
 
   E(z) = sum_p w_p r+_p^2 + (1 - w_p) r-_p^2 + lambda_depth * sum_p (G (z - z0))_p^2,   z = log depth
 
-w_p = sigmoid(k ((a_p dz-)^2 - (a_p dz+)^2)) lets the surface break on the side with the larger jump.
+w_p = sigmoid(k ((a_p dz-)^2 - (a_p dz+)^2)) lets the surface break on the side with the larger jump. As in
+BiNI, the weights start at 0.5, so the first solve integrates smoothly and the jumps come from its result; taking
+them from the prior instead locks in its steps (a backbone's patch seams, its noise) as discontinuities.
 G is a Gaussian blur of width prior_sigma px (identity at 0, as in BiNI): the prior then only holds the low
 frequencies of the depth, and the normals alone set the detail.
 """
@@ -107,6 +109,25 @@ def side_weights(z: Tensor, a: Tensor, k: float) -> list[tuple[Tensor, Tensor]]:
     return [(wx[:, :-1], 1 - wx[:, 1:]), (wy[:-1], 1 - wy[1:])]
 
 
+def grid_score(normals: Tensor, patch: int = 14) -> float:
+    """Median normal change beside the backbone's patch seams over the median elsewhere; about 1 without a grid.
+
+    A depth step between pixels s - 1 and s (s a multiple of patch) tilts the central-difference normals at both,
+    so the change shows on the edges (s - 2, s - 1) and (s, s + 1), at positions patch - 2 and 0.
+    """
+    h, w, _ = normals.shape
+    gx = (normals[:, 1:] - normals[:, :-1]).norm(dim=-1)
+    gy = (normals[1:] - normals[:-1]).norm(dim=-1)
+
+    def beside(n: int) -> Tensor:
+        m = torch.arange(n - 1, device=normals.device) % patch
+        return (m == 0) | (m == patch - 2)
+
+    sx, sy = beside(w).expand_as(gx), beside(h)[:, None].expand_as(gy)
+    g, seam = torch.cat([gx.ravel(), gy.ravel()]), torch.cat([sx.ravel(), sy.ravel()])
+    return (g[seam].median() / g[~seam].median()).item()
+
+
 def blur(x: Tensor, sigma: float, *, squared: bool = False) -> Tensor:
     """Separable Gaussian blur with zero padding (self-adjoint); with squared, blur by the squared kernel."""
     if sigma == 0:
@@ -186,7 +207,7 @@ def bini(
     z0 = depth.double().log()
     a, terms = neighbor_terms(normals.double(), rays.double())
     z = z0.clone()
-    weights = side_weights(z, a, cfg.k)
+    weights = [(torch.full_like(af, 0.5), torch.full_like(ab, 0.5)) for af, _, ab, _ in terms]
     log = [energy(z, z0, terms, weights, cfg)]
     for _ in range(cfg.iters):
         z = solve(z, z0, terms, weights, cfg)
@@ -250,6 +271,11 @@ def angle_to(normals: Tensor, depth: Tensor, rays: Tensor) -> float:
     return torch.rad2deg(torch.acos((own * normals).sum(-1).clamp(-1, 1))).median().item()
 
 
+def drift(depth_hat: Tensor, depth: Tensor, sigma: float = 16.0) -> float:
+    """Median |log D_hat - log D| after a Gaussian blur, in percent: how far the coarse shape moved."""
+    return 100 * blur((depth_hat.double() / depth.double()).log(), sigma).abs().median().item()
+
+
 def main() -> None:
     """Integrate normals into one view: `uv run python -m semantic_3d_refinement.normals --cfg configs/<name>.yaml`."""
     parser = argparse.ArgumentParser()
@@ -278,8 +304,17 @@ def main() -> None:
         "refine_seconds": seconds,
         "outer_iterations": len(log) - 1,
         **normals_info,
-        "metrics_input": {"angle_to_normals_deg": angle_to(normals, depth, rays)},
-        "metrics_refined": {"angle_to_normals_deg": angle_to(normals, depth_hat, rays)},
+        "grid_score_normals": grid_score(normals),
+        "metrics_input": {
+            "angle_to_normals_deg": angle_to(normals, depth, rays),
+            "grid_score": grid_score(normals_from_depth(depth, rays)),
+            "drift_pct": 0.0,
+        },
+        "metrics_refined": {
+            "angle_to_normals_deg": angle_to(normals, depth_hat, rays),
+            "grid_score": grid_score(normals_from_depth(depth_hat, rays)),
+            "drift_pct": drift(depth_hat, depth),
+        },
     }
     out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True)

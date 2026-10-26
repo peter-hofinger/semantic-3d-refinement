@@ -5,7 +5,7 @@ import dataclasses
 import pytest
 import torch
 
-from semantic_3d_refinement.normals import BiniConfig, bini, normals_from_depth
+from semantic_3d_refinement.normals import BiniConfig, bini, grid_score, normals_from_depth
 from semantic_3d_refinement.refine import (
     RefineConfig,
     depth_metrics,
@@ -94,3 +94,21 @@ def test_blurred_prior_lets_normals_set_the_detail() -> None:
         cfg = BiniConfig(lambda_depth=1e5, prior_sigma=sigma, device="cpu")
         errors[sigma] = depth_metrics(bini(normals, rays, noisy, cfg)[0], rays, gt)["abs_rel"]
     assert errors[4.0] < 0.25 * errors[0.0], errors
+
+
+def test_patch_steps_in_the_prior_do_not_survive() -> None:
+    _, rays, _, gt = scene(outlier_frac=0.0, planes=TILTED_PLANE, h=98, w=126)
+    steps = 0.02 * torch.randn(7, 9, generator=torch.Generator().manual_seed(0))
+    prior = gt * torch.exp(steps.repeat_interleave(14, 0).repeat_interleave(14, 1))
+    n = torch.tensor(TILTED_PLANE[0][0])
+    normals = (-n / n.norm()).expand(*gt.shape, 3).contiguous()
+    depth_hat = bini(normals, rays, prior, BiniConfig(lambda_depth=100.0, device="cpu"))[0]
+    assert depth_metrics(depth_hat, rays, gt)["abs_rel"] < 0.5 * depth_metrics(prior, rays, gt)["abs_rel"]
+
+
+def test_grid_score_finds_patch_seams() -> None:
+    noisy, rays, _, _ = scene(noise=0.002, outlier_frac=0.0, h=98, w=126)
+    steps = 0.01 * torch.randn(7, 9, generator=torch.Generator().manual_seed(0))
+    seamed = noisy * torch.exp(steps.repeat_interleave(14, 0).repeat_interleave(14, 1))
+    clean = grid_score(normals_from_depth(noisy, rays))
+    assert 0.7 < clean < 1.3 and grid_score(normals_from_depth(seamed, rays)) > 1.5 * clean, clean

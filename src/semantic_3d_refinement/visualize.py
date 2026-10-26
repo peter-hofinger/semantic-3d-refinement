@@ -420,6 +420,7 @@ def bini_figures(run: Path, out: Path) -> dict[str, float]:
         plt.close(fig)
 
     table = {"normals_seconds": summary["normals_seconds"], "refine_seconds": summary["refine_seconds"]}
+    table["grid_score_dsine"] = summary["grid_score_normals"]
     return write_readme(run, out, summary, table, ["compare", "normal_sources", "detail_crops"])
 
 
