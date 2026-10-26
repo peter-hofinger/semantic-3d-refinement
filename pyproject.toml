@@ -8,6 +8,10 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "beartype>=0.23.1",
+    "matplotlib>=3.11.2",
+    "numpy>=2.4.6",
+    "pyyaml>=6.0.3",
     "torch>=2.14.1",
 ]
 
@@ -21,14 +25,24 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
-    "matplotlib>=3.11.2",
+    "pytest>=9.1.1",
     "ruff>=0.17.1",
     "tqdm>=4.70.1",
 ]
+
+[tool.ruff]
+line-length = 120
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
     "D203",  # incorrect blank line before class
     "D213",  # multi line summary second line
+    "S101",  # design by contract: asserts are the point
+    "PT018",  # composite contract asserts
+    "COM812",  # conflicts with the formatter
+    "CPY001",  # no copyright headers
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D103", "INP001", "PLR2004"]

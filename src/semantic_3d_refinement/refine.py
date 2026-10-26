@@ -1,0 +1,205 @@
+"""Monocular variational refinement of a depth map: dense inverse-depth residual only."""
+
+import argparse
+import dataclasses
+import subprocess
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F  # noqa: N812
+import yaml
+from torch import Tensor
+
+
+@dataclass(frozen=True)
+class RefineConfig:
+    """Energy weights and solver settings; inverse depth is normalized by the median depth."""
+
+    iters: int = 200
+    huber: float = 0.05
+    lambda_bd: float = 10.0
+    lambda_delta: float = 0.0
+    history_size: int = 20
+    device: str = "cuda"
+
+    def __post_init__(self) -> None:
+        """Check ranges."""
+        assert self.iters >= 0
+        assert self.huber > 0
+        assert self.lambda_bd >= 0
+        assert self.lambda_delta >= 0
+        assert self.history_size > 0
+
+
+def check_inputs(depth: Tensor, rays: Tensor, conf: Tensor) -> None:
+    """Assert shapes, dtypes and ranges of a single view."""
+    assert depth.ndim == 2, depth.shape  # noqa: PLR2004
+    h, w = depth.shape
+    assert h >= 3 and w >= 3, depth.shape  # noqa: PLR2004
+    assert rays.shape == (h, w, 6), rays.shape
+    assert conf.shape == (h, w), conf.shape
+    assert depth.dtype == rays.dtype == conf.dtype and depth.dtype.is_floating_point
+    assert depth.isfinite().all() and (depth > 0).all()
+    assert rays.isfinite().all()
+    assert conf.isfinite().all() and (conf >= 0).all() and (conf > 0).any()
+
+
+def points_from_rays(depth: Tensor, rays: Tensor) -> Tensor:
+    """Lift depth along rays: x = origin + depth * direction."""
+    return rays[..., :3] + depth[..., None] * rays[..., 3:]
+
+
+def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Return d_xx, d_yy, d_xy; all vanish where d is affine in pixel coordinates (planes)."""
+    dxx = d[:, 2:] - 2 * d[:, 1:-1] + d[:, :-2]
+    dyy = d[2:] - 2 * d[1:-1] + d[:-2]
+    dxy = d[1:, 1:] - d[1:, :-1] - d[:-1, 1:] + d[:-1, :-1]
+    return dxx, dyy, dxy
+
+
+def energy(delta: Tensor, d0: Tensor, w: Tensor, cfg: RefineConfig) -> tuple[Tensor, dict[str, float]]:
+    """E = E_d + lambda_bd E_bd + lambda_delta ||delta||^2, each a per-pixel mean."""
+    d = d0 + delta
+    e_d = (w * F.huber_loss(delta, torch.zeros_like(delta), reduction="none", delta=cfg.huber)).mean()
+    dxx, dyy, dxy = second_differences(d)
+    e_bd = dxx.square().mean() + dyy.square().mean() + 2 * dxy.square().mean()
+    e_delta = delta.square().mean()
+    e = e_d + cfg.lambda_bd * e_bd + cfg.lambda_delta * e_delta
+    assert e.isfinite(), e
+    return e, {
+        "E": e.item(),
+        "E_d": e_d.item(),
+        "E_bd": e_bd.item(),
+        "E_delta": e_delta.item(),
+    }
+
+
+def refine(
+    depth: Tensor,
+    rays: Tensor,
+    conf: Tensor,
+    cfg: RefineConfig,
+) -> tuple[Tensor, Tensor, Tensor, list[dict[str, float]]]:
+    """Optimize the dense residual delta on normalized inverse depth; return depth, points, delta, energy log."""
+    check_inputs(depth, rays, conf)
+    scale = depth.median()
+    d0 = scale / depth
+    w = conf / conf.mean()
+    delta = torch.zeros_like(depth, requires_grad=True)
+
+    log = [energy(delta, d0, w, cfg)[1]]
+    if cfg.iters > 0:
+        opt = torch.optim.LBFGS(
+            [delta],
+            lr=1.0,
+            max_iter=cfg.iters,
+            history_size=cfg.history_size,
+            tolerance_grad=1e-9,
+            tolerance_change=1e-12,
+            line_search_fn="strong_wolfe",
+        )
+
+        def closure() -> Tensor:
+            opt.zero_grad()
+            e, terms = energy(delta, d0, w, cfg)
+            e.backward()
+            log.append(terms)
+            return e
+
+        opt.step(closure)
+        with torch.no_grad():
+            log.append(energy(delta, d0, w, cfg)[1])
+    delta = delta.detach()
+
+    depth_hat = depth / (1 + delta * depth / scale)
+    points = points_from_rays(depth_hat, rays)
+    assert depth_hat.shape == depth.shape and depth_hat.isfinite().all() and (depth_hat > 0).all()
+    assert points.shape == (*depth.shape, 3) and points.isfinite().all()
+    assert log[-1]["E"] <= log[0]["E"] + 1e-6, (log[0], log[-1])
+    return depth_hat, points, delta, log
+
+
+def depth_metrics(depth: Tensor, rays: Tensor, gt_depth: Tensor) -> dict[str, float]:
+    """Sanity metrics against a known ground truth (synthetic scenes only)."""
+    err = (points_from_rays(depth, rays) - points_from_rays(gt_depth, rays)).norm(dim=-1)
+    return {
+        "abs_rel": ((depth - gt_depth).abs() / gt_depth).mean().item(),
+        "point_rmse": err.square().mean().sqrt().item(),
+    }
+
+
+def write_ply(path: Path, points: np.ndarray) -> None:
+    """Write an (N, 3) float32 point cloud as binary PLY."""
+    assert points.ndim == 2 and points.shape[1] == 3, points.shape  # noqa: PLR2004
+    header = f"ply\nformat binary_little_endian 1.0\nelement vertex {len(points)}\n"
+    header += "property float x\nproperty float y\nproperty float z\nend_header\n"
+    with path.open("wb") as f:
+        f.write(header.encode())
+        f.write(points.astype("<f4").tobytes())
+
+
+def git_hash() -> str:
+    """Return HEAD, marked dirty if the tree has uncommitted changes."""
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
+    dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
+    return head + ("-dirty" if dirty else "")
+
+
+def main() -> None:
+    """Refine one cached view: `uv run python -m semantic_3d_refinement.refine --cfg configs/<name>.yaml`."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cfg", type=Path, required=True)
+    cfg_path: Path = parser.parse_args().cfg
+    raw = yaml.safe_load(cfg_path.read_text())
+    cfg = RefineConfig(**raw["refine"])
+    device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
+
+    data = np.load(raw["input"])
+    depth = torch.from_numpy(data["depth"]).float().to(device)
+    rays = torch.from_numpy(data["rays"]).float().to(device)
+    conf = torch.from_numpy(data["conf"]).float().to(device) if "conf" in data else torch.ones_like(depth)
+
+    t0 = time.perf_counter()
+    depth_hat, points, delta, log = refine(depth, rays, conf, cfg)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    seconds = time.perf_counter() - t0
+
+    out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
+    out.mkdir(parents=True)
+    summary = {
+        "config": raw,
+        "resolved": dataclasses.asdict(cfg),
+        "git": git_hash(),
+        "refine_seconds": seconds,
+    }
+    summary |= {
+        "evaluations": len(log) - 1,
+        "energy_initial": log[0],
+        "energy_final": log[-1],
+    }
+    if "gt_depth" in data:
+        gt = torch.from_numpy(data["gt_depth"]).float().to(device)
+        summary |= {
+            "metrics_input": depth_metrics(depth, rays, gt),
+            "metrics_refined": depth_metrics(depth_hat, rays, gt),
+        }
+    (out / "run.yaml").write_text(yaml.safe_dump(summary, sort_keys=False))
+    np.savez(
+        out / "refined.npz",
+        depth=depth_hat.cpu().numpy(),
+        points=points.cpu().numpy(),
+        delta=delta.cpu().numpy(),
+        energy=np.array([e["E"] for e in log]),
+    )
+    write_ply(out / "input.ply", points_from_rays(depth, rays).reshape(-1, 3).cpu().numpy())
+    write_ply(out / "refined.ply", points.reshape(-1, 3).cpu().numpy())
+    print(yaml.safe_dump(summary, sort_keys=False))  # noqa: T201
+    print(f"wrote {out}")  # noqa: T201
+
+
+if __name__ == "__main__":
+    main()

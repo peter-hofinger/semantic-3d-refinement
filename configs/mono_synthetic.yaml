@@ -1,0 +1,9 @@
+input: data/synthetic_room.npz
+output_dir: runs
+refine:
+  iters: 200
+  huber: 0.05
+  lambda_bd: 10.0
+  lambda_delta: 0.0
+  history_size: 20
+  device: cuda
