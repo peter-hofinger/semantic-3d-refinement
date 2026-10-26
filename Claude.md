@@ -41,6 +41,8 @@ need a ScanNet++ token.
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
   Outputs ray map, depth and confidence in the first view's frame, up to scale. 117M parameters.
+  Its ray map deviates from a pinhole in patch-sized steps (0.6-0.9 px median): every normal map lifted through it
+  shows a 14 px grid that its depth does not have. Use `rays: pinhole` (same camera, fitted K).
 - DA3: depth plus a ray map at H/2×W/2; cameras are decoded from the rays.
 - VGGT: cameras, depth and point maps with confidences; first view's frame, up to scale.
 - SAM 3: instance masks with identities that persist across frames. Plain SAM masks are per view only.
