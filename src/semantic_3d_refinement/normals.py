@@ -260,6 +260,12 @@ def predicted_normals(raw: dict, data: dict[str, Tensor]) -> tuple[Tensor, dict]
     return world, {"dsine_cache": str(cache), "dsine_convention": convention}
 
 
+def angle_to(normals: Tensor, depth: Tensor, rays: Tensor) -> float:
+    """Median angle in degrees between the depth's own normals and the given normals, over all views."""
+    own = torch.stack([normals_from_depth(d, r) for d, r in zip(depth, rays, strict=True)])
+    return torch.rad2deg(torch.acos((own * normals).sum(-1).clamp(-1, 1))).median().item()
+
+
 def integrate_all(normals: Tensor, data: dict[str, Tensor], cfg: BiniConfig) -> tuple[Tensor, list[int], list[float]]:
     """BiNI per view; return depth, outer iterations and seconds per view."""
     out, iters, seconds = [], [], []
@@ -302,8 +308,8 @@ def main() -> None:
         "refine_seconds_per_view": seconds,
         "outer_iterations": iters,
         **normals_info,
-        "metrics_input": multiview_metrics(mv_in),
-        "metrics_refined": multiview_metrics(mv_out),
+        "metrics_input": multiview_metrics(mv_in) | {"angle_to_normals_deg": angle_to(normals, depth, rays)},
+        "metrics_refined": multiview_metrics(mv_out) | {"angle_to_normals_deg": angle_to(normals, depth_hat, rays)},
     }
     if "gt_views" in raw:
         cams_gt = camera_alignment(rays, Path(raw["gt_views"]), raw.get("views"))
