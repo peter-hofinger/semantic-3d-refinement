@@ -158,6 +158,10 @@ The three open options change different stages, so they can be combined, and eac
   factorial, which also covers leave-one-out) is scored for the report. Cheap: SAM 3 runs once per vocabulary at
   threshold 0.3 with per-mask scores saved; 0.5 is then an offline filter, and association is ~13 s per run.
   Two scenes only: differences of 1-2 consistent objects are noise.
+- **E17 settings, fixed 26.10 before running:** base for all 8 setups = SAM 3 cache at threshold 0.3 +
+  association with Déjà View geometry and `--cross-class 0.7`; (a) on = `--min-visible-fraction 0.25`, off = no
+  visibility check; (b) on = `--keep-linked-below 0.5`, off = `--min-score 0.5` (same masks as threshold 0.5, E15);
+  vocabulary = top100 or the E16 VLM list. Same 20 views and scorer.
 - Same rules as before: same 20 views and scorer; settings fixed before each run from the mechanism, never from
   these scenes' misses.
 
