@@ -21,11 +21,11 @@ from semantic_3d_refinement.refine import (
     LOG_KEYS,
     RefineConfig,
     energy_maps,
-    load_view,
     normalize,
     points_from_rays,
     refine,
     term_weights,
+    view_from_config,
 )
 
 SURFACE = "#fcfcfb"
@@ -313,7 +313,7 @@ def figures(run: Path, out: Path) -> dict[str, float]:
     """Write all figures for a refinement run into `out`; return the metric table."""
     summary = yaml.safe_load((run / "run.yaml").read_text())
     cfg = dataclasses.replace(RefineConfig(**summary["resolved"]), device="cpu")
-    data = load_view(Path(summary["config"]["input"]), summary["config"].get("view"))
+    data = view_from_config(summary["config"])
     refined = dict(np.load(run / "refined.npz"))
     raw = {k: v.numpy() for k, v in data.items()}
     depth, rays, gt, log = raw["depth"], raw["rays"], raw.get("gt_depth"), refined["energy"]
@@ -394,7 +394,7 @@ def bini_figures(run: Path, out: Path) -> dict[str, float]:
     """Write the figures for a normal-integration run (semantic_3d_refinement.normals); return the metric table."""
     summary = yaml.safe_load((run / "run.yaml").read_text())
     raw = summary["config"]
-    data = {k: v.numpy() for k, v in load_view(Path(raw["input"]), raw["view"]).items()}
+    data = {k: v.numpy() for k, v in view_from_config(raw).items()}
     refined = dict(np.load(run / "refined.npz"))
     image = np.load(raw["gt_views"])["images"][raw["view"]]
     out.mkdir(parents=True, exist_ok=True)

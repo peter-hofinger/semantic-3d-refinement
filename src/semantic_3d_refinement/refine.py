@@ -145,24 +145,51 @@ def depth_metrics(depth: Tensor, rays: Tensor, gt_depth: Tensor) -> dict[str, fl
     }
 
 
-def load_view(path: Path, view: int | None = None) -> dict[str, Tensor]:
+def fit_pinhole(rays: np.ndarray, rotation: np.ndarray) -> np.ndarray:
+    """Replace a predicted ray map by the pinhole that fits it best, keeping the camera's center and rotation.
+
+    Least squares for fx, cx and fy, cy on the camera-frame directions; the directions keep unit z in the camera.
+    Déjà View's rays deviate from it by 0.6-0.9 px (median) in patch-sized steps, which show as a 14 px grid in
+    every normal map lifted through them.
+    """
+    h, w = rays.shape[:2]
+    d = rays[..., 3:] @ rotation
+    x, y = d[..., 0] / d[..., 2], d[..., 1] / d[..., 2]
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    fx, cx = np.polyfit(x.ravel(), u.ravel(), 1)
+    fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
+    residual = np.hypot(fx * x + cx - u, fy * y + cy - v)
+    assert np.median(residual) < 2, np.median(residual)  # noqa: PLR2004
+    dirs = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
+    origin = np.broadcast_to(rays[..., :3].reshape(-1, 3).mean(0), dirs.shape)
+    return np.concatenate([origin, dirs], axis=-1)
+
+
+def load_view(path: Path, view: int | None = None, rays: str = "predicted") -> dict[str, Tensor]:
     """Load one cached view as (H, W[, C]) float tensors: depth, rays, conf, and gt_depth when known.
 
     Accepts the synthetic single-view format and the Déjà View export (ray_origins, ray_directions, confidence),
-    from which `view` picks one frame.
+    from which `view` picks one frame. rays = "pinhole" replaces its ray map by the best-fitting pinhole.
     """
+    assert rays in {"predicted", "pinhole"}, rays
     data = dict(np.load(path))
     if "ray_origins" in data:
         assert view is not None, "a Déjà View export holds several frames; set `view` in the config"
-        data = {
-            "depth": data["depth"][view],
-            "rays": np.concatenate([data["ray_origins"][view], data["ray_directions"][view]], axis=-1),
-            "conf": data["confidence"][view],
-        }
+        ray_map = np.concatenate([data["ray_origins"][view], data["ray_directions"][view]], axis=-1)
+        if rays == "pinhole":
+            ray_map = fit_pinhole(ray_map.astype(np.float64), data["cam_to_world"][view, :3, :3].astype(np.float64))
+        data = {"depth": data["depth"][view], "rays": ray_map, "conf": data["confidence"][view]}
+    else:
+        assert rays == "predicted", "synthetic scenes are already pinhole"
     data.setdefault("conf", np.ones_like(data["depth"]))
     out = {k: torch.from_numpy(np.ascontiguousarray(v)).float() for k, v in data.items()}
     check_inputs(out["depth"], out["rays"], out["conf"])
     return out
+
+
+def view_from_config(raw: dict) -> dict[str, Tensor]:
+    """Load the view a run config names (`input`, `view`, `rays`)."""
+    return load_view(Path(raw["input"]), raw.get("view"), raw.get("rays", "predicted"))
 
 
 def write_ply(path: Path, points: np.ndarray) -> None:
@@ -191,7 +218,7 @@ def main() -> None:
     cfg = RefineConfig(**raw["refine"])
     device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
 
-    data = {k: v.to(device) for k, v in load_view(Path(raw["input"]), raw.get("view")).items()}
+    data = {k: v.to(device) for k, v in view_from_config(raw).items()}
     depth, rays = data["depth"], data["rays"]
 
     t0 = time.perf_counter()

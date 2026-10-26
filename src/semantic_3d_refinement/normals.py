@@ -25,7 +25,7 @@ import torch
 import yaml
 from torch import Tensor
 
-from semantic_3d_refinement.refine import git_hash, load_view
+from semantic_3d_refinement.refine import git_hash, view_from_config
 
 
 @dataclass(frozen=True)
@@ -284,7 +284,7 @@ def main() -> None:
     raw = yaml.safe_load(cfg_path.read_text())
     cfg = BiniConfig(**raw["bini"])
     device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
-    data = {k: v.to(device) for k, v in load_view(Path(raw["input"]), raw.get("view")).items()}
+    data = {k: v.to(device) for k, v in view_from_config(raw).items()}
     depth, rays = data["depth"], data["rays"]
 
     t0 = time.perf_counter()

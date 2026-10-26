@@ -2,6 +2,7 @@
 
 import dataclasses
 
+import numpy as np
 import pytest
 import torch
 
@@ -9,6 +10,7 @@ from semantic_3d_refinement.normals import BiniConfig, bini, grid_score, normals
 from semantic_3d_refinement.refine import (
     RefineConfig,
     depth_metrics,
+    fit_pinhole,
     points_from_rays,
     refine,
     second_differences,
@@ -112,3 +114,14 @@ def test_grid_score_finds_patch_seams() -> None:
     seamed = noisy * torch.exp(steps.repeat_interleave(14, 0).repeat_interleave(14, 1))
     clean = grid_score(normals_from_depth(noisy, rays))
     assert 0.7 < clean < 1.3 and grid_score(normals_from_depth(seamed, rays)) > 1.5 * clean, clean
+
+
+def test_pinhole_fit_recovers_a_pinhole_and_removes_per_patch_ray_noise() -> None:
+    _, rays, _, _ = scene(outlier_frac=0.0, h=98, w=126)
+    rot = torch.linalg.matrix_exp(torch.tensor([[0.0, 0.0, 0.3], [0.0, 0.0, 0.0], [-0.3, 0.0, 0.0]])).double().numpy()
+    exact = rays.double().numpy()
+    assert np.abs(fit_pinhole(exact, rot) - exact).max() < 1e-5
+    jitter = 2e-3 * torch.randn(7, 9, 2, generator=torch.Generator().manual_seed(0)).double().numpy()
+    noisy = exact.copy()
+    noisy[..., 3:5] += jitter.repeat(14, 0).repeat(14, 1) @ rot[:2, :2].T
+    assert np.abs(fit_pinhole(noisy, rot)[..., 3:] - exact[..., 3:]).max() < 0.2 * np.abs(jitter).max()
