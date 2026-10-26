@@ -3,9 +3,11 @@
 Own matrix-free GPU implementation of the BiNI energy on log depth, generalized from a pinhole K to the ray map:
 for neighbors p, q = p + 1 along x or y, x_q lies on the plane of (x_p, n_p) iff dz = log|n_p.d_p| - log|n_p.d_q|.
 
-  E(z) = sum_p w_p r+_p^2 + (1 - w_p) r-_p^2 + lambda_depth * sum_p (z_p - z0_p)^2,   z = log depth
+  E(z) = sum_p w_p r+_p^2 + (1 - w_p) r-_p^2 + lambda_depth * sum_p (G (z - z0))_p^2,   z = log depth
 
 w_p = sigmoid(k ((a_p dz-)^2 - (a_p dz+)^2)) lets the surface break on the side with the larger jump.
+G is a Gaussian blur of width prior_sigma px (identity at 0, as in BiNI): the prior then only holds the low
+frequencies of the depth, and the normals alone set the detail.
 """
 
 import argparse
@@ -38,6 +40,7 @@ class BiniConfig:
 
     k: float = 2.0
     lambda_depth: float = 1e-4
+    prior_sigma: float = 0.0
     iters: int = 150
     tol: float = 1e-4
     cg_iters: int = 5000
@@ -48,6 +51,7 @@ class BiniConfig:
         """Check ranges."""
         assert self.k >= 0
         assert self.lambda_depth > 0
+        assert self.prior_sigma >= 0
         assert self.iters >= 0 and self.cg_iters > 0
         assert self.tol > 0 and self.cg_tol > 0
 
@@ -111,9 +115,21 @@ def side_weights(z: Tensor, a: Tensor, k: float) -> list[tuple[Tensor, Tensor]]:
     return [(wx[:, :-1], 1 - wx[:, 1:]), (wy[:-1], 1 - wy[1:])]
 
 
-def energy(z: Tensor, z0: Tensor, terms: list, weights: list, lam: float) -> float:
+def blur(x: Tensor, sigma: float, *, squared: bool = False) -> Tensor:
+    """Separable Gaussian blur with zero padding (self-adjoint); with squared, blur by the squared kernel."""
+    if sigma == 0:
+        return x.clone()
+    r = int(3 * sigma)
+    g = torch.exp(-0.5 * (torch.arange(-r, r + 1, dtype=x.dtype, device=x.device) / sigma).square())
+    g = g / g.sum()
+    g = g.square() if squared else g
+    y = torch.nn.functional.conv2d(x[None, None], g.view(1, 1, 1, -1), padding=(0, r))
+    return torch.nn.functional.conv2d(y, g.view(1, 1, -1, 1), padding=(r, 0))[0, 0]
+
+
+def energy(z: Tensor, z0: Tensor, terms: list, weights: list, cfg: BiniConfig) -> float:
     """BiNI energy at log depth z for fixed weights."""
-    e = lam * (z - z0).square().sum()
+    e = cfg.lambda_depth * blur(z - z0, cfg.prior_sigma).square().sum()
     for (af, gf, ab, gb), (wf, wb), dz in zip(terms, weights, diffs(z), strict=True):
         e = e + (wf * (af * dz + gf).square() + wb * (ab * dz + gb).square()).sum()
     return e.item()
@@ -136,12 +152,15 @@ def solve(z: Tensor, z0: Tensor, terms: list, weights: list, cfg: BiniConfig) ->
         out[:-1] -= ey
         return out
 
+    def prior(x: Tensor) -> Tensor:
+        return cfg.lambda_depth * blur(blur(x, cfg.prior_sigma), cfg.prior_sigma)
+
     def apply(x: Tensor) -> Tensor:
         dx, dy = diffs(x)
-        return scatter(cs[0] * dx, cs[1] * dy, cfg.lambda_depth * x)
+        return scatter(cs[0] * dx, cs[1] * dy, prior(x))
 
-    rhs = scatter(-bs[0], -bs[1], cfg.lambda_depth * z0)
-    diag = torch.full_like(z, cfg.lambda_depth)
+    rhs = scatter(-bs[0], -bs[1], prior(z0))
+    diag = cfg.lambda_depth * blur(torch.ones_like(z), cfg.prior_sigma, squared=True)
     diag[:, 1:] += cs[0]
     diag[:, :-1] += cs[0]
     diag[1:] += cs[1]
@@ -176,11 +195,11 @@ def bini(
     a, terms = neighbor_terms(normals.double(), rays.double())
     z = z0.clone()
     weights = side_weights(z, a, cfg.k)
-    log = [energy(z, z0, terms, weights, cfg.lambda_depth)]
+    log = [energy(z, z0, terms, weights, cfg)]
     for _ in range(cfg.iters):
         z = solve(z, z0, terms, weights, cfg)
         weights = side_weights(z, a, cfg.k)
-        log.append(energy(z, z0, terms, weights, cfg.lambda_depth))
+        log.append(energy(z, z0, terms, weights, cfg))
         if abs(log[-1] - log[-2]) <= cfg.tol * log[-2]:
             break
     depth_hat = z.exp().to(depth.dtype)

@@ -106,3 +106,15 @@ def test_bini_identity_under_a_strong_prior() -> None:
     normals = normals_from_depth(depth, rays)
     depth_hat, _, _ = bini(normals, rays, depth, BiniConfig(lambda_depth=1e8, device="cpu"))
     assert ((depth_hat - depth).abs() / depth).max() < 1e-4
+
+
+def test_blurred_prior_lets_normals_set_the_detail() -> None:
+    _, rays, _, gt = scene(outlier_frac=0.0, planes=TILTED_PLANE)
+    noisy = gt * torch.exp(0.02 * torch.randn(gt.shape, generator=torch.Generator().manual_seed(0)))
+    n = torch.tensor(TILTED_PLANE[0][0])
+    normals = (-n / n.norm()).expand(*gt.shape, 3).contiguous()
+    errors = {}
+    for sigma in (0.0, 4.0):
+        cfg = BiniConfig(lambda_depth=1e5, prior_sigma=sigma, device="cpu")
+        errors[sigma] = depth_metrics(bini(normals, rays, noisy, cfg)[0], rays, gt)["abs_rel"]
+    assert errors[4.0] < 0.25 * errors[0.0], errors

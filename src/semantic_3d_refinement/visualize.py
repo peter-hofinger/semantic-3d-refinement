@@ -57,8 +57,8 @@ CAPTIONS = {
     "normal_sources": "Normals per view: Déjà View's depth, DSINE's prediction (rotated into the same frame), and the "
     "depth after BiNI integrates DSINE's normals against Déjà View's depth.",
     "detail_crops": "The same three, zoomed where DSINE's normals carry the most detail.",
-    "bini_sweep": "Cross-view disagreement over all views versus the depth-prior weight λ and the discontinuity "
-    "sharpness k, one at a time (circle: this run). Dashed: Déjà View input.",
+    "bini_sweep": "Cross-view disagreement over all views versus each BiNI weight, one at a time (circle: this "
+    "run). Dashed: Déjà View input.",
     "sweep_real": "Smoothness weight λ_bd on real data: normals of the first view and cross-view disagreement "
     "over all views.",
     "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothness cost is bought down by "
@@ -491,7 +491,11 @@ def bini_sweep(out: Path, summary: dict) -> None:
         return
     raw = summary["config"]
     fig, axes = plt.subplots(1, len(sweep), figsize=(3.8 * len(sweep), 3.2), sharey=True, constrained_layout=True)
-    labels = {"lambda_depth": "depth-prior weight λ", "k": "discontinuity sharpness k"}
+    labels = {
+        "lambda_depth": "depth-prior weight λ",
+        "k": "discontinuity sharpness k",
+        "prior_sigma": "prior blur sigma (px)",
+    }
     for ax, (key, ys) in zip(np.atleast_1d(axes), sweep.items(), strict=True):
         xs = raw["sweep"][key]
         ax.plot(xs, ys, color=BLUE, marker="o", markersize=4)
