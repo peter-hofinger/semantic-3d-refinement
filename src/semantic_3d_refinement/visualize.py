@@ -20,6 +20,10 @@ from semantic_3d_refinement.refine import (
     LOG_KEYS,
     RefineConfig,
     energy_maps,
+    fit_projection,
+    load_views,
+    multiview_error,
+    multiview_metrics,
     normalize,
     points_from_rays,
     refine,
@@ -33,23 +37,29 @@ GRID = "#e4e3df"
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
 TERM_COLORS = {"E_d": ORANGE, "E_bd": BLUE, "E_delta": AQUA}
 TERM_NAMES = {"E_d": "data  E_d", "E_bd": "smoothness  λ_bd·E_bd", "E_delta": "residual prior  λ_δ·‖δ‖²"}
+SHOW_VIEWS = 4
 RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 SEQUENTIAL = LinearSegmentedColormap.from_list("seq_blue", RAMP)
 DIVERGING = LinearSegmentedColormap.from_list("div", ["#104281", "#6da7ec", "#f0efec", "#ec8a89", "#b42d2d"])
 
 CAPTIONS = {
-    "depth": "Depth maps on one color scale: noisy input with outliers, refined, and ground truth.",
+    "inputs": "What the frozen Déjà View forward pass gives us, for a few of the views: image, depth, confidence.",
+    "depth": "Depth maps of the first view on one color scale: input, refined, and ground truth when known.",
     "error": "Relative depth error per pixel before and after refinement. What remains sits on the creases.",
     "delta": "The dense residual δ that refinement adds to the normalized inverse depth.",
     "profile": "Depth along one image row through a crease.",
-    "points_topdown": "Point clouds seen from above (x-z).",
+    "points_topdown": "Point clouds of the first view seen from above (x-z).",
+    "normals": "Surface normals from the point maps (world frame as RGB): noise and edges show here first.",
+    "multiview_maps": "Cross-view disagreement per pixel: median over the other views of |x - x_j| / D_j under the "
+    "frozen predicted cameras. A GT-free proxy; occlusions put a floor under it.",
+    "multiview_per_view": "Median cross-view disagreement per view, before and after.",
+    "sweep_real": "Smoothness weight λ_bd on real data: normals of the first view and cross-view disagreement "
+    "over all views.",
     "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothness cost is bought down by "
     "spending data cost.",
-    "cost_maps": "Where each term pays, per pixel (log scale). Smoothness cost collapses everywhere except on "
-    "creases; data cost is spread evenly where δ removed noise, and outliers stay cheap because their low "
-    "confidence downweights them.",
+    "cost_maps": "Where each term pays, per pixel (log scale), for the first view.",
     "forces": "Tug of war at convergence: the force -∂E/∂δ each term exerts per pixel. Data pulls back toward "
-    "the input, smoothness pushes toward planes, and they cancel (net ≈ 0).",
+    "the input, smoothness pushes toward planes, and at convergence they cancel (net ≈ 0).",
     "sweep_lambda_bd": "Effect of the smoothness weight λ_bd: too low keeps the noise, too high rounds off the "
     "creases.",
     "data_term_ablation": "Effect of the data term's form on the 1% outliers: an unweighted quadratic lets them "
@@ -80,6 +90,20 @@ plt.rcParams |= {
     "legend.fontsize": 8,
     "font.size": 9,
 }
+
+
+def pick(n: int) -> list[int]:
+    """Evenly spaced view indices, first view included."""
+    return sorted({round(i * (n - 1) / max(SHOW_VIEWS - 1, 1)) for i in range(min(n, SHOW_VIEWS))})
+
+
+def normals(points: np.ndarray) -> np.ndarray:
+    """Return unit normals of an (H, W, 3) point map from central differences, as RGB in [0, 1]; edges replicated."""
+    dx = points[1:-1, 2:] - points[1:-1, :-2]
+    dy = points[2:, 1:-1] - points[:-2, 1:-1]
+    n = np.cross(dx, dy)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True) + 1e-12
+    return np.pad(n * 0.5 + 0.5, ((1, 1), (1, 1), (0, 0)), mode="edge").clip(0, 1)
 
 
 def show_image(ax: Axes, img: np.ndarray, title: str, cmap: LinearSegmentedColormap, norm: Normalize) -> AxesImage:
@@ -213,9 +237,9 @@ def term_figures(out: Path, depth: np.ndarray, conf: np.ndarray, delta: np.ndarr
 
 
 def run_variant(data: dict[str, torch.Tensor], cfg: RefineConfig, *, use_conf: bool = True) -> np.ndarray:
-    """Refine the run's input with a modified config; return the refined depth."""
-    conf = data["conf"] if use_conf else torch.ones_like(data["conf"])
-    return refine(data["depth"], data["rays"], conf, cfg)[0].cpu().numpy()
+    """Refine the first view of the run's input with a modified config; return the refined depth."""
+    conf = data["conf"][0] if use_conf else torch.ones_like(data["conf"][0])
+    return refine(data["depth"][0], data["rays"][0], conf, cfg)[0].cpu().numpy()
 
 
 def sweep_lambda_bd(out: Path, depth: np.ndarray, gt: np.ndarray, lams: list[float], refined: list[np.ndarray]) -> None:
@@ -250,7 +274,7 @@ def sweep_lambda_bd(out: Path, depth: np.ndarray, gt: np.ndarray, lams: list[flo
 
 def data_term_ablation(out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig) -> None:
     """Quadratic vs Huber penalty, uniform vs confidence weights."""
-    gt, depth = data["gt_depth"].cpu().numpy(), data["depth"].cpu().numpy()
+    gt, depth = data["gt_depth"][0].cpu().numpy(), data["depth"][0].cpu().numpy()
     norm = Normalize(0, np.percentile(rel_error(depth, gt), 99))
     quadratic = dataclasses.replace(cfg, huber=1e3)
     variants = {
@@ -295,7 +319,7 @@ def sensitivity(
 
 def sweep_figures(out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig, sweep: dict[str, list[float]]) -> None:
     """Re-refine with one weight changed at a time."""
-    gt, depth = data["gt_depth"].cpu().numpy(), data["depth"].cpu().numpy()
+    gt, depth = data["gt_depth"][0].cpu().numpy(), data["depth"][0].cpu().numpy()
     refined = {k: [run_variant(data, dataclasses.replace(cfg, **{k: v})) for v in vs] for k, vs in sweep.items()}
     if "lambda_bd" in sweep:
         sweep_lambda_bd(out, depth, gt, sweep["lambda_bd"], refined["lambda_bd"])
@@ -304,38 +328,144 @@ def sweep_figures(out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig, s
     sensitivity(out, float(rel_error(depth, gt).mean()), cfg, sweep, errs)
 
 
+def multiview_figures(out: Path, images: np.ndarray, depth: np.ndarray, rays: np.ndarray, refined: dict) -> None:
+    """Plot inputs, normals and cross-view disagreement for a few views of a real scene."""
+    show, depth_hat, conf = pick(len(depth)), refined["depth"], refined["conf"]
+    rows = len(show)
+    fig, axes = plt.subplots(rows, 3, figsize=(10.5, 2.5 * rows), constrained_layout=True, squeeze=False)
+    lo, hi = np.percentile(depth[show], [1, 99])
+    for r, i in enumerate(show):
+        axes[r, 0].imshow(images[i])
+        axes[r, 0].set_title(f"view {i}")
+        axes[r, 0].set_axis_off()
+        im_d = show_image(axes[r, 1], depth[i], "depth", SEQUENTIAL, Normalize(lo, hi))
+        im_c = show_image(axes[r, 2], conf[i], "confidence", SEQUENTIAL, Normalize(*np.percentile(conf, [1, 99])))
+    fig.colorbar(im_d, ax=axes[:, 1], shrink=0.6, label="depth (prediction units)")
+    fig.colorbar(im_c, ax=axes[:, 2], shrink=0.6, label="confidence")
+    fig.savefig(out / "inputs.png", dpi=120)
+
+    pts = {k: points_from_rays(torch.from_numpy(d), torch.from_numpy(rays)).numpy() for k, d in
+           {"input": depth, "refined": depth_hat}.items()}  # fmt: skip
+    fig, axes = plt.subplots(rows, 3, figsize=(10.5, 2.4 * rows), constrained_layout=True, squeeze=False)
+    for r, i in enumerate(show):
+        panels = {
+            f"view {i}": images[i],
+            "normals, input": normals(pts["input"][i]),
+            "normals, refined": normals(pts["refined"][i]),
+        }
+        for c, (title, img) in enumerate(panels.items()):
+            axes[r, c].imshow(img)
+            axes[r, c].set_title(title)
+            axes[r, c].set_axis_off()
+    fig.savefig(out / "normals.png", dpi=150)
+
+    mv = refined["multiview"]
+    hi = 0.05
+    fig, axes = plt.subplots(rows, 2, figsize=(7.4, 2.4 * rows), constrained_layout=True, squeeze=False)
+    for r, i in enumerate(show):
+        for c, k in enumerate(("input", "refined")):
+            title = f"view {i}, {k}  (median {np.nanmedian(mv[k][i]):.2%})"
+            im = show_image(axes[r, c], mv[k][i], title, SEQUENTIAL, Normalize(0, hi))
+    fig.colorbar(im, ax=axes, shrink=0.6, label="|x - x_j| / D_j, clipped at 5%  (white: seen by no other view)")
+    fig.savefig(out / "multiview_maps.png", dpi=150)
+
+    fig, ax = plt.subplots(figsize=(7, 3.2), constrained_layout=True)
+    views = np.arange(len(depth))
+    for k, color in (("input", ORANGE), ("refined", BLUE)):
+        ax.plot(views, [np.nanmedian(m) for m in mv[k]], color=color, marker="o", markersize=4, label=k)
+    ax.set(title="cross-view disagreement per view", xlabel="view", ylabel="median |x - x_j| / D_j", xticks=views)
+    ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(1.0))
+    ax.legend(loc="upper left")
+    fig.savefig(out / "multiview_per_view.png", dpi=150)
+    plt.close("all")
+
+
+def sweep_real(out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig, lams: list[float]) -> None:
+    """Refine every view per smoothness weight: normals of the first view, cross-view disagreement of all views."""
+    depth, rays, conf = data["depth"], data["rays"], data["conf"]
+    cams = [fit_projection(r) for r in rays]
+    medians, normal_maps = [], []
+    for lam in lams:
+        c = dataclasses.replace(cfg, lambda_bd=lam)
+        d = torch.stack([refine(depth[i], rays[i], conf[i], c)[0] for i in range(len(depth))])
+        medians.append(multiview_metrics(multiview_error(d, rays, cams))["mv_median"])
+        normal_maps.append(normals(points_from_rays(d[0], rays[0]).cpu().numpy()))
+    fig = plt.figure(figsize=(2.9 * len(lams), 5.6), constrained_layout=True)
+    grid = fig.add_gridspec(2, len(lams), height_ratios=[1, 1.2])
+    for i, (lam, n, m) in enumerate(zip(lams, normal_maps, medians, strict=True)):
+        ax = fig.add_subplot(grid[0, i])
+        ax.imshow(n)
+        ax.set_title(f"λ_bd = {lam:g}\nmedian {m:.2%}")
+        ax.set_axis_off()
+    ax = fig.add_subplot(grid[1, :])
+    ax.plot(lams, medians, color=BLUE, marker="o", markersize=4)
+    ax.axhline(medians[0] if lams[0] == 0 else np.nan, color=INK_2, linewidth=1, linestyle="--")
+    if cfg.lambda_bd in lams:
+        here = lams.index(cfg.lambda_bd)
+        ax.plot([lams[here]], [medians[here]], marker="o", markersize=10, markerfacecolor="none", markeredgecolor=INK)
+    ax.set_xscale("symlog", linthresh=min(v for v in lams if v > 0))
+    ax.set(xlabel="λ_bd (symlog)", ylabel="median |x - x_j| / D_j, all views")
+    ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(1.0))
+    fig.suptitle("smoothness weight on real data: normals (view 0) and cross-view disagreement", color=INK)
+    fig.savefig(out / "sweep_real.png", dpi=130)
+    plt.close(fig)
+
+
 def figures(run: Path, out: Path) -> dict[str, float]:
     """Write all figures for a run directory into `out`; return the metric table."""
     summary = yaml.safe_load((run / "run.yaml").read_text())
     cfg = dataclasses.replace(RefineConfig(**summary["resolved"]), device="cpu")
-    raw = dict(np.load(summary["config"]["input"]))
+    data = load_views(Path(summary["config"]["input"]), summary["config"].get("views"))
     refined = dict(np.load(run / "refined.npz"))
-    depth, rays, gt = raw["depth"], raw["rays"], raw.get("gt_depth")
-    raw["conf"] = raw.get("conf", np.ones_like(depth))
-    log = refined["energy"]
+    raw = {k: v.numpy() for k, v in data.items()}
+    depth, rays, conf, gt = raw["depth"], raw["rays"], raw["conf"], raw.get("gt_depth")
+    log = refined["energy"][0]
+    log = log[~np.isnan(log).any(axis=1)]
     assert depth.shape == refined["depth"].shape == refined["delta"].shape
     assert log.ndim == 2 and log.shape[1] == len(LOG_KEYS), log.shape  # noqa: PLR2004
     out.mkdir(parents=True, exist_ok=True)
 
-    overview(out, depth, rays, gt, refined)
+    first = {"depth": refined["depth"][0], "delta": refined["delta"][0]}
+    overview(out, depth[0], rays[0], None if gt is None else gt[0], first)
     energy_terms(out, log, cfg)
-    term_figures(out, depth, raw["conf"], refined["delta"], cfg)
+    term_figures(out, depth[0], conf[0], refined["delta"][0], cfg)
     sweep = summary["config"].get("sweep")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gpu = {k: v.to(device) for k, v in data.items()}
     if gt is not None and sweep:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        data = {k: torch.from_numpy(v).float().to(device) for k, v in raw.items()}
-        sweep_figures(out, data, dataclasses.replace(cfg, device=device.type), sweep)
+        sweep_figures(out, gpu, dataclasses.replace(cfg, device=device.type), sweep)
+    if (run / "multiview_error.npz").exists():
+        gt_views = summary["config"].get("gt_views")
+        images = np.load(gt_views)["images"] if gt_views else np.zeros((*depth.shape, 3), np.uint8)
+        views = summary["config"].get("views")
+        images = images[views] if views is not None else images
+        mv = dict(np.load(run / "multiview_error.npz"))
+        multiview_figures(out, images, depth, rays, refined | {"conf": conf, "multiview": mv})
+        if sweep and "lambda_bd" in sweep:
+            sweep_real(out, gpu, dataclasses.replace(cfg, device=device.type), sweep["lambda_bd"])
 
-    table = {"refine_seconds": summary["refine_seconds"], "E_initial": log[0, 0], "E_final": log[-1, 0]}
-    if "metrics_input" in summary:
-        for k in summary["metrics_input"]:
-            table |= {f"{k}_input": summary["metrics_input"][k], f"{k}_refined": summary["metrics_refined"][k]}
+    table = metric_table(summary, log)
     lines = [f"# {run.name}", "", f"git `{summary['git']}`", "", "| metric | value |", "|---|---|"]
     lines += [f"| {k} | {v:.4g} |" for k, v in table.items()]
     for name, caption in CAPTIONS.items():
         if (out / f"{name}.png").exists():
             lines += ["", f"## {name}", "", caption, "", f"![{name}]({name}.png)"]
     (out / "README.md").write_text("\n".join([*lines, ""]))
+    return table
+
+
+def metric_table(summary: dict, log: np.ndarray) -> dict[str, float]:
+    """Flatten a run summary into the README's metric table."""
+    table = {"views": float(summary.get("views", 1)), "refine_seconds": summary["refine_seconds"]}
+    table |= {"E_initial (view 0)": log[0, 0], "E_final (view 0)": log[-1, 0]}
+    for k in ("scale_to_m", "camera_ate_m"):
+        if k in summary.get("cameras", {}):
+            table[k] = summary["cameras"][k]
+    if "mean_point_shift_mm" in summary:
+        table["mean_point_shift_mm"] = summary["mean_point_shift_mm"]
+    if "metrics_input" in summary:
+        for k in summary["metrics_input"]:
+            table |= {f"{k}_input": summary["metrics_input"][k], f"{k}_refined": summary["metrics_refined"][k]}
     return table
 
 

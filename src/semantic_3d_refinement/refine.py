@@ -1,4 +1,4 @@
-"""Monocular variational refinement of a depth map: dense inverse-depth residual only."""
+"""Monocular variational refinement of depth maps, view by view: dense inverse-depth residual only."""
 
 import argparse
 import dataclasses
@@ -145,6 +145,105 @@ def depth_metrics(depth: Tensor, rays: Tensor, gt_depth: Tensor) -> dict[str, fl
     }
 
 
+def fit_projection(rays: Tensor) -> tuple[Tensor, Tensor]:
+    """Pinhole (M, c) consistent with a ray map: pixel (col, row, 1) ~ M (x - c), fit by DLT on the directions.
+
+    Predicted ray maps are only near-pinhole: median residual 0.3-1.4 px on ScanNet++ with Déjà View.
+    """
+    h, w = rays.shape[:2]
+    v, u = torch.meshgrid(torch.arange(h, device=rays.device), torch.arange(w, device=rays.device), indexing="ij")
+    un, vn = ((u + 0.5) / w - 0.5).reshape(-1, 1).double(), ((v + 0.5) / h - 0.5).reshape(-1, 1).double()
+    d = rays[..., 3:].reshape(-1, 3).double()
+    zero = torch.zeros_like(d)
+    a = torch.cat([torch.cat([-d, zero, un * d], 1), torch.cat([zero, -d, vn * d], 1)])
+    m = torch.linalg.eigh(a.T @ a).eigenvectors[:, 0].reshape(3, 3)
+    norm = torch.tensor([[1 / w, 0, 0.5 / w - 0.5], [0, 1 / h, 0.5 / h - 0.5], [0, 0, 1]], dtype=m.dtype)
+    m = torch.linalg.solve(norm.to(m.device), m)
+    m = m * (d @ m[2]).mean().sign() / m[2].norm()
+    c = rays[..., :3].reshape(-1, 3).double().mean(0)
+    q = d @ m.T
+    px = (q[:, :2] / q[:, 2:] - torch.stack([u, v], -1).reshape(-1, 2)).norm(dim=-1)
+    assert (q[:, 2] > 0).all() and px.median() < 2, px.median()  # noqa: PLR2004
+    return m.float(), c.float()
+
+
+def multiview_error(depth: Tensor, rays: Tensor, cams: list[tuple[Tensor, Tensor]]) -> Tensor:
+    """Per pixel, the median over the other views j of |x - x_j| / D_j, where x_j is the point j sees at x's pixel.
+
+    Cameras are the frozen prediction's own; nan where no other view sees the point.
+    """
+    n, h, w = depth.shape
+    assert rays.shape == (n, h, w, 6) and len(cams) == n
+    pts = points_from_rays(depth, rays)
+    out = torch.full_like(depth, float("nan"))
+    for i in range(n):
+        errs = []
+        for j in (j for j in range(n) if j != i):
+            m, c = cams[j]
+            q = (pts[i] - c) @ m.T
+            col, row = (q[..., 0] / q[..., 2]).round(), (q[..., 1] / q[..., 2]).round()
+            seen = (q[..., 2] > 0) & (col >= 0) & (col < w) & (row >= 0) & (row < h)
+            col, row = col.clamp(0, w - 1).long(), row.clamp(0, h - 1).long()
+            err = (pts[i] - pts[j][row, col]).norm(dim=-1) / depth[j][row, col]
+            errs.append(torch.where(seen, err, float("nan")))
+        out[i] = torch.stack(errs).nanmedian(dim=0).values
+    assert out.shape == depth.shape and (out[out.isfinite()] >= 0).all()
+    return out
+
+
+def multiview_metrics(err: Tensor) -> dict[str, float]:
+    """Summaries of multiview_error over all pixels some other view sees."""
+    e = err[err.isfinite()]
+    return {"mv_median": e.median().item(), "mv_inlier_1pct": (e < 0.01).float().mean().item()}  # noqa: PLR2004
+
+
+def align_sim3(src: Tensor, dst: Tensor) -> tuple[float, Tensor, Tensor]:
+    """Umeyama: s, R, t minimizing sum |s R src + t - dst|^2 over corresponding (N, 3) points."""
+    assert src.shape == dst.shape and src.shape[0] >= 3 and src.shape[1] == 3  # noqa: PLR2004
+    src, dst = src.double(), dst.double()
+    mu_s, mu_d = src.mean(0), dst.mean(0)
+    a, b = src - mu_s, dst - mu_d
+    u, sig, vt = torch.linalg.svd(b.T @ a / len(src))
+    sign = torch.ones(3, dtype=src.dtype)
+    sign[2] = torch.linalg.det(u @ vt).sign()
+    rot = u @ torch.diag(sign) @ vt
+    s = (sig * sign).sum() / a.square().sum(1).mean()
+    return s.item(), rot, mu_d - s * rot @ mu_s
+
+
+def load_views(path: Path, views: list[int] | None = None) -> dict[str, Tensor]:
+    """Load cached views as (V, H, W[, C]) float tensors: depth, rays, conf, and gt_depth when known.
+
+    Accepts the synthetic single-view format and the Déjà View export (ray_origins, ray_directions, confidence).
+    """
+    data = dict(np.load(path))
+    if "ray_origins" in data:
+        data = {
+            "depth": data["depth"],
+            "rays": np.concatenate([data["ray_origins"], data["ray_directions"]], axis=-1),
+            "conf": data["confidence"],
+        }
+    if data["depth"].ndim == 2:  # noqa: PLR2004
+        data = {k: v[None] for k, v in data.items()}
+    data.setdefault("conf", np.ones_like(data["depth"]))
+    if views is not None:
+        data = {k: v[views] for k, v in data.items()}
+    out = {k: torch.from_numpy(np.ascontiguousarray(v)).float() for k, v in data.items()}
+    for i in range(len(out["depth"])):
+        check_inputs(out["depth"][i], out["rays"][i], out["conf"][i])
+    return out
+
+
+def camera_alignment(rays: Tensor, gt_views: Path, views: list[int] | None) -> dict[str, float]:
+    """Sim(3) from predicted camera centers to ground-truth ones (meters): scale and camera ATE."""
+    gt = np.load(gt_views)["cam_to_world"][:, :3, 3]
+    gt = torch.from_numpy(gt[views] if views is not None else gt)
+    centers = rays[..., :3].mean((1, 2)).cpu()
+    s, rot, t = align_sim3(centers, gt)
+    ate = ((s * centers.double() @ rot.T + t) - gt.double()).norm(dim=-1)
+    return {"scale_to_m": s, "camera_ate_m": ate.square().mean().sqrt().item()}
+
+
 def write_ply(path: Path, points: np.ndarray) -> None:
     """Write an (N, 3) float32 point cloud as binary PLY."""
     assert points.ndim == 2 and points.shape[1] == 3, points.shape  # noqa: PLR2004
@@ -163,7 +262,7 @@ def git_hash() -> str:
 
 
 def main() -> None:
-    """Refine one cached view: `uv run python -m semantic_3d_refinement.refine --cfg configs/<name>.yaml`."""
+    """Refine cached views one by one: `uv run python -m semantic_3d_refinement.refine --cfg configs/<name>.yaml`."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
     cfg_path: Path = parser.parse_args().cfg
@@ -171,16 +270,19 @@ def main() -> None:
     cfg = RefineConfig(**raw["refine"])
     device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
 
-    data = np.load(raw["input"])
-    depth = torch.from_numpy(data["depth"]).float().to(device)
-    rays = torch.from_numpy(data["rays"]).float().to(device)
-    conf = torch.from_numpy(data["conf"]).float().to(device) if "conf" in data else torch.ones_like(depth)
+    data = {k: v.to(device) for k, v in load_views(Path(raw["input"]), raw.get("views")).items()}
+    depth, rays, conf = data["depth"], data["rays"], data["conf"]
 
-    t0 = time.perf_counter()
-    depth_hat, points, delta, log = refine(depth, rays, conf, cfg)
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-    seconds = time.perf_counter() - t0
+    results, seconds = [], []
+    for i in range(len(depth)):
+        t0 = time.perf_counter()
+        results.append(refine(depth[i], rays[i], conf[i], cfg))
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        seconds.append(time.perf_counter() - t0)
+    depth_hat = torch.stack([r[0] for r in results])
+    delta = torch.stack([r[2] for r in results])
+    logs = [r[3] for r in results]
 
     out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True)
@@ -188,29 +290,40 @@ def main() -> None:
         "config": raw,
         "resolved": dataclasses.asdict(cfg),
         "git": git_hash(),
-        "refine_seconds": seconds,
-    }
-    summary |= {
-        "evaluations": len(log) - 1,
-        "energy_initial": log[0],
-        "energy_final": log[-1],
+        "views": len(depth),
+        "refine_seconds": sum(seconds),
+        "refine_seconds_per_view": [round(t, 3) for t in seconds],
+        "evaluations": [len(log) - 1 for log in logs],
+        "energy_initial": logs[0][0],
+        "energy_final": logs[0][-1],
     }
     if "gt_depth" in data:
-        gt = torch.from_numpy(data["gt_depth"]).float().to(device)
         summary |= {
-            "metrics_input": depth_metrics(depth, rays, gt),
-            "metrics_refined": depth_metrics(depth_hat, rays, gt),
+            "metrics_input": depth_metrics(depth, rays, data["gt_depth"]),
+            "metrics_refined": depth_metrics(depth_hat, rays, data["gt_depth"]),
         }
+    if len(depth) > 1:
+        t0 = time.perf_counter()
+        cams = [fit_projection(r) for r in rays]
+        mv_in, mv_out = multiview_error(depth, rays, cams), multiview_error(depth_hat, rays, cams)
+        summary |= {
+            "metrics_input": summary.get("metrics_input", {}) | multiview_metrics(mv_in),
+            "metrics_refined": summary.get("metrics_refined", {}) | multiview_metrics(mv_out),
+            "eval_seconds": time.perf_counter() - t0,
+        }
+        np.savez(out / "multiview_error.npz", input=mv_in.cpu().numpy(), refined=mv_out.cpu().numpy())
+    if "gt_views" in raw:
+        cams_gt = camera_alignment(rays, Path(raw["gt_views"]), raw.get("views"))
+        shift = (points_from_rays(depth_hat, rays) - points_from_rays(depth, rays)).norm(dim=-1)
+        summary |= {"cameras": cams_gt, "mean_point_shift_mm": 1000 * cams_gt["scale_to_m"] * shift.mean().item()}
     (out / "run.yaml").write_text(yaml.safe_dump(summary, sort_keys=False))
-    np.savez(
-        out / "refined.npz",
-        depth=depth_hat.cpu().numpy(),
-        points=points.cpu().numpy(),
-        delta=delta.cpu().numpy(),
-        energy=np.array([[e[k] for k in LOG_KEYS] for e in log]),
-    )
+    length = max(len(log) for log in logs)
+    energy_log = np.full((len(logs), length, len(LOG_KEYS)), np.nan)
+    for i, log in enumerate(logs):
+        energy_log[i, : len(log)] = [[e[k] for k in LOG_KEYS] for e in log]
+    np.savez(out / "refined.npz", depth=depth_hat.cpu().numpy(), delta=delta.cpu().numpy(), energy=energy_log)
     write_ply(out / "input.ply", points_from_rays(depth, rays).reshape(-1, 3).cpu().numpy())
-    write_ply(out / "refined.ply", points.reshape(-1, 3).cpu().numpy())
+    write_ply(out / "refined.ply", points_from_rays(depth_hat, rays).reshape(-1, 3).cpu().numpy())
     print(yaml.safe_dump(summary, sort_keys=False))  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
 
