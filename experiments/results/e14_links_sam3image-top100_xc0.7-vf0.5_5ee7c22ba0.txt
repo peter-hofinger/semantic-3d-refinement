@@ -1,0 +1,63 @@
+5ee7c22ba0 sam3image-top100_views_n20_uniform_504 cross-class 0.7 vf0.5-: links that joined masks
+      8 cabinet          15005 wall             0.92  right     GT cabinet / cabinet
+     14 book             11019 paper            0.71  right     GT book / book
+     16 paper             1018 poster           0.95  right     GT wall / wall
+     19 microwave         7012 box              0.89  right     GT microwave / microwave
+     19 microwave        19016 printer          0.90  right     GT microwave / microwave
+     20 power strip       1011 box              0.87  right     GT box / box
+     20 power strip       2014 box              0.92  right     GT box / box
+     20 power strip       3013 box              0.79  right     GT box / box
+   1007 cabinet          15005 wall             0.88  right     GT cabinet / cabinet
+   1011 box              10054 power strip      0.80  right     GT box / box
+   1013 book             11019 paper            0.83  right     GT book / book
+   1018 poster            2020 paper            0.94  right     GT wall / wall
+   1018 poster            3021 paper            0.94  right     GT wall / wall
+   1018 poster           10027 paper            0.89  right     GT wall / wall
+   1018 poster           17018 paper            0.84  right     GT wall / wall
+   2007 cabinet          15005 wall             0.96  right     GT cabinet / cabinet
+   2014 box              10054 power strip      0.85  right     GT box / box
+   2017 book             11019 paper            0.85  right     GT book / book
+   2028 cloth            18010 towel            0.73  right     GT refrigerator / refrigerator
+   3013 box              10054 power strip      0.89  right     GT box / box
+   3013 box              17029 power strip      0.73  right     GT box / box
+   3017 refrigerator      4008 cabinet          0.90  right     GT refrigerator / refrigerator
+   4008 cabinet          15022 refrigerator     0.73  right     GT refrigerator / refrigerator
+   5005 door              6006 cabinet          0.81  right     GT electric box / electric box
+   5005 door              7007 cabinet          0.89  right     GT electric box / electric box
+   5005 door              8008 cabinet          0.91  right     GT electric box / electric box
+   6006 cabinet          14005 door             0.83  right     GT electric box / electric box
+   6014 paper             7019 light switch     0.90  right     GT calendar / calendar
+   6014 paper             8020 light switch     0.73  right     GT calendar / calendar
+   6014 paper            16017 light switch     0.83  right     GT calendar / calendar
+   7007 cabinet          14005 door             0.93  right     GT electric box / electric box
+   7012 box               8017 microwave        0.95  right     GT microwave / microwave
+   7012 box               9034 microwave        0.89  right     GT microwave / microwave
+   7012 box              11022 microwave        0.92  right     GT microwave / microwave
+   7012 box              13033 microwave        0.89  right     GT microwave / microwave
+   7012 box              17020 microwave        0.94  right     GT microwave / microwave
+   7012 box              19016 printer          0.91  right     GT microwave / microwave
+   7017 printer          17007 cabinet          0.87  right     GT copy machine / copy machine
+   7019 light switch      9032 paper            0.73  right     GT calendar / calendar
+   7019 light switch     10028 paper            0.74  right     GT calendar / calendar
+   7019 light switch     11020 paper            0.87  right     GT calendar / calendar
+   7019 light switch     12010 paper            0.82  right     GT calendar / calendar
+   7019 light switch     13030 paper            0.76  right     GT calendar / calendar
+   7019 light switch     15025 paper            0.72  right     GT calendar / calendar
+   7019 light switch     19014 paper            0.74  right     GT calendar / calendar
+   8008 cabinet          14005 door             0.93  right     GT electric box / electric box
+   8017 microwave        19016 printer          0.87  right     GT microwave / microwave
+   9033 printer          17007 cabinet          0.95  right     GT copy machine / copy machine
+   9034 microwave        19016 printer          0.85  right     GT microwave / microwave
+  10020 book             11019 paper            0.85  right     GT book / book
+  10026 crate            13028 rack             0.76  right     GT bottle crate / bottle crate
+  10030 printer          17007 cabinet          0.98  right     GT copy machine / copy machine
+  10032 poster           13029 paper            0.70  right     GT calendar / calendar
+  10033 microwave        19016 printer          0.85  right     GT microwave / microwave
+  11017 crate            13028 rack             0.77  right     GT bottle crate / bottle crate
+  11022 microwave        19016 printer          0.87  right     GT microwave / microwave
+  13028 rack             19012 crate            0.80  right     GT bottle crate / bottle crate
+  13032 printer          17007 cabinet          0.98  right     GT copy machine / copy machine
+  13033 microwave        19016 printer          0.82  right     GT microwave / microwave
+  15005 wall             18006 cabinet          0.72  right     GT cabinet / cabinet
+  17020 microwave        19016 printer          0.73  right     GT microwave / microwave
+  total 61: right 61

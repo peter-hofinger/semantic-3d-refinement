@@ -30,6 +30,15 @@ METHODS = {
         for p in ("", "-top100")
         for x in ("0.7", "0.5")
     },
+    # E14: a direction counts only if >= f of the mask's in-image pixels are visible
+    **{
+        f"image{p} + assoc Deja View, cross-class 0.7, visible >= {f} (E14)": (
+            f"sam3image{p}_views_n20_uniform_504_assoc-xc0.7-vf{f}"
+            "-dejaview_k16_views_n20_uniform_504"
+        )
+        for p in ("", "-top100")
+        for f in ("0.5", "0.25")
+    },
 }
 
 print(

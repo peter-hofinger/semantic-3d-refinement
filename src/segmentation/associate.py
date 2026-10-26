@@ -3,6 +3,8 @@
 Mask a in view i and mask b in view j overlap by the fraction of a's pixels that,
 lifted with i's depth and projected into j, land inside b, counting only pixels
 that are visible in j (inside the image and in front within a depth tolerance).
+Optionally a direction only counts if most of a's pixels inside j's image are
+visible there: if a is largely hidden in j, the overlap rests on a sliver of it.
 Two masks are linked if both directions overlap enough and their classes agree;
 optionally masks of different classes are linked too at a stricter overlap
 (near-synonym prompts like "monitor" / "tv" name one object differently per view).
@@ -38,6 +40,8 @@ class Associator:
         0.05  # relative depth difference that still counts as visible
     )
     min_visible: int = 50  # pixels of a mask that must be visible in the other view
+    # share of a mask's pixels inside the other view's image that must be visible
+    min_visible_fraction: float = 0.0
     # overlap needed to link masks of different classes; None: never link them
     cross_class_overlap: float | None = None
 
@@ -65,6 +69,9 @@ class Associator:
                 inside = (z > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
                 u, v, z, ids = u[inside], v[inside], z[inside], src_ids[inside]
                 target_depth = geometry.depth[j][v, u]
+                known = target_depth > 0
+                in_ids, in_count = np.unique(ids[known], return_counts=True)
+                in_frame = dict(zip(in_ids.tolist(), in_count.tolist(), strict=True))
                 visible = (
                     np.abs(z - target_depth) <= self.depth_tolerance * target_depth
                 )
@@ -75,8 +82,13 @@ class Associator:
                 pairs, n = np.unique(
                     np.stack([a_inv, landed]), axis=1, return_counts=True
                 )
+                enough = (a_count >= self.min_visible) & (
+                    a_count
+                    >= self.min_visible_fraction
+                    * np.array([in_frame[m] for m in a_ids.tolist()])
+                )
                 for (a, b), c in zip(pairs.T, n, strict=True):
-                    if b != NO_INSTANCE and a_count[a] >= self.min_visible:
+                    if b != NO_INSTANCE and enough[a]:
                         overlap[int(a_ids[a]), int(b)] = c / a_count[a]
         return overlap
 
@@ -161,6 +173,13 @@ def main() -> None:
         help="also link masks of different classes at this overlap (default: never); "
         "output name gets _assoc-xc<value>-<geometry>",
     )
+    parser.add_argument(
+        "--min-visible-fraction",
+        type=float,
+        default=0.0,
+        help="share of a mask's in-image pixels that must be visible in the other view "
+        "for its overlap to count (default 0: off); output name gets vf<value>",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -172,7 +191,12 @@ def main() -> None:
         geometry, tag = Geometry.load(Path(args.geometry)), Path(args.geometry).stem
     seg = Segmentation.load(args.segmentation)
     start = time.perf_counter()
-    linked = Associator(cross_class_overlap=args.cross_class).associate(seg, geometry)
+    linked = Associator(
+        cross_class_overlap=args.cross_class,
+        min_visible_fraction=args.min_visible_fraction,
+    ).associate(seg, geometry)
+    if args.min_visible_fraction > 0:
+        tag = f"vf{args.min_visible_fraction:g}-{tag}"
     if args.cross_class is not None:
         tag = f"xc{args.cross_class:g}-{tag}"
     out = args.segmentation.with_name(f"{args.segmentation.stem}_assoc-{tag}.npz")
