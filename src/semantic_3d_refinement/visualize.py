@@ -16,7 +16,7 @@ from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 
-from semantic_3d_refinement.normals import BiniConfig, bini, normals_from_depth
+from semantic_3d_refinement.normals import BiniConfig, bini, grid_score, normals_from_depth
 from semantic_3d_refinement.refine import (
     LOG_KEYS,
     RefineConfig,
@@ -45,10 +45,11 @@ CAPTIONS = {
     "delta": "The dense residual δ that refinement adds to the normalized inverse depth.",
     "profile": "Depth along one image row through a crease.",
     "points_topdown": "Point clouds seen from above (x-z).",
-    "normal_sources": "Normals of the view: Déjà View's depth, DSINE's prediction (rotated into the same frame), "
-    "and the depth after BiNI integrates DSINE's normals against Déjà View's depth.",
-    "detail_crops": "The same three, zoomed where DSINE's normals carry the most detail.",
-    "compare": "One view under several BiNI prior settings (sigma = blur of the depth prior in px, λ = its weight); "
+    "normal_sources": "Normals of the view: Déjà View's depth lifted through its predicted rays and through a pinhole "
+    "fit of them, DSINE's prediction (rotated into the same frame), and the depth after BiNI integrates DSINE's "
+    "normals against Déjà View's depth. Grid: patch-grid score, about 1 without a 14 px grid.",
+    "detail_crops": "The same panels, zoomed where DSINE's normals carry the most detail.",
+    "compare": "The view under several depth-prior weights λ (lower lets DSINE's normals set more of the shape); "
     "bottom row zoomed where DSINE has the most detail. In brackets: median angle to DSINE's normals.",
     "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothness cost is bought down by "
     "spending data cost.",
@@ -377,7 +378,8 @@ def bini_compare(out: Path, raw: dict, data: dict[str, np.ndarray], refined: dic
     for s in settings:
         cfg = BiniConfig(**{**raw["bini"], **s, "device": device})
         img, angle = shade(bini(dsine, rays, depth, cfg)[0])
-        panels.append((f"sigma = {cfg.prior_sigma:g}, λ = {cfg.lambda_depth:g}  ({angle:.1f}°)", img))
+        blur_note = f", sigma = {cfg.prior_sigma:g}" if cfg.prior_sigma else ""
+        panels.append((f"BiNI, λ = {cfg.lambda_depth:g}{blur_note}  ({angle:.1f}°)", img))
     win = detail_window(panels[2][1], 112)
     fig, axes = plt.subplots(2, len(panels), figsize=(3.3 * len(panels), 5.2), constrained_layout=True)
     for c, (title, img) in enumerate(panels):
@@ -385,7 +387,7 @@ def bini_compare(out: Path, raw: dict, data: dict[str, np.ndarray], refined: dic
             axes[r, c].imshow(img[w], interpolation="nearest")
             axes[r, c].set_axis_off()
         axes[0, c].set_title(title, fontsize=8)
-    fig.suptitle("BiNI prior settings, one view (° = median angle to DSINE normals)", color=INK)
+    fig.suptitle("BiNI depth-prior weight (° = median angle to DSINE normals)", color=INK)
     fig.savefig(out / "compare.png", dpi=150)
     plt.close(fig)
 
@@ -400,21 +402,27 @@ def bini_figures(run: Path, out: Path) -> dict[str, float]:
     out.mkdir(parents=True, exist_ok=True)
     bini_compare(out, raw, data, refined, image)
 
-    def rgb(d: np.ndarray) -> np.ndarray:
-        return normals_from_depth(torch.from_numpy(d), torch.from_numpy(data["rays"])).numpy() * 0.5 + 0.5
+    def shade(d: np.ndarray, rays: np.ndarray) -> tuple[np.ndarray, float]:
+        n = normals_from_depth(torch.from_numpy(d), torch.from_numpy(rays))
+        return n.numpy() * 0.5 + 0.5, grid_score(n)
 
-    panels = [
-        (f"view {raw['view']}", image),
-        ("Déjà View", rgb(data["depth"])),
-        ("DSINE", refined["normals"] * 0.5 + 0.5),
-        ("BiNI", rgb(refined["depth"])),
-    ]
+    panels = [(f"view {raw['view']}", image)]
+    if raw.get("rays") == "pinhole":
+        predicted = view_from_config(raw | {"rays": "predicted"})["rays"].numpy()
+        img, grid = shade(data["depth"], predicted)
+        panels.append((f"Déjà View, predicted rays (grid {grid:.2f})", img))
+    img, grid = shade(data["depth"], data["rays"])
+    panels.append((f"Déjà View{', pinhole rays' if raw.get('rays') == 'pinhole' else ''} (grid {grid:.2f})", img))
+    dsine = refined["normals"] * 0.5 + 0.5
+    panels.append((f"DSINE (grid {summary['grid_score_normals']:.2f})", dsine))
+    img, grid = shade(refined["depth"], data["rays"])
+    panels.append((f"BiNI (grid {grid:.2f})", img))
     for name, crop in (("normal_sources", None), ("detail_crops", 112)):
-        win = detail_window(panels[2][1], crop) if crop else (slice(None), slice(None))
-        fig, axes = plt.subplots(1, 4, figsize=(13, 2.7), constrained_layout=True)
+        win = detail_window(dsine, crop) if crop else (slice(None), slice(None))
+        fig, axes = plt.subplots(1, len(panels), figsize=(3.3 * len(panels), 2.8), constrained_layout=True)
         for ax, (title, img) in zip(axes, panels, strict=True):
             ax.imshow(img[win], interpolation="nearest")
-            ax.set_title(title)
+            ax.set_title(title, fontsize=8)
             ax.set_axis_off()
         fig.savefig(out / f"{name}.png", dpi=150)
         plt.close(fig)
