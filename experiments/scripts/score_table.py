@@ -21,6 +21,15 @@ METHODS = {
     "image top100 + assoc Deja View (E12)": (
         "sam3image-top100_views_n20_uniform_504_assoc-dejaview_k16_views_n20_uniform_504"
     ),
+    # E13: masks of different classes linked at overlap >= 0.7 / >= 0.5
+    **{
+        f"image{p} + assoc Deja View, cross-class {x} (E13)": (
+            f"sam3image{p}_views_n20_uniform_504_assoc-xc{x}"
+            "-dejaview_k16_views_n20_uniform_504"
+        )
+        for p in ("", "-top100")
+        for x in ("0.7", "0.5")
+    },
 }
 
 print(

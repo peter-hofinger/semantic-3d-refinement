@@ -3,9 +3,11 @@
 Mask a in view i and mask b in view j overlap by the fraction of a's pixels that,
 lifted with i's depth and projected into j, land inside b, counting only pixels
 that are visible in j (inside the image and in front within a depth tolerance).
-Two masks are linked if both directions overlap enough and their classes agree.
+Two masks are linked if both directions overlap enough and their classes agree;
+optionally masks of different classes are linked too at a stricter overlap
+(near-synonym prompts like "monitor" / "tv" name one object differently per view).
 Links are added greedily, strongest first, and never put two masks of the same
-view into one object.
+view into one object. An object takes the class covering most of its pixels.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +38,8 @@ class Associator:
         0.05  # relative depth difference that still counts as visible
     )
     min_visible: int = 50  # pixels of a mask that must be visible in the other view
+    # overlap needed to link masks of different classes; None: never link them
+    cross_class_overlap: float | None = None
 
     def overlaps(
         self, seg: Segmentation, geometry: Geometry
@@ -75,6 +80,14 @@ class Associator:
                         overlap[int(a_ids[a]), int(b)] = c / a_count[a]
         return overlap
 
+    def _needed(self, same_class: bool) -> float:  # noqa: FBT001
+        """Overlap a link needs; inf for different classes unless allowed."""
+        if same_class:
+            return self.min_overlap
+        if self.cross_class_overlap is None:
+            return np.inf
+        return max(self.cross_class_overlap, self.min_overlap)
+
     def associate(self, seg: Segmentation, geometry: Geometry) -> Segmentation:
         """Give masks that show the same object one shared id."""
         for i, view_ids in enumerate(seg.instance_ids):
@@ -83,9 +96,11 @@ class Associator:
         overlap = self.overlaps(seg, geometry)
         edges = sorted(
             (
-                (min(s, overlap.get((b, a), 0.0)), a, b)
+                (score, a, b)
                 for (a, b), s in overlap.items()
-                if a < b and seg.classes.get(a) == seg.classes.get(b)
+                if a < b
+                and (score := min(s, overlap.get((b, a), 0.0)))
+                >= self._needed(seg.classes.get(a) == seg.classes.get(b))
             ),
             reverse=True,
         )
@@ -98,9 +113,7 @@ class Associator:
                 m = parent[m]
             return m
 
-        for score, a, b in edges:
-            if score < self.min_overlap:
-                break
+        for _, a, b in edges:
             ra, rb = root(a), root(b)
             if ra != rb and not views[ra] & views[rb]:
                 parent[rb] = ra
@@ -112,7 +125,13 @@ class Associator:
         for m, r in roots.items():
             lookup[m] = new_id[r]
         ids = lookup[seg.instance_ids]  # NO_INSTANCE = -1 indexes the last slot
-        classes = {new_id[r]: seg.classes[r] for r in set(roots.values())}
+        # class of an object: the one covering most of its pixels over all views
+        masks, area = np.unique(seg.instance_ids, return_counts=True)
+        votes: dict[int, Counter[str]] = defaultdict(Counter)
+        for m, a in zip(masks.tolist(), area.tolist(), strict=True):
+            if m in roots:
+                votes[new_id[roots[m]]][seg.classes[m]] += a
+        classes = {n: v.most_common(1)[0][0] for n, v in votes.items()}
         return Segmentation(ids, classes)
 
 
@@ -136,6 +155,12 @@ def main() -> None:
         default="gt",
         help="'gt' for rendered ground truth, or a Geometry .npz (e.g. Déjà View)",
     )
+    parser.add_argument(
+        "--cross-class",
+        type=float,
+        help="also link masks of different classes at this overlap (default: never); "
+        "output name gets _assoc-xc<value>-<geometry>",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -147,7 +172,9 @@ def main() -> None:
         geometry, tag = Geometry.load(Path(args.geometry)), Path(args.geometry).stem
     seg = Segmentation.load(args.segmentation)
     start = time.perf_counter()
-    linked = Associator().associate(seg, geometry)
+    linked = Associator(cross_class_overlap=args.cross_class).associate(seg, geometry)
+    if args.cross_class is not None:
+        tag = f"xc{args.cross_class:g}-{tag}"
     out = args.segmentation.with_name(f"{args.segmentation.stem}_assoc-{tag}.npz")
     linked.save(out)
     log.info(

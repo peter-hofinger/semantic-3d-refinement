@@ -1,14 +1,16 @@
-"""Error breakdowns of one cached segmentation against GT (E4, E10, E11, E12).
+"""Error breakdowns of one cached segmentation against GT (E4, E10, E11, E12, E13).
 
 uv run python experiments/scripts/breakdowns.py ids <scene> <segmentation stem>
 uv run python experiments/scripts/breakdowns.py recall <scene> <segmentation stem> [prompt files...]
 uv run python experiments/scripts/breakdowns.py leakage <scene> <segmentation stem>
 uv run python experiments/scripts/breakdowns.py precision <scene> <segmentation stem>
+uv run python experiments/scripts/breakdowns.py purity <scene> <segmentation stem>
 
 ids: GT objects split over several predicted ids, predicted ids merging GT objects.
 recall: found/total and share of scored pixels per GT class, and whether it is prompted.
 leakage: leaked pixels by predicted class and by (predicted class -> GT class).
 precision: unmatched predicted masks by class and by the GT object they lie on.
+purity: predicted objects whose masks lie on different GT objects (also unmatched masks).
 """
 
 import sys
@@ -144,6 +146,24 @@ elif kind == "precision":
     print("top (predicted class -> dominant GT class, >90% inside it or spanning):")
     for (c, g, w), v in fp_into.most_common(15):
         print(f"  {c:16s} -> {g:18s} {w:6s} {v:4d}")
+
+elif kind == "purity":
+    # every mask, matched or not: the GT object it mostly lies on (> 50% of its
+    # labeled pixels); an object whose masks lie on different GT objects is impure
+    on: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for i in range(num):
+        g_ids, p_ids, inter = overlap_counts(gt.instance_ids[i], pred.instance_ids[i])
+        lab = inter[g_ids >= 0][:, p_ids >= 0]
+        for col, p in enumerate(p_ids[p_ids >= 0]):
+            if lab[:, col].max() > lab[:, col].sum() / 2:
+                on[int(p)].append((i, int(g_ids[g_ids >= 0][lab[:, col].argmax()])))
+    multi = {p: v for p, v in on.items() if len(v) >= 2}
+    impure = {p: v for p, v in multi.items() if len({g for _, g in v}) > 1}
+    print(f"objects with >= 2 masks on labeled GT: {len(multi)}, impure: {len(impure)}")
+    for p, v in sorted(impure.items(), key=lambda x: -len(x[1])):
+        gs = Counter(g for _, g in v)
+        names = ", ".join(f"{g}:{gt.classes[g]} x{n}" for g, n in gs.most_common())
+        print(f"  id {p:5d} ({pred.classes.get(p)}) -> {names}")
 
 else:
     sys.exit(__doc__)

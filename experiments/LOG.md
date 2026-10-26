@@ -40,6 +40,7 @@ Metrics:
 | E10 | Recall breakdown per class | pixel recall 0.84 / 0.78; misses: unprompted classes, carpet floor, small things |
 | E11 | Scorer v2/v3: pixel recall, leakage, unlabeled handling | office cross-class leakage 4.5%, kitchen 0.5% |
 | E12 | Prompt vocabulary arm B: ScanNet++ top100 (+ floor synonyms) | pixel recall 0.92 / 0.79 (from 0.84 / 0.78), consistency drops to 0.60 / 0.51 (near-synonym classes); carpet/rug never fire |
+| E13 | Association across classes (strong 3D overlap) | consistent top100 0.60 / 0.51 -> 0.83 / 0.76 at 0.7; kitchen links all right, office: 1 chair->monitor error, cabinet confusions |
 
 ## Reference table (current scorer, E11)
 
@@ -57,6 +58,14 @@ Metrics:
 | kitchen | image + assoc Deja View (E9) | objects | 0.59 | 0.71 | 0.75 | 0.014 | 0.011 | 0.73 | 22 | 7 | 1 |
 | kitchen | image top100 + assoc Deja View (E12) | all | 0.84 | 0.92 | 0.49 | 0.010 | 0.007 | 0.60 | 35 | 17 | 1 |
 | kitchen | image top100 + assoc Deja View (E12) | objects | 0.88 | 0.96 | 0.41 | 0.016 | 0.014 | 0.55 | 29 | 16 | 1 |
+| kitchen | image + assoc Deja View, cross-class 0.7 (E13) | all | 0.64 | 0.84 | 0.83 | 0.009 | 0.005 | 0.86 | 28 | 4 | 1 |
+| kitchen | image + assoc Deja View, cross-class 0.7 (E13) | objects | 0.59 | 0.71 | 0.75 | 0.014 | 0.011 | 0.86 | 22 | 3 | 1 |
+| kitchen | image + assoc Deja View, cross-class 0.5 (E13) | all | 0.64 | 0.84 | 0.83 | 0.009 | 0.005 | 0.86 | 28 | 4 | 1 |
+| kitchen | image + assoc Deja View, cross-class 0.5 (E13) | objects | 0.59 | 0.71 | 0.75 | 0.014 | 0.011 | 0.86 | 22 | 3 | 1 |
+| kitchen | image-top100 + assoc Deja View, cross-class 0.7 (E13) | all | 0.84 | 0.92 | 0.49 | 0.010 | 0.007 | 0.83 | 35 | 6 | 1 |
+| kitchen | image-top100 + assoc Deja View, cross-class 0.7 (E13) | objects | 0.88 | 0.96 | 0.41 | 0.016 | 0.014 | 0.83 | 29 | 5 | 1 |
+| kitchen | image-top100 + assoc Deja View, cross-class 0.5 (E13) | all | 0.84 | 0.92 | 0.49 | 0.010 | 0.007 | 0.86 | 35 | 5 | 1 |
+| kitchen | image-top100 + assoc Deja View, cross-class 0.5 (E13) | objects | 0.88 | 0.96 | 0.41 | 0.016 | 0.014 | 0.86 | 29 | 4 | 1 |
 | office | video mode (E4) | all | 0.59 | 0.80 | 0.60 | 0.080 | 0.047 | 0.47 | 36 | 37 | 20 |
 | office | video mode (E4) | objects | 0.57 | 0.80 | 0.54 | 0.083 | 0.047 | 0.47 | 30 | 31 | 16 |
 | office | image, no association (E6) | all | 0.58 | 0.78 | 0.71 | 0.077 | 0.045 | 0.00 | 39 | 217 | 0 |
@@ -67,6 +76,14 @@ Metrics:
 | office | image + assoc Deja View (E9) | objects | 0.57 | 0.80 | 0.67 | 0.098 | 0.049 | 0.75 | 32 | 11 | 3 |
 | office | image top100 + assoc Deja View (E12) | all | 0.66 | 0.79 | 0.46 | 0.082 | 0.047 | 0.51 | 49 | 36 | 5 |
 | office | image top100 + assoc Deja View (E12) | objects | 0.68 | 0.83 | 0.42 | 0.104 | 0.052 | 0.45 | 42 | 34 | 4 |
+| office | image + assoc Deja View, cross-class 0.7 (E13) | all | 0.58 | 0.78 | 0.71 | 0.077 | 0.045 | 0.77 | 39 | 10 | 5 |
+| office | image + assoc Deja View, cross-class 0.7 (E13) | objects | 0.57 | 0.80 | 0.67 | 0.098 | 0.049 | 0.75 | 32 | 8 | 4 |
+| office | image + assoc Deja View, cross-class 0.5 (E13) | all | 0.58 | 0.78 | 0.71 | 0.077 | 0.045 | 0.77 | 39 | 10 | 5 |
+| office | image + assoc Deja View, cross-class 0.5 (E13) | objects | 0.57 | 0.80 | 0.67 | 0.098 | 0.049 | 0.75 | 32 | 8 | 4 |
+| office | image-top100 + assoc Deja View, cross-class 0.7 (E13) | all | 0.66 | 0.79 | 0.46 | 0.082 | 0.047 | 0.76 | 49 | 16 | 5 |
+| office | image-top100 + assoc Deja View, cross-class 0.7 (E13) | objects | 0.68 | 0.83 | 0.42 | 0.104 | 0.052 | 0.74 | 42 | 14 | 4 |
+| office | image-top100 + assoc Deja View, cross-class 0.5 (E13) | all | 0.66 | 0.79 | 0.46 | 0.082 | 0.047 | 0.80 | 49 | 12 | 5 |
+| office | image-top100 + assoc Deja View, cross-class 0.5 (E13) | objects | 0.68 | 0.83 | 0.42 | 0.104 | 0.052 | 0.79 | 42 | 10 | 4 |
 
 Earlier entries (E4, E7, E9) first reported precision and recall with scorer v1; the values above supersede them
 (differences: recall +0.01 from ignoring the "SPLIT" label, precision +0.02 to +0.05 from ignoring masks on
@@ -296,3 +313,58 @@ unlabeled GT). id consistency, switches and merges are unchanged.
   fix, as its own experiment: e.g. group near-synonym classes for the class check, or relax
   the same-class rule for strong 3D overlap (plan item 5). The office floor needs plan item 3 (lower threshold with
   multi-view filter), not synonyms.
+
+## E13: Association across classes at strong 3D overlap (26.10.2026)
+- **Goal:** E12 showed that near-synonym class names (monitor / tv, chair / office chair, cabinet / storage
+  cabinet) block association, which only links masks of the same class. Instead of a hand-written synonym table
+  (would be built from these test scenes' failures, and would not carry over to a VLM vocabulary), let geometry
+  decide: link masks of different classes too, but at a stricter overlap. Settings fixed before the runs:
+  off (E9 / E12), 0.7, 0.5 (= class ignored); same-class links stay at 0.5.
+- **Code:** this commit. `Associator(cross_class_overlap=...)`, CLI `--cross-class X`, output
+  `<seg>_assoc-xc<X>-<geometry>.npz`. An object now takes the class covering most of its pixels (identical to before
+  when all its masks share one class). Regression check: with the option off, all four E9 / E12 caches are
+  reproduced bit for bit.
+- **Commands:** `uv run python -m src.segmentation.associate <views> <scene>/<seg>.npz --geometry
+  <scene>/dejaview_k16_views_n20_uniform_504.npz --cross-class {0.7,0.5}` for `<seg>` in `sam3image_*` (16
+  prompts) and `sam3image-top100_*`; then `eval-instances` (`results/e13_cross_class_runs.txt`). ~13 s per run.
+- **Results** (reference table, rows E13), consistent / id switches, all classes:
+
+  | scene | prompts | off | 0.7 | 0.5 |
+  |---|---|---|---|---|
+  | kitchen | 16 | 0.75 / 8 | 0.86 / 4 | 0.86 / 4 |
+  | kitchen | top100 | 0.60 / 17 | 0.83 / 6 | 0.86 / 5 |
+  | office | 16 | 0.77 / 13 | 0.77 / 10 | 0.77 / 10 |
+  | office | top100 | 0.51 / 36 | 0.76 / 16 | 0.80 / 12 |
+
+  Merges (scorer) unchanged everywhere except office 16 prompts 4 -> 5. Recall, pixel recall, precision and
+  leakage cannot change (association does not change masks). With cross-class linking top100 is as consistent as
+  the 16 prompts while keeping its recall gain (kitchen pixel recall 0.92 vs 0.84).
+- **Are the new links right?** The scorer's merge count only sees masks matched at IoU >= 0.5, so two extra checks
+  on all masks (each mask -> the GT object holding > 50% of its labeled pixels):
+  - `breakdowns.py purity` (`results/e13_purity_*`): objects whose masks lie on different GT objects:
+    kitchen 3 -> 3 (16 prompts), 4 -> 4 (top100); office 7 -> 8 (16), 9 -> 9 (top100), same at 0.7 and 0.5.
+  - `experiments/scripts/cross_class_links.py <scene> <seg stem> <X>` (`results/e13_links_*`): every cross-class
+    link that ended up in an object:
+
+    | scene | prompts | 0.7: right / wrong / unlabeled | 0.5: right / wrong / unlabeled |
+    |---|---|---|---|
+    | kitchen | 16 | 15 / 0 / 0 | 17 / 0 / 0 |
+    | kitchen | top100 | 64 / 0 / 0 | 83 / 0 / 0 |
+    | office | 16 | 16 / 8 / 2 | 22 / 8 / 3 |
+    | office | top100 | 176 / 15 / 4 | 202 / 18 / 5 |
+
+  - The wrong office links are of two kinds. (1) The two adjacent storage cabinets (GT 34, 35): "wall" / "door" /
+    "cabinet" masks lying on one cabinet link to masks on the other; both GT objects have the same class and arm A
+    already merged them (same-class), so this extends an existing error rather than crossing a class boundary.
+    0.5 adds 3 more of these (overlap 0.52-0.63). (2) **One real cross-object error:** a "chair" mask in view 5
+    (on GT office chair 58) links to the "monitor" / "tv" masks of GT monitor 52 in 4 views, at overlap 0.88-0.98
+    in both directions, at every threshold. Not investigated yet; suspicion: few of the chair's points pass the
+    visibility test in the other views (chair close in front of the monitor, 5% depth tolerance), so the overlap
+    fraction rests on little evidence (`min_visible` = 50 px).
+- **Figures:** `figures/<scene>_<seg>_assoc-xc{0.7,0.5}-dejaview_k16_views_n20_uniform_504.jpg`.
+- **Conclusion:** linking by 3D overlap regardless of class removes most near-synonym splits (office top100
+  consistent 0.51 -> 0.76 / 0.80) with no wrong links in the kitchen and few in the office. 0.5 vs 0.7: +0.03-0.04
+  consistent for 3 more same-class cabinet confusions; the one cross-object error is threshold-independent. Working
+  setting: **0.7** (more conservative, merges are the worse error for refinement). This also matches the organizers'
+  point that semantics should act through grouping and identity rather than category rules. Next for association:
+  make the overlap evidence-aware (visible point count) to catch the chair -> monitor case.

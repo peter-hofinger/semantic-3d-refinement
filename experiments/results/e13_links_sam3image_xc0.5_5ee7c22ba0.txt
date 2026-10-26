@@ -1,0 +1,19 @@
+5ee7c22ba0 sam3image_views_n20_uniform_504 cross-class 0.5: links that joined masks
+      8 cabinet          15005 wall             0.92  right     GT cabinet / cabinet
+     14 refrigerator      4008 cabinet          0.68  right     GT refrigerator / refrigerator
+   1007 cabinet          15005 wall             0.88  right     GT cabinet / cabinet
+   2007 cabinet          15005 wall             0.96  right     GT cabinet / cabinet
+   3016 refrigerator      4008 cabinet          0.90  right     GT refrigerator / refrigerator
+   3016 refrigerator     17005 table            0.81  right     GT refrigerator / refrigerator
+   4008 cabinet          15019 refrigerator     0.73  right     GT refrigerator / refrigerator
+   4008 cabinet          17005 table            0.88  right     GT refrigerator / refrigerator
+   5005 door              6007 cabinet          0.81  right     GT electric box / electric box
+   5005 door              7008 cabinet          0.89  right     GT electric box / electric box
+   5005 door              8008 cabinet          0.91  right     GT electric box / electric box
+   5007 cabinet          15005 wall             0.56  right     GT cabinet / cabinet
+   6007 cabinet          14005 door             0.83  right     GT electric box / electric box
+   7008 cabinet          14005 door             0.93  right     GT electric box / electric box
+   8008 cabinet          14005 door             0.93  right     GT electric box / electric box
+  15005 wall             18006 cabinet          0.72  right     GT cabinet / cabinet
+  15019 refrigerator     17005 table            0.82  right     GT refrigerator / refrigerator
+  total 17: right 17

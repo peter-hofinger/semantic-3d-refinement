@@ -1,0 +1,18 @@
+GT objects split over several predicted ids:
+  GT  40 windowsill         in  4 views -> 3 ids [44, 190, 350] classes ['air vent', 'windowsill']
+  GT  44 floor              in  3 views -> 3 ids [159, 339, 359] classes ['floor']
+  GT  35 storage cabinet    in  7 views -> 2 ids [3, 6] classes ['cabinet', 'storage cabinet']
+  GT  58 office chair       in  9 views -> 2 ids [5, 101] classes ['chair', 'tv']
+  GT  16 window             in  2 views -> 2 ids [20, 188] classes ['blinds', 'window frame']
+  GT  79 table              in  7 views -> 2 ids [19, 176] classes ['table']
+  GT   2 window             in  3 views -> 2 ids [86, 187] classes ['window']
+  GT   5 ceiling lamp       in  6 views -> 2 ids [161, 385] classes ['ceiling lamp']
+  GT  91 office chair       in  4 views -> 2 ids [182, 300] classes ['office chair']
+  GT  93 table              in  4 views -> 2 ids [19, 176] classes ['table']
+  4 of 10 split objects have ids with different classes
+predicted ids covering several GT objects (merges):
+  id    19 (table) -> 55:table, 79:table, 93:table
+  id     6 (storage cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id     5 (tv) -> 52:monitor, 58:office chair
+  id   176 (table) -> 79:table, 93:table
+  id    76 (wall) -> 15:wall, 17:wall
