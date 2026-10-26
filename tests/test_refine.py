@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+from semantic_3d_refinement.normals import BiniConfig, bini, normals_from_depth
 from semantic_3d_refinement.refine import (
     RefineConfig,
     align_sim3,
@@ -86,3 +87,22 @@ def test_true_depth_agrees_across_views() -> None:
     err = multiview_error(gt, rays, cams)
     assert err.isfinite().float().mean() > 0.5 and err.nanmedian() < 0.01
     assert multiview_error(gt * 1.1 ** torch.arange(2.0)[:, None, None], rays, cams).nanmedian() > 0.03
+
+
+TILTED_PLANE = (((0.2, 0.0, 1.0), 3.0),)
+
+
+def test_bini_recovers_a_plane_from_its_normal() -> None:
+    depth, rays, _, gt = scene(outlier_frac=0.0, planes=TILTED_PLANE)
+    n = torch.tensor(TILTED_PLANE[0][0])
+    normals = (-n / n.norm()).expand(*depth.shape, 3).contiguous()
+    depth_hat, _, log = bini(normals, rays, depth, BiniConfig(device="cpu"))
+    assert log[-1] < log[0]
+    assert depth_metrics(depth_hat, rays, gt)["abs_rel"] < 1e-3 < depth_metrics(depth, rays, gt)["abs_rel"]
+
+
+def test_bini_identity_under_a_strong_prior() -> None:
+    depth, rays, _, _ = scene(outlier_frac=0.0)
+    normals = normals_from_depth(depth, rays)
+    depth_hat, _, _ = bini(normals, rays, depth, BiniConfig(lambda_depth=1e8, device="cpu"))
+    assert ((depth_hat - depth).abs() / depth).max() < 1e-4
