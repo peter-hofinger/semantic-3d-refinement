@@ -3,6 +3,17 @@
 Training-free refinement of frozen feed-forward 3D reconstructions, guided by multi-view panoptic segments.
 Goal: fused surfaces that are more accurate and sharper than the raw prediction, and than the same refinement
 without semantics, at a small multiple of the forward pass. Supervisors: Umut Kocasarı, Robin Borth (Niessner Lab).
+Collaborator: Pouya Esfahani (data loading, Déjà View inference; branch `pouya`).
+
+## Bar
+This repository is a public portfolio piece, read by screeners and interviewers for research-engineering roles.
+They skim the README, open two files and scroll the history; every one of those must hold up to a critical read.
+- Substance over signal: a measured claim with its baseline beats any badge, buzzword or abstraction.
+- Every number names its baseline, its scenes and how it was measured. Negative results are reported as plainly
+  as positive ones; a clean "this did not work, because" is a strong signal, an inflated gain is a fatal one.
+- Peter must be able to defend any line in an interview. No code that only works by accident, no trick without
+  a reason; non-obvious choices are explained in the docstring or the commit body.
+- Credit precisely: Pouya's work, the papers an idea comes from, and third-party code with its licence.
 
 ## Method
 Per view i: depth D_i, confidence C_i, ray map (origin o, direction d); points x = o + D·d. Cameras stay fixed.
@@ -15,7 +26,11 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_bd: smoothing within segments only, so boundaries stay sharp.
 - E_pr: planarity for structural classes (wall, floor, table).
 
-Status: monocular PoC in `refine.py`; δ only, no segments, no a or b.
+Status: per-view δ only (`refine.py`), no segments, no a or b. Runs on Déjà View outputs for two ScanNet++
+scenes (office 7b6477cb95, kitchen 5ee7c22ba0) with a GT-free metric: cross-view disagreement under the frozen
+cameras. Segment-free smoothing never beats the input. Side study (`normals.py`): DSINE normals integrated with
+BiNI against the Déjà View depth; a small cross-view gain, but the detail does not transfer. No GT depth yet:
+the laser-scan meshes need a ScanNet++ token.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
@@ -23,9 +38,10 @@ Status: monocular PoC in `refine.py`; δ only, no segments, no a or b.
 - DA3: depth plus a ray map at H/2×W/2; cameras are decoded from the rays.
 - VGGT: cameras, depth and point maps with confidences; first view's frame, up to scale.
 - SAM 3: instance masks with identities that persist across frames. Plain SAM masks are per view only.
+- DSINE: per-view surface normals from one image and intrinsics.
 
 ## Commands
-- `uv sync` · `uv add <pkg>` · `uv run <cmd>`. Never pip, never bare `python`.
+- `uv sync --all-groups` · `uv add <pkg>` · `uv run <cmd>`. Never pip, never bare `python`.
 - `uv run python -m semantic_3d_refinement.<entry> --cfg configs/<name>.yaml`
 - `uv run pytest -q` · `uv run ruff check --fix && uv run ruff format`
 
@@ -33,9 +49,29 @@ Status: monocular PoC in `refine.py`; δ only, no segments, no a or b.
 - Minimal and dense, from first principles. Fewer files, fewer abstractions; delete before adding.
 - Design by contract: assert shapes, dtypes, ranges and finiteness on entry and before return.
 - Type hints everywhere, enforced at runtime by `beartype_this_package()` in `__init__.py`.
-- No comments except ones that structure code; names carry meaning.
-- Hyperparameters live in configs. Every run saves its config and git hash.
+- Module docstrings state the idea, the equation and the paper it comes from; function docstrings state the
+  contract in one line. No other comments except ones that structure code; names carry meaning.
+- No dead code, no commented-out code, no TODOs, no debug prints. Ruff `ALL` stays clean; every `noqa` names
+  its rule and is justified by the line it sits on.
+- Every mathematical claim has a test: identity, a known solution, an invariance. Tests run on CPU in seconds.
+- Hyperparameters live in configs. Every run saves its config and git hash; a dirty tree is marked as such.
 - Backbone outputs and masks are cached on disk; refinement never reruns a backbone.
+- Third-party code is never copied in: it lives under `data/third_party/` (git-ignored), its commit is pinned in
+  the config, and its licence is respected (BiNI is GPL-3, DSINE non-commercial). Our own reimplementations say
+  what they follow and where they differ.
+- No secrets in the tree: tokens live in `.env`, which is git-ignored.
+
+## Git
+History is part of the portfolio: it should read like a lab notebook kept by a careful engineer.
+- One logical change per commit, and every commit passes `ruff` and `pytest`, so the history stays bisectable.
+  Code, the configs it needs and its tests land together; figures land in the commit that reports them.
+- Subject: imperative, ≤ 72 characters, no trailing period, and says what changes ("Fit the metric scale on all
+  cameras"), never "fix", "update" or "wip". Body, wrapped at 72: why, and what was measured.
+- Fold fixups into the commit they fix before pushing (`git commit --fixup` + autosquash). Never rewrite
+  pushed history, and never commit to someone else's branch.
+- Work on topic branches; merge to `main` through a PR that states motivation, change, result (table or figure)
+  and how it was tested.
+- `runs/` and `data/` never enter git. A figure directory superseded by a new run is deleted in the same commit.
 
 ## Experiments
 Climb in order; when something fails, step back down instead of tuning blindly.
@@ -47,15 +83,22 @@ Climb in order; when something fails, step back down instead of tuning blindly.
 6. Only then tune weights, coarse grid first.
 
 Smallest scene, resolution and view count that could work. One change per run; time every stage.
-Fixed scenes, metrics, alignment and seeds; never tune on test scenes.
+Fixed scenes, metrics, alignment and seeds; never tune on test scenes, and say so when a value was.
 
 ## Visuals
 Robin: show visuals, tables and graphs every week; time belongs to ideation and direction, not implementation.
 - Everything that can be visualized is visualized, as PNG.
   `uv run python -m semantic_3d_refinement.visualize --run runs/<run>` writes `figures/<run>/` with a README table.
-- Before and after side by side, on shared scales.
+- Before and after side by side, on shared scales, with units and a caption that says what to look at.
+- Each figure README ends with findings that stand on their own, without this conversation.
 - Commit and push `figures/`; `runs/` and `data/` stay local.
 - Look at every figure before claiming anything from it.
 
+## README
+The front page a screener reads in under a minute. Top to bottom: one sentence on the problem, the headline
+figure, a results table against the baselines, reproduction in at most three commands, then design decisions and
+limitations. It is updated in the same commit as any result it reports.
+
 ## Ask first
-Changing the evaluation, jobs over 30 min or on more than one GPU, deleting caches or data.
+Changing the evaluation, jobs over 30 min or on more than one GPU, deleting caches or data, pushing, rewriting
+history, touching another person's branch.

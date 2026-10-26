@@ -13,3 +13,6 @@ wheels/
 .DS_Store
 data/
 runs/
+
+# Secrets
+.env
