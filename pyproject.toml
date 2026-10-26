@@ -26,6 +26,8 @@ scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
 scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
+sam3-segment = "src.segmentation.sam3:main"
+eval-instances = "src.evaluation.instances:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
