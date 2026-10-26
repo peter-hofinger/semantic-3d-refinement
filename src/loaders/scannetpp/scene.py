@@ -54,6 +54,11 @@ class ScannetppScene:
         return self.root / "scans" / "mesh_aligned_0.05_semantic.ply"
 
     @property
+    def segments_path(self) -> Path:
+        """Over-segment index for every mesh vertex."""
+        return self.root / "scans" / "segments.json"
+
+    @property
     def segments_anno_path(self) -> Path:
         """Instance and class annotations on mesh segments."""
         return self.root / "scans" / "segments_anno.json"

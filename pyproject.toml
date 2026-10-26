@@ -23,6 +23,7 @@ dependencies = [
 semantic-3d-refinement = "src:main"
 scannetpp-download = "src.loaders.scannetpp.download:main"
 scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
+scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
 
