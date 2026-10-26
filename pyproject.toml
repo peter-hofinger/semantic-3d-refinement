@@ -29,6 +29,10 @@ dev = [
     "ruff>=0.17.1",
     "tqdm>=4.70.1",
 ]
+normals = [
+    "geffnet>=1.0.2",
+    "torchvision>=0.29.1",
+]
 
 [tool.ruff]
 line-length = 120

@@ -1,0 +1,16 @@
+input: data/processed/scannetpp/7b6477cb95/dejaview_k16_views_n20_uniform_504.npz
+gt_views: data/processed/scannetpp/7b6477cb95/views_n20_uniform_504.npz
+normals: dsine   # dsine | depth (sanity: the input's own normals)
+dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25, kept outside git (non-commercial licence)
+output_dir: runs
+bini:
+  k: 2.0
+  lambda_depth: 1.0e-4
+  iters: 150
+  tol: 1.0e-4
+  cg_iters: 5000
+  cg_tol: 1.0e-3
+  device: cuda
+sweep:
+  lambda_depth: [1.0e-6, 1.0e-4, 1.0e-2, 1.0, 100.0]
+  k: [0.0, 0.5, 2.0, 8.0]
