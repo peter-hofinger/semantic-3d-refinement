@@ -1,0 +1,56 @@
+== office sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-ms0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id    19 (table) -> 55:table, 79:table, 93:table
+  id     6 (storage cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id     5 (tv) -> 52:monitor, 58:office chair
+  id   177 (table) -> 79:table, 93:table
+  id    77 (wall) -> 15:wall, 17:wall
+== office sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id    21 (table) -> 55:table, 79:table, 93:table
+  id     6 (storage cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id     5 (tv) -> 52:monitor, 58:office chair
+  id    19 (wall) -> 15:wall, 17:wall
+  id    18 (wall) -> 33:heater, 39:wall
+  id   182 (table) -> 79:table, 93:table
+== office sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-ms0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id    18 (table) -> 55:table, 79:table, 93:table
+  id     5 (storage cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id   178 (table) -> 79:table, 93:table
+  id   115 (wall) -> 15:wall, 17:wall
+== office sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id    19 (table) -> 55:table, 79:table, 93:table
+  id     5 (storage cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id   123 (wall) -> 15:wall, 17:wall
+  id   185 (table) -> 79:table, 93:table
+== office sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-ms0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id   264 (desk) -> 55:table, 79:table, 93:table
+  id     0 (cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id     1 (monitor) -> 52:monitor, 58:office chair
+  id   234 (desk) -> 79:table, 93:table
+  id    89 (wall) -> 15:wall, 17:wall
+== office sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id   268 (desk) -> 55:table, 79:table, 93:table
+  id     0 (cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id     1 (monitor) -> 52:monitor, 58:office chair
+  id   335 (fan) -> 1:pedestal fan, 59:object
+  id    19 (wall) -> 15:wall, 17:wall
+  id    18 (wall) -> 33:heater, 39:wall
+  id   237 (desk) -> 79:table, 93:table
+== office sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-ms0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id   147 (desk) -> 55:table, 79:table, 93:table
+  id     0 (cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id   235 (desk) -> 79:table, 93:table
+  id   143 (wall) -> 15:wall, 17:wall
+== office sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504
+predicted ids covering several GT objects (merges):
+  id   153 (desk) -> 55:table, 79:table, 93:table
+  id     0 (cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id   337 (fan) -> 1:pedestal fan, 59:object
+  id   148 (wall) -> 15:wall, 17:wall
+  id   240 (desk) -> 79:table, 93:table

@@ -61,6 +61,21 @@ METHODS = {
         )
         for name, t in (("score > 0.5", "-ms0.5"), ("multi-view filter", "-kl0.5"))
     },
+    # E17: the grid's new setups, (a) off (no visible-share check); (a) on = E15 / E16
+    **{
+        f"image-{v} t0.3 + assoc Deja View, xc 0.7, no vf, {name} (E17)": (
+            f"{stem}_assoc-xc0.7{t}-dejaview_k16_views_n20_uniform_504"
+        )
+        for v, stem in (
+            ("top100", "sam3image-top100-t0.3_views_n20_uniform_504"),
+            (
+                "vlm",
+                "sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3"
+                "_views_n20_uniform_504",
+            ),
+        )
+        for name, t in (("score > 0.5", "-ms0.5"), ("multi-view filter", "-kl0.5"))
+    },
 }
 
 print(
