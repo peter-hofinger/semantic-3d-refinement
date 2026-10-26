@@ -3,7 +3,10 @@
 Training-free refinement of frozen feed-forward 3D reconstructions, guided by multi-view panoptic segments.
 Goal: fused surfaces that are more accurate and sharper than the raw prediction, and than the same refinement
 without semantics, at a small multiple of the forward pass. Supervisors: Umut Kocasarı, Robin Borth (Niessner Lab).
-Collaborator: Pouya Esfahani (data loading, Déjà View inference; branch `pouya`).
+Title: Semantic-Guided Refinement for Feed-Forward 3D Reconstruction.
+Team (TUM, in this order; write the names exactly so, diacritics included):
+Pouya Shekarchizadeh Esfahani (data loading, Déjà View inference; branch `pouya`), Peter Hofinger,
+Mircea-Alexandru Răuțoiu.
 
 ## Bar
 This repository is a public portfolio piece, read by screeners and interviewers for research-engineering roles.
@@ -13,7 +16,7 @@ They skim the README, open two files and scroll the history; every one of those 
   as positive ones; a clean "this did not work, because" is a strong signal, an inflated gain is a fatal one.
 - Peter must be able to defend any line in an interview. No code that only works by accident, no trick without
   a reason; non-obvious choices are explained in the docstring or the commit body.
-- Credit precisely: Pouya's work, the papers an idea comes from, and third-party code with its licence.
+- Credit precisely: teammates' work, the papers an idea comes from, and third-party code with its licence.
 
 ## Method
 Per view i: depth D_i, confidence C_i, ray map (origin o, direction d); points x = o + D·d. Cameras stay fixed.

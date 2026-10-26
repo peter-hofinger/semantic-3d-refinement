@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)"
 readme = "README.md"
 authors = [
-    { name = "peter-hofinger", email = "hofinger-peter@gmx.de" }
+    { name = "Pouya Shekarchizadeh Esfahani", email = "pouya.esfahani@tum.de" },
+    { name = "Peter Hofinger", email = "peter.hofinger@tum.de" },
+    { name = "Mircea-Alexandru Răuțoiu", email = "mircea.rautoiu@tum.de" },
 ]
 requires-python = ">=3.11"
 dependencies = [
