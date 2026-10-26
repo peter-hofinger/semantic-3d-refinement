@@ -16,6 +16,7 @@ from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 
+from semantic_3d_refinement.normals import normals_from_depth
 from semantic_3d_refinement.refine import (
     LOG_KEYS,
     RefineConfig,
@@ -53,6 +54,11 @@ CAPTIONS = {
     "multiview_maps": "Cross-view disagreement per pixel: median over the other views of |x - x_j| / D_j under the "
     "frozen predicted cameras. A GT-free proxy; occlusions put a floor under it.",
     "multiview_per_view": "Median cross-view disagreement per view, before and after.",
+    "normal_sources": "Normals per view: Déjà View's depth, DSINE's prediction (rotated into the same frame), and the "
+    "depth after BiNI integrates DSINE's normals against Déjà View's depth.",
+    "detail_crops": "The same three, zoomed where DSINE's normals carry the most detail.",
+    "bini_sweep": "Cross-view disagreement over all views versus the depth-prior weight λ and the discontinuity "
+    "sharpness k, one at a time (circle: this run). Dashed: Déjà View input.",
     "sweep_real": "Smoothness weight λ_bd on real data: normals of the first view and cross-view disagreement "
     "over all views.",
     "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothness cost is bought down by "
@@ -469,6 +475,97 @@ def metric_table(summary: dict, log: np.ndarray) -> dict[str, float]:
     return table
 
 
+def detail_window(n: np.ndarray, size: int) -> tuple[slice, slice]:
+    """Square window with the largest mean normal gradient."""
+    g = np.linalg.norm(np.diff(n, axis=0)[:, :-1], axis=-1) + np.linalg.norm(np.diff(n, axis=1)[:-1], axis=-1)
+    c = np.cumsum(np.cumsum(np.pad(g, ((1, 0), (1, 0))), 0), 1)
+    sums = c[size:, size:] - c[:-size, size:] - c[size:, :-size] + c[:-size, :-size]
+    r, col = np.unravel_index(sums.argmax(), sums.shape)
+    return slice(r, r + size), slice(col, col + size)
+
+
+def bini_sweep(out: Path, summary: dict) -> None:
+    """Cross-view disagreement versus each swept BiNI weight."""
+    sweep = summary.get("sweep_mv_median", {})
+    if not sweep:
+        return
+    raw = summary["config"]
+    fig, axes = plt.subplots(1, len(sweep), figsize=(3.8 * len(sweep), 3.2), sharey=True, constrained_layout=True)
+    labels = {"lambda_depth": "depth-prior weight λ", "k": "discontinuity sharpness k"}
+    for ax, (key, ys) in zip(np.atleast_1d(axes), sweep.items(), strict=True):
+        xs = raw["sweep"][key]
+        ax.plot(xs, ys, color=BLUE, marker="o", markersize=4)
+        ax.axhline(summary["metrics_input"]["mv_median"], color=INK_2, linewidth=1, linestyle="--")
+        here = summary["resolved"][key]
+        if here in xs:
+            ax.plot(
+                [here], [ys[xs.index(here)]], marker="o", markersize=10, markerfacecolor="none", markeredgecolor=INK
+            )
+        ax.set_xscale("symlog", linthresh=min(v for v in xs if v > 0))
+        ax.set(title=labels.get(key, key), xlabel="value (symlog)", yscale="log")
+        ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(1.0))
+    np.atleast_1d(axes)[0].set_ylabel("median |x - x_j| / D_j")
+    fig.suptitle("BiNI weights: cross-view disagreement, all views", color=INK)
+    fig.savefig(out / "bini_sweep.png", dpi=150)
+    plt.close(fig)
+
+
+def bini_figures(run: Path, out: Path) -> dict[str, float]:
+    """Figures for a normal-integration run (semantic_3d_refinement.normals); return the metric table."""
+    summary = yaml.safe_load((run / "run.yaml").read_text())
+    raw = summary["config"]
+    data = {k: v.numpy() for k, v in load_views(Path(raw["input"]), raw.get("views")).items()}
+    refined = dict(np.load(run / "refined.npz"))
+    depth, rays = data["depth"], data["rays"]
+    images = np.load(raw["gt_views"])["images"]
+    images = images[raw["views"]] if raw.get("views") is not None else images
+    out.mkdir(parents=True, exist_ok=True)
+    mv = dict(np.load(run / "multiview_error.npz"))
+    multiview_figures(out, images, depth, rays, {"depth": refined["depth"], "conf": data["conf"], "multiview": mv})
+
+    show = pick(len(depth))
+
+    def rgb(d: np.ndarray, i: int) -> np.ndarray:
+        return normals_from_depth(torch.from_numpy(d[i]), torch.from_numpy(rays[i])).numpy() * 0.5 + 0.5
+
+    panels = [
+        [
+            (f"view {i}", images[i]),
+            ("Déjà View", rgb(depth, i)),
+            ("DSINE", refined["normals"][i] * 0.5 + 0.5),
+            ("BiNI", rgb(refined["depth"], i)),
+        ]
+        for i in show
+    ]
+    for name, crop in (("normal_sources", None), ("detail_crops", 112)):
+        fig, axes = plt.subplots(len(show), 4, figsize=(13, 2.5 * len(show)), constrained_layout=True, squeeze=False)
+        for r, row in enumerate(panels):
+            win = detail_window(row[2][1], crop) if crop else (slice(None), slice(None))
+            for c, (title, img) in enumerate(row):
+                axes[r, c].imshow(img[win], interpolation="nearest")
+                axes[r, c].set_title(title)
+                axes[r, c].set_axis_off()
+        fig.savefig(out / f"{name}.png", dpi=150)
+        plt.close(fig)
+
+    bini_sweep(out, summary)
+
+    table = {"views": float(summary["views"]), "normals_seconds": summary["normals_seconds"]}
+    table |= {"refine_seconds": summary["refine_seconds"]}
+    table |= {k: summary["cameras"][k] for k in ("scale_to_m", "camera_ate_m") if k in summary.get("cameras", {})}
+    if "mean_point_shift_mm" in summary:
+        table["mean_point_shift_mm"] = summary["mean_point_shift_mm"]
+    for k in summary["metrics_input"]:
+        table |= {f"{k}_input": summary["metrics_input"][k], f"{k}_refined": summary["metrics_refined"][k]}
+    lines = [f"# {run.name}", "", f"git `{summary['git']}`", "", "| metric | value |", "|---|---|"]
+    lines += [f"| {k} | {v:.4g} |" for k, v in table.items()]
+    for name in ("normal_sources", "detail_crops", "bini_sweep", "normals", "multiview_maps", "multiview_per_view"):
+        if (out / f"{name}.png").exists():
+            lines += ["", f"## {name}", "", CAPTIONS[name], "", f"![{name}]({name}.png)"]
+    (out / "README.md").write_text("\n".join([*lines, ""]))
+    return table
+
+
 def main() -> None:
     """Render a run: `uv run python -m semantic_3d_refinement.visualize --run runs/<run>`."""
     parser = argparse.ArgumentParser()
@@ -476,7 +573,10 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     out = args.out or Path("figures") / args.run.name
-    figures(args.run, out)
+    if "bini" in yaml.safe_load((args.run / "run.yaml").read_text())["config"]:
+        bini_figures(args.run, out)
+    else:
+        figures(args.run, out)
     print(f"wrote {out}")  # noqa: T201
 
 
