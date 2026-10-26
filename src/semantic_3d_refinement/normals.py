@@ -120,7 +120,10 @@ def energy(z: Tensor, z0: Tensor, terms: list, weights: list, lam: float) -> flo
 
 
 def solve(z: Tensor, z0: Tensor, terms: list, weights: list, cfg: BiniConfig) -> Tensor:
-    """Minimize the quadratic energy for fixed weights with Jacobi-preconditioned CG, warm-started at z."""
+    """Minimize the quadratic energy for fixed weights with Jacobi-preconditioned CG, warm-started at z.
+
+    Stops when the residual fell by cg_tol; relative to |rhs| (as in BiNI) a strong prior stops it at once.
+    """
     cs, bs = [], []
     for (af, gf, ab, gb), (wf, wb) in zip(terms, weights, strict=True):
         cs.append(wf * af.square() + wb * ab.square())
@@ -147,7 +150,7 @@ def solve(z: Tensor, z0: Tensor, terms: list, weights: list, cfg: BiniConfig) ->
     r = rhs - apply(x)
     y = r / diag
     p, ry = y.clone(), (r * y).sum()
-    stop = cfg.cg_tol * rhs.norm()
+    stop = cfg.cg_tol * r.norm()
     for _ in range(cfg.cg_iters):
         if r.norm() <= stop:
             break
