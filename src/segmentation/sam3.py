@@ -1,4 +1,4 @@
-"""SAM 3 video mode as a Segmenter: text-prompted instances tracked across views."""
+"""SAM 3 as a Segmenter: text-prompted instances, tracked or per view."""
 
 from __future__ import annotations
 
@@ -11,10 +11,15 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
-from transformers import Sam3VideoModel, Sam3VideoProcessor
+from transformers import (
+    Sam3Model,
+    Sam3Processor,
+    Sam3VideoModel,
+    Sam3VideoProcessor,
+)
 
 from src.loaders import Views
-from src.segmentation.base import NO_INSTANCE, Segmentation
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
 
 if TYPE_CHECKING:
     from src.geometry import Geometry
@@ -27,7 +32,6 @@ PROMPTS = (
     "wall", "floor", "ceiling", "door", "window", "table", "chair", "monitor",
     "keyboard", "cabinet", "shelf", "whiteboard", "box", "lamp", "sink", "refrigerator",
 )  # fmt: skip
-ID_STRIDE = 1000  # instance id = prompt index * ID_STRIDE + SAM 3 object id
 
 
 @dataclass
@@ -77,12 +81,8 @@ class Sam3VideoSegmenter:
                     masks = res["masks"].cpu().numpy().astype(bool)
                     scores = res["scores"].float().cpu().numpy()
                     objs = res["object_ids"].cpu().numpy() + k * ID_STRIDE
-                    # overlapping masks: the higher score keeps the pixel
-                    for obj, score, mask in zip(objs, scores, masks, strict=True):
-                        win = mask & (score > best[i])
-                        ids[i][win] = obj
-                        best[i][win] = score
-                        found.add(int(obj))
+                    _paint(ids[i], best[i], objs, scores, masks)
+                    found.update(objs.tolist())
             classes.update(dict.fromkeys(found, prompt))
             log.info(
                 "  %-12s %3d tracks  %.0fs",
@@ -90,14 +90,99 @@ class Sam3VideoSegmenter:
                 len(found),
                 time.perf_counter() - start,
             )
-        present = set(np.unique(ids).tolist())
-        return Segmentation(ids, {k: v for k, v in classes.items() if k in present})
+        return _drop_hidden(ids, classes)
+
+
+@dataclass
+class Sam3ImageSegmenter:
+    """Segments every view on its own; ids are NOT shared across views.
+
+    Instance id = view index * ID_STRIDE + running index, so ids are unique over the
+    scene and an association step can link them.
+    """
+
+    prompts: tuple[str, ...] = PROMPTS
+    checkpoint: str = CHECKPOINT
+    threshold: float = 0.5
+    _model: Any = field(default=None, init=False, repr=False)
+    _processor: Any = field(default=None, init=False, repr=False)
+
+    def _load(self) -> tuple[Any, Any]:
+        if self._model is None:
+            self._model = Sam3Model.from_pretrained(
+                self.checkpoint, dtype=torch.bfloat16
+            )
+            self._model = self._model.to("cuda").eval()
+            self._processor = Sam3Processor.from_pretrained(self.checkpoint)
+        return self._model, self._processor
+
+    def segment(self, views: Views, geometry: Geometry | None = None) -> Segmentation:  # noqa: ARG002
+        """Run every prompt on every view, reusing the image features per view."""
+        model, processor = self._load()
+        num, height, width = views.images.shape[:3]
+        ids = np.full((num, height, width), NO_INSTANCE, dtype=np.int32)
+        best = np.zeros((num, height, width), dtype=np.float32)
+        classes: dict[int, str] = {}
+        for i, image in enumerate(views.images):
+            inputs = processor(images=image, return_tensors="pt").to("cuda")
+            sizes = inputs["original_sizes"].tolist()
+            count = 0
+            with torch.no_grad():
+                vision = model.get_vision_features(
+                    pixel_values=inputs.pixel_values.to(torch.bfloat16)
+                )
+                for prompt in self.prompts:
+                    text = processor(text=prompt, return_tensors="pt").to("cuda")
+                    res = processor.post_process_instance_segmentation(
+                        model(vision_embeds=vision, **text),
+                        threshold=self.threshold,
+                        mask_threshold=0.5,
+                        target_sizes=sizes,
+                    )[0]
+                    objs = i * ID_STRIDE + count + np.arange(len(res["scores"]))
+                    count += len(objs)
+                    assert count < ID_STRIDE, "too many masks in one view"  # noqa: S101
+                    masks = res["masks"].cpu().numpy().astype(bool)
+                    scores = res["scores"].float().cpu().numpy()
+                    _paint(ids[i], best[i], objs, scores, masks)
+                    classes.update(dict.fromkeys(objs.tolist(), prompt))
+            log.info("  view %2d: %3d masks", i, len(np.unique(ids[i])) - 1)
+        return _drop_hidden(ids, classes)
+
+
+def _paint(
+    ids: np.ndarray,
+    best: np.ndarray,
+    objs: np.ndarray,
+    scores: np.ndarray,
+    masks: np.ndarray,
+) -> None:
+    """Write masks into one view's id map; where masks overlap the higher score wins."""
+    for obj, score, mask in zip(objs, scores, masks, strict=True):
+        win = mask & (score > best)
+        ids[win] = obj
+        best[win] = score
+
+
+def _drop_hidden(ids: np.ndarray, classes: dict[int, str]) -> Segmentation:
+    """Keep classes only for ids that still own pixels after overlap resolution."""
+    present = set(np.unique(ids).tolist())
+    return Segmentation(ids, {k: v for k, v in classes.items() if k in present})
+
+
+SEGMENTERS = {"video": Sam3VideoSegmenter, "image": Sam3ImageSegmenter}
 
 
 def main() -> None:
-    """Run SAM 3 video mode on prepared views and cache the result next to them."""
+    """Run SAM 3 on prepared views and cache the result next to them."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("views", type=Path, nargs="+", help="prepared views (.npz)")
+    parser.add_argument(
+        "--mode",
+        choices=sorted(SEGMENTERS),
+        default="video",
+        help="video: tracker ids across views; image: per-view ids (associate later)",
+    )
     parser.add_argument(
         "--max-gpu-gb",
         type=float,
@@ -111,14 +196,14 @@ def main() -> None:
 
     total = torch.cuda.get_device_properties(0).total_memory / 1e9
     torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total))
-    segmenter = Sam3VideoSegmenter()
+    segmenter = SEGMENTERS[args.mode]()
     for path in args.views:
         views = Views.load(path)
         log.info("%s: %d views, %d prompts", views.scene_id, len(views), len(PROMPTS))
         torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
         seg = segmenter.segment(views)
-        out = path.with_name(f"sam3video_{path.stem}.npz")
+        out = path.with_name(f"sam3{args.mode}_{path.stem}.npz")
         seg.save(out)
         log.info(
             "%s: %d instances in %d views, %.0fs, peak GPU %.2f GB -> %s",

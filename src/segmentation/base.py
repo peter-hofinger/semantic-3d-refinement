@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from src.loaders import Views
 
 NO_INSTANCE = -1
+ID_STRIDE = 1000  # per-view ids: view index * ID_STRIDE + k (before association)
 
 
 @dataclass
