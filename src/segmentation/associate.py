@@ -10,6 +10,9 @@ optionally masks of different classes are linked too at a stricter overlap
 (near-synonym prompts like "monitor" / "tv" name one object differently per view).
 Links are added greedily, strongest first, and never put two masks of the same
 view into one object. An object takes the class covering most of its pixels.
+With detection scores, low-score masks can be dropped before linking, or kept only
+if they end up linked to a mask in another view (false detections rarely reappear
+at the same 3D place).
 """
 
 from __future__ import annotations
@@ -44,6 +47,10 @@ class Associator:
     min_visible_fraction: float = 0.0
     # overlap needed to link masks of different classes; None: never link them
     cross_class_overlap: float | None = None
+    # scores as in SAM 3's threshold: a mask passes if its score is above the value
+    min_score: float = 0.0  # masks not passing are dropped before linking
+    # masks not passing are kept only if linked to a mask in another view
+    keep_linked_below: float = 0.0
 
     def overlaps(
         self, seg: Segmentation, geometry: Geometry
@@ -100,11 +107,26 @@ class Associator:
             return np.inf
         return max(self.cross_class_overlap, self.min_overlap)
 
+    def _drop_low(self, seg: Segmentation) -> Segmentation:
+        """Remove masks below `min_score` (their pixels become unlabeled)."""
+        if self.min_score > 0 or self.keep_linked_below > 0:
+            assert seg.scores, "score options need a segmentation with scores"  # noqa: S101
+        if self.min_score <= 0:
+            return seg
+        drop = [m for m, s in seg.scores.items() if s <= self.min_score]
+        keep = {m for m in seg.classes if m not in set(drop)}
+        return Segmentation(
+            np.where(np.isin(seg.instance_ids, drop), NO_INSTANCE, seg.instance_ids),
+            {m: seg.classes[m] for m in keep},
+            {m: seg.scores[m] for m in keep},
+        )
+
     def associate(self, seg: Segmentation, geometry: Geometry) -> Segmentation:
         """Give masks that show the same object one shared id."""
         for i, view_ids in enumerate(seg.instance_ids):
             local = np.unique(view_ids[view_ids >= 0]) // ID_STRIDE
             assert np.all(local == i), f"ids in view {i} are not view-local"  # noqa: S101
+        seg = self._drop_low(seg)
         overlap = self.overlaps(seg, geometry)
         edges = sorted(
             (
@@ -131,7 +153,12 @@ class Associator:
                 parent[rb] = ra
                 views[ra] |= views.pop(rb)
 
-        roots = {m: root(m) for m in seg.classes}
+        roots = {
+            m: r
+            for m in seg.classes
+            if len(views[r := root(m)]) > 1
+            or seg.scores.get(m, 1.0) > self.keep_linked_below
+        }
         new_id = {r: n for n, r in enumerate(sorted(set(roots.values())))}
         lookup = np.full(max(seg.classes) + 2, NO_INSTANCE, dtype=np.int32)
         for m, r in roots.items():
@@ -180,6 +207,20 @@ def main() -> None:
         help="share of a mask's in-image pixels that must be visible in the other view "
         "for its overlap to count (default 0: off); output name gets vf<value>",
     )
+    parser.add_argument(
+        "--min-score",
+        type=float,
+        default=0.0,
+        help="drop masks scoring <= this before linking (needs saved scores); "
+        "output name gets ms<value>",
+    )
+    parser.add_argument(
+        "--keep-linked-below",
+        type=float,
+        default=0.0,
+        help="keep masks scoring <= this only if linked to a mask in another view; "
+        "output name gets kl<value>",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -194,7 +235,13 @@ def main() -> None:
     linked = Associator(
         cross_class_overlap=args.cross_class,
         min_visible_fraction=args.min_visible_fraction,
+        min_score=args.min_score,
+        keep_linked_below=args.keep_linked_below,
     ).associate(seg, geometry)
+    if args.keep_linked_below > 0:
+        tag = f"kl{args.keep_linked_below:g}-{tag}"
+    if args.min_score > 0:
+        tag = f"ms{args.min_score:g}-{tag}"
     if args.min_visible_fraction > 0:
         tag = f"vf{args.min_visible_fraction:g}-{tag}"
     if args.cross_class is not None:

@@ -141,6 +141,7 @@ class Sam3ImageSegmenter:
         ids = np.full((num, height, width), NO_INSTANCE, dtype=np.int32)
         best = np.zeros((num, height, width), dtype=np.float32)
         classes: dict[int, str] = {}
+        all_scores: dict[int, float] = {}
         for i, image in enumerate(views.images):
             inputs = processor(images=image, return_tensors="pt").to("cuda")
             sizes = inputs["original_sizes"].tolist()
@@ -165,8 +166,11 @@ class Sam3ImageSegmenter:
                     _paint(ids[i], best[i], objs, scores, masks)
                     cls = self.synonyms.get(prompt, prompt)
                     classes.update(dict.fromkeys(objs.tolist(), cls))
+                    all_scores.update(zip(objs.tolist(), scores.tolist(), strict=True))
             log.info("  view %2d: %3d masks", i, len(np.unique(ids[i])) - 1)
-        return _drop_hidden(ids, classes)
+        seg = _drop_hidden(ids, classes)
+        seg.scores = {k: all_scores[k] for k in seg.classes}
+        return seg
 
 
 def _paint(
@@ -211,6 +215,13 @@ def main() -> None:
         "the output name: sam3<mode>-<stem>+<stem>_<views>.npz",
     )
     parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="image mode: minimum detection score (default 0.5); per-mask scores are "
+        "saved, other values add -t<value> to the output name",
+    )
+    parser.add_argument(
         "--max-gpu-gb",
         type=float,
         default=3.5,
@@ -224,12 +235,17 @@ def main() -> None:
     total = torch.cuda.get_device_properties(0).total_memory / 1e9
     torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total))
     tag = f"sam3{args.mode}"
+    options: dict[str, Any] = {}
     if args.prompts:
         synonyms = load_prompts(args.prompts)
-        segmenter = SEGMENTERS[args.mode](prompts=tuple(synonyms), synonyms=synonyms)
+        options.update(prompts=tuple(synonyms), synonyms=synonyms)
         tag += "-" + "+".join(p.stem for p in args.prompts)
-    else:
-        segmenter = SEGMENTERS[args.mode]()
+    if args.threshold != 0.5:  # noqa: PLR2004
+        if args.mode != "image":
+            parser.error("--threshold is only used in image mode")
+        options["threshold"] = args.threshold
+        tag += f"-t{args.threshold:g}"
+    segmenter = SEGMENTERS[args.mode](**options)
     for path in args.views:
         views = Views.load(path)
         log.info(

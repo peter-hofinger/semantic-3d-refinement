@@ -1,0 +1,5 @@
+5ee7c22ba0 sam3image-top100-t0.3_views_n20_uniform_504 xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504: masks with score <= 0.5
+  kept       56, matching a GT instance (IoU >= 0.5):   30 (0.54)
+    top classes: wall 10, paper 8, book 8, box 6, floor 3, cloth 3, doorframe 2, cabinet 2
+  dropped   286, matching a GT instance (IoU >= 0.5):    5 (0.02)
+    top classes: bottle 30, container 30, box 29, tissue box 22, crate 19, storage cabinet 17, cabinet 17, paper 14

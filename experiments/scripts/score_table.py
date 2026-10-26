@@ -39,6 +39,19 @@ METHODS = {
         for p in ("", "-top100")
         for f in ("0.5", "0.25")
     },
+    # E15: SAM 3 at threshold 0.3; <= 0.5 dropped (= E14) / all kept / kept if linked
+    **{
+        f"image{p} t0.3 + assoc Deja View, xc 0.7, vf 0.25, {name} (E15)": (
+            f"sam3image{p}-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25{t}"
+            "-dejaview_k16_views_n20_uniform_504"
+        )
+        for p in ("", "-top100")
+        for name, t in (
+            ("score > 0.5", "-ms0.5"),
+            ("no filter", ""),
+            ("multi-view filter", "-kl0.5"),
+        )
+    },
 }
 
 print(

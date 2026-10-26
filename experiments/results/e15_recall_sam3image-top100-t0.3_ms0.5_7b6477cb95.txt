@@ -1,0 +1,38 @@
+instance recall 0.66, pixel-weighted recall 0.79
+  GT class               found/total  % of scored px  prompted
+  wall                     42/59           28.3%     yes
+  table                    21/41           12.1%     yes
+  whiteboard               21/21           11.4%     yes
+  storage cabinet          13/24           10.5%     yes
+  floor                     3/18            9.8%     yes
+  monitor                  49/51            6.6%     yes
+  office chair             35/36            4.6%     yes
+  bookshelf                 9/11            3.2%     yes
+  door                     11/11            2.8%     yes
+  ceiling                   5/7             2.2%     yes
+  window                    5/23            1.0%     yes
+  windowsill                4/9             0.9%     yes
+  cabinet                   7/12            0.9%     yes
+  pedestal fan              1/8             0.8%     NO
+  blinds                    5/8             0.7%     yes
+  keyboard                  9/9             0.6%     yes
+  ceiling lamp             11/12            0.5%     yes
+  coat rack                 4/9             0.5%     yes
+  windowframe               2/7             0.3%     yes
+  doorframe                 4/9             0.3%     yes
+  box                       6/8             0.3%     yes
+  trash can                 6/6             0.3%     yes
+  heater                    1/6             0.3%     yes
+  object                    3/8             0.2%     NO
+  pipe                      3/7             0.2%     yes
+  buket                     6/6             0.2%     NO
+  telephone                 3/3             0.2%     yes
+  book                      2/2             0.1%     yes
+  container                 1/5             0.1%     yes
+  pen holder                1/5             0.1%     NO
+  power strip               2/2             0.1%     yes
+  bottle                    3/3             0.0%     yes
+  electrical duct           0/2             0.0%     yes
+  power socket              1/2             0.0%     yes
+  cable                     0/1             0.0%     NO
+  hole puncher              1/1             0.0%     NO

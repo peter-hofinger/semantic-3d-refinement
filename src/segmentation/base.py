@@ -26,6 +26,8 @@ class Segmentation:
 
     instance_ids: np.ndarray  # (N, H, W) int32, NO_INSTANCE where nothing was found
     classes: dict[int, str] = field(default_factory=dict)  # instance id -> class
+    # instance id -> detection score; only for per-view masks, empty if unknown
+    scores: dict[int, float] = field(default_factory=dict)
 
     @classmethod
     def empty(cls, num: int, height: int, width: int) -> Segmentation:
@@ -36,20 +38,30 @@ class Segmentation:
         """Write to a compressed .npz file."""
         ids = np.array(sorted(self.classes), dtype=np.int32)
         path.parent.mkdir(parents=True, exist_ok=True)
+        extra = {}
+        if self.scores:
+            extra["scores"] = np.array([self.scores[i] for i in ids], np.float32)
         np.savez_compressed(
             path,
             instance_ids=self.instance_ids,
             class_ids=ids,
             class_names=np.array([self.classes[i] for i in ids]),
+            **extra,
         )
 
     @classmethod
     def load(cls, path: Path) -> Segmentation:
         """Read a segmentation written by `save`."""
         with np.load(path) as f:
+            ids = f["class_ids"].tolist()
             names = [str(n) for n in f["class_names"]]
-            classes = dict(zip(f["class_ids"].tolist(), names, strict=True))
-            return cls(f["instance_ids"], classes)
+            classes = dict(zip(ids, names, strict=True))
+            scores = (
+                dict(zip(ids, f["scores"].tolist(), strict=True))
+                if "scores" in f
+                else {}
+            )
+            return cls(f["instance_ids"], classes, scores)
 
 
 class Segmenter(Protocol):
