@@ -1,0 +1,20 @@
+== 5ee7c22ba0 vlm-t0.3 --min-score 0.5
+5ee7c22ba0: 1064 masks -> 387 objects, 13s -> data\processed\scannetpp\5ee7c22ba0\sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-ms0.5-dejaview_k16_views_n20_uniform_504.npz
+== score 5ee7c22ba0 vlm-t0.3 ms0.5
+5ee7c22ba0 all     recall 0.83  pixel recall 0.93  precision 0.43  leakage 0.010 (cross-class 0.007)  consistent 0.82 (34 GT in >=2 views)  id switches 7  merges 1
+5ee7c22ba0 objects recall 0.85  pixel recall 0.94  precision 0.35  leakage 0.016 (cross-class 0.013)  consistent 0.82 (28 GT in >=2 views)  id switches 6  merges 1
+== 5ee7c22ba0 vlm-t0.3 --keep-linked-below 0.5
+5ee7c22ba0: 1064 masks -> 391 objects, 13s -> data\processed\scannetpp\5ee7c22ba0\sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504.npz
+== score 5ee7c22ba0 vlm-t0.3 kl0.5
+5ee7c22ba0 all     recall 0.89  pixel recall 0.94  precision 0.44  leakage 0.010 (cross-class 0.007)  consistent 0.83 (36 GT in >=2 views)  id switches 7  merges 1
+5ee7c22ba0 objects recall 0.90  pixel recall 0.96  precision 0.35  leakage 0.016 (cross-class 0.013)  consistent 0.82 (28 GT in >=2 views)  id switches 6  merges 1
+== 7b6477cb95 vlm-t0.3 --min-score 0.5
+7b6477cb95: 1508 masks -> 545 objects, 13s -> data\processed\scannetpp\7b6477cb95\sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-ms0.5-dejaview_k16_views_n20_uniform_504.npz
+== score 7b6477cb95 vlm-t0.3 ms0.5
+7b6477cb95 all     recall 0.66  pixel recall 0.80  precision 0.39  leakage 0.081 (cross-class 0.051)  consistent 0.74 (46 GT in >=2 views)  id switches 15  merges 4
+7b6477cb95 objects recall 0.68  pixel recall 0.84  precision 0.34  leakage 0.102 (cross-class 0.057)  consistent 0.72 (39 GT in >=2 views)  id switches 13  merges 3
+== 7b6477cb95 vlm-t0.3 --keep-linked-below 0.5
+7b6477cb95: 1508 masks -> 552 objects, 13s -> data\processed\scannetpp\7b6477cb95\sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504.npz
+== score 7b6477cb95 vlm-t0.3 kl0.5
+7b6477cb95 all     recall 0.71  pixel recall 0.83  precision 0.40  leakage 0.080 (cross-class 0.051)  consistent 0.72 (47 GT in >=2 views)  id switches 15  merges 5
+7b6477cb95 objects recall 0.70  pixel recall 0.85  precision 0.35  leakage 0.103 (cross-class 0.058)  consistent 0.69 (39 GT in >=2 views)  id switches 14  merges 4

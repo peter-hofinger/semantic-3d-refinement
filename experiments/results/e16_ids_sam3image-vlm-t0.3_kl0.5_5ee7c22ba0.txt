@@ -1,0 +1,10 @@
+GT objects split over several predicted ids:
+  GT   9 box                in  5 views -> 3 ids [55, 57, 136] classes ['box']
+  GT  21 wall               in 18 views -> 2 ids [37, 323] classes ['wall']
+  GT  23 refrigerator       in  8 views -> 2 ids [82, 121] classes ['refrigerator', 'surface']
+  GT  34 box                in  6 views -> 2 ids [71, 95] classes ['box']
+  GT  35 box                in  6 views -> 2 ids [96, 134] classes ['box']
+  GT  22 bottle crate       in  5 views -> 2 ids [145, 242] classes ['crate']
+  1 of 6 split objects have ids with different classes
+predicted ids covering several GT objects (merges):
+  id    55 (box) -> 9:box, 10:box

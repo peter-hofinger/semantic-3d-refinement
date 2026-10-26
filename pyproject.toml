@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "bitsandbytes>=0.50.2 ; sys_platform != 'darwin'",
     "dvlt",
     "numpy>=2.4.6",
     "pillow>=13.0.0",
@@ -27,6 +28,7 @@ scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
 sam3-segment = "src.segmentation.sam3:main"
+vlm-vocabulary = "src.segmentation.vocabulary:main"
 eval-instances = "src.evaluation.instances:main"
 
 [build-system]

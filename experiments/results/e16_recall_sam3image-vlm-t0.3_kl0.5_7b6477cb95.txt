@@ -1,0 +1,38 @@
+instance recall 0.71, pixel-weighted recall 0.83
+  GT class               found/total  % of scored px  prompted
+  wall                     49/59           28.3%     yes
+  table                    21/41           12.1%     NO
+  whiteboard               21/21           11.4%     yes
+  storage cabinet          14/24           10.5%     yes
+  floor                     9/18            9.8%     yes
+  monitor                  49/51            6.6%     yes
+  office chair             36/36            4.6%     yes
+  bookshelf                 9/11            3.2%     yes
+  door                     11/11            2.8%     yes
+  ceiling                   5/7             2.2%     yes
+  window                    6/23            1.0%     yes
+  windowsill                0/9             0.9%     yes
+  cabinet                   8/12            0.9%     yes
+  pedestal fan              8/8             0.8%     yes
+  blinds                    8/8             0.7%     NO
+  keyboard                  9/9             0.6%     yes
+  ceiling lamp             10/12            0.5%     yes
+  coat rack                 8/9             0.5%     yes
+  windowframe               2/7             0.3%     yes
+  doorframe                 0/9             0.3%     yes
+  box                       7/8             0.3%     yes
+  trash can                 6/6             0.3%     yes
+  heater                    1/6             0.3%     NO
+  object                    6/8             0.2%     NO
+  pipe                      3/7             0.2%     yes
+  buket                     6/6             0.2%     NO
+  telephone                 3/3             0.2%     yes
+  book                      2/2             0.1%     yes
+  container                 1/5             0.1%     NO
+  pen holder                0/5             0.1%     yes
+  power strip               2/2             0.1%     yes
+  bottle                    0/3             0.0%     NO
+  electrical duct           0/2             0.0%     NO
+  power socket              1/2             0.0%     yes
+  cable                     0/1             0.0%     yes
+  hole puncher              1/1             0.0%     NO

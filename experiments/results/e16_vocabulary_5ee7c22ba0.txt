@@ -1,0 +1,47 @@
+# Qwen/Qwen3-VL-2B-Instruct, union over 20 views of views_n20_uniform_504.npz
+wall
+floor
+table
+microwave
+box
+paper
+door
+surface
+ceiling
+desk
+cabinet
+book
+notebook
+window
+scissors
+tape
+light
+switch
+calendar
+latch
+handle
+magnet
+refrigerator
+mat
+wire
+printer
+monitor
+shelf
+electrical outlet
+board
+screen
+copier
+trash can
+crate
+cable
+picture
+bottle
+power strip
+power cord
+nail
+ladder
+blackboard
+laser
+plastic
+toy
+hat

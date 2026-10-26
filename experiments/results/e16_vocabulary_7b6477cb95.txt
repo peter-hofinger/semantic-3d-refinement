@@ -1,0 +1,61 @@
+# Qwen/Qwen3-VL-2B-Instruct, union over 20 views of views_n20_uniform_504.npz
+wall
+floor
+ceiling
+cabinet
+chair
+fan
+desk
+whiteboard
+door
+power outlet
+socket
+window
+light switch
+trash can
+box
+book
+monitor
+computer
+keyboard
+power strip
+cable
+phone
+laptop
+computer mouse
+light
+wall outlet
+shelf
+cord
+blackboard
+text
+drawer
+mouse
+cup
+can
+latch
+door handle
+window frame
+light fixture
+coat rack
+curtain
+hook
+towel
+mirror
+paper
+card
+bin
+bookshelf
+cog
+lamp
+pen
+marker
+notepad
+lightbulb
+switch
+pencil
+caddy
+hanger
+staircase
+pipe
+electrical outlet

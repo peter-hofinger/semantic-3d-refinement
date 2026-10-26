@@ -1,0 +1,44 @@
+5ee7c22ba0: 20 views, 46 prompts, 46 classes
+  view  0:  44 masks
+  view  1:  40 masks
+  view  2:  56 masks
+  view  3:  52 masks
+  view  4:  36 masks
+  view  5:  28 masks
+  view  6:  48 masks
+  view  7:  42 masks
+  view  8:  49 masks
+  view  9:  82 masks
+  view 10:  72 masks
+  view 11:  86 masks
+  view 12:  70 masks
+  view 13: 100 masks
+  view 14:  21 masks
+  view 15:  66 masks
+  view 16:  40 masks
+  view 17:  64 masks
+  view 18:  27 masks
+  view 19:  41 masks
+5ee7c22ba0: 1064 instances in 20 views, 131s, peak GPU 2.13 GB -> data\processed\scannetpp\5ee7c22ba0\sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+7b6477cb95: 20 views, 60 prompts, 60 classes
+  view  0:  43 masks
+  view  1: 116 masks
+  view  2:  52 masks
+  view  3: 111 masks
+  view  4:  49 masks
+  view  5:  86 masks
+  view  6:  76 masks
+  view  7:  38 masks
+  view  8:  53 masks
+  view  9:  74 masks
+  view 10:  92 masks
+  view 11:  36 masks
+  view 12:  53 masks
+  view 13:  11 masks
+  view 14:  92 masks
+  view 15: 116 masks
+  view 16: 110 masks
+  view 17: 133 masks
+  view 18: 112 masks
+  view 19:  55 masks
+7b6477cb95: 1508 instances in 20 views, 169s, peak GPU 2.11 GB -> data\processed\scannetpp\7b6477cb95\sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz

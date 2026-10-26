@@ -1,0 +1,33 @@
+343 of 613 counted masks unmatched (precision 0.44)
+unmatched masks by predicted class:
+  bottle             91
+  surface            44
+  plastic            35
+  box                27
+  wall               20
+  wire               17
+  door               13
+  handle             13
+  table              10
+  printer            10
+  crate              10
+  paper               9
+  power cord          9
+  cable               7
+  hat                 4
+top (predicted class -> dominant GT class, >90% inside it or spanning):
+  bottle           -> bottle crate       inside   80
+  plastic          -> bottle crate       spans    20
+  box              -> bottle crate       spans    15
+  wall             -> wall               inside   12
+  door             -> cabinet            inside   11
+  bottle           -> bottle crate       spans    10
+  plastic          -> bottle crate       inside    9
+  table            -> table              spans     7
+  surface          -> wall               spans     7
+  box              -> bottle crate       inside    7
+  handle           -> door               inside    6
+  printer          -> copy machine       spans     6
+  crate            -> bottle crate       inside    6
+  surface          -> ceiling            spans     5
+  plastic          -> trash bin          spans     5
