@@ -60,21 +60,37 @@ def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
     return dxx, dyy, dxy
 
 
+LOG_KEYS = ("E", "E_d", "E_bd", "E_delta")
+
+
+def normalize(depth: Tensor, conf: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Median depth scale, normalized inverse depth d0 = scale / depth, and mean-one confidence weights."""
+    scale = depth.median()
+    return scale, scale / depth, conf / conf.mean()
+
+
+def term_weights(cfg: RefineConfig) -> dict[str, float]:
+    """Weight of each energy term in E."""
+    return {"E_d": 1.0, "E_bd": cfg.lambda_bd, "E_delta": cfg.lambda_delta}
+
+
+def energy_maps(delta: Tensor, d0: Tensor, w: Tensor, cfg: RefineConfig) -> dict[str, Tensor]:
+    """Unweighted per-pixel cost of each term; their means are the terms of E."""
+    dxx, dyy, dxy = second_differences(d0 + delta)
+    smooth = F.pad(dxx.square(), (1, 1)) + F.pad(dyy.square(), (0, 0, 1, 1)) + 2 * F.pad(dxy.square(), (0, 1, 0, 1))
+    return {
+        "E_d": w * F.huber_loss(delta, torch.zeros_like(delta), reduction="none", delta=cfg.huber),
+        "E_bd": smooth,
+        "E_delta": delta.square(),
+    }
+
+
 def energy(delta: Tensor, d0: Tensor, w: Tensor, cfg: RefineConfig) -> tuple[Tensor, dict[str, float]]:
     """E = E_d + lambda_bd E_bd + lambda_delta ||delta||^2, each a per-pixel mean."""
-    d = d0 + delta
-    e_d = (w * F.huber_loss(delta, torch.zeros_like(delta), reduction="none", delta=cfg.huber)).mean()
-    dxx, dyy, dxy = second_differences(d)
-    e_bd = dxx.square().mean() + dyy.square().mean() + 2 * dxy.square().mean()
-    e_delta = delta.square().mean()
-    e = e_d + cfg.lambda_bd * e_bd + cfg.lambda_delta * e_delta
-    assert e.isfinite(), e
-    return e, {
-        "E": e.item(),
-        "E_d": e_d.item(),
-        "E_bd": e_bd.item(),
-        "E_delta": e_delta.item(),
-    }
+    terms = {k: v.mean() for k, v in energy_maps(delta, d0, w, cfg).items()}
+    e = sum(term_weights(cfg)[k] * terms[k] for k in terms)
+    assert isinstance(e, Tensor) and e.isfinite(), e
+    return e, {"E": e.item()} | {k: v.item() for k, v in terms.items()}
 
 
 def refine(
@@ -85,9 +101,7 @@ def refine(
 ) -> tuple[Tensor, Tensor, Tensor, list[dict[str, float]]]:
     """Optimize the dense residual delta on normalized inverse depth; return depth, points, delta, energy log."""
     check_inputs(depth, rays, conf)
-    scale = depth.median()
-    d0 = scale / depth
-    w = conf / conf.mean()
+    scale, d0, w = normalize(depth, conf)
     delta = torch.zeros_like(depth, requires_grad=True)
 
     log = [energy(delta, d0, w, cfg)[1]]
@@ -193,7 +207,7 @@ def main() -> None:
         depth=depth_hat.cpu().numpy(),
         points=points.cpu().numpy(),
         delta=delta.cpu().numpy(),
-        energy=np.array([e["E"] for e in log]),
+        energy=np.array([[e[k] for k in LOG_KEYS] for e in log]),
     )
     write_ply(out / "input.ply", points_from_rays(depth, rays).reshape(-1, 3).cpu().numpy())
     write_ply(out / "refined.ply", points.reshape(-1, 3).cpu().numpy())

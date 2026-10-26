@@ -7,3 +7,7 @@ refine:
   lambda_delta: 0.0
   history_size: 20
   device: cuda
+sweep:
+  lambda_bd: [0.0, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  huber: [0.005, 0.02, 0.05, 0.2, 1.0, 1000.0]
+  lambda_delta: [0.0, 0.01, 0.1, 1.0, 10.0]
