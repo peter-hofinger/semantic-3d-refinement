@@ -23,15 +23,7 @@ import torch
 import yaml
 from torch import Tensor
 
-from semantic_3d_refinement.refine import (
-    camera_alignment,
-    fit_projection,
-    git_hash,
-    load_views,
-    multiview_error,
-    multiview_metrics,
-    points_from_rays,
-)
+from semantic_3d_refinement.refine import git_hash, load_view
 
 
 @dataclass(frozen=True)
@@ -210,131 +202,89 @@ def bini(
 DSINE_SIGNS = {"as_is": (1, 1, 1), "negated": (-1, -1, -1), "opengl": (1, -1, -1), "flip_xy": (-1, -1, 1)}
 
 
-def run_dsine(images: np.ndarray, intrinsics: np.ndarray, repo: Path) -> np.ndarray:
-    """Per-view DSINE normals in the camera frame as DSINE returns them, (V, H, W, 3)."""
+def run_dsine(image: np.ndarray, intrinsics: np.ndarray, repo: Path) -> np.ndarray:
+    """DSINE normals of one image, in the camera frame as DSINE returns them, (H, W, 3)."""
     sys.path.insert(0, str(repo))
     spec = importlib.util.spec_from_file_location("dsine_hubconf", repo / "hubconf.py")
     assert spec is not None and spec.loader is not None
     hub = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hub)
     predictor = hub.DSINE()
-    out = []
     with torch.no_grad():
-        for img, k in zip(images, intrinsics, strict=True):
-            x = torch.from_numpy(img).float().permute(2, 0, 1)[None] / 255
-            n = predictor.infer_tensor(x, torch.from_numpy(k).float()[None].cuda())[0]
-            out.append(n.permute(1, 2, 0).cpu().numpy())
-    return np.stack(out).astype(np.float32)
+        x = torch.from_numpy(image).float().permute(2, 0, 1)[None] / 255
+        n = predictor.infer_tensor(x, torch.from_numpy(intrinsics).float()[None].cuda())[0]
+    return n.permute(1, 2, 0).cpu().numpy().astype(np.float32)
 
 
 def to_world(normals_cam: np.ndarray, cam_to_world: np.ndarray, depth: Tensor, rays: Tensor) -> tuple[Tensor, str]:
     """Rotate camera-frame normals into the ray frame, with the axis signs that best match the depth's own normals."""
-    rot = torch.from_numpy(cam_to_world[:, :3, :3]).to(rays)
-    ref = torch.stack([normals_from_depth(d, r) for d, r in zip(depth, rays, strict=True)])
+    rot = torch.from_numpy(cam_to_world[:3, :3]).to(rays)
+    ref = normals_from_depth(depth, rays)
     cam = torch.from_numpy(normals_cam).to(rays)
-    agree = {}
-    for name, sign in DSINE_SIGNS.items():
-        world = torch.einsum("vij,vhwj->vhwi", rot, cam * torch.tensor(sign).to(cam))
-        agree[name] = (world * ref).sum(-1).median().item()
+    worlds = {name: (cam * torch.tensor(sign).to(cam)) @ rot.T for name, sign in DSINE_SIGNS.items()}
+    agree = {name: (world * ref).sum(-1).median().item() for name, world in worlds.items()}
     best = max(agree, key=agree.__getitem__)
     assert agree[best] > 0.5, agree  # noqa: PLR2004
-    world = torch.einsum("vij,vhwj->vhwi", rot, cam * torch.tensor(DSINE_SIGNS[best]).to(cam))
+    world = worlds[best]
     return world / world.norm(dim=-1, keepdim=True), best
 
 
 def predicted_normals(raw: dict, data: dict[str, Tensor]) -> tuple[Tensor, dict]:
-    """World-frame normals per view from the configured source, DSINE outputs cached next to the backbone's."""
+    """Return the configured view's normals in the ray frame; DSINE outputs are cached next to the backbone's."""
     if raw["normals"] == "depth":
-        return torch.stack([normals_from_depth(d, r) for d, r in zip(data["depth"], data["rays"], strict=True)]), {}
+        return normals_from_depth(data["depth"], data["rays"]), {}
     assert raw["normals"] == "dsine", raw["normals"]
-    backbone = np.load(raw["input"])
-    views = raw.get("views")
-    cache = Path(raw["input"]).with_name("dsine_" + Path(raw["input"]).name)
+    view, src = raw["view"], Path(raw["input"])
+    backbone = np.load(src)
+    cache = src.with_name(f"dsine_view{view}_{src.name}")
     if not cache.exists():
-        images = np.load(raw["gt_views"])["images"]
-        np.savez(cache, normals=run_dsine(images, backbone["intrinsics"], Path(raw["dsine_repo"])))
-    cam = np.load(cache)["normals"]
-    c2w = backbone["cam_to_world"]
-    cam, c2w = (cam[views], c2w[views]) if views is not None else (cam, c2w)
-    world, convention = to_world(cam, c2w, data["depth"], data["rays"])
+        image = np.load(raw["gt_views"])["images"][view]
+        np.savez(cache, normals=run_dsine(image, backbone["intrinsics"][view], Path(raw["dsine_repo"])))
+    world, convention = to_world(np.load(cache)["normals"], backbone["cam_to_world"][view], data["depth"], data["rays"])
     return world, {"dsine_cache": str(cache), "dsine_convention": convention}
 
 
 def angle_to(normals: Tensor, depth: Tensor, rays: Tensor) -> float:
-    """Median angle in degrees between the depth's own normals and the given normals, over all views."""
-    own = torch.stack([normals_from_depth(d, r) for d, r in zip(depth, rays, strict=True)])
+    """Median angle in degrees between the depth's own normals and the given normals."""
+    own = normals_from_depth(depth, rays)
     return torch.rad2deg(torch.acos((own * normals).sum(-1).clamp(-1, 1))).median().item()
 
 
-def integrate_all(normals: Tensor, data: dict[str, Tensor], cfg: BiniConfig) -> tuple[Tensor, list[int], list[float]]:
-    """BiNI per view; return depth, outer iterations and seconds per view."""
-    out, iters, seconds = [], [], []
-    for n, r, d in zip(normals, data["rays"], data["depth"], strict=True):
-        t0 = time.perf_counter()
-        depth_hat, _, log = bini(n, r, d, cfg)
-        if d.is_cuda:
-            torch.cuda.synchronize()
-        out.append(depth_hat)
-        iters.append(len(log) - 1)
-        seconds.append(round(time.perf_counter() - t0, 3))
-    return torch.stack(out), iters, seconds
-
-
 def main() -> None:
-    """Integrate normals per view: `uv run python -m semantic_3d_refinement.normals --cfg configs/<name>.yaml`."""
+    """Integrate normals into one view: `uv run python -m semantic_3d_refinement.normals --cfg configs/<name>.yaml`."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
     cfg_path: Path = parser.parse_args().cfg
     raw = yaml.safe_load(cfg_path.read_text())
     cfg = BiniConfig(**raw["bini"])
     device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
-    data = {k: v.to(device) for k, v in load_views(Path(raw["input"]), raw.get("views")).items()}
+    data = {k: v.to(device) for k, v in load_view(Path(raw["input"]), raw.get("view")).items()}
     depth, rays = data["depth"], data["rays"]
 
     t0 = time.perf_counter()
     normals, normals_info = predicted_normals(raw, data)
     normals_seconds = time.perf_counter() - t0
-    depth_hat, iters, seconds = integrate_all(normals, data, cfg)
+    t0 = time.perf_counter()
+    depth_hat, _, log = bini(normals, rays, depth, cfg)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    seconds = time.perf_counter() - t0
 
-    metrics_in = {"angle_to_normals_deg": angle_to(normals, depth, rays)}
-    metrics_out = {"angle_to_normals_deg": angle_to(normals, depth_hat, rays)}
-    if len(depth) > 1:
-        cams = [fit_projection(r) for r in rays]
-        mv_in, mv_out = multiview_error(depth, rays, cams), multiview_error(depth_hat, rays, cams)
-        metrics_in |= multiview_metrics(mv_in)
-        metrics_out |= multiview_metrics(mv_out)
     summary = {
         "config": raw,
         "resolved": dataclasses.asdict(cfg),
         "git": git_hash(),
-        "views": len(depth),
         "normals_seconds": normals_seconds,
-        "refine_seconds": sum(seconds),
-        "refine_seconds_per_view": seconds,
-        "outer_iterations": iters,
+        "refine_seconds": seconds,
+        "outer_iterations": len(log) - 1,
         **normals_info,
-        "metrics_input": metrics_in,
-        "metrics_refined": metrics_out,
+        "metrics_input": {"angle_to_normals_deg": angle_to(normals, depth, rays)},
+        "metrics_refined": {"angle_to_normals_deg": angle_to(normals, depth_hat, rays)},
     }
-    if "gt_views" in raw:
-        all_rays = load_views(Path(raw["input"]))["rays"]
-        cams_gt = camera_alignment(all_rays, Path(raw["gt_views"]), None)
-        shift = (points_from_rays(depth_hat, rays) - points_from_rays(depth, rays)).norm(dim=-1)
-        summary |= {"cameras": cams_gt, "mean_point_shift_mm": 1000 * cams_gt["scale_to_m"] * shift.mean().item()}
-    sweep = {}
-    for key, values in raw.get("sweep", {}).items() if len(depth) > 1 else ():
-        sweep[key] = []
-        for v in values:
-            d = integrate_all(normals, data, dataclasses.replace(cfg, **{key: v}))[0]
-            sweep[key].append(multiview_metrics(multiview_error(d, rays, cams))["mv_median"])
-    summary["sweep_mv_median"] = sweep
-
     out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True)
     (out / "run.yaml").write_text(yaml.safe_dump(summary, sort_keys=False))
     np.savez(out / "refined.npz", depth=depth_hat.cpu().numpy(), normals=normals.cpu().numpy())
-    if len(depth) > 1:
-        np.savez(out / "multiview_error.npz", input=mv_in.cpu().numpy(), refined=mv_out.cpu().numpy())
     print(yaml.safe_dump({k: v for k, v in summary.items() if k != "config"}, sort_keys=False))  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
 

@@ -1,6 +1,6 @@
 input: data/processed/scannetpp/5ee7c22ba0/dejaview_k16_views_n20_uniform_504.npz
 gt_views: data/processed/scannetpp/5ee7c22ba0/views_n20_uniform_504.npz
-views: [13]   # one view: BiNI is per view; cross-view metrics need the multi-view runs
+view: 13
 normals: dsine   # dsine | depth (sanity: the input's own normals)
 dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25, kept outside git (non-commercial licence)
 output_dir: runs

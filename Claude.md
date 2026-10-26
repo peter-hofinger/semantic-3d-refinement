@@ -29,11 +29,14 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_bd: smoothing within segments only, so boundaries stay sharp.
 - E_pr: planarity for structural classes (wall, floor, table).
 
-Status: per-view δ only (`refine.py`), no segments, no a or b. Runs on Déjà View outputs for two ScanNet++
-scenes (office 7b6477cb95, kitchen 5ee7c22ba0) with a GT-free metric: cross-view disagreement under the frozen
-cameras. Segment-free smoothing never beats the input. Side study (`normals.py`): DSINE normals integrated with
-BiNI against the Déjà View depth; a small cross-view gain, but the detail does not transfer. No GT depth yet:
-the laser-scan meshes need a ScanNet++ token.
+Scope: monocular only. Every run refines one view (`view:` in the config); no multi-view code, metrics or
+experiments until that is decided. E_mv above is the long-term plan, not current work.
+
+Status: δ only (`refine.py`), no segments, no a or b; verified on a synthetic room with GT. On real data,
+Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0
+view 13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the
+normals of the result (patch grid, edges) and their angle to DSINE's. No GT depth yet: the laser-scan meshes
+need a ScanNet++ token.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.

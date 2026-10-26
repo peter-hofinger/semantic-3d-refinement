@@ -2,22 +2,18 @@
 
 import dataclasses
 
-import numpy as np
 import pytest
 import torch
 
 from semantic_3d_refinement.normals import BiniConfig, bini, normals_from_depth
 from semantic_3d_refinement.refine import (
     RefineConfig,
-    align_sim3,
     depth_metrics,
-    fit_projection,
-    multiview_error,
     points_from_rays,
     refine,
     second_differences,
 )
-from semantic_3d_refinement.synthetic import ROOM_PLANES, pinhole_rays, ray_depth, room_scene
+from semantic_3d_refinement.synthetic import room_scene
 
 CFG = RefineConfig(device="cpu")
 
@@ -67,26 +63,6 @@ def test_rejects_bad_inputs() -> None:
         refine(depth, rays[..., :3], conf, CFG)
     with pytest.raises(AssertionError):
         RefineConfig(iters=-1)
-
-
-def test_sim3_is_recovered() -> None:
-    src = torch.randn(10, 3, generator=torch.Generator().manual_seed(0))
-    rot = torch.linalg.matrix_exp(torch.tensor([[0.0, -0.3, 0.2], [0.3, 0.0, -0.1], [-0.2, 0.1, 0.0]]))
-    shift = torch.tensor([1.0, -2.0, 0.5])
-    s, r, t = align_sim3(src, 1.7 * src @ rot.T + shift)
-    assert abs(s - 1.7) < 1e-6
-    assert torch.allclose(r.float(), rot, atol=1e-6) and torch.allclose(t.float(), shift, atol=1e-5)
-
-
-def test_true_depth_agrees_across_views() -> None:
-    views = [pinhole_rays(48, 64, 50.0, yaw, (0.1 * yaw, -0.1, 0.2)) for yaw in (0.0, 0.3)]
-    rays = torch.from_numpy(np.stack(views))
-    gt = torch.from_numpy(ray_depth(rays.numpy(), ROOM_PLANES))
-    rays, gt = rays.float(), gt.float()
-    cams = [fit_projection(r) for r in rays]
-    err = multiview_error(gt, rays, cams)
-    assert err.isfinite().float().mean() > 0.5 and err.nanmedian() < 0.01
-    assert multiview_error(gt * 1.1 ** torch.arange(2.0)[:, None, None], rays, cams).nanmedian() > 0.03
 
 
 TILTED_PLANE = (((0.2, 0.0, 1.0), 3.0),)
