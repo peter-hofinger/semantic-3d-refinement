@@ -16,7 +16,7 @@ from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 
-from semantic_3d_refinement.normals import normals_from_depth
+from semantic_3d_refinement.normals import BiniConfig, bini, normals_from_depth
 from semantic_3d_refinement.refine import (
     LOG_KEYS,
     RefineConfig,
@@ -57,6 +57,8 @@ CAPTIONS = {
     "normal_sources": "Normals per view: Déjà View's depth, DSINE's prediction (rotated into the same frame), and the "
     "depth after BiNI integrates DSINE's normals against Déjà View's depth.",
     "detail_crops": "The same three, zoomed where DSINE's normals carry the most detail.",
+    "compare": "One view under several BiNI prior settings (sigma = blur of the depth prior in px, λ = its weight); "
+    "bottom row zoomed where DSINE has the most detail. In brackets: median angle to DSINE's normals.",
     "bini_sweep": "Cross-view disagreement over all views versus each BiNI weight, one at a time (circle: this "
     "run). Dashed: Déjà View input.",
     "sweep_real": "Smoothness weight λ_bd on real data: normals of the first view and cross-view disagreement "
@@ -514,6 +516,39 @@ def bini_sweep(out: Path, summary: dict) -> None:
     plt.close(fig)
 
 
+def bini_compare(out: Path, raw: dict, data: dict[str, np.ndarray], refined: dict, images: np.ndarray) -> None:
+    """Plot normals of the first view under each configured BiNI setting, full and zoomed where DSINE has detail."""
+    settings = raw.get("compare", [])
+    if not settings:
+        return
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    rays = torch.from_numpy(data["rays"][0]).to(device)
+    depth = torch.from_numpy(data["depth"][0]).to(device)
+    dsine = torch.from_numpy(refined["normals"][0]).to(device)
+
+    def shade(d: torch.Tensor) -> tuple[np.ndarray, float]:
+        n = normals_from_depth(d, rays)
+        angle = torch.rad2deg(torch.acos((n * dsine).sum(-1).clamp(-1, 1))).median().item()
+        return n.cpu().numpy() * 0.5 + 0.5, angle
+
+    panels = [("image", images[0]), (f"Déjà View  ({shade(depth)[1]:.1f}°)", shade(depth)[0])]
+    panels.append(("DSINE", dsine.cpu().numpy() * 0.5 + 0.5))
+    for s in settings:
+        cfg = BiniConfig(**{**raw["bini"], **s, "device": device})
+        img, angle = shade(bini(dsine, rays, depth, cfg)[0])
+        panels.append((f"sigma = {cfg.prior_sigma:g}, λ = {cfg.lambda_depth:g}  ({angle:.1f}°)", img))
+    win = detail_window(panels[2][1], 112)
+    fig, axes = plt.subplots(2, len(panels), figsize=(3.3 * len(panels), 5.2), constrained_layout=True)
+    for c, (title, img) in enumerate(panels):
+        for r, w in enumerate(((slice(None), slice(None)), win)):
+            axes[r, c].imshow(img[w], interpolation="nearest")
+            axes[r, c].set_axis_off()
+        axes[0, c].set_title(title, fontsize=8)
+    fig.suptitle("BiNI prior settings, one view (° = median angle to DSINE normals)", color=INK)
+    fig.savefig(out / "compare.png", dpi=150)
+    plt.close(fig)
+
+
 def bini_figures(run: Path, out: Path) -> dict[str, float]:
     """Figures for a normal-integration run (semantic_3d_refinement.normals); return the metric table."""
     summary = yaml.safe_load((run / "run.yaml").read_text())
@@ -524,8 +559,10 @@ def bini_figures(run: Path, out: Path) -> dict[str, float]:
     images = np.load(raw["gt_views"])["images"]
     images = images[raw["views"]] if raw.get("views") is not None else images
     out.mkdir(parents=True, exist_ok=True)
-    mv = dict(np.load(run / "multiview_error.npz"))
-    multiview_figures(out, images, depth, rays, {"depth": refined["depth"], "conf": data["conf"], "multiview": mv})
+    if (run / "multiview_error.npz").exists():
+        mv = dict(np.load(run / "multiview_error.npz"))
+        multiview_figures(out, images, depth, rays, {"depth": refined["depth"], "conf": data["conf"], "multiview": mv})
+    bini_compare(out, raw, data, refined, images)
 
     show = pick(len(depth))
 
@@ -563,7 +600,15 @@ def bini_figures(run: Path, out: Path) -> dict[str, float]:
         table |= {f"{k}_input": summary["metrics_input"][k], f"{k}_refined": summary["metrics_refined"][k]}
     lines = [f"# {run.name}", "", f"git `{summary['git']}`", "", "| metric | value |", "|---|---|"]
     lines += [f"| {k} | {v:.4g} |" for k, v in table.items()]
-    for name in ("normal_sources", "detail_crops", "bini_sweep", "normals", "multiview_maps", "multiview_per_view"):
+    for name in (
+        "compare",
+        "normal_sources",
+        "detail_crops",
+        "bini_sweep",
+        "normals",
+        "multiview_maps",
+        "multiview_per_view",
+    ):
         if (out / f"{name}.png").exists():
             lines += ["", f"## {name}", "", CAPTIONS[name], "", f"![{name}]({name}.png)"]
     (out / "README.md").write_text("\n".join([*lines, ""]))

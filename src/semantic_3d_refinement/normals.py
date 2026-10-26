@@ -296,8 +296,13 @@ def main() -> None:
     normals_seconds = time.perf_counter() - t0
     depth_hat, iters, seconds = integrate_all(normals, data, cfg)
 
-    cams = [fit_projection(r) for r in rays]
-    mv_in, mv_out = multiview_error(depth, rays, cams), multiview_error(depth_hat, rays, cams)
+    metrics_in = {"angle_to_normals_deg": angle_to(normals, depth, rays)}
+    metrics_out = {"angle_to_normals_deg": angle_to(normals, depth_hat, rays)}
+    if len(depth) > 1:
+        cams = [fit_projection(r) for r in rays]
+        mv_in, mv_out = multiview_error(depth, rays, cams), multiview_error(depth_hat, rays, cams)
+        metrics_in |= multiview_metrics(mv_in)
+        metrics_out |= multiview_metrics(mv_out)
     summary = {
         "config": raw,
         "resolved": dataclasses.asdict(cfg),
@@ -308,15 +313,16 @@ def main() -> None:
         "refine_seconds_per_view": seconds,
         "outer_iterations": iters,
         **normals_info,
-        "metrics_input": multiview_metrics(mv_in) | {"angle_to_normals_deg": angle_to(normals, depth, rays)},
-        "metrics_refined": multiview_metrics(mv_out) | {"angle_to_normals_deg": angle_to(normals, depth_hat, rays)},
+        "metrics_input": metrics_in,
+        "metrics_refined": metrics_out,
     }
     if "gt_views" in raw:
-        cams_gt = camera_alignment(rays, Path(raw["gt_views"]), raw.get("views"))
+        all_rays = load_views(Path(raw["input"]))["rays"]
+        cams_gt = camera_alignment(all_rays, Path(raw["gt_views"]), None)
         shift = (points_from_rays(depth_hat, rays) - points_from_rays(depth, rays)).norm(dim=-1)
         summary |= {"cameras": cams_gt, "mean_point_shift_mm": 1000 * cams_gt["scale_to_m"] * shift.mean().item()}
     sweep = {}
-    for key, values in raw.get("sweep", {}).items():
+    for key, values in raw.get("sweep", {}).items() if len(depth) > 1 else ():
         sweep[key] = []
         for v in values:
             d = integrate_all(normals, data, dataclasses.replace(cfg, **{key: v}))[0]
@@ -327,7 +333,8 @@ def main() -> None:
     out.mkdir(parents=True)
     (out / "run.yaml").write_text(yaml.safe_dump(summary, sort_keys=False))
     np.savez(out / "refined.npz", depth=depth_hat.cpu().numpy(), normals=normals.cpu().numpy())
-    np.savez(out / "multiview_error.npz", input=mv_in.cpu().numpy(), refined=mv_out.cpu().numpy())
+    if len(depth) > 1:
+        np.savez(out / "multiview_error.npz", input=mv_in.cpu().numpy(), refined=mv_out.cpu().numpy())
     print(yaml.safe_dump({k: v for k, v in summary.items() if k != "config"}, sort_keys=False))  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
 
