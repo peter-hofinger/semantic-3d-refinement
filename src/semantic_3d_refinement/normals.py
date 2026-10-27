@@ -14,6 +14,7 @@ frequencies of the depth, and the normals alone set the detail.
 
 import argparse
 import dataclasses
+import heapq
 import importlib.util
 import sys
 import time
@@ -114,25 +115,117 @@ def side_weights(z: Tensor, a: Tensor, k: float) -> list[tuple[Tensor, Tensor]]:
 
 
 def cut_weights(z0: Tensor, terms: list, tol: float, window: int = 7) -> list[tuple[Tensor, Tensor]]:
-    """Weights that cut each occlusion edge of the prior along one closed contour; 0.5 elsewhere.
+    """Weights that cut each occlusion edge of the prior along closed contours; 0.5 elsewhere.
 
     Each pixel lies above or below the local mid-depth (mean of the max and min of log depth in a window that spans
     a soft edge). An edge (p, q) is cut where p and q lie on different sides and the prior's step departs from the
-    slope the normals imply by more than tol. A level set is closed, so the two surfaces cannot leak into each
-    other, and the pixels of a soft ramp join their side instead of a break picked row by row as BiNI's weights do.
+    slope the normals imply by more than tol. A level set is closed, so two surfaces cannot leak into each other,
+    and the pixels of a soft ramp join their side instead of a break picked row by row as BiNI's weights do.
+    Where three layers meet, the middle one changes side and its contour stops short; `close_cuts` joins such ends.
     """
     pool = torch.nn.functional.max_pool2d
     hi = pool(z0[None, None], window, stride=1, padding=window // 2)[0, 0]
     lo = -pool(-z0[None, None], window, stride=1, padding=window // 2)[0, 0]
     side = z0 > 0.5 * (hi + lo)
-    out = []
+    cuts, steps = [], []
     for (af, gf, ab, gb), dz, crossed in zip(
         terms, diffs(z0), (side[:, 1:] != side[:, :-1], side[1:] != side[:-1]), strict=True
     ):
         r = (dz + 0.5 * (gf / af.clamp_min(1e-12) + gb / ab.clamp_min(1e-12))).abs()
-        keep = 0.5 * ~(crossed & (r > tol))
+        cuts.append((crossed & (r > tol)).cpu().numpy())
+        steps.append((r / tol).cpu().numpy())
+    out = []
+    for cut in close_cuts(cuts, steps, budget=float(window)):
+        keep = 0.5 * ~torch.from_numpy(cut).to(z0.device)
         out.append((keep, keep.clone()))
     return out
+
+
+def crack_tips(cut_x: np.ndarray, cut_y: np.ndarray) -> np.ndarray:
+    """Pixel corners (H+1, W+1) inside the image where exactly one cut edge ends: contours that stop short.
+
+    The cut between (y, x) and (y, x+1) joins corners (y, x+1) and (y+1, x+1); between (y, x) and (y+1, x),
+    corners (y+1, x) and (y+1, x+1).
+    """
+    h, w = cut_x.shape[0], cut_y.shape[1]
+    deg = np.zeros((h + 1, w + 1), int)
+    deg[:-1, 1:-1] += cut_x
+    deg[1:, 1:-1] += cut_x
+    deg[1:-1, :-1] += cut_y
+    deg[1:-1, 1:] += cut_y
+    tips = deg == 1
+    tips[0], tips[-1], tips[:, 0], tips[:, -1] = False, False, False, False
+    return tips
+
+
+Corner = tuple[int, int]
+Edge = tuple[int, int, int]  # axis (0: x, 1: y) and the pixel (y, x) on its low side
+
+
+def corner_moves(c: Corner, h: int, w: int) -> list[tuple[Corner, Edge]]:
+    """Neighbors of a pixel corner, each with the pixel edge that stepping there cuts (layout as in crack_tips)."""
+    i, j = c
+    moves = []
+    if 0 < j < w and i < h:
+        moves.append(((i + 1, j), (0, i, j - 1)))
+    if 0 < j < w and i > 0:
+        moves.append(((i - 1, j), (0, i - 1, j - 1)))
+    if 0 < i < h and j < w:
+        moves.append(((i, j + 1), (1, i - 1, j)))
+    if 0 < i < h and j > 0:
+        moves.append(((i, j - 1), (1, i - 1, j - 1)))
+    return moves
+
+
+def close_cuts(cuts: list[np.ndarray], steps: list[np.ndarray], budget: float) -> list[np.ndarray]:
+    """Extend each contour that stops short to the nearest other contour or the image border, if one is close.
+
+    Shortest path on the pixel corners from each crack tip; cutting edge e costs max(1, 1 / step_e^2), with step
+    the prior's departure from the normals in units of tol, so the path follows the prior's edge and does not
+    cross a smooth surface (noise of tol / 4 costs 16). Paths dearer than `budget` are not taken: a contour that
+    ends because the occlusion fades out stays open.
+    """
+    (h, w1), (h1, w) = cuts[0].shape, cuts[1].shape
+    assert (h1, w1) == (h - 1, w - 1) and [c.shape for c in cuts] == [s.shape for s in steps]
+    cuts = [c.copy() for c in cuts]
+    costs = [np.maximum(1, np.maximum(s, 1e-6) ** -2) for s in steps]
+    for tip in map(tuple, np.argwhere(crack_tips(*cuts)).tolist()):
+        if sum(cuts[a][y, x] for _, (a, y, x) in corner_moves(tip, h, w)) == 1:  # not closed by an earlier path
+            for a, y, x in shortest_cut(tip, cuts, costs, budget):
+                cuts[a][y, x] = True
+    return cuts
+
+
+def shortest_cut(tip: Corner, cuts: list[np.ndarray], costs: list[np.ndarray], budget: float) -> list[Edge]:
+    """Cheapest edges from a crack tip to another contour or the border (Dijkstra); none if dearer than budget.
+
+    The tip's own contour, up to `budget` corners back along it, is not a target, or every tip would close on
+    itself.
+    """
+    h, w = cuts[1].shape[0] + 1, cuts[0].shape[1] + 1
+
+    def cut_moves(c: Corner) -> list[Corner]:
+        return [n for n, (a, y, x) in corner_moves(c, h, w) if cuts[a][y, x]]
+
+    own, frontier = {tip}, [tip]
+    for _ in range(int(budget)):
+        frontier = [n for c in frontier for n in cut_moves(c) if n not in own]
+        own.update(frontier)
+    dist, prev, heap = {tip: 0.0}, {}, [(0.0, tip)]
+    while heap:
+        d, c = heapq.heappop(heap)
+        if c not in own and (c[0] in {0, h} or c[1] in {0, w} or cut_moves(c)):
+            path = []
+            while c != tip:
+                c, edge = prev[c]
+                path.append(edge)
+            return path
+        for n, (a, y, x) in corner_moves(c, h, w):
+            nd = d + costs[a][y, x]
+            if d == dist[c] and nd <= budget and nd < dist.get(n, np.inf):
+                dist[n], prev[n] = nd, (c, (a, y, x))
+                heapq.heappush(heap, (nd, n))
+    return []
 
 
 def grid_score(normals: Tensor, patch: int = 14) -> float:

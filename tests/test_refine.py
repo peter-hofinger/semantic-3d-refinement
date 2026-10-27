@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from semantic_3d_refinement.normals import BiniConfig, bini, grid_score, normals_from_depth
+from semantic_3d_refinement.normals import BiniConfig, bini, close_cuts, crack_tips, grid_score, normals_from_depth
 from semantic_3d_refinement.refine import (
     RefineConfig,
     depth_metrics,
@@ -15,7 +15,7 @@ from semantic_3d_refinement.refine import (
     refine,
     second_differences,
 )
-from semantic_3d_refinement.synthetic import occlusion_scene, room_scene
+from semantic_3d_refinement.synthetic import junction_scene, occlusion_scene, room_scene
 
 CFG = RefineConfig(device="cpu")
 
@@ -141,3 +141,32 @@ def test_occlusion_edge_is_cut_on_one_clean_contour() -> None:
     assert off_edge_jumps("depth") == 0 < off_edge_jumps("bilateral")
     d = bini(normals, rays, scene_["depth"], BiniConfig(lambda_depth=100.0, edges="depth", device="cpu"))[0]
     assert ((d - gt).abs() / gt).max() < 0.05
+
+
+def test_close_cuts_bridges_a_gap_along_the_edge_and_leaves_a_fading_edge_open() -> None:
+    h, w = 12, 12
+    cut_x, cut_y = np.zeros((h, w - 1), bool), np.zeros((h - 1, w), bool)
+    step_x, step_y = np.full((h, w - 1), 0.1), np.full((h - 1, w), 0.1)
+    cut_y[5, :4] = cut_y[5, 6:] = True  # a horizontal contour with a 2-edge gap ...
+    step_y[5] = 2.0  # ... across which the prior still steps
+    cut_x[1:3, 5] = True  # and a short contour ending in a smooth surface
+    tips_before = crack_tips(cut_x, cut_y)
+    assert tips_before.sum() == 4
+    cut_x, cut_y = close_cuts([cut_x, cut_y], [step_x, step_y], budget=7.0)
+    assert cut_y[5].all() and cut_x[1:3, 5].all() and cut_x.sum() == 2
+    assert crack_tips(cut_x, cut_y).sum() == 2
+
+
+def test_three_layers_meeting_in_a_t_do_not_leak() -> None:
+    scene_ = {k: torch.from_numpy(v) for k, v in junction_scene().items()}
+    gt = scene_["gt_depth"]
+    cfg = BiniConfig(lambda_depth=100.0, edges="depth", device="cpu")
+    d = bini(scene_["normals"], scene_["rays"], scene_["depth"], cfg)[0]
+    off = ((d - gt).abs() / gt > 0.05).numpy()  # 138 pixels before the contours were closed
+    edge = np.zeros_like(off)
+    jx, jy = (gt[:, 1:] != gt[:, :-1]).numpy(), (gt[1:] != gt[:-1]).numpy()
+    edge[:, 1:] |= jx
+    edge[:, :-1] |= jx
+    edge[1:] |= jy
+    edge[:-1] |= jy
+    assert off.sum() <= 5 and not (off & ~edge).any()

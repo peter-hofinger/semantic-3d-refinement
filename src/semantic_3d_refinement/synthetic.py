@@ -71,27 +71,47 @@ def room_scene(  # noqa: PLR0913
     }
 
 
-def occlusion_scene(*, h: int = 96, w: int = 128, noise: float = 0.003, seed: int = 0) -> dict[str, np.ndarray]:
-    """Two fronto-parallel planes split by a slanted occluding edge, its prior softened into a 2-4 px ramp.
-
-    Feed-forward depth draws occlusion edges as such ramps; the normals (all facing the camera) carry no edge.
-    """
-    rays = pinhole_rays(h, w, focal=0.8 * w, yaw=0.0, origin=(0.0, 0.0, 0.0))
-    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
-    front = (u - w / 2) < 0.6 * (v - h / 2)
-    gt_depth = np.where(front, 2.0, 3.0)
-    log_depth = np.log(gt_depth)
-    for _ in range(2):
+def soften(log_depth: np.ndarray, passes: int = 2) -> np.ndarray:
+    """Blur log depth with a separable [1, 2, 1] / 4 kernel, replicating the border: a step becomes a 2-4 px ramp."""
+    for _ in range(passes):
         padded = np.pad(log_depth, 1, mode="edge")
         log_depth = 0.25 * padded[1:-1, :-2] + 0.5 * padded[1:-1, 1:-1] + 0.25 * padded[1:-1, 2:]
         padded = np.pad(log_depth, 1, mode="edge")
         log_depth = 0.25 * padded[:-2, 1:-1] + 0.5 * padded[1:-1, 1:-1] + 0.25 * padded[2:, 1:-1]
-    depth = np.exp(log_depth + noise * np.random.default_rng(seed).standard_normal((h, w)))
+    return log_depth
+
+
+def layered_scene(gt_depth: np.ndarray, front: np.ndarray, noise: float, seed: int) -> dict[str, np.ndarray]:
+    """Fronto-parallel layers seen through a pinhole; the prior is the soft, noisy GT; normals carry no edge."""
+    h, w = gt_depth.shape
+    rays = pinhole_rays(h, w, focal=0.8 * w, yaw=0.0, origin=(0.0, 0.0, 0.0))
+    depth = np.exp(soften(np.log(gt_depth)) + noise * np.random.default_rng(seed).standard_normal((h, w)))
     normals = np.broadcast_to(np.array([0.0, 0.0, -1.0]), (h, w, 3))
     return {
         k: np.ascontiguousarray(x).astype(np.float32)
         for k, x in {"depth": depth, "rays": rays, "gt_depth": gt_depth, "normals": normals, "front": front}.items()
     }
+
+
+def occlusion_scene(*, h: int = 96, w: int = 128, noise: float = 0.003, seed: int = 0) -> dict[str, np.ndarray]:
+    """Two fronto-parallel planes split by a slanted occluding edge, its prior softened into a 2-4 px ramp.
+
+    Feed-forward depth draws occlusion edges as such ramps; the normals (all facing the camera) carry no edge.
+    """
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    front = (u - w / 2) < 0.6 * (v - h / 2)
+    return layered_scene(np.where(front, 2.0, 3.0), front, noise, seed)
+
+
+def junction_scene(*, h: int = 96, w: int = 128, noise: float = 0.003, seed: int = 0) -> dict[str, np.ndarray]:
+    """Three layers meeting in a T, as a monitor in front of another monitor in front of a wall; prior softened.
+
+    A near plane fills the bottom third, a middle plane the right half above it, a far wall the rest; `front`
+    marks the near plane. Two-sided level sets cannot hold three layers: the middle one changes side at the T.
+    """
+    v, u = np.mgrid[0:h, 0:w]
+    near, middle = v >= 2 * h // 3, u >= w // 2
+    return layered_scene(np.where(near, 2.0, np.where(middle, 3.0, 4.0)), near, noise, seed)
 
 
 def main() -> None:
