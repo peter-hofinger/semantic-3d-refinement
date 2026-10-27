@@ -2,6 +2,8 @@
 
 git `6bc1e1643e3f37acdf0f5fda6fcfb24b11e1df7d`
 
+Images and laser scans: ETH3D (Schöps et al., CVPR 2017), CC BY-NC-SA 4.0; the figures that show them are adapted from it under the same licence. The data itself is not in this repository.
+
 ## accuracy, mean over all views
 
 | variant | median (cm) | mean (cm) | ≤ 1 cm | ≤ 2 cm | ≤ 5 cm | ≤ 10 cm | ≤ 20 cm | median vs input | angle to DSINE (°) | drift (%) | seconds |
