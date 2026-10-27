@@ -20,7 +20,9 @@ from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 from matplotlib.ticker import NullFormatter
+from scipy.spatial import cKDTree
 
+from semantic_3d_refinement.multiview import PLANE_K, VOXEL, load_scene, local_planes, voxel_downsample
 from semantic_3d_refinement.normals import BiniConfig, bini, grid_score, normals_from_depth
 from semantic_3d_refinement.refine import (
     LOG_KEYS,
@@ -92,6 +94,12 @@ CAPTIONS = {
     "saw nothing there). Last column: E_d + E_n minus the input, blue where refinement moved points closer.",
     "eval_normals": "Normals of each depth map lifted through the calibrated camera; last column the scan's own, "
     "z-buffered into the view (gray: no scan point).",
+    "mv_renders": "All 20 views fused, from a viewpoint 0.8 m behind and 0.5 m above view 10, on a 5 mm voxel grid. "
+    "Top: headlight shading of each grid point's local plane (24 neighbors). Bottom: that plane's RMS thickness. "
+    "Layers of views that disagree show as mottled shading and a thick surface; the scan is the reference. "
+    "Medians here are over every point in view, the table's over the pixels the scan saw.",
+    "mv_slices": "A 2 cm horizontal slab at camera height, from above, zoomed on the wall where the input is most "
+    "layered (chosen on the input). Gray: scan; blue: all 20 views fused. One wall should be one line.",
     "per_view": "Change of each variant's median distance against the input, one dot per view; left of zero is better.",
     "sensitivity": "Error versus each weight, all else fixed at the run's config (circle). Dashed: input error.",
 }
@@ -800,6 +808,190 @@ def eval_figures(run: Path, out: Path) -> None:
     (out / "README.md").write_text("\n".join([*lines, ""]))
 
 
+MV_COLUMNS = ["E_d (= input)", "E_d + E_bd + E_n", "E_d + E_mv", "E_d + E_bd + E_n + E_mv"]
+# Figure framing, chosen on the raw input's slab before looking at any refined cloud: the wall where the input is
+# most layered (meters, in `up_frame` coordinates), and the camera the novel viewpoint starts from.
+MV_VIEWS = {
+    "office": {"render_view": 10, "render_distance": 2.0, "slice_window": [[-1.3, 0.3], [-3.5, -2.5]]},
+    "kicker": {"render_view": 10, "render_distance": 2.0, "slice_window": [[2.9, 4.3], [-1.3, 0.1]]},
+}
+
+
+def fused_clouds(paths: dict, align: dict, res: dict[str, np.ndarray], scene: str, n: int) -> list[np.ndarray]:
+    """Each variant's points of all views, (V*H*W, 3), mapped into the scan's frame by the run's camera similarity."""
+    rays = load_scene(Path(paths["input"])).rays.double().numpy()
+    s, rotation, t = align["scale"], np.array(align["rotation"]), np.array(align["translation"])
+    clouds = []
+    for i in range(n):
+        depth = res[f"{scene}_{i}_depth"].astype(np.float64)
+        clouds.append((s * (rays[..., :3] + depth[..., None] * rays[..., 3:]) @ rotation.T + t).reshape(-1, 3))
+    return clouds
+
+
+def up_frame(cam_to_world: np.ndarray) -> np.ndarray:
+    """Rows: two horizontal axes and up (the cameras' mean -y, as all photos are taken upright)."""
+    up = -cam_to_world[:, :3, 1].mean(0)
+    up /= np.linalg.norm(up)
+    ahead = cam_to_world[:, :3, 2].mean(0)
+    e1 = np.cross(up, ahead)
+    e1 /= np.linalg.norm(e1)
+    return np.stack([e1, np.cross(up, e1), up])
+
+
+def grid_planes(points: np.ndarray, chunk: int = 400_000) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the 5 mm voxel grid of a cloud and each grid point's local normal and thickness, as the metrics do."""
+    grid = voxel_downsample(points, VOXEL)
+    tree = cKDTree(grid)
+    planes = [local_planes(tree, grid[i : i + chunk], PLANE_K) for i in range(0, len(grid), chunk)]
+    return grid, np.concatenate([p[0] for p in planes]), np.concatenate([p[1] for p in planes])
+
+
+def splat(points: np.ndarray, values: np.ndarray, k: np.ndarray, world_to_cam: np.ndarray, size: tuple[int, int]
+          ) -> np.ndarray:  # fmt: skip
+    """Render per-point values by a z-buffer, each point as a 2x2 pixel square; NaN where nothing lands."""
+    w, h = size
+    cam = points @ world_to_cam[:3, :3].T + world_to_cam[:3, 3]
+    front = cam[:, 2] > 0.1  # noqa: PLR2004
+    cam, values = cam[front], values[front]
+    uv = (cam[:, :2] / cam[:, 2:]) @ k[:2, :2].T + k[:2, 2]
+    image, depth = np.full(h * w, np.nan), np.full(h * w, np.inf)
+    for du, dv in [(0, 0), (1, 0), (0, 1), (1, 1)]:
+        col, row = np.floor(uv[:, 0]).astype(int) + du, np.floor(uv[:, 1]).astype(int) + dv
+        inside = (col >= 0) & (col < w) & (row >= 0) & (row < h)
+        idx, z, val = row[inside] * w + col[inside], cam[inside, 2], values[inside]
+        order = np.argsort(-z)
+        idx, z, val = idx[order], z[order], val[order]
+        nearer = z < depth[idx]
+        image[idx[nearer]], depth[idx[nearer]] = val[nearer], z[nearer]
+    return image.reshape(h, w)
+
+
+def novel_camera(cam_to_world: np.ndarray, target: np.ndarray, up: np.ndarray) -> np.ndarray:
+    """World-to-camera of a viewpoint 0.8 m behind and 0.5 m above the given camera, looking at the target."""
+    eye = cam_to_world[:3, 3] - 0.8 * cam_to_world[:3, 2] + 0.5 * up
+    z = target - eye
+    z /= np.linalg.norm(z)
+    x = np.cross(z, up)
+    x /= np.linalg.norm(x)
+    rotation = np.stack([x, np.cross(z, x), z])
+    return np.r_[np.c_[rotation, -rotation @ eye], [[0, 0, 0, 1]]]
+
+
+def mv_renders(out: Path, scenes: dict, clouds: dict, cams: dict, labels: list[str]) -> None:
+    """Per scene, the fused clouds and the scan from one viewpoint no camera had: headlight shading and thickness."""
+    cols = [labels.index(lab) for lab in MV_COLUMNS]
+    fig, axes = plt.subplots(2 * len(scenes), len(cols) + 1, figsize=(3.4 * (len(cols) + 1), 2.5 * 2 * len(scenes)),
+                             constrained_layout=True)  # fmt: skip
+    size = (480, 320)
+    k = np.array([[380.0, 0, size[0] / 2], [0, 380.0, size[1] / 2], [0, 0, 1]])
+    for r, name in enumerate(scenes):
+        c2w = cams[name]["cam_to_world"]
+        view = scenes[name]["render_view"]
+        target = c2w[view, :3, 3] + scenes[name]["render_distance"] * c2w[view, :3, 2]
+        world_to_cam = novel_camera(c2w[view], target, up_frame(c2w)[2])
+        panels = [("scan", clouds[name]["scan"]), *((labels[i], clouds[name][i]) for i in cols)]
+        for c, (label, (grid, normals, thickness)) in enumerate(panels):
+            eye = np.linalg.inv(world_to_cam)[:3, 3]
+            view_dir = grid - eye
+            view_dir /= np.linalg.norm(view_dir, axis=1, keepdims=True)
+            shading = np.abs((normals * view_dir).sum(1))
+            axes[2 * r, c].imshow(splat(grid, shading, k, world_to_cam, size), cmap="gray", vmin=0, vmax=1)
+            im = axes[2 * r + 1, c].imshow(splat(grid, 1000 * thickness, k, world_to_cam, size), cmap=SEQUENTIAL,
+                                           norm=Normalize(0, 6))  # fmt: skip
+            median = f"{1000 * np.median(thickness):.1f} mm"
+            axes[2 * r, c].set_title(f"{name}: {label}" if c == 0 else label, fontsize=8)
+            axes[2 * r + 1, c].set_title(f"thickness, median {median}", fontsize=8)
+            for ax in axes[2 * r : 2 * r + 2, c]:
+                ax.set_facecolor(GRID)
+                ax.set_xticks([])
+                ax.set_yticks([])
+    fig.colorbar(im, ax=axes[-1, :], location="bottom", shrink=0.4, label="RMS distance to the local plane (mm)")
+    fig.savefig(out / "mv_renders.png", dpi=150)
+    plt.close(fig)
+
+
+def mv_slices(out: Path, scenes: dict, points: dict, cams: dict, labels: list[str]) -> None:
+    """Per scene, a 2 cm horizontal slab at camera height seen from above: scan in gray, fused cloud in blue."""
+    cols = [labels.index(lab) for lab in MV_COLUMNS]
+    fig, axes = plt.subplots(len(scenes), len(cols), figsize=(4.2 * len(cols), 4.2 * len(scenes)),
+                             constrained_layout=True)  # fmt: skip
+    for r, name in enumerate(scenes):
+        frame = up_frame(cams[name]["cam_to_world"])
+        height = (cams[name]["cam_to_world"][:, :3, 3] @ frame[2]).mean()
+        window = scenes[name]["slice_window"]
+
+        def slab(p: np.ndarray, frame: np.ndarray = frame, height: float = height) -> np.ndarray:
+            q = p @ frame.T
+            return q[np.abs(q[:, 2] - height) < 0.01, :2]  # noqa: PLR2004
+
+        scan = slab(points[name]["scan"])
+        for c, i in enumerate(cols):
+            ax = axes[r, c]
+            ax.scatter(*scan.T, s=0.3, color="#9a9994", linewidths=0, rasterized=True)
+            ax.scatter(*slab(points[name][i]).T, s=0.3, color=BLUE, linewidths=0, alpha=0.6, rasterized=True)
+            ax.set(xlim=window[0], ylim=window[1], aspect="equal")
+            ax.set_title(f"{name}: {labels[i]}" if c == 0 else labels[i], fontsize=9)
+            ax.tick_params(labelsize=7)
+    fig.supxlabel("meters (horizontal, scan frame)", color=INK_2)
+    fig.savefig(out / "mv_slices.png", dpi=150)
+    plt.close(fig)
+
+
+def mv_tables(summary: dict, labels: list[str]) -> list[str]:
+    """Markdown tables: the fused cloud per scene, and the per-view protocol over the three views of each scene."""
+    tol = summary["config"]["tolerances_cm"]
+    lines = ["## fused cloud of all 20 views", "",
+             "| scene | variant | median (cm) | mean (cm) | " + " | ".join(f"≤ {t:g} cm" for t in tol[:3])
+             + " | thickness (mm) | angle to scan (°) | disagreement (%) | seconds |",
+             "|---" * (len(tol[:3]) + 8) + "|"]  # fmt: skip
+    for name, sc in summary["scenes"].items():
+        for i, v in enumerate(sc["variants"]):
+            assert v["label"] == labels[i], (v["label"], labels[i])
+            lines.append(f"| {name} | {v['label']} | {v['fused_median_cm']:.2f} | {v['fused_mean_cm']:.2f} | "
+                         + " | ".join(f"{100 * v[f'fused_acc_{t:g}cm']:.1f}%" for t in tol[:3])
+                         + f" | {v['thickness_mm']:.2f} | {v['normal_angle_deg']:.1f} | {v['disagreement_pct']:.3f}"
+                         f" | {v['seconds']:.0f} |")  # fmt: skip
+        lines.append(f"| {name} | scan | | | | | | {sc['scan']['thickness_mm']:.2f} | | | |")
+    views = summary["config"]["views"]
+    lines += ["", f"## per-view protocol: views {views} of each scene, mean over all", "",
+              "| variant | median (cm) | mean (cm) | ≤ 1 cm | ≤ 2 cm | median per view (cm) |",
+              "|---" * 6 + "|"]  # fmt: skip
+    for i, label in enumerate(labels):
+        rows = [sc["variants"][i]["per_view"][v] for sc in summary["scenes"].values() for v in views]
+        mean = {k: np.mean([r[k] for r in rows]) for k in ("median_cm", "mean_cm", "acc_1cm", "acc_2cm")}
+        per = " ".join(f"{r['median_cm']:.2f}" for r in rows)
+        lines.append(f"| {label} | {mean['median_cm']:.2f} | {mean['mean_cm']:.2f} | {100 * mean['acc_1cm']:.1f}% | "
+                     f"{100 * mean['acc_2cm']:.1f}% | {per} |")  # fmt: skip
+    a = summary["scenes"]
+    lines += ["", "Camera similarity (Déjà View to ETH3D centers), median residual: "
+              + ", ".join(f"{n} {s['center_residual_cm']:.2f} cm" for n, s in a.items()) + "."]  # fmt: skip
+    return lines
+
+
+def mv_figures(run: Path, out: Path) -> None:
+    """Write the fused-cloud figures and tables of a joint refinement run (`multiview.py`)."""
+    summary = yaml.safe_load((run / "run.yaml").read_text())
+    raw, res = summary["config"], dict(np.load(run / "results.npz"))
+    labels = [v["label"] for v in next(iter(summary["scenes"].values()))["variants"]]
+    out.mkdir(parents=True, exist_ok=True)
+    scenes = {name: raw["scenes"][name] | MV_VIEWS[name] for name in summary["scenes"]}
+    cams, points, clouds = {}, {}, {}
+    for name, paths in scenes.items():
+        cams[name] = dict(np.load(paths["gt_views"]))
+        cams[name]["cam_to_world"] = cams[name]["cam_to_world"].astype(np.float64)
+        fused = fused_clouds(paths, summary["scenes"][name]["align"], res, name, len(labels))
+        scan = np.load(paths["scan"]).astype(np.float64)
+        points[name] = {"scan": scan, **dict(enumerate(fused))}
+        clouds[name] = {"scan": grid_planes(scan)} | {i: grid_planes(fused[i]) for i in
+                                                       [labels.index(lab) for lab in MV_COLUMNS]}  # fmt: skip
+    mv_renders(out, scenes, clouds, cams, labels)
+    mv_slices(out, scenes, points, cams, labels)
+    lines = [f"# {run.name}", "", f"git `{summary['git']}`", "", *mv_tables(summary, labels)]
+    for name in ["mv_renders", "mv_slices"]:
+        lines += ["", f"## {name}", "", CAPTIONS[name], "", f"![{name}]({name}.png)"]
+    (out / "README.md").write_text("\n".join([*lines, ""]))
+
+
 def main() -> None:
     """Render a run: `uv run python -m semantic_3d_refinement.visualize --run runs/<run>`."""
     parser = argparse.ArgumentParser()
@@ -808,7 +1000,9 @@ def main() -> None:
     args = parser.parse_args()
     out = args.out or Path("figures") / args.run.name
     config = yaml.safe_load((args.run / "run.yaml").read_text())["config"]
-    if "scenes" in config:
+    if "multiview" in config:
+        mv_figures(args.run, out)
+    elif "scenes" in config:
         eval_figures(args.run, out)
     elif "refine" in config:
         figures(args.run, out)
