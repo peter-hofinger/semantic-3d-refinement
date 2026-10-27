@@ -1,0 +1,26 @@
+# Which artifacts named in the proposal does Déjà View (K = 16) show? All 20 views of ETH3D office and kicker against
+# the laser scans (artifacts.py). Thresholds are set by what each test needs, before looking at the outcome.
+scenes:
+  office:
+    input: data/processed/eth3d/office/dejaview_k16_views_n20_uniform_504.npz
+    gt_views: data/processed/eth3d/office/views_n20_uniform_504.npz
+    scan: data/processed/eth3d/office/scan.npy
+  kicker:
+    input: data/processed/eth3d/kicker/dejaview_k16_views_n20_uniform_504.npz
+    gt_views: data/processed/eth3d/kicker/views_n20_uniform_504.npz
+    scan: data/processed/eth3d/kicker/scan.npy
+output_dir: runs
+edge_jump: 0.05        # log-depth step between neighbors in the scan's depth that marks an occlusion edge
+edge_max_px: 15        # bleeding is profiled up to this distance; textureless regions are taken beyond it
+planes: 8              # RANSAC planes extracted from the scan, largest first
+plane_tol_m: 0.01
+plane_min_frac: 0.02   # a plane must hold 2 % of the scan's 2 cm grid
+plane_min_px: 3000     # a view must see a plane on 3000 px (eroded by 3) for it to count
+ransac_voxel_m: 0.02
+texture_window: 7
+multiview: {mv_tol: 0.05, neighbors: 4}   # matches as in eval_multiview.yaml, for the disagreement
+examples:   # which view each close-up shows; the plane example is the median view-plane, the window office view 5's
+            # biggest scan hole, the edge the crop with the most strong depth edges
+  bleeding: {scene: kicker, view: 10}
+  glass: {scene: office, view: 5}
+  confidence: {scene: kicker, view: 10}
