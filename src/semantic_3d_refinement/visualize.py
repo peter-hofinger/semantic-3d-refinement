@@ -25,8 +25,8 @@ from semantic_3d_refinement.refine import (
     points_from_rays,
     refine,
     term_weights,
-    view_from_config,
 )
+from semantic_3d_refinement.views import view_from_config
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"

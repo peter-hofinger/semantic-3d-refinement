@@ -10,12 +10,12 @@ from semantic_3d_refinement.normals import BiniConfig, bini, close_cuts, crack_t
 from semantic_3d_refinement.refine import (
     RefineConfig,
     depth_metrics,
-    fit_pinhole,
     points_from_rays,
     refine,
     second_differences,
 )
 from semantic_3d_refinement.synthetic import junction_scene, occlusion_scene, room_scene
+from semantic_3d_refinement.views import fit_pinhole
 
 CFG = RefineConfig(device="cpu")
 

@@ -26,7 +26,7 @@ import torch
 import yaml
 from torch import Tensor
 
-from semantic_3d_refinement.refine import git_hash, view_from_config
+from semantic_3d_refinement.views import git_hash, view_from_config
 
 
 @dataclass(frozen=True)
