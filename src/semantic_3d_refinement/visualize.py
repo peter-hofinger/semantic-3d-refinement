@@ -86,6 +86,13 @@ CAPTIONS = {
     "sweep_lambda_bd": "Effect of the bending weight λ_bd: too low keeps the noise, too high rounds off the creases.",
     "data_term_ablation": "Effect of the data term's form on the 1% outliers: an unweighted quadratic lets them "
     "drag their neighbors into blobs. Confidence weighting alone removes them here; Huber only matters without it.",
+    "accuracy_curves": "Fraction of each variant's points within τ of the laser scan, pooled over a scene's three "
+    "views (top), and its change against Déjà View's input (bottom). Each depth map is aligned by one median scale.",
+    "error_maps": "Distance of each pixel's point to the nearest scan point, after median scaling (gray: the scan "
+    "saw nothing there). Last column: E_d + E_n minus the input, blue where refinement moved points closer.",
+    "eval_normals": "Normals of each depth map lifted through the calibrated camera; last column the scan's own, "
+    "z-buffered into the view (gray: no scan point).",
+    "per_view": "Change of each variant's median distance against the input, one dot per view; left of zero is better.",
     "sensitivity": "Error versus each weight, all else fixed at the run's config (circle). Dashed: input error.",
 }
 
@@ -620,6 +627,179 @@ def bini_figures(run: Path, out: Path) -> dict[str, float]:
     return write_readme(run, out, summary, table, ["compare", "normal_sources", "detail_crops"])
 
 
+EVAL_STYLES = {
+    "E_d (= input)": (INK_2, ":"),
+    "E_n": (VIOLET, "--"),
+    "E_d + E_bd": (BLUE, "-"),
+    "E_d + E_n": (VIOLET, "-"),
+    "E_d + E_bd + E_n": (AQUA, "--"),
+}
+EVAL_MAPS = ["E_d (= input)", "E_d + E_bd", "E_d + E_n", "E_d + E_bd + E_n"]
+
+
+def eval_style(label: str) -> tuple[str, str] | None:
+    """Color and line style of the variants drawn in curves; BiNI in orange, the rest only in tables."""
+    return (ORANGE, "-") if label.startswith("BiNI") else EVAL_STYLES.get(label)
+
+
+def camera_rays(k: np.ndarray, h: int, w: int) -> torch.Tensor:
+    """Camera-frame rays of a pinhole with unit z, pixel centers at +0.5, as an (H, W, 6) map."""
+    v, u = np.mgrid[0:h, 0:w] + 0.5
+    dirs = np.stack([u, v, np.ones_like(u)], axis=-1) @ np.linalg.inv(k).T
+    return torch.from_numpy(np.concatenate([np.zeros_like(dirs), dirs], axis=-1))
+
+
+def accuracy_curves(out: Path, views: list[dict], labels: list[str], res: dict[str, np.ndarray]) -> None:
+    """Fraction within τ against τ per scene, pooled over its views, and the change against the input."""
+    scenes = list(dict.fromkeys(r["scene"] for r in views))
+    tau = np.geomspace(0.2, 50, 120)
+    fig, axes = plt.subplots(2, len(scenes), figsize=(5.2 * len(scenes), 6.4), sharex=True, constrained_layout=True)
+    for c, scene in enumerate(scenes):
+        keys = [f"{r['scene']}_{r['view']}" for r in views if r["scene"] == scene]
+        curves = []
+        for i in range(len(labels)):
+            cm = 100 * np.concatenate([res[f"{k}_{i}_dist"][np.isfinite(res[f"{k}_{i}_dist"])] for k in keys])
+            curves.append(np.searchsorted(np.sort(cm), tau, side="right") / cm.size)
+        for i, label in enumerate(labels):
+            if (style := eval_style(label)) is None:
+                continue
+            color, ls = style
+            axes[0, c].plot(tau, curves[i], color=color, linestyle=ls, linewidth=1.5, label=label)
+            axes[1, c].plot(tau, 100 * (curves[i] - curves[0]), color=color, linestyle=ls, linewidth=1.5)
+        axes[0, c].set(title=f"{scene} ({len(keys)} views)", ylabel="fraction of points within τ", ylim=(0, 1))
+        axes[1, c].set(xscale="log", xlabel="τ (cm)", ylabel="change against input (points, %)")
+        axes[1, c].axhline(0, color=INK_2, linewidth=0.8)
+        axes[1, c].xaxis.set_minor_formatter(NullFormatter())
+    axes[0, 0].legend(loc="lower right")
+    fig.suptitle("accuracy against the laser scan", color=INK)
+    fig.savefig(out / "accuracy_curves.png", dpi=150)
+    plt.close(fig)
+
+
+def error_maps(out: Path, views: list[dict], labels: list[str], res: dict[str, np.ndarray]) -> None:
+    """Per view: image, distance maps of the main variants and BiNI, and the change E_d + E_n brings."""
+    cols = [labels.index(lab) for lab in EVAL_MAPS] + [len(labels) - 1]
+    gray = SEQUENTIAL.with_extremes(bad=GRID)
+    diverging = DIVERGING.with_extremes(bad=GRID)
+    fig, axes = plt.subplots(len(views), len(cols) + 2, figsize=(2.6 * (len(cols) + 2), 1.9 * len(views)),
+                             constrained_layout=True)  # fmt: skip
+    for r, rec in enumerate(views):
+        key = f"{rec['scene']}_{rec['view']}"
+        axes[r, 0].imshow(res[f"{key}_image"])
+        axes[r, 0].set_title(f"{rec['scene']} view {rec['view']}", fontsize=8)
+        for c, i in enumerate(cols, start=1):
+            im = axes[r, c].imshow(100 * res[f"{key}_{i}_dist"], cmap=gray, norm=Normalize(0, 10))
+            axes[r, c].set_title(f"{labels[i]}: {rec['variants'][i]['median_cm']:.2f} cm", fontsize=7)
+        gain = 100 * (res[f"{key}_{labels.index('E_d + E_n')}_dist"] - res[f"{key}_0_dist"])
+        dm = axes[r, -1].imshow(gain, cmap=diverging, norm=Normalize(-2, 2))
+        axes[r, -1].set_title("E_d + E_n minus input", fontsize=7)
+        for ax in axes[r]:
+            ax.set_axis_off()
+    fig.colorbar(im, ax=axes[-1, 1:-1], location="bottom", shrink=0.5, label="distance to scan (cm)")
+    fig.colorbar(dm, ax=axes[-1, -1], location="bottom", shrink=0.9, label="change (cm)")
+    fig.savefig(out / "error_maps.png", dpi=150)
+    plt.close(fig)
+
+
+def eval_normals(
+    out: Path, views: list[dict], labels: list[str], res: dict[str, np.ndarray], intrinsics: list[np.ndarray]
+) -> None:
+    """Per view: normals of the main variants and BiNI through the calibrated camera, and of the scan."""
+    cols = [labels.index(lab) for lab in EVAL_MAPS] + [len(labels) - 1]
+    fig, axes = plt.subplots(len(views), len(cols) + 1, figsize=(2.6 * (len(cols) + 1), 1.9 * len(views)),
+                             constrained_layout=True)  # fmt: skip
+    for r, (rec, k) in enumerate(zip(views, intrinsics, strict=True)):
+        key = f"{rec['scene']}_{rec['view']}"
+        gt = res[f"{key}_gt_depth"]
+        rays = camera_rays(k.astype(np.float64), *gt.shape)
+        panels = [(labels[i], res[f"{key}_{i}_depth"].astype(np.float64)) for i in cols]
+        for c, (label, depth) in enumerate([*panels, ("scan", np.where(gt > 0, gt, 1.0))]):
+            img = normals_from_depth(torch.from_numpy(depth), rays).numpy() * 0.5 + 0.5
+            if label == "scan":
+                hole = ~np.isfinite(img).all(-1) | (np.lib.stride_tricks.sliding_window_view(
+                    np.pad(gt == 0, 1, constant_values=True), (3, 3)).any((-1, -2)))  # fmt: skip
+                img[hole] = 0.9
+            axes[r, c].imshow(np.clip(img, 0, 1), interpolation="nearest")
+            axes[r, c].set_title(label if r == 0 else "", fontsize=8)
+            axes[r, c].set_axis_off()
+        axes[r, 0].set_title(f"{rec['scene']} view {rec['view']}" + (f"\n{panels[0][0]}" if r == 0 else ""), fontsize=8)
+    fig.savefig(out / "eval_normals.png", dpi=150)
+    plt.close(fig)
+
+
+def per_view(out: Path, views: list[dict], labels: list[str]) -> None:
+    """Dot plot: change in median distance against the input per variant, one dot per view."""
+    fig, ax = plt.subplots(figsize=(7, 0.45 * len(labels) + 1), constrained_layout=True)
+    markers = dict(zip(dict.fromkeys(r["scene"] for r in views), "os", strict=False))
+    first = {s: next(r for r in views if r["scene"] == s) for s in markers}
+    for i in range(1, len(labels)):
+        for rec in views:
+            change = rec["variants"][i]["median_cm"] - rec["variants"][0]["median_cm"]
+            label = rec["scene"] if i == 1 and rec is first[rec["scene"]] else None
+            ax.scatter(change, i, color=(eval_style(labels[i]) or (INK_2, ""))[0], marker=markers[rec["scene"]],
+                       s=22, alpha=0.8, label=label)  # fmt: skip
+    ax.axvline(0, color=INK_2, linewidth=0.8)
+    ax.set(yticks=range(1, len(labels)), yticklabels=labels[1:], xlabel="median distance minus input's (cm)")
+    ax.invert_yaxis()
+    ax.legend(loc="lower right")
+    ax.set_title("per view: which variants help, and how consistently", color=INK)
+    fig.savefig(out / "per_view.png", dpi=150)
+    plt.close(fig)
+
+
+def eval_tables(views: list[dict], labels: list[str], tolerances: list[int | float]) -> list[str]:
+    """Markdown tables: per-variant means over all views, median distance per view, and the views themselves."""
+
+    def mean(i: int, key: str) -> float:
+        return float(np.mean([r["variants"][i][key] for r in views]))
+
+    acc = [f"acc_{t:g}cm" for t in tolerances]
+    lines = ["## accuracy, mean over all views", "",
+             "| variant | median (cm) | mean (cm) | " + " | ".join(f"≤ {t:g} cm" for t in tolerances)
+             + " | median vs input | angle to DSINE (°) | drift (%) | seconds |",
+             "|---" * (len(tolerances) + 7) + "|"]  # fmt: skip
+    for i, label in enumerate(labels):
+        change = 100 * (mean(i, "median_cm") / mean(0, "median_cm") - 1)
+        lines.append(
+            f"| {label} | {mean(i, 'median_cm'):.2f} | {mean(i, 'mean_cm'):.2f} | "
+            + " | ".join(f"{100 * mean(i, a):.1f}%" for a in acc)
+            + f" | {change:+.1f}% | {mean(i, 'angle_to_normals_deg'):.2f} | {mean(i, 'drift_pct'):.2f} | "
+            f"{mean(i, 'seconds'):.2f} |"
+        )
+    heads = [f"{r['scene']} {r['view']}" for r in views]
+    lines += ["", "## median distance per view (cm)", "", "| variant | " + " | ".join(heads) + " |",
+              "|---" * (len(heads) + 1) + "|"]  # fmt: skip
+    lines += [f"| {lab} | " + " | ".join(f"{r['variants'][i]['median_cm']:.2f}" for r in views) + " |"
+              for i, lab in enumerate(labels)]  # fmt: skip
+    lines += ["", "## views", "", "| view | image | scan coverage | Déjà View focal / ETH3D | scale |",
+              "|---|---|---|---|---|"]  # fmt: skip
+    lines += [f"| {r['scene']} {r['view']} | {r['image']} | {r['coverage']:.0%} | {r['focal_ratio']:.3f} | "
+              f"{r['variants'][0]['scale']:.3f} |" for r in views]  # fmt: skip
+    return lines
+
+
+def eval_figures(run: Path, out: Path) -> None:
+    """Write the accuracy figures and tables of an evaluation run (`evaluate.py`)."""
+    summary = yaml.safe_load((run / "run.yaml").read_text())
+    res = dict(np.load(run / "results.npz"))
+    views = summary["views"]
+    labels = [v["label"] for v in views[0]["variants"]]
+    assert all([v["label"] for v in r["variants"]] == labels for r in views)
+    assert labels[0] == "E_d (= input)", labels
+    out.mkdir(parents=True, exist_ok=True)
+    accuracy_curves(out, views, labels, res)
+    error_maps(out, views, labels, res)
+    scenes = summary["config"]["scenes"]
+    intrinsics = [np.load(scenes[r["scene"]]["gt_views"])["intrinsics"][r["view"]] for r in views]
+    eval_normals(out, views, labels, res, intrinsics)
+    per_view(out, views, labels)
+    lines = [f"# {run.name}", "", f"git `{summary['git']}`", "", *eval_tables(views, labels,
+             summary["config"]["tolerances_cm"])]  # fmt: skip
+    for name in ["accuracy_curves", "per_view", "error_maps", "eval_normals"]:
+        lines += ["", f"## {name}", "", CAPTIONS[name], "", f"![{name}]({name}.png)"]
+    (out / "README.md").write_text("\n".join([*lines, ""]))
+
+
 def main() -> None:
     """Render a run: `uv run python -m semantic_3d_refinement.visualize --run runs/<run>`."""
     parser = argparse.ArgumentParser()
@@ -627,7 +807,10 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     out = args.out or Path("figures") / args.run.name
-    if "refine" in yaml.safe_load((args.run / "run.yaml").read_text())["config"]:
+    config = yaml.safe_load((args.run / "run.yaml").read_text())["config"]
+    if "scenes" in config:
+        eval_figures(args.run, out)
+    elif "refine" in config:
         figures(args.run, out)
     else:
         bini_figures(args.run, out)
