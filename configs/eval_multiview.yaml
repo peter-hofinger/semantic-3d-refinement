@@ -31,6 +31,12 @@ multiview:
   # Log-depth tolerance of the input's matches: on both scenes the residuals of overlapping views split into
   # agreeing ones (median 0.5 % office, 1.2 % kicker; < 3 % for most) and occlusions (> 15 %).
   mv_tol: 0.05
+  neighbors: 4      # each view is matched with the 4 views it overlaps most (either side choosing suffices)
+  # Gauss-Newton budget: 10 steps of 20 CG iterations leave the median pixel 0.07 % (office, kicker) from the
+  # converged depth (40 x 50), against 0.5-0.65 % that refinement moves it; measured on energy, not accuracy.
+  gn_iters: 10
+  cg_iters: 20
+  cg_tol: 0.001
 variants:   # overrides of `refine` and `multiview`
   - {lambda_bd: 0.0, lambda_n: 0.0, lambda_mv: 0.0}   # the input
   - {lambda_mv: 0.0}                                  # monocular, every view alone

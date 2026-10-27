@@ -2,7 +2,8 @@
 
 Cameras stay fixed: Déjà View's, each with the pinhole fitted to its rays (`views.fit_pinhole`). All views share one
 normalization, d_i = s / D_i with s the scene's median depth, so a residual means the same in every view. Each pixel
-p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into every other view j:
+p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into each neighboring view j (the views it overlaps
+most, `neighbors`):
 
   E_mv = 1/N Σ_{i≠j} Σ_{p ∈ M_ij} ( log z_j(x) + log d_j(π_j(x)) - log s )²
 
@@ -15,6 +16,12 @@ occlusion edges.
 
   E = 1/V Σ_i E_i + λ_mv E_mv,   E_i the monocular energy of view i (`refine.energy_maps`), δ_i its residual.
 
+E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI minimizes its normal term by CG
+(Cao et al. 2022): each step solves the normal equations J^T J s = -J^T r by Jacobi-preconditioned CG. J is never
+formed for the per-view terms, which are stencils on the pixel grid and linear in δ (E_d, E_bd) or in log depth
+(E_n); E_mv's J has five entries per match, the source pixel and j's four interpolated pixels. On 20 views of
+504 x 336 this takes 2-3 s where L-BFGS took a minute.
+
 This is the E_mv of the method in `Claude.md` without segments: agreement is required wherever the input already
 roughly agrees, not only within a segment.
 """
@@ -23,6 +30,7 @@ import argparse
 import dataclasses
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,10 +45,8 @@ from semantic_3d_refinement.normals import predicted_normals
 from semantic_3d_refinement.refine import (
     NormalTerm,
     RefineConfig,
-    energy_maps,
     normal_term,
     points_from_rays,
-    term_weights,
     variant_label,
 )
 from semantic_3d_refinement.views import check_inputs, fit_pinhole, git_hash
@@ -106,20 +112,24 @@ def project(x: Tensor, k: Tensor) -> tuple[Tensor, Tensor, Tensor]:
     return k[:, 0, 0] * x[:, 0] / z + k[:, 0, 2], k[:, 1, 1] * x[:, 1] / z + k[:, 1, 2], z
 
 
-def bilinear(d: Tensor, view: Tensor, u: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
-    """Sample d (V, H, W) at fractional pixels of the given views; also return the four corners' max/min ratio.
+def corners(view: Tensor, u: Tensor, v: Tensor, h: int, w: int) -> tuple[Tensor, Tensor]:
+    """Flat indices in (V, H, W) of the four pixels around each fractional pixel, and their bilinear weights.
 
-    u, v are clamped to [0, W-1] x [0, H-1], so a line-search trial step that leaves the image stays defined.
+    u, v are clamped to [0, W-1] x [0, H-1], so a step that leaves the image stays defined.
     """
-    _, h, w = d.shape
     u, v = u.clamp(0, w - 1 - 1e-4), v.clamp(0, h - 1 - 1e-4)
     x0, y0 = u.detach().floor().long(), v.detach().floor().long()
     fu, fv = u - x0, v - y0
     base = (view * h + y0) * w + x0
-    flat = d.reshape(-1)
-    c = torch.stack([flat[base], flat[base + 1], flat[base + w], flat[base + w + 1]])
-    value = (1 - fv) * ((1 - fu) * c[0] + fu * c[1]) + fv * ((1 - fu) * c[2] + fu * c[3])
-    return value, c.amax(0) / c.amin(0)
+    index = torch.stack([base, base + 1, base + w, base + w + 1])
+    return index, torch.stack([(1 - fu) * (1 - fv), fu * (1 - fv), (1 - fu) * fv, fu * fv])
+
+
+def bilinear(d: Tensor, view: Tensor, u: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
+    """Sample d (V, H, W) at fractional pixels of the given views; also return the four corners' max/min ratio."""
+    index, weights = corners(view, u, v, *d.shape[1:])
+    c = d.reshape(-1)[index]
+    return (weights * c).sum(0), c.amax(0) / c.amin(0)
 
 
 def residuals(d: Tensor, scale: Tensor, scene: Scene, m: Matches) -> Tensor:
@@ -130,11 +140,30 @@ def residuals(d: Tensor, scale: Tensor, scene: Scene, m: Matches) -> Tensor:
     return z.clamp_min(1e-6).log() + dj.clamp_min(1e-6).log() - scale.log()
 
 
+def match_jacobian(d: Tensor, scale: Tensor, scene: Scene, m: Matches) -> tuple[Tensor, Tensor]:
+    """Columns (5, M) and values (5, M) of the residuals' Jacobian in d: the source pixel and j's four corners.
+
+    The corners stay those of the linearization point; their bilinear weights and the source's ray carry the rest.
+    """
+    flat = d.reshape(-1)
+    di = flat[m.src].clone().requires_grad_()
+    u, v, z = project(m.offset + (scale / di)[:, None] * m.direction, scene.k[m.dst])
+    index, weights = corners(m.dst, u, v, *d.shape[1:])
+    c = flat[index].clone().requires_grad_()
+    r = z.clamp_min(1e-6).log() + (weights * c).sum(0).clamp_min(1e-6).log()
+    g_src, g_corners = torch.autograd.grad(r.sum(), [di, c])
+    return torch.cat([m.src[None], index]), torch.cat([g_src[None], g_corners])
+
+
 @torch.no_grad()
-def find_matches(scene: Scene, d0: Tensor, scale: Tensor, tol: float) -> Matches:
-    """Match every ordered pair of views wherever the input agrees within tol (log depth)."""
+def find_matches(scene: Scene, d0: Tensor, scale: Tensor, tol: float, neighbors: int) -> Matches:
+    """Match each view with its neighbors wherever the input agrees within tol (log depth).
+
+    A view's neighbors are the `neighbors` views it shares the most matches with; a pair counts if either side
+    picks the other, and is matched both ways.
+    """
     n, h, w = d0.shape
-    src, dst, offsets, directions = [], [], [], []
+    pairs: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
     flat = torch.arange(h * w, device=d0.device)
     for i in range(n):
         for j in range(n):
@@ -144,30 +173,42 @@ def find_matches(scene: Scene, d0: Tensor, scale: Tensor, tol: float) -> Matches
             offset = (scene.rays[i, ..., :3].reshape(-1, 3) - scene.center[j]) @ world_to_j.T
             direction = scene.rays[i, ..., 3:].reshape(-1, 3) @ world_to_j.T
             u, v, z = project(offset + (scale / d0[i].reshape(-1))[:, None] * direction, scene.k[j].expand(h * w, 3, 3))
-            dst_j = torch.full_like(flat, j)
-            dj, spread = bilinear(d0, dst_j, u, v)
+            dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
             log_ratio = (z.clamp_min(1e-6) * dj / scale).log().abs()
             keep = (z > 0) & (u >= 1) & (u <= w - 2) & (v >= 1) & (v <= h - 2)
             keep &= (log_ratio < tol) & (spread.log() < tol)
-            src.append(i * h * w + flat[keep])
-            dst.append(dst_j[keep])
-            offsets.append(offset[keep])
-            directions.append(direction[keep])
-    m = Matches(torch.cat(src), torch.cat(dst), torch.cat(offsets), torch.cat(directions))
+            pairs[i, j] = (flat[keep], offset[keep], direction[keep])
+    counts = torch.zeros(n, n)
+    for (i, j), (pix, _, _) in pairs.items():
+        counts[i, j] = len(pix)
+    top = torch.zeros(n, n, dtype=torch.bool)
+    top[torch.arange(n)[:, None], counts.topk(min(neighbors, n - 1), dim=1).indices] = True
+    chosen = [(i, j) for (i, j) in pairs if top[i, j] or top[j, i]]
+    m = Matches(
+        torch.cat([i * h * w + pairs[i, j][0] for i, j in chosen]),
+        torch.cat([torch.full_like(pairs[i, j][0], j) for i, j in chosen]),
+        torch.cat([pairs[i, j][1] for i, j in chosen]),
+        torch.cat([pairs[i, j][2] for i, j in chosen]),
+    )
     assert (m.src // (h * w) != m.dst).all() and m.offset.isfinite().all() and m.direction.isfinite().all()
     return m
 
 
 @dataclass(frozen=True)
 class MultiviewConfig:
-    """Weight of E_mv and the tolerance (log depth) under which the input's matches count."""
+    """Weight of E_mv, the matches' tolerance (log depth) and neighbor count, and the Gauss-Newton / CG budget."""
 
     lambda_mv: float = 1.0
     mv_tol: float = 0.05
+    neighbors: int = 4
+    gn_iters: int = 3
+    cg_iters: int = 200
+    cg_tol: float = 1e-3
 
     def __post_init__(self) -> None:
         """Check ranges."""
-        assert self.lambda_mv >= 0 and 0 < self.mv_tol < 1
+        assert self.lambda_mv >= 0 and 0 < self.mv_tol < 1 and self.neighbors >= 1
+        assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
 
 
 MV_KEYS = {f.name for f in dataclasses.fields(MultiviewConfig)}
@@ -175,73 +216,204 @@ MV_KEYS = {f.name for f in dataclasses.fields(MultiviewConfig)}
 
 @dataclass(frozen=True)
 class Problem:
-    """What stays fixed during the solve: the scene, its scale s, d0 = s / D0, weights, normal terms and matches."""
+    """What stays fixed during the solve: the scene, its scale s, d0 = s / D0, weights, normal terms and matches.
+
+    Normal terms are stacked over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+, w-) as in `refine.NormalTerm`.
+    """
 
     scene: Scene
     scale: Tensor
     d0: Tensor
     w: Tensor
-    normals: list[NormalTerm | None]
+    normals: NormalTerm | None
     matches: Matches
 
 
-def scene_energy(delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem) -> tuple[Tensor, dict[str, float]]:
-    """E = 1/V Σ_i E_i + λ_mv E_mv; also each term's unweighted value, the per-view ones averaged over views."""
-    n = len(p.d0)
-    terms: dict[str, Tensor] = {}
-    for i in range(n):
-        for k, v in energy_maps(delta[i], p.d0[i], p.w[i], cfg, p.normals[i]).items():
-            terms[k] = terms.get(k, 0) + v.mean() / n
-    terms["E_mv"] = residuals(p.d0 + delta, p.scale, p.scene, p.matches).square().sum() / p.d0.numel()
-    weights = term_weights(cfg) | {"E_mv": mv.lambda_mv}
-    e = sum(weights[k] * terms[k] for k in terms)
-    assert isinstance(e, Tensor) and e.isfinite(), e
-    return e, {"E": e.item()} | {k: v.item() for k, v in terms.items()}
+def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Return d_xx, d_yy, d_xy over the last two axes (`refine.second_differences`, batched over views)."""
+    dxx = d[..., 2:] - 2 * d[..., 1:-1] + d[..., :-2]
+    dyy = d[..., 2:, :] - 2 * d[..., 1:-1, :] + d[..., :-2, :]
+    dxy = d[..., 1:, 1:] - d[..., 1:, :-1] - d[..., :-1, 1:] + d[..., :-1, :-1]
+    return dxx, dyy, dxy
+
+
+def scene_residuals(delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem) -> dict[str, Tensor]:
+    """Weighted residuals of each term, flat, such that E = Σ of all their squares / N (N pixels over all views).
+
+    The same terms as `refine.energy_maps`, except that E_d is quadratic, w δ²/2: Huber's quadratic branch, which
+    holds for |δ| < `huber` (0.05; the input's views disagree by about 1 %).
+    """
+    d = p.d0 + delta
+    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * delta}
+    if cfg.lambda_delta > 0:
+        out["E_delta"] = math.sqrt(cfg.lambda_delta) * delta
+    if cfg.lambda_bd > 0:
+        dxx, dyy, dxy = second_differences(d)
+        if p.normals is not None:
+            (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
+            dxx, dyy = dxx * (kx[..., :-1] & kx[..., 1:]), dyy * (ky[..., :-1, :] & ky[..., 1:, :])
+            dxy = dxy * (kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:])
+        root = math.sqrt(cfg.lambda_bd)
+        out["E_bd"] = torch.cat([root * dxx.flatten(), root * dyy.flatten(), math.sqrt(2) * root * dxy.flatten()])
+    if cfg.lambda_n > 0:
+        assert p.normals is not None, "E_n needs normals"
+        z = -d.clamp_min(1e-6).log()
+        dzs = (z[..., 1:] - z[..., :-1], z[..., 1:, :] - z[..., :-1, :])
+        parts = []
+        for (af, gf, ab, gb), (wf, wb), dz in zip(p.normals.terms, p.normals.weights, dzs, strict=True):
+            parts += [(cfg.lambda_n * wf).sqrt() * (af * dz + gf), (cfg.lambda_n * wb).sqrt() * (ab * dz + gb)]
+        out["E_n"] = torch.cat([x.flatten() for x in parts])
+    if mv.lambda_mv > 0:
+        out["E_mv"] = math.sqrt(mv.lambda_mv) * residuals(d, p.scale, p.scene, p.matches)
+    return {k: v.flatten() for k, v in out.items()}
+
+
+def scene_energy(delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem) -> dict[str, float]:
+    """E and each weighted term's share of it."""
+    terms = {k: (v.square().sum() / p.d0.numel()).item() for k, v in scene_residuals(delta, cfg, mv, p).items()}
+    e = sum(terms.values())
+    assert math.isfinite(e), terms
+    return {"E": e} | terms
+
+
+def grid_operator(d: Tensor, cfg: RefineConfig, p: Problem, *, squared: bool = False) -> Callable[[Tensor], Tensor]:
+    """J v of the per-view residuals (all but E_mv) at d, in `scene_residuals` order; squared: with J's entries squared.
+
+    E_d and E_bd are linear in δ; E_n is linear in z = -log d, so dz moves by -(v_q/d_q - v_p/d_p). With squared
+    entries, J∘J applied to v and transposed onto the residuals' ones gives the diagonal of J^T J.
+    """
+    power = 2 if squared else 1
+    a_d = (0.5 * cfg.lambda_d * p.w).sqrt() ** power
+    root_bd = math.sqrt(cfg.lambda_bd) ** power
+    masks = None
+    if p.normals is not None:
+        (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
+        masks = (kx[..., :-1] & kx[..., 1:], ky[..., :-1, :] & ky[..., 1:, :],
+                 kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:])  # fmt: skip
+    inv_d = (1 / d) ** power
+    sign = 1 if squared else -1
+
+    def apply(v: Tensor) -> Tensor:
+        out = [a_d * v]
+        if cfg.lambda_delta > 0:
+            out.append(cfg.lambda_delta ** (power / 2) * v)
+        if cfg.lambda_bd > 0:
+            c = 4 if squared else -2
+            dxx = v[..., 2:] + c * v[..., 1:-1] + v[..., :-2]
+            dyy = v[..., 2:, :] + c * v[..., 1:-1, :] + v[..., :-2, :]
+            dxy = v[..., 1:, 1:] + sign * v[..., 1:, :-1] + sign * v[..., :-1, 1:] + v[..., :-1, :-1]
+            if masks is not None:
+                dxx, dyy, dxy = dxx * masks[0], dyy * masks[1], dxy * masks[2]
+            out += [root_bd * dxx, root_bd * dyy, 2 ** (power / 2) * root_bd * dxy]
+        if cfg.lambda_n > 0:
+            assert p.normals is not None
+            q = v * inv_d
+            dqs = (q[..., 1:] + sign * q[..., :-1], q[..., 1:, :] + sign * q[..., :-1, :])
+            for (af, _, ab, _), (wf, wb), dq in zip(p.normals.terms, p.normals.weights, dqs, strict=True):
+                for a, wt in ((af, wf), (ab, wb)):
+                    coef = cfg.lambda_n * wt * a.square() if squared else -(cfg.lambda_n * wt).sqrt() * a
+                    out.append(coef * dq)
+        return torch.cat([x.flatten() for x in out])
+
+    return apply
+
+
+def conjugate_gradient(
+    hv: Callable[[Tensor], Tensor], b: Tensor, precondition: Tensor, iters: int, tol: float
+) -> tuple[Tensor, int]:
+    """Solve H x = b, H symmetric positive definite given as a product, by CG with a diagonal preconditioner.
+
+    Stops once the residual norm falls below tol times b's (checked every 10 iterations); returns x and the count.
+    """
+    x, r = torch.zeros_like(b), b.clone()
+    z = precondition * r
+    p, rz = z.clone(), (r * z).sum()
+    stop = (tol * b.norm()) ** 2
+    if rz == 0:
+        return x, 0
+    for k in range(1, iters + 1):
+        hp = hv(p)
+        alpha = rz / (p * hp).sum()
+        x, r = x + alpha * p, r - alpha * hp
+        if k % 10 == 0 and r.square().sum() < stop:
+            return x, k
+        z = precondition * r
+        rz_new = (r * z).sum()
+        p, rz = z + (rz_new / rz) * p, rz_new
+    return x, iters
+
+
+def gauss_newton_step(delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem) -> tuple[Tensor, int]:
+    """Solve J^T J s = -J^T r at delta by Jacobi-preconditioned CG; return s and the CG iterations used."""
+    d = p.d0 + delta
+    parts = scene_residuals(delta, cfg, mv, p)
+    r_mv = parts.pop("E_mv", None)
+    r_grid = torch.cat(list(parts.values()))
+    grid = grid_operator(d, cfg, p)
+    _, grid_t = torch.func.vjp(grid, torch.zeros_like(d))
+    _, grid_sq_t = torch.func.vjp(grid_operator(d, cfg, p, squared=True), torch.zeros_like(d))
+    diag = grid_sq_t(torch.ones_like(r_grid))[0].flatten()
+    gradient = grid_t(r_grid)[0].flatten()
+    cols = vals = None
+    if r_mv is not None:
+        cols, vals = match_jacobian(d, p.scale, p.scene, p.matches)
+        vals = math.sqrt(mv.lambda_mv) * vals
+        diag = diag.index_add(0, cols.flatten(), vals.square().flatten())
+        gradient = gradient.index_add(0, cols.flatten(), (vals * r_mv).flatten())
+
+    def hv(v: Tensor) -> Tensor:
+        out = grid_t(grid(v.view_as(d)))[0].flatten()
+        if cols is not None and vals is not None:
+            jv = (vals * v[cols]).sum(0)
+            out = out.index_add(0, cols.flatten(), (vals * jv).flatten())
+        return out
+
+    step, used = conjugate_gradient(hv, -gradient, 1 / diag.clamp_min(1e-12), mv.cg_iters, mv.cg_tol)
+    return step.view_as(d), used
 
 
 def refine_scene(
     scene: Scene, cfg: RefineConfig, mv: MultiviewConfig, normals: Tensor | None = None
-) -> tuple[Tensor, list[dict[str, float]], int]:
-    """Optimize the residuals of all views jointly by L-BFGS; return depth (V, H, W), energy log and match count.
+) -> tuple[Tensor, list[dict[str, float]], dict[str, int]]:
+    """Gauss-Newton on all views' residuals at once; return depth (V, H, W), energy log and counts.
 
-    Normals (V, H, W, 3), unit, in the frame of the rays, enable E_n per view and cut E_bd as in `refine.refine`.
+    Each step linearizes every residual at the current δ and solves the normal equations J^T J s = -J^T r by
+    Jacobi-preconditioned CG (`gauss_newton_step`), halving s until E decreases and no depth grows tenfold
+    (the logs clamp d at 1e-6, so E alone would not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the
+    frame of the rays, enable E_n and cut E_bd on the input's occlusion contours, as in `refine.refine`.
     """
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
     scale = scene.depth.median()
     d0 = scale / scene.depth
     w = scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)
-    terms = [None if normals is None else normal_term(normals[i], scene.rays[i], d0[i], cfg.edge_tol)
-             for i in range(len(d0))]  # fmt: skip
-    problem = Problem(scene, scale, d0, w, terms, find_matches(scene, d0, scale, mv.mv_tol))
-    delta = torch.zeros_like(d0, requires_grad=True)
-
-    log = [scene_energy(delta, cfg, mv, problem)[1]]
-    if cfg.iters > 0:
-        opt = torch.optim.LBFGS(
-            [delta],
-            lr=1.0,
-            max_iter=cfg.iters,
-            history_size=cfg.history_size,
-            tolerance_grad=1e-9,
-            tolerance_change=1e-12,
-            line_search_fn="strong_wolfe",
+    terms = None
+    if normals is not None:
+        per_view = [normal_term(normals[i], scene.rays[i], d0[i], cfg.edge_tol) for i in range(len(d0))]
+        terms = NormalTerm(
+            [tuple(torch.stack([t.terms[a][k] for t in per_view]) for k in range(4)) for a in range(2)],
+            [tuple(torch.stack([t.weights[a][k] for t in per_view]) for k in range(2)) for a in range(2)],
         )
+    p = Problem(scene, scale, d0, w, terms, find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors))
 
-        def closure() -> Tensor:
-            opt.zero_grad()
-            e, t = scene_energy(delta, cfg, mv, problem)
-            e.backward()
-            log.append(t)
-            return e
-
-        opt.step(closure)
-        with torch.no_grad():
-            log.append(scene_energy(delta, cfg, mv, problem)[1])
-    depth_hat = scale / (d0 + delta.detach())
+    delta = torch.zeros_like(d0)
+    log, cg_total = [scene_energy(delta, cfg, mv, p)], 0
+    for _ in range(mv.gn_iters):
+        step, used = gauss_newton_step(delta, cfg, mv, p)
+        cg_total += used
+        for _ in range(8):
+            positive = bool((d0 + delta + step > 0.1 * d0).all())
+            trial = scene_energy(delta + step, cfg, mv, p) if positive else {"E": math.inf}
+            if trial["E"] < log[-1]["E"]:
+                delta = delta + step
+                log.append(trial)
+                break
+            step = step / 2
+        else:
+            break
+    depth_hat = scale / (d0 + delta)
     assert depth_hat.shape == scene.depth.shape and depth_hat.isfinite().all() and (depth_hat > 0).all()
-    assert log[-1]["E"] <= log[0]["E"] + 1e-6, (log[0], log[-1])
-    assert math.isfinite(log[-1]["E_mv"])
-    return depth_hat, log, len(problem.matches.src)
+    assert log[-1]["E"] <= log[0]["E"] + 1e-9, (log[0], log[-1])
+    return depth_hat, log, {"matches": len(p.matches.src), "cg_iterations": cg_total}
 
 
 def similarity(a: np.ndarray, b: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
@@ -338,7 +510,7 @@ def run_variant(
     """Refine all views under one configuration and score it: fused cloud, per-view protocol, disagreement."""
     truth, matches, raw = problem
     t0 = time.perf_counter()
-    depth_hat, log, n = refine_scene(scene, cfg, mv, normals)
+    depth_hat, log, counts = refine_scene(scene, cfg, mv, normals)
     if depth_hat.is_cuda:
         torch.cuda.synchronize()
     seconds = time.perf_counter() - t0
@@ -348,8 +520,8 @@ def run_variant(
     record = {
         "label": scene_label(cfg, mv),
         "seconds": seconds,
-        "evaluations": len(log) - 1,
-        "matches": n,
+        "gn_steps": len(log) - 1,
+        **counts,
         "energy_initial": log[0],
         "energy_final": log[-1],
         "disagreement_pct": disagreement,
@@ -384,7 +556,8 @@ def main() -> None:
         ])  # fmt: skip
         truth = load_truth(paths, scene)
         scale = scene.depth.median()
-        matches = find_matches(scene, scale / scene.depth, scale, raw["multiview"]["mv_tol"])
+        base_mv = MultiviewConfig(**raw["multiview"])
+        matches = find_matches(scene, scale / scene.depth, scale, base_mv.mv_tol, base_mv.neighbors)
         s, rotation, t = truth.align
         centers = s * scene.center.cpu().numpy() @ rotation.T + t
         center_residual = np.linalg.norm(centers - truth.cam_to_world[:, :3, 3], axis=1)
@@ -395,7 +568,7 @@ def main() -> None:
             "scan": scan_fidelity(truth),
             "variants": [],
         }
-        refine_scene(scene, dataclasses.replace(base, iters=1), MultiviewConfig(**raw["multiview"]), normals)
+        refine_scene(scene, base, dataclasses.replace(base_mv, gn_iters=1, cg_iters=1), normals)
         for i, o in enumerate(raw["variants"]):
             mv = MultiviewConfig(**{**raw["multiview"], **{k: v for k, v in o.items() if k in MV_KEYS}})
             cfg = dataclasses.replace(base, **{k: v for k, v in o.items() if k not in MV_KEYS})
@@ -403,7 +576,7 @@ def main() -> None:
             scenes[name]["variants"].append(record)
             arrays[f"{name}_{i}_depth"] = depth
             keys = ("fused_median_cm", "thickness_mm", "normal_angle_deg", "disagreement_pct", "seconds")
-            print(name, record["label"], {k: round(record[k], 3) for k in keys})  # noqa: T201
+            print(name, record["label"], {k: round(record[k], 3) for k in keys}, flush=True)  # noqa: T201
 
     summary = {"config": raw, "resolved": dataclasses.asdict(base), "git": git_hash(), "scenes": scenes}
     (out / "run.yaml").write_text(yaml.safe_dump(summary, sort_keys=False, allow_unicode=True))
