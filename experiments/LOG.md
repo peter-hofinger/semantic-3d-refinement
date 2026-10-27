@@ -45,6 +45,7 @@ Metrics:
 | E15 | Plan step (b): threshold 0.3, masks <= 0.5 kept only if linked to another view | pixel recall +0.03 to +0.05 at same precision / leakage / consistency; office floor 3/18 -> 9/18 views; kept low masks 54-100% real, dropped 2-10% |
 | E16 | Plan step (c), arm C: VLM vocabulary (Qwen3-VL-2B, 4-bit, one list per scene) | about equal to top100 (pixel recall 0.94 / 0.83 vs 0.95 / 0.83), precision -0.06 / -0.08, office +1 merge; finds pedestal fan 1 -> 8/8, coat rack 5 -> 8/9; loses thin frames/sills |
 | E17 | Grid (a) x (b) x vocabulary, 8 setups x 2 scenes | (b) helps everywhere (pixel recall +0.02 / +0.04, precision +0.01) but adds an office merge unless (a) is on; (a) removes 1-2 office merges, costs kitchen consistency -0.03; VLM precision -0.06 / -0.08. Best: top100 + a + b (= working setting) |
+| E18 | Boundaries of SAM 3 masks vs depth edges and Déjà View bleeding (GT: 5 cm mesh) | SAM 3 boundaries match GT object boundaries (F 0.66 / 0.64 at 1 px, 0.80 / 0.79 at 3 px; control 0.17-0.25); bleeding exists on ScanNet++ (error 3-4% at depth edges vs 0.5-0.7% far). At the same density Déjà View's own depth edges find depth edges better than SAM 3; SAM 3 adds which object a pixel belongs to: bleeding pixels in the right mask 0.72 kitchen, only 0.39 office (0.23 wrong object) |
 
 ## Reference table (current scorer, E11)
 
@@ -688,3 +689,80 @@ The three open options change different stages, so they can be combined, and eac
   - **Best setup on both scenes: top100 + (a) + (b) = the current working setting** (office: fewest merges, 4, at the
     highest pixel recall; kitchen: -0.02 consistency vs (a) off). Two scenes only: the (a) consistency cost and the
     merge differences are 1-2 objects each.
+
+## E18: Boundaries of SAM 3 masks vs depth edges, and bleeding on ScanNet++ (27.10.2026)
+- **Goal:** Peter's ETH3D analysis (branch `monocular-refinement`) shows bleeding at depth edges is Déjà View's largest
+  error (median 4-6% at edges vs < 1% far away). Segments can only fix it if (1) their boundaries lie on the true depth
+  edges and (2) they put the pixels on each side of an edge into the right object. The scorer so far measured IoU and
+  leakage, not boundary position. Also: does bleeding show up on our ScanNet++ scenes too?
+- **Settings:** working segmentation (E17 best: top100 t0.3 + `--cross-class 0.7 --min-visible-fraction 0.25
+  --keep-linked-below 0.5`; association does not move boundaries), Déjà View K=16 depth, GT from E1 (5 cm mesh). Only
+  pixels where the GT ray hits the mesh. Edge maps (both pixels of a changing 4-neighbour pair are marked):
+  GT object boundaries (GT id changes, unlabeled is its own id, "SPLIT" = unlabeled), GT depth edges (relative depth
+  jump > 5%), "confirmed" GT depth edges (Canny 50/150 image edge within 2 px; removes some mesh artifacts without
+  using SAM 3 or Déjà View), Déjà View depth edges (> 5%, and at a lower threshold, 1.2% in both scenes, chosen so
+  they are as dense as the SAM 3 boundaries: same edge budget), SAM 3 boundaries (id changes, also to "no mask").
+  Coverage at tolerance d = share of target edge pixels with an edge pixel within d px. Control: SAM 3 boundaries of
+  the next view (same density, unrelated position). Déjà View error: |s * depth - GT| / GT with per-view median scale
+  s. Bleeding pixel: error > 5% within 3 px of a GT depth edge. "Which object": a pixel is "right" if the SAM 3 mask
+  containing it has the pixel's own GT object as its dominant GT object (labeled GT pixels only).
+- **Code / command:** `uv run python experiments/scripts/e18_boundaries.py > experiments/results/e18_boundaries.txt`
+  (CPU, ~1 min for both scenes).
+- **GT resolution caveat:** 5 cm of mesh is 7.5 px (kitchen) / 5.8 px (office) at the median GT depth (10-90%: 3-14 px).
+  GT outlines and depth edges are only accurate to a few px; the 1-3 px numbers below are limited by the GT. The
+  example figure shows mesh artifacts counted as depth edges and "bleeding": inside monitor screens, on the copier
+  lid, on the office chair's mesh back and the black bottle crates (dark / glossy surfaces). The Canny filter keeps
+  most of them (textured or reflective), so it changes the numbers only a little.
+- **Results** (`results/e18_boundaries.txt`, kitchen / office):
+  1. **SAM 3 boundaries vs GT object boundaries:** precision / recall 0.61 / 0.72 and 0.65 / 0.63 at 1 px, 0.75 / 0.84
+     and 0.82 / 0.76 at 3 px (F 0.66 / 0.64 at 1 px, 0.80 / 0.79 at 3 px); control F 0.10 / 0.14 at 1 px, 0.17 / 0.25
+     at 3 px. Near depth edges, SAM 3 boundaries lie a median 1.0 px from the GT depth edge (as do Déjà View's depth
+     edges) and 2.8 / 2.0 px from Déjà View's depth edge: they follow the image, not the predicted depth.
+  2. **Signed offset of matched masks:** within 3 px of the GT outline the masks miss 2.4x more object pixels than
+     they add outside (ratio 0.40 / 0.42): SAM 3 masks are slightly thinner than the mesh objects, not fatter (part of
+     it is probably the coarse mesh thickening objects).
+  3. **Bleeding exists on ScanNet++ too:** Déjà View median error 4.2% / 3.3% within 1 px of a GT depth edge (share
+     > 5%: 0.45 / 0.41), 0.6% / 0.5% more than 15 px away; 60% / 67% of all pixels with error > 5% lie within 3 px of a
+     GT depth edge (43% / 54% for confirmed edges). Same picture as Peter's ETH3D numbers, but here part of it is GT
+     error (above).
+  4. **Locating depth edges** (confirmed GT depth edges covered at 3 px): GT object boundaries 0.70 / 0.94, SAM 3
+     0.67 / 0.78, Déjà View depth edges (5%) 0.50 / 0.63, **Déjà View depth edges at SAM 3's density 0.78 / 0.84**,
+     SAM 3 or Déjà View (5%) 0.75 / 0.86, control 0.17 / 0.25. Bleeding pixels covered at 3 px: SAM 3 0.60 / 0.72, dense
+     Déjà View edges 0.76 / 0.85. At the same edge budget **Déjà View's own depth discontinuities find depth edges
+     better than SAM 3 boundaries**: a blurred edge is still a jump of > 1.2%. Only 55% (kitchen) / 87% (office) of the
+     GT depth edges lie on a GT object boundary at all (kitchen: shelves with contents, crates, parts of the copier).
+  5. **Which object SAM 3 assigns a pixel to** (confirmed edges; with all edges within 0.04):
+
+     | pixels | kitchen right / other / no mask | office right / other / no mask |
+     |---|---|---|
+     | bleeding | 0.72 / 0.08 / 0.19 | 0.39 / 0.23 / 0.38 |
+     | all <= 3 px from an edge | 0.79 / 0.05 / 0.16 | 0.56 / 0.14 / 0.30 |
+     | > 15 px from an edge | 0.96 / 0.01 / 0.03 | 0.83 / 0.05 / 0.12 |
+
+     By GT class: foreground objects are mostly right (kitchen copy machine 0.91, microwave 0.93, trash bin 0.87;
+     office chair 0.69, monitor 0.64, coat rack 0.71); the background side of edges is mostly wrong or uncovered
+     (office wall 0.14 right / 0.50 other, table 0.19 / 0.36, floor 0.05 / 0.46). Pedestal fan (office, 9% of the
+     bleeding pixels): 0.92 no mask; it is not in top100 (the E16 VLM list found it). At background-side "other"
+     pixels both SAM 3 (mask) and Déjà View (depth) side with the foreground against the mesh, so some of these may be
+     mesh errors; this cannot be separated without finer GT.
+  6. **Eroding masks does not fix the wrong assignments:** office bleeding pixels, erosion 0 / 1 / 2 / 3 px: right
+     0.39 / 0.27 / 0.19 / 0.14, other 0.23 / 0.14 / 0.10 / 0.07 (right:other 1.7 -> 2.0); kitchen right 0.72 -> 0.39,
+     other 0.08 -> 0.03. Erosion turns right assignments into "no mask" about as fast as wrong ones: the wrong ones come
+     largely from whole masks on the wrong object (desk-block "table" mask, merged wall planes, E11), not a thin rim.
+- **Figures:** `figures/e18_boundaries.jpg` (coverage of confirmed GT depth edges and of bleeding pixels vs tolerance,
+  Déjà View error vs distance to an edge, which object SAM 3 assigns pixels to); `figures/e18_example.jpg` (view with
+  the most bleeding pixels per scene: GT depth edges vs SAM 3 boundaries; Déjà View depth edges and bleeding pixels).
+- **Conclusion:**
+  - SAM 3 boundaries are accurate where they exist (~1 px from the mesh outline, F 0.8 at 3 px, following the image
+    rather than the blurred depth), and bleeding occurs on ScanNet++ too. But **for locating depth edges, segments add
+    little over Déjà View's own depth**: at the same density its depth discontinuities cover more depth edges and more
+    bleeding pixels. The union of both is the best edge map we have.
+  - **What segments add is which object a pixel belongs to**, which a refiner needs to pull a bled pixel onto the right
+    surface. This works on the foreground side (0.64-0.93 right for chairs, monitors, appliances) and in the kitchen
+    overall (0.72), but not in the office (0.39 right, 0.23 wrong object), mainly on the background side (wall / table /
+    floor) and for unprompted objects (fan).
+  - For the refiner: use segments as soft evidence of which surface a pixel belongs to, trusted more on the object
+    side of an edge than on the background side; do not use them as the only edge map; erosion is not a cheap fix.
+    Whether this is good enough only the refinement experiment can decide (no / SAM 3 / GT segments).
+  - The 1-3 px numbers are limited by the 5 cm mesh. A sharper check needs laser-depth GT (Peter's ETH3D scenes, or the
+    ScanNet++ laser point cloud, not downloaded).
