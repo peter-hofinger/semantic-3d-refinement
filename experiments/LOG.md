@@ -48,6 +48,7 @@ Metrics:
 | E18 | Boundaries of SAM 3 masks vs depth edges and Déjà View bleeding (GT: 5 cm mesh) | SAM 3 boundaries match GT object boundaries (F 0.66 / 0.64 at 1 px, 0.80 / 0.79 at 3 px; control 0.17-0.25); bleeding exists on ScanNet++ (error 3-4% at depth edges vs 0.5-0.7% far). At the same density Déjà View's own depth edges find depth edges better than SAM 3; SAM 3 adds which object a pixel belongs to: bleeding pixels in the right mask 0.72 kitchen, only 0.39 office (0.23 wrong object) |
 | E19 | Arm D: top100 + VLM prompts in one SAM 3 run | recall about as top100 (pixel recall 0.94 / 0.84 vs 0.95 / 0.83), precision -0.11 / -0.15, office merges 4 -> 5 (VLM's fan merge); bleeding pixels in the right object office 0.39 -> 0.48 (VLM alone 0.46), kitchen 0.72 -> 0.74, all from pedestal fan + coat rack. Not adopted as default; the VLM's value is objects outside a fixed list |
 | E20 | Proxy test: can segments fix bleeding? (local plane fit within a segment near Déjà View's depth jumps) | without segments (or shuffled) the fix is harmful (share > 5% 0.21 -> 0.39 / 0.23 -> 0.52); SAM 3 makes it safe but nearly neutral (mean error -2% / -2%); GT segments -10% / -19%. SAM 3 helps on right-object pixels, hurts on wrong-object ones, leaves no-mask pixels (24% office) unchanged |
+| E21 | Class-agnostic SAM 2 automatic masks fill the pixels without a SAM 3 mask (option B) | no gain: automatic masks cover only 33% / 22% of the no-mask pixels, the E20 proxy fix changes 7-11% of them, results = next-view control (realistic mean error 0.046 / 0.068 as SAM 3 alone). Gaps are mostly slivers next to a mask (63-82% within 3 px) plus unprompted objects (pedestal fan) |
 
 ## Reference table (current scorer, E11)
 
@@ -905,3 +906,55 @@ The three open options change different stages, so they can be combined, and eac
   - Next levers: (i) trust a mask only on the object side of an edge / down-weight background-side masks;
     (ii) class-agnostic masks for the uncovered pixels (option B); (iii) the real refiner (multi-view term, Huber,
     confidence) may do better than this local proxy; run it with the same no / SAM 3 / GT / shuffled rows.
+
+## E21: Class-agnostic SAM 2 masks for the pixels without a SAM 3 mask (27.10.2026)
+- **Goal:** E20: the pixels without a SAM 3 mask are the worst ones near edges (office 24% of the edge region) and no
+  segment-based fix can touch them. Plan item 4 / option B: class-agnostic automatic masks for these regions. Measure
+  how much they cover, whether they put pixels in the right object, and whether the E20 proxy fix then improves.
+- **Settings (fixed before running, not tuned):** `facebook/sam2.1-hiera-small` via the `transformers`
+  mask-generation pipeline (SAM 3 has no automatic mode in `transformers`), SAM 2's own automatic-mask defaults:
+  32 x 32 points, predicted IoU >= 0.8, stability >= 0.95, no crops (the pipeline's default IoU 0.88 is SAM 1's).
+  float32 (bf16 breaks the pipeline's NMS: box and score dtypes differ); 1.5 GB peak, ~6 s/view on the laptop.
+  Overlapping automatic masks painted large to small (finer wins); own id per mask and view, no class, no
+  association. Fill = working top100 segmentation unchanged, automatic ids only where it has no mask. Control: fill
+  with the automatic masks of the next view. Regions, which-object label and proxy fix exactly as E20 (plane, 21 px).
+- **Code / command:** `uv run python experiments/scripts/e21_automatic_masks.py generate` (GPU, ~2 min/scene, cache
+  `sam2auto-hiera-small_views_n20_uniform_504.npz` per scene), then
+  `uv run python experiments/scripts/e21_automatic_masks.py > experiments/results/e21_automatic_masks.txt` (CPU,
+  ~2 min; rerun identical). `e20_proxy_fix.py` now has a `main()` so E21 can import it (E20 output unchanged).
+- **Results** (`results/e21_automatic_masks.txt`, kitchen / office):
+  1. **Coverage is low:** median 12 / 19 automatic masks per view, covering 70% / 42% of the pixels (SAM 3: 95% /
+     85%) and only **33% / 22% of the pixels SAM 3 leaves without a mask**.
+  2. **Realistic region** (no GT): share with a mask, which object (E18 label, labeled pixels), mean error after the
+     proxy fix:
+
+     | segments | with a mask | right | other | none | mean error after fix |
+     |---|---|---|---|---|---|
+     | Déjà View (input) | | | | | 0.047 / 0.070 |
+     | SAM 3 top100 | 0.86 / 0.76 | 0.86 / 0.64 | 0.03 / 0.13 | 0.11 / 0.23 | 0.046 / 0.068 |
+     | automatic only | 0.42 / 0.31 | 0.40 / 0.28 | 0.02 / 0.04 | 0.58 / 0.68 | 0.047 / 0.069 |
+     | top100 + automatic | 0.89 / 0.80 | 0.88 / 0.67 | 0.03 / 0.14 | 0.09 / 0.19 | 0.046 / 0.068 |
+     | top100 + next view's automatic | 0.94 / 0.85 | 0.89 / 0.68 | 0.06 / 0.18 | 0.05 / 0.14 | 0.047 / 0.069 |
+     | GT | | | | | 0.043 / 0.056 |
+
+  3. **On the no-mask pixels themselves** (14% / 24% of the realistic region): the fill changes only 7% / 9% of them
+     (the fit needs >= 20 same-segment pixels outside the region within 21 px; fill pieces next to edges are small),
+     mean error 0.064 -> 0.065 / 0.112 -> 0.112; the next-view control is about the same. Oracle region: changes 1% /
+     11%, error unchanged. Of the labeled no-mask pixels, 81% / 82% still have no mask after the fill, 13-15% get the
+     right object, 4-5% another one.
+  4. **What the gaps are** (no-mask pixels of the realistic region): 57% / 37% within 1 px of a SAM 3 mask, 82% / 63%
+     within 3 px, 98% / 90% within 10 px: mostly **slivers along mask outlines** (E18: SAM 3 masks are slightly thinner
+     than the objects), which an automatic mask does not fill either. The rest are uncovered objects; GT class of the
+     office bleeding gaps: pedestal fan 0.20 (not in top100; E19's VLM list finds it), table 0.10, office chair 0.09,
+     wall 0.09, floor 0.08, monitor 0.08; kitchen: bottle crate 0.15, copy machine 0.12, ceiling lamp 0.12.
+- **Figures:** `figures/e21_automatic_masks.jpg` (which object and proxy-fix error per segmentation, both regions and
+  scenes); `figures/e21_example.jpg` (office view 14: SAM 3, automatic, filled; dark = no mask, magenta = bleeding).
+- **Conclusion:**
+  - Class-agnostic SAM 2 masks with default settings do not help: they cover a fifth to a third of the gaps and the
+    proxy fix does not improve (= control). Not worth a format change in `Segmentation` for now.
+  - The gaps are mostly 1-3 px slivers along SAM 3 outlines, i.e. exactly the pixels between two surfaces. Filling
+    them needs a decision which side a pixel belongs to, which a mask cannot give; this points back to the refiner
+    (assign edge pixels by depth agreement with either side, multi-view evidence) rather than to more masks.
+  - The rest are whole objects without a mask (pedestal fan, crates, lamps): a vocabulary problem (VLM / union, E19).
+  - Caveat: one model size and its default settings; denser points or crops would cover more, but that would be
+    tuning on these test scenes.
