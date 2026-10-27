@@ -27,7 +27,16 @@ import torch.nn.functional as F  # noqa: N812
 import yaml
 from torch import Tensor
 
-from semantic_3d_refinement.normals import angle_to, cut_weights, diffs, drift, neighbor_terms, predicted_normals
+from semantic_3d_refinement.normals import (
+    BiniConfig,
+    angle_to,
+    bini,
+    cut_weights,
+    diffs,
+    drift,
+    neighbor_terms,
+    predicted_normals,
+)
 from semantic_3d_refinement.views import check_inputs, git_hash, view_from_config, write_ply
 
 
@@ -210,6 +219,54 @@ def view_metrics(depth_hat: Tensor, data: dict[str, Tensor], normals: Tensor | N
     if "gt_normals" in data:
         out["angle_to_gt_normals_deg"] = angle_to(data["gt_normals"], depth_hat, rays)
     return out
+
+
+def variant_label(cfg: RefineConfig) -> str:
+    """Name the active energy terms, e.g. "E_d + E_n"."""
+    return " + ".join(k for k, w in term_weights(cfg).items() if w > 0)
+
+
+@dataclass(frozen=True)
+class Variant:
+    """One refinement of the run's view under modified weights."""
+
+    label: str
+    depth: np.ndarray
+    metrics: dict[str, float]
+    evaluations: int
+    seconds: float
+
+
+def timed_refine(data: dict[str, torch.Tensor], cfg: RefineConfig) -> tuple[torch.Tensor, int, float]:
+    """Refine the run's view; return depth, function evaluations, seconds."""
+    t0 = time.perf_counter()
+    depth_hat, _, _, log = refine(data["depth"], data["rays"], data["conf"], cfg, data.get("normals"))
+    if depth_hat.is_cuda:
+        torch.cuda.synchronize()
+    return depth_hat, len(log) - 1, time.perf_counter() - t0
+
+
+def run_ablation(
+    data: dict[str, torch.Tensor], cfg: RefineConfig, overrides: list[dict], bini_cfg: BiniConfig | None
+) -> list[Variant]:
+    """Refine once per override of the run's config, then BiNI's CG on the same normals; untimed warm-up first."""
+    timed_refine(data, dataclasses.replace(cfg, iters=1))
+    variants = []
+    for o in overrides:
+        c = dataclasses.replace(cfg, **o)
+        depth_hat, evals, seconds = timed_refine(data, c)
+        label = variant_label(c) + (" (= input)" if variant_label(c) == "E_d" else "")
+        variants.append(Variant(label, depth_hat.cpu().numpy(), view_metrics(depth_hat, data, data.get("normals")),
+                                evals, seconds))  # fmt: skip
+    if bini_cfg is not None:
+        t0 = time.perf_counter()
+        depth_hat, _, log = bini(data["normals"], data["rays"], data["depth"], bini_cfg)
+        if depth_hat.is_cuda:
+            torch.cuda.synchronize()
+        label = f"BiNI CG, λ_depth = {bini_cfg.lambda_depth:g}"
+        metrics = view_metrics(depth_hat, data, data["normals"])
+        variants.append(Variant(label, depth_hat.cpu().numpy(), metrics, len(log) - 1, time.perf_counter() - t0))
+    return variants
 
 
 def main() -> None:

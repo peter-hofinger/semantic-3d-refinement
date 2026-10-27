@@ -6,8 +6,6 @@ normal term (`normals.py`) as a reference.
 
 import argparse
 import dataclasses
-import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib as mpl
@@ -28,12 +26,15 @@ from semantic_3d_refinement.refine import (
     LOG_KEYS,
     NormalTerm,
     RefineConfig,
+    Variant,
     energy_maps,
     normal_term,
     normalize,
     points_from_rays,
     refine,
+    run_ablation,
     term_weights,
+    timed_refine,
     view_metrics,
 )
 from semantic_3d_refinement.views import view_from_config
@@ -340,11 +341,6 @@ def sweep_figures(out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig, s
     sensitivity(out, float(rel_error(depth, gt).mean()), cfg, sweep, errs)
 
 
-def variant_label(cfg: RefineConfig) -> str:
-    """Name the active energy terms, e.g. "E_d + E_n"."""
-    return " + ".join(k for k, w in term_weights(cfg).items() if w > 0)
-
-
 def shade(depth: np.ndarray, rays: np.ndarray) -> np.ndarray:
     """Shade the normals of the lifted depth as RGB in [0, 1]."""
     return normals_from_depth(torch.from_numpy(depth), torch.from_numpy(rays)).numpy() * 0.5 + 0.5
@@ -358,49 +354,6 @@ def plane_limit(depth: np.ndarray) -> np.ndarray:
     basis = np.stack([u.ravel(), v.ravel(), np.ones(h * w)], 1)
     plane = (basis @ np.linalg.lstsq(basis, d0.numpy().ravel(), rcond=None)[0]).reshape(h, w)
     return np.where(plane > 0, scale.item() / np.where(plane > 0, plane, 1), np.nan)
-
-
-@dataclass(frozen=True)
-class Variant:
-    """One refinement of the run's view under modified weights."""
-
-    label: str
-    depth: np.ndarray
-    metrics: dict[str, float]
-    evaluations: int
-    seconds: float
-
-
-def timed_refine(data: dict[str, torch.Tensor], cfg: RefineConfig) -> tuple[torch.Tensor, int, float]:
-    """Refine the run's view; return depth, function evaluations, seconds."""
-    t0 = time.perf_counter()
-    depth_hat, _, _, log = refine(data["depth"], data["rays"], data["conf"], cfg, data.get("normals"))
-    if depth_hat.is_cuda:
-        torch.cuda.synchronize()
-    return depth_hat, len(log) - 1, time.perf_counter() - t0
-
-
-def run_ablation(
-    data: dict[str, torch.Tensor], cfg: RefineConfig, overrides: list[dict], bini_cfg: BiniConfig | None
-) -> list[Variant]:
-    """Refine once per override of the run's config, then BiNI's CG on the same normals; untimed warm-up first."""
-    timed_refine(data, dataclasses.replace(cfg, iters=1))
-    variants = []
-    for o in overrides:
-        c = dataclasses.replace(cfg, **o)
-        depth_hat, evals, seconds = timed_refine(data, c)
-        label = variant_label(c) + (" (= input)" if variant_label(c) == "E_d" else "")
-        variants.append(Variant(label, depth_hat.cpu().numpy(), view_metrics(depth_hat, data, data.get("normals")),
-                                evals, seconds))  # fmt: skip
-    if bini_cfg is not None:
-        t0 = time.perf_counter()
-        depth_hat, _, log = bini(data["normals"], data["rays"], data["depth"], bini_cfg)
-        if depth_hat.is_cuda:
-            torch.cuda.synchronize()
-        label = f"BiNI CG, λ_depth = {bini_cfg.lambda_depth:g}"
-        metrics = view_metrics(depth_hat, data, data["normals"])
-        variants.append(Variant(label, depth_hat.cpu().numpy(), metrics, len(log) - 1, time.perf_counter() - t0))
-    return variants
 
 
 def metric_note(m: dict[str, float]) -> str:
