@@ -96,7 +96,8 @@ def test_bending_alone_converges_to_the_least_squares_plane_of_the_input() -> No
     v, u = torch.meshgrid(torch.arange(8.0), torch.arange(9.0), indexing="ij")
     basis = torch.stack([u.ravel(), v.ravel(), torch.ones(72)], 1).double()
     plane = (basis @ torch.linalg.lstsq(basis, d0.ravel()[:, None]).solution).reshape(8, 9)
-    assert (d0 + delta - plane).abs().max() < 1e-3 < 0.1 < (d0 - plane).abs().max()
+    assert (d0 - plane).abs().max() > 0.1
+    assert (d0 + delta - plane).abs().max() < 1e-3
 
 
 def test_lbfgs_keeps_an_occlusion_edge_cut_on_the_contour() -> None:
