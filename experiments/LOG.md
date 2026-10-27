@@ -47,6 +47,7 @@ Metrics:
 | E17 | Grid (a) x (b) x vocabulary, 8 setups x 2 scenes | (b) helps everywhere (pixel recall +0.02 / +0.04, precision +0.01) but adds an office merge unless (a) is on; (a) removes 1-2 office merges, costs kitchen consistency -0.03; VLM precision -0.06 / -0.08. Best: top100 + a + b (= working setting) |
 | E18 | Boundaries of SAM 3 masks vs depth edges and Déjà View bleeding (GT: 5 cm mesh) | SAM 3 boundaries match GT object boundaries (F 0.66 / 0.64 at 1 px, 0.80 / 0.79 at 3 px; control 0.17-0.25); bleeding exists on ScanNet++ (error 3-4% at depth edges vs 0.5-0.7% far). At the same density Déjà View's own depth edges find depth edges better than SAM 3; SAM 3 adds which object a pixel belongs to: bleeding pixels in the right mask 0.72 kitchen, only 0.39 office (0.23 wrong object) |
 | E19 | Arm D: top100 + VLM prompts in one SAM 3 run | recall about as top100 (pixel recall 0.94 / 0.84 vs 0.95 / 0.83), precision -0.11 / -0.15, office merges 4 -> 5 (VLM's fan merge); bleeding pixels in the right object office 0.39 -> 0.48 (VLM alone 0.46), kitchen 0.72 -> 0.74, all from pedestal fan + coat rack. Not adopted as default; the VLM's value is objects outside a fixed list |
+| E20 | Proxy test: can segments fix bleeding? (local plane fit within a segment near Déjà View's depth jumps) | without segments (or shuffled) the fix is harmful (share > 5% 0.21 -> 0.39 / 0.23 -> 0.52); SAM 3 makes it safe but nearly neutral (mean error -2% / -2%); GT segments -10% / -19%. SAM 3 helps on right-object pixels, hurts on wrong-object ones, leaves no-mask pixels (24% office) unchanged |
 
 ## Reference table (current scorer, E11)
 
@@ -845,3 +846,62 @@ The three open options change different stages, so they can be combined, and eac
     the extra fan merge and near-synonym fragments are a (small) risk. Keep top100 as the default for now, and
     run the refiner experiment with both top100 and the union to decide. Two scenes; the gain is two objects.
 
+## E20: Proxy test: can segments fix Déjà View's bleeding? (27.10.2026)
+- **Goal:** first number on whether segments improve geometry, before a refiner with segments exists. E18 showed
+  bleeding at depth edges and that SAM 3 puts bleeding pixels in the right object 0.72 (kitchen) / 0.39 (office).
+  Here the Déjà View depth near edges is replaced by a fit to nearby pixels of the same segment, with no / SAM 3 /
+  GT / shuffled segments. **This is a crude stand-in, not the planned refiner (no multi-view term, no energy,
+  no Huber); say so when presenting.**
+- **Settings (fixed before running, not tuned on these scenes):**
+  - Fix: for each region pixel, fit a plane in inverse depth (1/z is linear in pixel coordinates on a plane) or the
+    mean inverse depth to the same-segment pixels outside the region in a 21 x 21 px window; >= 20 such pixels needed,
+    else the pixel keeps its Déjà View depth (as do pixels with no segment). Sensitivity: windows 11 / 21 / 41 px.
+  - Regions: **realistic** = <= 3 px from Déjà View's own depth jumps at E18's dense threshold (1.2%), no GT used;
+    12% / 17% of the pixels, contains 66% / 81% of the bleeding pixels, and many correct ones. **Oracle** = E18's
+    bleeding pixels (error > 5% within 3 px of a GT depth edge, all edges); the fit then excludes both regions.
+  - Segments: none (one segment for the image = local smoothing), SAM 3 top100 and top100 + VLM union (working
+    setting, E17 / E19), GT instances (SPLIT = none), shuffled (top100 masks of the next view).
+  - Error as E18: |s * depth - GT| / GT, per-view median scale s; evaluated where the GT ray hits the mesh.
+- **Code / command:** `uv run python experiments/scripts/e20_proxy_fix.py > experiments/results/e20_proxy_fix.txt`
+  (CPU, ~1 min; rerun gives identical output).
+- **Caveat:** GT depth and GT instances come from the same 5 cm mesh, so GT segments line up with the GT depth
+  edges by construction; the GT row is optimistic. The oracle region is selected by error > 5%, so any change
+  lowers its error (regression to the mean): compare with the none / shuffled rows, not with Déjà View.
+- **Results** (`results/e20_proxy_fix.txt`, plane fit, 21 px; kitchen / office):
+
+  | segments | realistic: share > 5% | realistic: mean error | oracle: changed px, mean error after (Déjà View before) |
+  |---|---|---|---|
+  | Déjà View (input) | 0.208 / 0.231 | 0.047 / 0.070 | - |
+  | none | 0.392 / 0.523 | 0.069 / 0.113 | 0.155 (0.173) / 0.226 (0.255) |
+  | SAM 3 top100 | 0.219 / 0.243 | 0.046 / 0.068 | 0.139 (0.162) / 0.182 (0.228) |
+  | SAM 3 union | 0.219 / 0.247 | 0.046 / 0.068 | 0.138 (0.160) / 0.195 (0.237) |
+  | GT | 0.208 / 0.211 | 0.043 / 0.056 | 0.109 (0.153) / 0.077 (0.218) |
+  | shuffled | 0.364 / 0.445 | 0.066 / 0.105 | 0.158 (0.175) / 0.224 (0.244) |
+
+  1. **Without segments the fix is harmful:** local smoothing near Déjà View's depth jumps nearly doubles the share of
+     pixels with error > 5% and raises the mean error +46% / +62% (it mixes both sides of the edge). Shuffled segments
+     are almost as bad. Agrees with Peter's note that segment-free smoothing never beats the input.
+  2. **SAM 3 segments make it safe but nearly neutral:** mean error -2% / -2%, share > 5% +0.01. GT segments: -10% /
+     -19%, share > 5% equal / -0.02. SAM 3 gets ~25% (kitchen) / ~10% (office) of the GT gain. top100 = union.
+  3. **Why SAM 3 is neutral** (realistic region, by E18's which-object label of the top100 mask): right object (86% /
+     63% of the labeled region pixels): mean error 0.041 -> 0.039 / 0.043 -> 0.036; other object (3% / 13%):
+     0.142 -> 0.160 / 0.115 -> 0.138; no mask (12% / 24%): unchanged (0.074 / 0.110, the worst pixels). The gains on the
+     object side are cancelled by wrong-object masks, and the largest errors sit where there is no mask.
+  4. **Oracle region** (same pixels changed by none and SAM 3): SAM 3 beats none (0.139 vs 0.144 / 0.182 vs 0.198) and
+     shuffled; GT is far better in the office (0.083 on the pixels all three change). On right-object bleeding pixels
+     SAM 3 lowers the office error 0.185 -> 0.125 (share > 5% 1.00 -> 0.75).
+  5. **Mean vs plane fit:** the mean fit is worse for every segmentation in the realistic region (share > 5% 0.28-0.34
+     even with GT): edges lie on slanted surfaces, a plane is needed. Window: 11 px changes few pixels (all rows ~
+     input), 41 px hurts SAM 3 (0.27) and none (0.57-0.67) more, GT stays best.
+- **Figures:** `figures/e20_proxy_fix.jpg` (share > 5% and mean error per segmentation, both regions and scenes);
+  `figures/e20_example.jpg` (error maps of the office view with most bleeding: Déjà View, none, SAM 3, GT).
+- **Conclusion:**
+  - Segments are what makes edge-aware smoothing possible at all: without them (or with wrong ones) it damages the
+    depth. This supports using segments to cut smoothing.
+  - With SAM 3 masks this simple fix does not yet reduce bleeding measurably (-2%), while GT segments do (-10 / -19%):
+    the headroom from better segments is real, but limited by two things E18 already showed: wrong-object masks on the
+    background side (office 13% of the region pixels, where the fix makes it worse) and no mask (office 24%, the
+    worst pixels).
+  - Next levers: (i) trust a mask only on the object side of an edge / down-weight background-side masks;
+    (ii) class-agnostic masks for the uncovered pixels (option B); (iii) the real refiner (multi-view term, Huber,
+    confidence) may do better than this local proxy; run it with the same no / SAM 3 / GT / shuffled rows.
