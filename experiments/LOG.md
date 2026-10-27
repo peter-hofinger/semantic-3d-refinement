@@ -50,6 +50,7 @@ Metrics:
 | E20 | Proxy test: can segments fix bleeding? (local plane fit within a segment near Déjà View's depth jumps) | without segments (or shuffled) the fix is harmful (share > 5% 0.21 -> 0.39 / 0.23 -> 0.52); SAM 3 makes it safe but nearly neutral (mean error -2% / -2%); GT segments -10% / -19%. SAM 3 helps on right-object pixels, hurts on wrong-object ones, leaves no-mask pixels (24% office) unchanged |
 | E21 | Class-agnostic SAM 2 automatic masks fill the pixels without a SAM 3 mask (option B) | no gain: automatic masks cover only 33% / 22% of the no-mask pixels, the E20 proxy fix changes 7-11% of them, results = next-view control (realistic mean error 0.046 / 0.068 as SAM 3 alone). Gaps are mostly slivers next to a mask (63-82% within 3 px) plus unprompted objects (pedestal fan) |
 | E22 | Side decision: edge pixels take the nearby segment plane closest to their Déjà View depth (instead of only their own mask) | harmful for every segmentation, GT included (realistic mean error SAM 3 0.068 -> 0.093 office, GT 0.056 -> 0.091; kitchen 0.046 -> 0.062): Déjà View's own depth at an edge does not tell the side. Even the GT-chosen best candidate is worse than own mask on the realistic region; on bleeding pixels it would help (office 0.238 -> 0.220 SAM 3). Gap pixels need another cue (multi-view / image), the own mask stays the better side cue |
+| E23 | Déjà View paper's point-map metric on our scenes (one Sim(3) per scene) | Rel. L2 0.024 / 0.026, inlier ratio (< 3%) 82-84% / 86-89% vs paper 0.015 / 93.3%: same order, somewhat worse (5 cm mesh GT, plain least-squares alignment, our 20 views; normaliser unclear). Error is uneven over views (worst 0.061 kitchen v12, 0.070 office v5); per-view alignment helps the kitchen (0.017, 92%) more than the office -> kitchen has cross-view drift |
 
 ## Reference table (current scorer, E11)
 
@@ -1021,3 +1022,39 @@ The three open options change different stages, so they can be combined, and eac
     3D point seen away from the edge in another view; the refiner's E_mv), image affinity, or confidence, plus a
     "keep Déjà View" option. This is the refiner's job, not a single-view proxy's.
   - Caveat: crude local proxy; one rule, fixed window; GT segments and GT depth share the 5 cm mesh.
+
+## E23: The Déjà View paper's point-map metric on our two scenes (27.10.2026)
+- **Goal:** put our Déjà View output next to the paper's own ScanNet++ numbers (arXiv 2605.30215: Rel. L2 0.015,
+  inlier ratio 93.3% at < 3% error, one Sim(3) for the whole scene; view count not stated). Our E8 number (per-view
+  median depth scale, 0.7-0.8% median) is more lenient; this is the stricter, comparable one.
+- **Settings:** Déjà View K=16 cache, 20 views at 504 px; GT world points = GT depth (5 cm mesh) lifted with the GT
+  cameras; every pixel where the GT ray hits the mesh (96% / 94%). Umeyama Sim(3) least squares on all points, no
+  outlier rejection. The normaliser of "relative" is not given in our notes, so two are reported: per-ray (distance of
+  the GT point from its own camera; origin-free) and first camera (|GT| in view 0's camera frame). Also one Sim(3) per
+  view: the gap to the scene-level number is cross-view drift.
+- **Code / command:** `uv run python experiments/scripts/e23_pointmap_metric.py > experiments/results/e23_pointmap_metric.txt`
+  (CPU, ~1 min).
+- **Results** (`results/e23_pointmap_metric.txt`):
+
+  | scene | alignment | Rel. L2 per-ray / first camera | median (per-ray) | inlier ratio < 3% per-ray / first camera |
+  |---|---|---|---|---|
+  | paper (ScanNet++) | scene Sim(3) | 0.015 | | 93.3% |
+  | kitchen | scene Sim(3) | 0.024 / 0.023 | 0.017 | 81.5% / 84.4% |
+  | kitchen | per-view Sim(3) | 0.017 / 0.016 | 0.010 | 92.0% / 92.5% |
+  | office | scene Sim(3) | 0.026 / 0.025 | 0.012 | 88.8% / 86.3% |
+  | office | per-view Sim(3) | 0.025 / 0.022 | 0.009 | 85.1% / 88.5% |
+
+  1. **Same order as the paper, somewhat worse:** Rel. L2 0.024-0.026 vs 0.015, inliers 82-89% vs 93%. Likely
+     contributors, not separated here: GT from the 5 cm mesh (not the laser scan; E18: 6-7 px edge blur, mesh
+     artefacts), least-squares alignment pulled by outliers, our view selection (uniform over capture order, large
+     camera steps in the office), unclear normaliser.
+  2. **Errors are uneven over views:** kitchen view 12 0.061, view 16 0.046; office view 5 0.070, view 14 0.045
+     (scene alignment); most views 0.011-0.025.
+  3. **Kitchen has cross-view drift:** one Sim(3) per view cuts its error 0.024 -> 0.017 and lifts inliers 82% ->
+     92%, i.e. the views do not agree on one similarity frame (Peter's ETH3D finding: per-view offsets 3%). Office:
+     per-view alignment barely helps (0.026 -> 0.025; inliers even drop 89% -> 85% under the per-ray normaliser,
+     since least squares minimises absolute, not relative, error); its error is within views (view 5, 14-16).
+- **Figure:** `figures/e23_pointmap_metric.jpg` (mean relative error per view, scene vs per-view Sim(3), paper line).
+- **Conclusion:** our Déjà View run is in the paper's range, a bit worse under our (stricter, mesh-based) GT; no sign
+  of a broken setup. There is headroom both in single views (a few bad views) and across views (kitchen drift), which
+  a multi-view term (E_mv) targets. Caveat: one run, two scenes, metric details guessed.
