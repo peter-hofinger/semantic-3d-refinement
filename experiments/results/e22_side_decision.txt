@@ -1,0 +1,269 @@
+## kitchen (5ee7c22ba0)
+
+### realistic region: <= 3 px from Déjà View's own dense depth jumps (no GT); plane fit, window 21 px
+| segments | rule | changed | median error | mean error | share > 5% | changed px: Déjà View mean | fixed mean | better by > 1 pp | worse by > 1 pp |
+|---|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | 0.00 | 0.0170 | 0.0473 | 0.208 | | | | |
+| none | own mask | 0.89 | 0.0330 | 0.0692 | 0.392 | 0.0480 | 0.0726 | 0.17 | 0.47 |
+| none | side decision | 0.89 | 0.0330 | 0.0692 | 0.392 | 0.0480 | 0.0726 | 0.17 | 0.47 |
+| none | side decision, log | 0.89 | 0.0330 | 0.0692 | 0.392 | 0.0480 | 0.0726 | 0.17 | 0.47 |
+| none | oracle pick | 0.89 | 0.0330 | 0.0692 | 0.392 | 0.0480 | 0.0726 | 0.17 | 0.47 |
+| SAM 3 top100 | own mask | 0.64 | 0.0174 | 0.0462 | 0.219 | 0.0433 | 0.0416 | 0.15 | 0.17 |
+| SAM 3 top100 | side decision | 0.86 | 0.0202 | 0.0621 | 0.281 | 0.0474 | 0.0647 | 0.12 | 0.27 |
+| SAM 3 top100 | side decision, log | 0.86 | 0.0202 | 0.0618 | 0.280 | 0.0474 | 0.0643 | 0.12 | 0.27 |
+| SAM 3 top100 | oracle pick | 0.86 | 0.0180 | 0.0536 | 0.249 | 0.0474 | 0.0548 | 0.18 | 0.23 |
+| SAM 3 union | own mask | 0.64 | 0.0174 | 0.0462 | 0.219 | 0.0432 | 0.0415 | 0.15 | 0.17 |
+| SAM 3 union | side decision | 0.87 | 0.0201 | 0.0620 | 0.280 | 0.0476 | 0.0646 | 0.12 | 0.27 |
+| SAM 3 union | side decision, log | 0.87 | 0.0201 | 0.0617 | 0.279 | 0.0476 | 0.0643 | 0.12 | 0.27 |
+| SAM 3 union | oracle pick | 0.87 | 0.0179 | 0.0534 | 0.247 | 0.0476 | 0.0546 | 0.18 | 0.23 |
+| GT | own mask | 0.70 | 0.0171 | 0.0427 | 0.208 | 0.0447 | 0.0381 | 0.17 | 0.18 |
+| GT | side decision | 0.88 | 0.0203 | 0.0613 | 0.280 | 0.0478 | 0.0638 | 0.13 | 0.27 |
+| GT | side decision, log | 0.88 | 0.0203 | 0.0610 | 0.280 | 0.0478 | 0.0635 | 0.13 | 0.27 |
+| GT | oracle pick | 0.88 | 0.0182 | 0.0531 | 0.250 | 0.0478 | 0.0545 | 0.18 | 0.24 |
+| shuffled | own mask | 0.81 | 0.0292 | 0.0661 | 0.364 | 0.0490 | 0.0723 | 0.16 | 0.45 |
+| shuffled | side decision | 0.87 | 0.0293 | 0.0664 | 0.365 | 0.0482 | 0.0702 | 0.16 | 0.42 |
+| shuffled | side decision, log | 0.87 | 0.0293 | 0.0664 | 0.365 | 0.0482 | 0.0701 | 0.16 | 0.42 |
+| shuffled | oracle pick | 0.87 | 0.0282 | 0.0649 | 0.358 | 0.0482 | 0.0685 | 0.18 | 0.42 |
+
+Candidates, depth change, chosen object (labeled GT pixels, E18 dominant-object rule):
+| segments | rule | median candidates | >= 2 candidates | median depth change | depth change > 1% | chosen = own mask | chosen right object | own mask right object |
+|---|---|---|---|---|---|---|---|---|
+| none | side decision | 1 | 0.00 | 0.0232 | 0.70 | 1.00 | 0.10 | 0.11 |
+| none | side decision, log | 1 | 0.00 | 0.0232 | 0.70 | 1.00 | 0.10 | 0.11 |
+| none | oracle pick | 1 | 0.00 | 0.0232 | 0.70 | 1.00 | 0.10 | 0.11 |
+| SAM 3 top100 | side decision | 1 | 0.36 | 0.0072 | 0.43 | 0.81 | 0.79 | 0.97 |
+| SAM 3 top100 | side decision, log | 1 | 0.36 | 0.0072 | 0.43 | 0.81 | 0.79 | 0.97 |
+| SAM 3 top100 | oracle pick | 1 | 0.36 | 0.0084 | 0.47 | 0.80 | 0.80 | 0.97 |
+| SAM 3 union | side decision | 1 | 0.37 | 0.0071 | 0.42 | 0.79 | 0.79 | 0.97 |
+| SAM 3 union | side decision, log | 1 | 0.37 | 0.0071 | 0.42 | 0.80 | 0.79 | 0.97 |
+| SAM 3 union | oracle pick | 1 | 0.37 | 0.0084 | 0.46 | 0.79 | 0.81 | 0.97 |
+| GT | side decision | 1 | 0.37 | 0.0077 | 0.44 | 0.78 | 0.81 | 1.00 |
+| GT | side decision, log | 1 | 0.37 | 0.0077 | 0.44 | 0.78 | 0.81 | 1.00 |
+| GT | oracle pick | 1 | 0.37 | 0.0092 | 0.48 | 0.80 | 0.82 | 1.00 |
+| shuffled | side decision | 1 | 0.17 | 0.0184 | 0.64 | 0.89 | 0.39 | 0.41 |
+| shuffled | side decision, log | 1 | 0.17 | 0.0184 | 0.64 | 0.89 | 0.39 | 0.41 |
+| shuffled | oracle pick | 1 | 0.17 | 0.0196 | 0.65 | 0.89 | 0.39 | 0.41 |
+
+SAM 3 top100, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 317828 | 0.0410 / 0.192 | 0.75: 0.0389 / 0.203 | 0.86: 0.0565 / 0.270 | 0.86: 0.0563 / 0.270 | 0.86: 0.0510 / 0.248 |
+| other object | 10118 | 0.1422 / 0.462 | 0.77: 0.1601 / 0.532 | 0.96: 0.1462 / 0.466 | 0.96: 0.1463 / 0.466 | 0.96: 0.1028 / 0.336 |
+| no mask (gap) | 43544 | 0.0736 / 0.277 | 0.02: 0.0737 / 0.277 | 0.84: 0.0872 / 0.319 | 0.84: 0.0866 / 0.319 | 0.84: 0.0647 / 0.258 |
+
+GT, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 317828 | 0.0410 / 0.192 | 0.76: 0.0393 / 0.203 | 0.86: 0.0560 / 0.269 | 0.86: 0.0558 / 0.269 | 0.86: 0.0507 / 0.248 |
+| other object | 10118 | 0.1422 / 0.462 | 0.64: 0.1023 / 0.351 | 0.97: 0.1430 / 0.458 | 0.97: 0.1430 / 0.459 | 0.97: 0.1022 / 0.335 |
+| no mask (gap) | 43544 | 0.0736 / 0.277 | 0.73: 0.0533 / 0.221 | 0.95: 0.0810 / 0.293 | 0.95: 0.0803 / 0.293 | 0.95: 0.0581 / 0.233 |
+
+Gap pixels (no top100 mask, 0.14 of the region; changed share, mean error / share > 5%):
+| segments | Déjà View | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|
+| SAM 3 top100 | 0.0644 / 0.250 | 0.86: 0.0795 / 0.307 | 0.86: 0.0790 / 0.307 | 0.86: 0.0605 / 0.250 |
+| SAM 3 union | 0.0644 / 0.250 | 0.88: 0.0792 / 0.305 | 0.88: 0.0787 / 0.305 | 0.88: 0.0597 / 0.243 |
+| GT | 0.0644 / 0.250 | 0.94: 0.0747 / 0.289 | 0.94: 0.0742 / 0.289 | 0.94: 0.0556 / 0.231 |
+| shuffled | 0.0644 / 0.250 | 0.96: 0.0802 / 0.411 | 0.96: 0.0801 / 0.411 | 0.96: 0.0775 / 0.401 |
+
+### oracle region: E18 bleeding pixels (error > 5% within 3 px of a GT depth edge); plane fit, window 21 px
+| segments | rule | changed | median error | mean error | share > 5% | changed px: Déjà View mean | fixed mean | better by > 1 pp | worse by > 1 pp |
+|---|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | 0.00 | 0.1041 | 0.1737 | 1.000 | | | | |
+| none | own mask | 0.93 | 0.1038 | 0.1570 | 0.875 | 0.1729 | 0.1550 | 0.36 | 0.22 |
+| none | side decision | 0.93 | 0.1038 | 0.1570 | 0.875 | 0.1729 | 0.1550 | 0.36 | 0.22 |
+| none | side decision, log | 0.93 | 0.1038 | 0.1570 | 0.875 | 0.1729 | 0.1550 | 0.36 | 0.22 |
+| none | oracle pick | 0.93 | 0.1038 | 0.1570 | 0.875 | 0.1729 | 0.1550 | 0.36 | 0.22 |
+| SAM 3 top100 | own mask | 0.64 | 0.0979 | 0.1589 | 0.897 | 0.1618 | 0.1388 | 0.26 | 0.16 |
+| SAM 3 top100 | side decision | 0.88 | 0.1084 | 0.1840 | 0.906 | 0.1722 | 0.1839 | 0.19 | 0.29 |
+| SAM 3 top100 | side decision, log | 0.88 | 0.1081 | 0.1829 | 0.905 | 0.1722 | 0.1827 | 0.19 | 0.28 |
+| SAM 3 top100 | oracle pick | 0.88 | 0.0913 | 0.1520 | 0.809 | 0.1722 | 0.1476 | 0.33 | 0.21 |
+| SAM 3 union | own mask | 0.65 | 0.0980 | 0.1594 | 0.900 | 0.1596 | 0.1376 | 0.25 | 0.16 |
+| SAM 3 union | side decision | 0.89 | 0.1086 | 0.1842 | 0.909 | 0.1720 | 0.1839 | 0.18 | 0.28 |
+| SAM 3 union | side decision, log | 0.89 | 0.1083 | 0.1832 | 0.908 | 0.1720 | 0.1827 | 0.19 | 0.28 |
+| SAM 3 union | oracle pick | 0.89 | 0.0910 | 0.1518 | 0.806 | 0.1720 | 0.1474 | 0.32 | 0.21 |
+| GT | own mask | 0.68 | 0.0910 | 0.1433 | 0.845 | 0.1532 | 0.1085 | 0.34 | 0.16 |
+| GT | side decision | 0.90 | 0.1078 | 0.1812 | 0.904 | 0.1709 | 0.1792 | 0.20 | 0.28 |
+| GT | side decision, log | 0.90 | 0.1075 | 0.1801 | 0.903 | 0.1709 | 0.1780 | 0.20 | 0.28 |
+| GT | oracle pick | 0.90 | 0.0915 | 0.1505 | 0.811 | 0.1709 | 0.1452 | 0.33 | 0.21 |
+| shuffled | own mask | 0.86 | 0.1036 | 0.1588 | 0.888 | 0.1748 | 0.1575 | 0.34 | 0.22 |
+| shuffled | side decision | 0.91 | 0.1046 | 0.1599 | 0.885 | 0.1730 | 0.1579 | 0.33 | 0.23 |
+| shuffled | side decision, log | 0.91 | 0.1045 | 0.1598 | 0.885 | 0.1730 | 0.1579 | 0.33 | 0.23 |
+| shuffled | oracle pick | 0.91 | 0.1014 | 0.1557 | 0.864 | 0.1730 | 0.1534 | 0.36 | 0.22 |
+
+Candidates, depth change, chosen object (labeled GT pixels, E18 dominant-object rule):
+| segments | rule | median candidates | >= 2 candidates | median depth change | depth change > 1% | chosen = own mask | chosen right object | own mask right object |
+|---|---|---|---|---|---|---|---|---|
+| none | side decision | 1 | 0.00 | 0.0178 | 0.60 | 1.00 | 0.02 | 0.02 |
+| none | side decision, log | 1 | 0.00 | 0.0178 | 0.60 | 1.00 | 0.02 | 0.02 |
+| none | oracle pick | 1 | 0.00 | 0.0178 | 0.60 | 1.00 | 0.02 | 0.02 |
+| SAM 3 top100 | side decision | 1 | 0.25 | 0.0097 | 0.49 | 0.77 | 0.70 | 0.91 |
+| SAM 3 top100 | side decision, log | 1 | 0.25 | 0.0097 | 0.49 | 0.77 | 0.70 | 0.91 |
+| SAM 3 top100 | oracle pick | 1 | 0.25 | 0.0139 | 0.56 | 0.77 | 0.78 | 0.91 |
+| SAM 3 union | side decision | 1 | 0.28 | 0.0092 | 0.48 | 0.75 | 0.69 | 0.91 |
+| SAM 3 union | side decision, log | 1 | 0.28 | 0.0092 | 0.48 | 0.75 | 0.70 | 0.91 |
+| SAM 3 union | oracle pick | 1 | 0.28 | 0.0136 | 0.55 | 0.75 | 0.78 | 0.91 |
+| GT | side decision | 1 | 0.32 | 0.0094 | 0.49 | 0.64 | 0.70 | 1.00 |
+| GT | side decision, log | 1 | 0.32 | 0.0094 | 0.49 | 0.64 | 0.70 | 1.00 |
+| GT | oracle pick | 1 | 0.32 | 0.0134 | 0.55 | 0.72 | 0.79 | 1.00 |
+| shuffled | side decision | 1 | 0.13 | 0.0157 | 0.58 | 0.93 | 0.31 | 0.33 |
+| shuffled | side decision, log | 1 | 0.13 | 0.0157 | 0.58 | 0.93 | 0.31 | 0.33 |
+| shuffled | oracle pick | 1 | 0.13 | 0.0177 | 0.60 | 0.91 | 0.32 | 0.33 |
+
+SAM 3 top100, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 57768 | 0.1512 / 1.000 | 0.79: 0.1296 / 0.862 | 0.90: 0.1641 / 0.912 | 0.90: 0.1629 / 0.911 | 0.90: 0.1418 / 0.844 |
+| other object | 5627 | 0.3346 / 1.000 | 0.74: 0.3411 / 0.972 | 0.90: 0.3290 / 0.907 | 0.90: 0.3291 / 0.907 | 0.90: 0.2567 / 0.700 |
+| no mask (gap) | 12565 | 0.2116 / 1.000 | 0.02: 0.2120 / 1.000 | 0.78: 0.2189 / 0.885 | 0.78: 0.2171 / 0.883 | 0.78: 0.1541 / 0.724 |
+
+GT, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 57768 | 0.1512 / 1.000 | 0.79: 0.1309 / 0.863 | 0.91: 0.1626 / 0.913 | 0.91: 0.1614 / 0.912 | 0.91: 0.1411 / 0.847 |
+| other object | 5627 | 0.3346 / 1.000 | 0.38: 0.2612 / 0.737 | 0.88: 0.3205 / 0.885 | 0.88: 0.3205 / 0.885 | 0.88: 0.2535 / 0.689 |
+| no mask (gap) | 12565 | 0.2116 / 1.000 | 0.60: 0.1400 / 0.737 | 0.88: 0.2109 / 0.866 | 0.88: 0.2092 / 0.865 | 0.88: 0.1461 / 0.702 |
+
+Gap pixels (no top100 mask, 0.18 of the region; changed share, mean error / share > 5%):
+| segments | Déjà View | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|
+| SAM 3 top100 | 0.1975 / 1.000 | 0.79: 0.2067 / 0.883 | 0.79: 0.2052 / 0.881 | 0.79: 0.1485 / 0.727 |
+| SAM 3 union | 0.1975 / 1.000 | 0.83: 0.2072 / 0.889 | 0.83: 0.2057 / 0.888 | 0.83: 0.1478 / 0.716 |
+| GT | 0.1975 / 1.000 | 0.89: 0.2001 / 0.874 | 0.89: 0.1987 / 0.873 | 0.89: 0.1426 / 0.716 |
+| shuffled | 0.1975 / 1.000 | 0.92: 0.1675 / 0.872 | 0.92: 0.1675 / 0.872 | 0.92: 0.1610 / 0.848 |
+
+## office (7b6477cb95)
+
+### realistic region: <= 3 px from Déjà View's own dense depth jumps (no GT); plane fit, window 21 px
+| segments | rule | changed | median error | mean error | share > 5% | changed px: Déjà View mean | fixed mean | better by > 1 pp | worse by > 1 pp |
+|---|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | 0.00 | 0.0181 | 0.0695 | 0.231 | | | | |
+| none | own mask | 0.93 | 0.0550 | 0.1129 | 0.523 | 0.0694 | 0.1162 | 0.16 | 0.56 |
+| none | side decision | 0.93 | 0.0550 | 0.1129 | 0.523 | 0.0694 | 0.1162 | 0.16 | 0.56 |
+| none | side decision, log | 0.93 | 0.0550 | 0.1129 | 0.523 | 0.0694 | 0.1162 | 0.16 | 0.56 |
+| none | oracle pick | 0.93 | 0.0550 | 0.1129 | 0.523 | 0.0694 | 0.1162 | 0.16 | 0.56 |
+| SAM 3 top100 | own mask | 0.60 | 0.0184 | 0.0681 | 0.243 | 0.0513 | 0.0488 | 0.15 | 0.19 |
+| SAM 3 top100 | side decision | 0.85 | 0.0206 | 0.0932 | 0.301 | 0.0643 | 0.0921 | 0.14 | 0.29 |
+| SAM 3 top100 | side decision, log | 0.85 | 0.0206 | 0.0928 | 0.300 | 0.0643 | 0.0916 | 0.14 | 0.29 |
+| SAM 3 top100 | oracle pick | 0.85 | 0.0185 | 0.0798 | 0.269 | 0.0643 | 0.0764 | 0.19 | 0.26 |
+| SAM 3 union | own mask | 0.62 | 0.0187 | 0.0681 | 0.247 | 0.0546 | 0.0524 | 0.16 | 0.20 |
+| SAM 3 union | side decision | 0.87 | 0.0207 | 0.0928 | 0.301 | 0.0659 | 0.0926 | 0.14 | 0.28 |
+| SAM 3 union | side decision, log | 0.87 | 0.0207 | 0.0923 | 0.301 | 0.0659 | 0.0921 | 0.14 | 0.28 |
+| SAM 3 union | oracle pick | 0.87 | 0.0184 | 0.0786 | 0.267 | 0.0659 | 0.0763 | 0.20 | 0.25 |
+| GT | own mask | 0.72 | 0.0165 | 0.0561 | 0.211 | 0.0538 | 0.0350 | 0.21 | 0.15 |
+| GT | side decision | 0.91 | 0.0197 | 0.0911 | 0.292 | 0.0687 | 0.0925 | 0.14 | 0.26 |
+| GT | side decision, log | 0.91 | 0.0197 | 0.0906 | 0.292 | 0.0687 | 0.0919 | 0.14 | 0.26 |
+| GT | oracle pick | 0.91 | 0.0170 | 0.0742 | 0.253 | 0.0687 | 0.0738 | 0.22 | 0.23 |
+| shuffled | own mask | 0.75 | 0.0389 | 0.1047 | 0.445 | 0.0672 | 0.1143 | 0.16 | 0.52 |
+| shuffled | side decision | 0.84 | 0.0370 | 0.1043 | 0.434 | 0.0696 | 0.1111 | 0.16 | 0.47 |
+| shuffled | side decision, log | 0.84 | 0.0370 | 0.1042 | 0.434 | 0.0696 | 0.1110 | 0.16 | 0.47 |
+| shuffled | oracle pick | 0.84 | 0.0354 | 0.1000 | 0.424 | 0.0696 | 0.1060 | 0.18 | 0.46 |
+
+Candidates, depth change, chosen object (labeled GT pixels, E18 dominant-object rule):
+| segments | rule | median candidates | >= 2 candidates | median depth change | depth change > 1% | chosen = own mask | chosen right object | own mask right object |
+|---|---|---|---|---|---|---|---|---|
+| none | side decision | 1 | 0.00 | 0.0422 | 0.76 | 1.00 | 0.13 | 0.14 |
+| none | side decision, log | 1 | 0.00 | 0.0422 | 0.76 | 1.00 | 0.13 | 0.14 |
+| none | oracle pick | 1 | 0.00 | 0.0422 | 0.76 | 1.00 | 0.13 | 0.14 |
+| SAM 3 top100 | side decision | 1 | 0.35 | 0.0085 | 0.46 | 0.82 | 0.66 | 0.83 |
+| SAM 3 top100 | side decision, log | 1 | 0.35 | 0.0085 | 0.46 | 0.82 | 0.66 | 0.83 |
+| SAM 3 top100 | oracle pick | 1 | 0.35 | 0.0098 | 0.50 | 0.80 | 0.68 | 0.83 |
+| SAM 3 union | side decision | 1 | 0.38 | 0.0085 | 0.47 | 0.80 | 0.66 | 0.82 |
+| SAM 3 union | side decision, log | 1 | 0.38 | 0.0085 | 0.47 | 0.80 | 0.66 | 0.82 |
+| SAM 3 union | oracle pick | 1 | 0.38 | 0.0100 | 0.50 | 0.79 | 0.69 | 0.82 |
+| GT | side decision | 1 | 0.47 | 0.0077 | 0.44 | 0.73 | 0.74 | 1.00 |
+| GT | side decision, log | 1 | 0.47 | 0.0077 | 0.44 | 0.73 | 0.74 | 1.00 |
+| GT | oracle pick | 1 | 0.47 | 0.0095 | 0.49 | 0.76 | 0.78 | 1.00 |
+| shuffled | side decision | 1 | 0.20 | 0.0266 | 0.67 | 0.86 | 0.32 | 0.30 |
+| shuffled | side decision, log | 1 | 0.20 | 0.0266 | 0.67 | 0.86 | 0.32 | 0.30 |
+| shuffled | oracle pick | 1 | 0.20 | 0.0288 | 0.69 | 0.85 | 0.32 | 0.30 |
+
+SAM 3 top100, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 333904 | 0.0426 / 0.155 | 0.78: 0.0357 / 0.161 | 0.89: 0.0657 / 0.220 | 0.89: 0.0647 / 0.220 | 0.89: 0.0563 / 0.200 |
+| other object | 68882 | 0.1153 / 0.374 | 0.75: 0.1376 / 0.445 | 0.90: 0.1353 / 0.415 | 0.90: 0.1359 / 0.416 | 0.90: 0.1097 / 0.341 |
+| no mask (gap) | 125777 | 0.1102 / 0.319 | 0.03: 0.1103 / 0.318 | 0.74: 0.1393 / 0.417 | 0.74: 0.1393 / 0.418 | 0.74: 0.1222 / 0.377 |
+
+GT, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 333904 | 0.0426 / 0.155 | 0.79: 0.0365 / 0.162 | 0.90: 0.0689 / 0.227 | 0.90: 0.0678 / 0.226 | 0.90: 0.0579 / 0.204 |
+| other object | 68882 | 0.1153 / 0.374 | 0.65: 0.0842 / 0.272 | 0.92: 0.1309 / 0.390 | 0.92: 0.1316 / 0.391 | 0.92: 0.1025 / 0.313 |
+| no mask (gap) | 125777 | 0.1102 / 0.319 | 0.69: 0.0843 / 0.268 | 0.93: 0.1235 / 0.375 | 0.93: 0.1235 / 0.376 | 0.93: 0.0969 / 0.313 |
+
+Gap pixels (no top100 mask, 0.24 of the region; changed share, mean error / share > 5%):
+| segments | Déjà View | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|
+| SAM 3 top100 | 0.1115 / 0.322 | 0.73: 0.1412 / 0.427 | 0.73: 0.1413 / 0.428 | 0.73: 0.1242 / 0.389 |
+| SAM 3 union | 0.1115 / 0.322 | 0.80: 0.1391 / 0.432 | 0.80: 0.1392 / 0.432 | 0.80: 0.1198 / 0.386 |
+| GT | 0.1115 / 0.322 | 0.93: 0.1243 / 0.376 | 0.93: 0.1243 / 0.377 | 0.93: 0.0976 / 0.315 |
+| shuffled | 0.1115 / 0.322 | 0.86: 0.1346 / 0.520 | 0.86: 0.1346 / 0.520 | 0.86: 0.1277 / 0.505 |
+
+### oracle region: E18 bleeding pixels (error > 5% within 3 px of a GT depth edge); plane fit, window 21 px
+| segments | rule | changed | median error | mean error | share > 5% | changed px: Déjà View mean | fixed mean | better by > 1 pp | worse by > 1 pp |
+|---|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | 0.00 | 0.1409 | 0.2592 | 1.000 | | | | |
+| none | own mask | 0.93 | 0.1376 | 0.2321 | 0.867 | 0.2553 | 0.2260 | 0.46 | 0.28 |
+| none | side decision | 0.93 | 0.1376 | 0.2321 | 0.867 | 0.2553 | 0.2260 | 0.46 | 0.28 |
+| none | side decision, log | 0.93 | 0.1376 | 0.2321 | 0.867 | 0.2553 | 0.2260 | 0.46 | 0.28 |
+| none | oracle pick | 0.93 | 0.1376 | 0.2321 | 0.867 | 0.2553 | 0.2260 | 0.46 | 0.28 |
+| SAM 3 top100 | own mask | 0.46 | 0.1288 | 0.2381 | 0.882 | 0.2279 | 0.1821 | 0.37 | 0.20 |
+| SAM 3 top100 | side decision | 0.82 | 0.1440 | 0.2682 | 0.842 | 0.2397 | 0.2508 | 0.28 | 0.34 |
+| SAM 3 top100 | side decision, log | 0.82 | 0.1438 | 0.2665 | 0.842 | 0.2397 | 0.2487 | 0.28 | 0.34 |
+| SAM 3 top100 | oracle pick | 0.82 | 0.1029 | 0.2196 | 0.734 | 0.2397 | 0.1913 | 0.44 | 0.24 |
+| SAM 3 union | own mask | 0.52 | 0.1244 | 0.2370 | 0.877 | 0.2373 | 0.1947 | 0.38 | 0.20 |
+| SAM 3 union | side decision | 0.85 | 0.1427 | 0.2680 | 0.842 | 0.2470 | 0.2573 | 0.29 | 0.33 |
+| SAM 3 union | side decision, log | 0.85 | 0.1425 | 0.2662 | 0.842 | 0.2470 | 0.2553 | 0.29 | 0.33 |
+| SAM 3 union | oracle pick | 0.85 | 0.0984 | 0.2172 | 0.726 | 0.2470 | 0.1978 | 0.46 | 0.24 |
+| GT | own mask | 0.48 | 0.0877 | 0.1918 | 0.727 | 0.2178 | 0.0774 | 0.67 | 0.09 |
+| GT | side decision | 0.90 | 0.1462 | 0.2737 | 0.834 | 0.2551 | 0.2713 | 0.26 | 0.34 |
+| GT | side decision, log | 0.90 | 0.1460 | 0.2717 | 0.834 | 0.2551 | 0.2690 | 0.26 | 0.34 |
+| GT | oracle pick | 0.90 | 0.0906 | 0.2093 | 0.675 | 0.2551 | 0.2000 | 0.47 | 0.23 |
+| shuffled | own mask | 0.73 | 0.1376 | 0.2447 | 0.885 | 0.2440 | 0.2242 | 0.45 | 0.28 |
+| shuffled | side decision | 0.83 | 0.1393 | 0.2465 | 0.874 | 0.2525 | 0.2372 | 0.41 | 0.29 |
+| shuffled | side decision, log | 0.83 | 0.1392 | 0.2463 | 0.874 | 0.2525 | 0.2369 | 0.41 | 0.29 |
+| shuffled | oracle pick | 0.83 | 0.1296 | 0.2326 | 0.841 | 0.2525 | 0.2205 | 0.47 | 0.26 |
+
+Candidates, depth change, chosen object (labeled GT pixels, E18 dominant-object rule):
+| segments | rule | median candidates | >= 2 candidates | median depth change | depth change > 1% | chosen = own mask | chosen right object | own mask right object |
+|---|---|---|---|---|---|---|---|---|
+| none | side decision | 1 | 0.00 | 0.0471 | 0.76 | 1.00 | 0.10 | 0.10 |
+| none | side decision, log | 1 | 0.00 | 0.0471 | 0.76 | 1.00 | 0.10 | 0.10 |
+| none | oracle pick | 1 | 0.00 | 0.0471 | 0.76 | 1.00 | 0.10 | 0.10 |
+| SAM 3 top100 | side decision | 1 | 0.29 | 0.0218 | 0.64 | 0.69 | 0.36 | 0.62 |
+| SAM 3 top100 | side decision, log | 1 | 0.29 | 0.0218 | 0.64 | 0.70 | 0.36 | 0.62 |
+| SAM 3 top100 | oracle pick | 1 | 0.29 | 0.0432 | 0.71 | 0.67 | 0.48 | 0.62 |
+| SAM 3 union | side decision | 1 | 0.32 | 0.0209 | 0.63 | 0.67 | 0.38 | 0.64 |
+| SAM 3 union | side decision, log | 1 | 0.32 | 0.0209 | 0.63 | 0.67 | 0.39 | 0.64 |
+| SAM 3 union | oracle pick | 1 | 0.32 | 0.0424 | 0.71 | 0.66 | 0.52 | 0.64 |
+| GT | side decision | 1 | 0.42 | 0.0195 | 0.61 | 0.36 | 0.38 | 1.00 |
+| GT | side decision, log | 1 | 0.42 | 0.0195 | 0.61 | 0.36 | 0.38 | 1.00 |
+| GT | oracle pick | 1 | 0.42 | 0.0466 | 0.71 | 0.53 | 0.55 | 1.00 |
+| shuffled | side decision | 1 | 0.17 | 0.0367 | 0.71 | 0.88 | 0.23 | 0.23 |
+| shuffled | side decision, log | 1 | 0.17 | 0.0367 | 0.71 | 0.88 | 0.23 | 0.23 |
+| shuffled | oracle pick | 1 | 0.17 | 0.0460 | 0.74 | 0.87 | 0.24 | 0.23 |
+
+SAM 3 top100, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 49530 | 0.1850 / 1.000 | 0.64: 0.1247 / 0.746 | 0.85: 0.2179 / 0.815 | 0.85: 0.2126 / 0.812 | 0.85: 0.1634 / 0.710 |
+| other object | 30824 | 0.2971 / 1.000 | 0.75: 0.3051 / 0.927 | 0.90: 0.2887 / 0.835 | 0.90: 0.2900 / 0.838 | 0.90: 0.2371 / 0.688 |
+| no mask (gap) | 44251 | 0.3184 / 1.000 | 0.02: 0.3184 / 0.995 | 0.70: 0.3141 / 0.867 | 0.70: 0.3141 / 0.868 | 0.70: 0.2709 / 0.771 |
+
+GT, by the which-object label of the top100 mask (changed share, mean error / share > 5%):
+| top100 mask belongs to | pixels | Déjà View | own mask | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|---|---|
+| right object | 49530 | 0.1850 / 1.000 | 0.64: 0.1225 / 0.727 | 0.90: 0.2291 / 0.824 | 0.90: 0.2228 / 0.820 | 0.90: 0.1662 / 0.701 |
+| other object | 30824 | 0.2971 / 1.000 | 0.43: 0.2215 / 0.688 | 0.91: 0.2853 / 0.811 | 0.91: 0.2868 / 0.815 | 0.91: 0.2217 / 0.624 |
+| no mask (gap) | 44251 | 0.3184 / 1.000 | 0.44: 0.2369 / 0.697 | 0.90: 0.3196 / 0.854 | 0.90: 0.3197 / 0.855 | 0.90: 0.2477 / 0.659 |
+
+Gap pixels (no top100 mask, 0.35 of the region; changed share, mean error / share > 5%):
+| segments | Déjà View | side decision | side decision, log | oracle pick |
+|---|---|---|---|---|
+| SAM 3 top100 | 0.3180 / 1.000 | 0.70: 0.3139 / 0.870 | 0.70: 0.3140 / 0.871 | 0.70: 0.2715 / 0.779 |
+| SAM 3 union | 0.3180 / 1.000 | 0.81: 0.3132 / 0.871 | 0.81: 0.3131 / 0.872 | 0.81: 0.2658 / 0.761 |
+| GT | 0.3180 / 1.000 | 0.90: 0.3193 / 0.855 | 0.90: 0.3192 / 0.856 | 0.90: 0.2477 / 0.663 |
+| shuffled | 0.3180 / 1.000 | 0.82: 0.2902 / 0.906 | 0.82: 0.2902 / 0.906 | 0.82: 0.2745 / 0.873 |
+
+figures: experiments/figures/e22_side_decision.jpg, experiments/figures/e22_example.jpg

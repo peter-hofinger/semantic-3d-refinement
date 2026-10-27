@@ -49,6 +49,7 @@ Metrics:
 | E19 | Arm D: top100 + VLM prompts in one SAM 3 run | recall about as top100 (pixel recall 0.94 / 0.84 vs 0.95 / 0.83), precision -0.11 / -0.15, office merges 4 -> 5 (VLM's fan merge); bleeding pixels in the right object office 0.39 -> 0.48 (VLM alone 0.46), kitchen 0.72 -> 0.74, all from pedestal fan + coat rack. Not adopted as default; the VLM's value is objects outside a fixed list |
 | E20 | Proxy test: can segments fix bleeding? (local plane fit within a segment near Déjà View's depth jumps) | without segments (or shuffled) the fix is harmful (share > 5% 0.21 -> 0.39 / 0.23 -> 0.52); SAM 3 makes it safe but nearly neutral (mean error -2% / -2%); GT segments -10% / -19%. SAM 3 helps on right-object pixels, hurts on wrong-object ones, leaves no-mask pixels (24% office) unchanged |
 | E21 | Class-agnostic SAM 2 automatic masks fill the pixels without a SAM 3 mask (option B) | no gain: automatic masks cover only 33% / 22% of the no-mask pixels, the E20 proxy fix changes 7-11% of them, results = next-view control (realistic mean error 0.046 / 0.068 as SAM 3 alone). Gaps are mostly slivers next to a mask (63-82% within 3 px) plus unprompted objects (pedestal fan) |
+| E22 | Side decision: edge pixels take the nearby segment plane closest to their Déjà View depth (instead of only their own mask) | harmful for every segmentation, GT included (realistic mean error SAM 3 0.068 -> 0.093 office, GT 0.056 -> 0.091; kitchen 0.046 -> 0.062): Déjà View's own depth at an edge does not tell the side. Even the GT-chosen best candidate is worse than own mask on the realistic region; on bleeding pixels it would help (office 0.238 -> 0.220 SAM 3). Gap pixels need another cue (multi-view / image), the own mask stays the better side cue |
 
 ## Reference table (current scorer, E11)
 
@@ -958,3 +959,65 @@ The three open options change different stages, so they can be combined, and eac
   - The rest are whole objects without a mask (pedestal fan, crates, lamps): a vocabulary problem (VLM / union, E19).
   - Caveat: one model size and its default settings; denser points or crops would cover more, but that would be
     tuning on these test scenes.
+
+## E22: Side decision for edge pixels: which nearby segment's surface? (27.10.2026)
+- **Goal:** E20 fitted each edge pixel only to its own mask; E21 showed the pixels without a mask are mostly 1-3 px
+  slivers along SAM 3 outlines, i.e. pixels between two surfaces. Test the obvious single-view side decision: every
+  segment near the pixel is a candidate, the pixel takes the candidate surface closest to its own Déjà View depth.
+  Question: does SAM 3 then move towards GT's gain? Same crude local proxy as E20 (not the refiner).
+- **Settings (fixed before running, not tuned):** candidates = all segments with >= 20 interior pixels (outside the
+  region) in the 21 px window, also for pixels with no mask; plane in inverse depth per candidate exactly as E20;
+  pick the plane closest to the pixel's Déjà View inverse depth (absolute difference); pixels without a candidate keep
+  Déjà View. Rows per segmentation (none, SAM 3 top100, union, GT, shuffled): own mask (= E20, reference), side
+  decision, oracle pick (candidate with the lowest GT error = best possible choice among the candidates; uses GT).
+  Regions, error and which-object label as E20. With "none" there is one candidate, all rules = E20 none (checked).
+- **Deviation after the first run (stated openly):** the first run picked the oracle candidate by absolute
+  inverse-depth difference to GT, not by the evaluated error; it came out worse than own mask, which looked like a bug.
+  Fixed to the evaluated error, and a second side rule "side decision, log" (closest by |log(plane / Déjà View)|,
+  scale-free) added. Both changed almost nothing (oracle 0.0799 -> 0.0798, log vs abs <= 0.002), so that was not the
+  cause; the pre-registered rule is reported as the main row. Checked on office view 3: on pixels own mask changes,
+  the oracle pick is never worse than own mask (0 / 18471 px) -> no bug; the difference comes from pixels own mask
+  leaves alone (no mask or < 20 own-segment pixels nearby).
+- **Code / command:** `uv run python experiments/scripts/e22_side_decision.py > experiments/results/e22_side_decision.txt`
+  (CPU, ~2 min; imports `e20_proxy_fix.py`).
+- **Results** (`results/e22_side_decision.txt`, kitchen / office, mean error / share > 5%):
+
+  | segments | rule | realistic region | oracle region (bleeding px) |
+  |---|---|---|---|
+  | Déjà View (input) | | 0.047 / 0.208, 0.070 / 0.231 | 0.174 / 1.00, 0.259 / 1.00 |
+  | none | (all rules) | 0.069 / 0.392, 0.113 / 0.523 | 0.157 / 0.875, 0.232 / 0.867 |
+  | SAM 3 top100 | own mask (E20) | 0.046 / 0.219, 0.068 / 0.243 | 0.159 / 0.897, 0.238 / 0.882 |
+  | SAM 3 top100 | side decision | 0.062 / 0.281, 0.093 / 0.301 | 0.184 / 0.906, 0.268 / 0.842 |
+  | SAM 3 top100 | oracle pick | 0.054 / 0.249, 0.080 / 0.269 | 0.152 / 0.809, 0.220 / 0.734 |
+  | GT | own mask (E20) | 0.043 / 0.208, 0.056 / 0.211 | 0.143 / 0.845, 0.192 / 0.727 |
+  | GT | side decision | 0.061 / 0.280, 0.091 / 0.292 | 0.181 / 0.904, 0.274 / 0.834 |
+  | GT | oracle pick | 0.053 / 0.250, 0.074 / 0.253 | 0.151 / 0.811, 0.209 / 0.675 |
+  | shuffled | side decision | 0.066 / 0.365, 0.104 / 0.434 | 0.160 / 0.885, 0.247 / 0.874 |
+
+  union = top100 within 0.001-0.005 everywhere.
+  1. **The side decision by Déjà View depth is harmful for every segmentation, GT included:** realistic mean error
+     +31% / +34% vs the input (SAM 3), and GT segments do not rescue it (0.061 / 0.091). On bleeding pixels it is worse
+     than doing nothing with segments (none). SAM 3 vs GT makes almost no difference under this rule -> the rule, not
+     the segments, is the bottleneck.
+  2. **Why:** it does not just snap back to Déjà View (85-91% of the region changes, median depth change 0.7-0.9%,
+     2-5% on bleeding pixels), but it picks the wrong surface. On right-object pixels it leaves the own mask for 18-19%
+     of the pixels: chosen surface belongs to the pixel's GT object 0.79 / 0.66 vs own mask 0.97 / 0.83 (realistic);
+     on bleeding pixels 0.36 vs 0.62 (office). A bleeding pixel's Déjà View depth lies between the two surfaces,
+     so it is no evidence which side it belongs to; the extrapolated planes add noise.
+  3. **Gap pixels (no top100 mask, 14% / 24% of the realistic region):** side decision makes them worse (office
+     0.112 -> 0.141, share > 5% 0.32 -> 0.43). On bleeding gap pixels the right candidate usually exists (oracle pick
+     0.318 -> 0.272 SAM 3, 0.248 GT) but Déjà View cannot find it (0.314).
+  4. **Oracle pick shows the limit of the candidate set:** in the realistic region even the GT-chosen candidate is
+     worse than own mask (office 0.080 vs 0.068 SAM 3): where the own segment has too few pixels nearby, Déjà View is
+     better than every nearby plane, so "always replace" is wrong and a keep option is needed. On bleeding pixels a
+     good choice would help: SAM 3 oracle pick 0.220 vs own mask 0.238 vs none 0.232 (office).
+- **Figures:** `figures/e22_side_decision.jpg` (mean error and share > 5% per segmentation and rule, both regions and
+  scenes); `figures/e22_example.jpg` (office view 14: Déjà View, SAM 3 own mask, SAM 3 / GT side decision).
+- **Conclusion:**
+  - Answer to the question: no, SAM 3 does not move towards GT's gain with this rule, because the rule itself fails
+    (also with GT). The single-view Déjà View depth cannot decide the side of an edge pixel.
+  - The own mask stays the better side cue for pixels that have one (E20 own-mask rule is the best rule here); for
+    gap pixels, and for pixels whose mask is wrong, the side must come from other evidence: other views (the pixel's
+    3D point seen away from the edge in another view; the refiner's E_mv), image affinity, or confidence, plus a
+    "keep Déjà View" option. This is the refiner's job, not a single-view proxy's.
+  - Caveat: crude local proxy; one rule, fixed window; GT segments and GT depth share the 5 cm mesh.
