@@ -1,7 +1,13 @@
-"""Figures for one refinement run: results, what each energy term does, and how each weight trades off."""
+"""Figures for one refinement run: results, what each energy term does, and how each weight trades off.
+
+The ablation re-refines with one energy alone, with pairs and with all of them, next to BiNI's CG solution of the
+normal term (`normals.py`) as a reference.
+"""
 
 import argparse
 import dataclasses
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib as mpl
@@ -15,16 +21,20 @@ from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
+from matplotlib.ticker import NullFormatter
 
 from semantic_3d_refinement.normals import BiniConfig, bini, grid_score, normals_from_depth
 from semantic_3d_refinement.refine import (
     LOG_KEYS,
+    NormalTerm,
     RefineConfig,
     energy_maps,
+    normal_term,
     normalize,
     points_from_rays,
     refine,
     term_weights,
+    view_metrics,
 )
 from semantic_3d_refinement.views import view_from_config
 
@@ -32,9 +42,14 @@ SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
 INK_2 = "#52514e"
 GRID = "#e4e3df"
-BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
-TERM_COLORS = {"E_d": ORANGE, "E_bd": BLUE, "E_delta": AQUA}
-TERM_NAMES = {"E_d": "data  E_d", "E_bd": "smoothness  λ_bd·E_bd", "E_delta": "residual prior  λ_δ·‖δ‖²"}
+BLUE, ORANGE, AQUA, VIOLET = "#2a78d6", "#eb6834", "#1baf7a", "#8a5cc2"
+TERM_COLORS = {"E_d": ORANGE, "E_bd": BLUE, "E_n": VIOLET, "E_delta": AQUA}
+TERM_NAMES = {
+    "E_d": "data  λ_d·E_d",
+    "E_bd": "bending  λ_bd·E_bd",
+    "E_n": "normals  λ_n·E_n",
+    "E_delta": "residual prior  λ_δ·‖δ‖²",
+}
 RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 SEQUENTIAL = LinearSegmentedColormap.from_list("seq_blue", RAMP)
 DIVERGING = LinearSegmentedColormap.from_list("div", ["#104281", "#6da7ec", "#f0efec", "#ec8a89", "#b42d2d"])
@@ -52,13 +67,22 @@ CAPTIONS = {
     "compare": "BiNI's own bilateral edges, then cuts on the prior's occlusion contours under several depth-prior "
     "weights λ (lower lets DSINE's normals set more of the shape); "
     "bottom row zoomed where DSINE has the most detail. In brackets: median angle to DSINE's normals.",
-    "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothness cost is bought down by "
+    "ablation": "Each energy alone, in pairs, and all together (columns), with BiNI's CG solution of E_d + E_n as "
+    "reference. Top: normals of the result (central differences). Bottom: error against ground truth, or a zoom "
+    "where the normals have the most detail. Iterations: up to 1000, 5000 where no data term anchors the result.",
+    "ablation_profile": "Depth along one image row for each variant, against the input and ground truth when "
+    "known. For E_bd alone without contour cuts, dashed: the least-squares plane of the input's inverse depth, "
+    "where it converges in the limit (L-BFGS steps never change the input's null-space part); with cuts, the "
+    "limit is one plane per region.",
+    "ablation_topdown": "Point clouds of each variant seen from above (x-z), on shared axes.",
+    "convergence": "E_d + E_n by L-BFGS under growing iteration budgets, against BiNI's CG solution of nearly the "
+    "same energy (its data term is quadratic in log depth instead of Huber in inverse depth).",
+    "energy_terms": "Weighted contribution of each energy term during L-BFGS: smoothing cost is bought down by "
     "spending data cost.",
     "cost_maps": "Where each term pays, per pixel (log scale).",
     "forces": "Tug of war at convergence: the force -∂E/∂δ each term exerts per pixel. Data pulls back toward "
-    "the input, smoothness pushes toward planes, and at convergence they cancel (net ≈ 0).",
-    "sweep_lambda_bd": "Effect of the smoothness weight λ_bd: too low keeps the noise, too high rounds off the "
-    "creases.",
+    "the input, bending pushes toward planes, normals toward the predicted slopes; they cancel (net ≈ 0).",
+    "sweep_lambda_bd": "Effect of the bending weight λ_bd: too low keeps the noise, too high rounds off the creases.",
     "data_term_ablation": "Effect of the data term's form on the 1% outliers: an unweighted quadratic lets them "
     "drag their neighbors into blobs. Confidence weighting alone removes them here; Huber only matters without it.",
     "sensitivity": "Error versus each weight, all else fixed at the run's config (circle). Dashed: input error.",
@@ -185,23 +209,23 @@ def energy_terms(out: Path, log: np.ndarray, cfg: RefineConfig) -> None:
     plt.close(fig)
 
 
-def term_figures(out: Path, depth: np.ndarray, conf: np.ndarray, delta: np.ndarray, cfg: RefineConfig) -> None:
+def term_figures(  # noqa: PLR0913
+    out: Path, depth: np.ndarray, conf: np.ndarray, delta: np.ndarray, cfg: RefineConfig, *, normal: NormalTerm | None
+) -> None:
     """Per-pixel cost of each term and the force each exerts at the solution."""
     _, d0, w = normalize(torch.from_numpy(depth), torch.from_numpy(conf))
     weights = term_weights(cfg)
     delta_t = torch.from_numpy(delta).requires_grad_()
-    start = {k: weights[k] * v for k, v in energy_maps(torch.zeros_like(d0), d0, w, cfg).items()}
-    end = {k: weights[k] * v for k, v in energy_maps(delta_t, d0, w, cfg).items()}
-    active = [k for k in ("E_d", "E_bd", "E_delta") if weights[k] > 0]
+    start = {k: weights[k] * v for k, v in energy_maps(torch.zeros_like(d0), d0, w, cfg, normal).items()}
+    end = {k: weights[k] * v for k, v in energy_maps(delta_t, d0, w, cfg, normal).items()}
+    active = [k for k in TERM_NAMES if weights[k] > 0]
+    smoothing = [k for k in ("E_bd", "E_n") if k in active]
 
-    maps = [start["E_bd"], end["E_bd"], *(end[k] for k in active if k != "E_bd")]
-    titles = [
-        "smoothness, before",
-        "smoothness, after",
-        *(f"{TERM_NAMES[k].split('  ')[0]}, after" for k in active if k != "E_bd"),
-    ]
+    maps = [m for k in smoothing for m in (start[k], end[k])] + [end[k] for k in active if k not in smoothing]
+    titles = [f"{TERM_NAMES[k].split('  ')[0]}, {when}" for k in smoothing for when in ("before", "after")]
+    titles += [f"{TERM_NAMES[k].split('  ')[0]}, after" for k in active if k not in smoothing]
     imgs = [m.detach().numpy() for m in maps]
-    hi = float(np.percentile(imgs[0], 99.5))
+    hi = max(float(np.percentile(i, 99.5)) for i in imgs)
     fig = image_row(imgs, titles, SEQUENTIAL, "weighted cost per pixel", LogNorm(hi * 1e-6, hi, clip=True))
     fig.suptitle("where each energy term pays", color=INK)
     fig.savefig(out / "cost_maps.png", dpi=150)
@@ -220,13 +244,13 @@ def term_figures(out: Path, depth: np.ndarray, conf: np.ndarray, delta: np.ndarr
 
 
 def run_variant(data: dict[str, torch.Tensor], cfg: RefineConfig, *, use_conf: bool = True) -> np.ndarray:
-    """Refine the run's input with a modified config; return the refined depth."""
+    """Refine the run's input (with its normals, if any) under a modified config; return the refined depth."""
     conf = data["conf"] if use_conf else torch.ones_like(data["conf"])
-    return refine(data["depth"], data["rays"], conf, cfg)[0].cpu().numpy()
+    return refine(data["depth"], data["rays"], conf, cfg, data.get("normals"))[0].cpu().numpy()
 
 
 def sweep_lambda_bd(out: Path, depth: np.ndarray, gt: np.ndarray, lams: list[float], refined: list[np.ndarray]) -> None:
-    """Error maps per smoothness weight above depth profiles across a crease."""
+    """Error maps per bending weight above depth profiles across a crease."""
     norm = Normalize(0, np.percentile(rel_error(depth, gt), 99))
     fig = plt.figure(figsize=(2.6 * len(lams), 6.4), constrained_layout=True)
     grid = fig.add_gridspec(2, len(lams), height_ratios=[1, 1.15])
@@ -250,7 +274,7 @@ def sweep_lambda_bd(out: Path, depth: np.ndarray, gt: np.ndarray, lams: list[flo
     ax.plot(cols, gt[row, window], color=INK, linewidth=1.2, linestyle="--", label="ground truth")
     ax.set(title=f"depth across a crease, image row {row}", xlabel="column (px)", ylabel="depth")
     ax.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
-    fig.suptitle("smoothness weight: noise ↔ rounded creases", color=INK)
+    fig.suptitle("bending weight: noise ↔ rounded creases", color=INK)
     fig.savefig(out / "sweep_lambda_bd.png", dpi=150)
     plt.close(fig)
 
@@ -280,7 +304,12 @@ def sensitivity(
     out: Path, err_in: float, cfg: RefineConfig, sweep: dict[str, list[float]], errs: dict[str, list[float]]
 ) -> None:
     """Mean error versus each weight, one at a time, on a shared y-axis."""
-    labels = {"lambda_bd": "smoothness weight λ_bd", "huber": "Huber threshold κ", "lambda_delta": "residual prior λ_δ"}
+    labels = {
+        "lambda_bd": "bending weight λ_bd",
+        "lambda_n": "normal weight λ_n",
+        "huber": "Huber threshold κ",
+        "lambda_delta": "residual prior λ_δ",
+    }
     fig, axes = plt.subplots(1, len(sweep), figsize=(3.4 * len(sweep), 3.2), sharey=True, constrained_layout=True)
     axes = np.atleast_1d(axes)
     for ax, (k, vs) in zip(axes, sweep.items(), strict=True):
@@ -311,6 +340,191 @@ def sweep_figures(out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig, s
     sensitivity(out, float(rel_error(depth, gt).mean()), cfg, sweep, errs)
 
 
+def variant_label(cfg: RefineConfig) -> str:
+    """Name the active energy terms, e.g. "E_d + E_n"."""
+    return " + ".join(k for k, w in term_weights(cfg).items() if w > 0)
+
+
+def shade(depth: np.ndarray, rays: np.ndarray) -> np.ndarray:
+    """Shade the normals of the lifted depth as RGB in [0, 1]."""
+    return normals_from_depth(torch.from_numpy(depth), torch.from_numpy(rays)).numpy() * 0.5 + 0.5
+
+
+def plane_limit(depth: np.ndarray) -> np.ndarray:
+    """Depth of the least-squares plane of the normalized inverse depth: where E_bd alone converges from d0."""
+    h, w = depth.shape
+    scale, d0, _ = normalize(torch.from_numpy(depth).double(), torch.ones(h, w, dtype=torch.float64))
+    v, u = np.mgrid[0:h, 0:w]
+    basis = np.stack([u.ravel(), v.ravel(), np.ones(h * w)], 1)
+    plane = (basis @ np.linalg.lstsq(basis, d0.numpy().ravel(), rcond=None)[0]).reshape(h, w)
+    return np.where(plane > 0, scale.item() / np.where(plane > 0, plane, 1), np.nan)
+
+
+@dataclass(frozen=True)
+class Variant:
+    """One refinement of the run's view under modified weights."""
+
+    label: str
+    depth: np.ndarray
+    metrics: dict[str, float]
+    evaluations: int
+    seconds: float
+
+
+def timed_refine(data: dict[str, torch.Tensor], cfg: RefineConfig) -> tuple[torch.Tensor, int, float]:
+    """Refine the run's view; return depth, function evaluations, seconds."""
+    t0 = time.perf_counter()
+    depth_hat, _, _, log = refine(data["depth"], data["rays"], data["conf"], cfg, data.get("normals"))
+    if depth_hat.is_cuda:
+        torch.cuda.synchronize()
+    return depth_hat, len(log) - 1, time.perf_counter() - t0
+
+
+def run_ablation(
+    data: dict[str, torch.Tensor], cfg: RefineConfig, overrides: list[dict], bini_cfg: BiniConfig | None
+) -> list[Variant]:
+    """Refine once per override of the run's config, then BiNI's CG on the same normals; untimed warm-up first."""
+    timed_refine(data, dataclasses.replace(cfg, iters=1))
+    variants = []
+    for o in overrides:
+        c = dataclasses.replace(cfg, **o)
+        depth_hat, evals, seconds = timed_refine(data, c)
+        label = variant_label(c) + (" (= input)" if variant_label(c) == "E_d" else "")
+        variants.append(Variant(label, depth_hat.cpu().numpy(), view_metrics(depth_hat, data, data.get("normals")),
+                                evals, seconds))  # fmt: skip
+    if bini_cfg is not None:
+        t0 = time.perf_counter()
+        depth_hat, _, log = bini(data["normals"], data["rays"], data["depth"], bini_cfg)
+        if depth_hat.is_cuda:
+            torch.cuda.synchronize()
+        label = f"BiNI CG, λ_depth = {bini_cfg.lambda_depth:g}"
+        metrics = view_metrics(depth_hat, data, data["normals"])
+        variants.append(Variant(label, depth_hat.cpu().numpy(), metrics, len(log) - 1, time.perf_counter() - t0))
+    return variants
+
+
+def metric_note(m: dict[str, float]) -> str:
+    """Short metric line for a panel title."""
+    if "abs_rel" in m:
+        return f"abs rel {m['abs_rel']:.2%}, {m['angle_to_gt_normals_deg']:.1f}° to GT"
+    return f"{m['angle_to_normals_deg']:.1f}° to DSINE, drift {m['drift_pct']:.2f}%"
+
+
+def ablation_figures(out: Path, data: dict[str, np.ndarray], variants: list[Variant], *, cut: bool) -> None:
+    """Plot normals and error (or detail) per variant, then row profiles and top-down point clouds."""
+    depth, rays, gt = data["depth"], data["rays"], data.get("gt_depth")
+    shaded = [shade(v.depth, rays) for v in variants]
+    win = detail_window(data["normals"] * 0.5 + 0.5, 112) if gt is None else None
+    n = len(variants)
+    fig, axes = plt.subplots(2, n, figsize=(2.9 * n, 5.6 if gt is None else 4.6), constrained_layout=True)
+    norm = Normalize(0, np.percentile(rel_error(depth, gt), 99)) if gt is not None else None
+    for c, (v, img) in enumerate(zip(variants, shaded, strict=True)):
+        axes[0, c].imshow(img, interpolation="nearest")
+        axes[0, c].set_title(f"{v.label}\n{metric_note(v.metrics)}", fontsize=7)
+        if gt is None:
+            axes[1, c].imshow(img[win], interpolation="nearest")
+        else:
+            im = axes[1, c].imshow(rel_error(v.depth, gt), cmap=SEQUENTIAL, norm=norm)
+        for r in (0, 1):
+            axes[r, c].set_axis_off()
+    if gt is not None:
+        fig.colorbar(im, ax=axes[1], shrink=0.8, label="|D - D_gt| / D_gt")
+    fig.suptitle("ablation: one energy, pairs, all, and BiNI", color=INK)
+    fig.savefig(out / "ablation.png", dpi=150)
+    plt.close(fig)
+    ablation_profile(out, data, variants, cut=cut)
+    ablation_topdown(out, data, variants)
+
+
+def ablation_profile(out: Path, data: dict[str, np.ndarray], variants: list[Variant], *, cut: bool) -> None:
+    """Depth along one row per variant, small multiples on shared axes; the plane limit of E_bd only without cuts."""
+    depth, gt, n = data["depth"], data.get("gt_depth"), len(variants)
+    row, cols = depth.shape[0] * 3 // 4, np.arange(depth.shape[1])
+    lo, hi = np.percentile(np.concatenate([depth[row]] + ([gt[row]] if gt is not None else [])), [0, 100])
+    pad = 0.3 * (hi - lo)
+    rows = (n + 3) // 4
+    fig, axes = plt.subplots(rows, 4, figsize=(13, 2.6 * rows), sharex=True, sharey=True, constrained_layout=True)
+    for ax, v in zip(axes.ravel(), variants, strict=False):
+        ax.plot(cols, depth[row], color=GRID, linewidth=1.2, label="input")
+        if gt is not None:
+            ax.plot(cols, gt[row], color=INK, linewidth=1, linestyle="--", label="ground truth")
+        ax.plot(cols, v.depth[row], color=BLUE, linewidth=1.4, label="refined")
+        if v.label == "E_bd" and not cut:
+            ax.plot(cols, plane_limit(depth)[row], color=ORANGE, linewidth=1, linestyle="--", label="LS plane")
+        ax.set(title=v.label, ylim=(lo - pad, hi + pad))
+        ax.legend(loc="upper left", fontsize=6)
+    for ax in axes.ravel()[n:]:
+        ax.set_axis_off()
+    fig.supxlabel("column (px)", fontsize=9, color=INK_2)
+    fig.supylabel("depth", fontsize=9, color=INK_2)
+    fig.suptitle(f"depth along image row {row}", color=INK)
+    fig.savefig(out / "ablation_profile.png", dpi=150)
+    plt.close(fig)
+
+
+def ablation_topdown(out: Path, data: dict[str, np.ndarray], variants: list[Variant]) -> None:
+    """Point clouds per variant from above, small multiples on shared axes."""
+    depth, rays, n = data["depth"], data["rays"], len(variants)
+    rows = (n + 3) // 4
+    rays_t = torch.from_numpy(rays)
+    every = max(1, depth.size // 40000)
+    clouds = [(v.label, points_from_rays(torch.from_numpy(v.depth), rays_t).reshape(-1, 3).numpy()[::every])
+              for v in variants]  # fmt: skip
+    ref = points_from_rays(torch.from_numpy(depth), rays_t).reshape(-1, 3).numpy()
+    (x0, z0), (x1, z1) = np.percentile(ref[:, [0, 2]], [0.5, 99.5], axis=0)
+    pad = 0.15 * max(x1 - x0, z1 - z0)
+    fig, axes = plt.subplots(rows, 4, figsize=(12, 3.2 * rows), sharex=True, sharey=True, constrained_layout=True)
+    for ax, (label, pts) in zip(axes.ravel(), clouds, strict=False):
+        ax.scatter(pts[:, 0], pts[:, 2], s=0.3, color=BLUE, alpha=0.4, linewidths=0, rasterized=True)
+        ax.set(title=label, aspect="equal", xlim=(x0 - pad, x1 + pad), ylim=(z0 - pad, z1 + pad))
+    for ax in axes.ravel()[n:]:
+        ax.set_axis_off()
+    fig.suptitle("point clouds, top-down (x-z)", color=INK)
+    fig.savefig(out / "ablation_topdown.png", dpi=150)
+    plt.close(fig)
+
+
+def convergence(
+    out: Path, data: dict[str, torch.Tensor], cfg: RefineConfig, budgets: list[int], reference: Variant
+) -> None:
+    """E_d + E_n by L-BFGS under growing iteration budgets against BiNI's solution."""
+    ref = torch.from_numpy(reference.depth).to(data["depth"])
+    rows = []
+    for budget in budgets:
+        depth_hat, evals, seconds = timed_refine(data, dataclasses.replace(cfg, lambda_bd=0.0, iters=budget))
+        angle = view_metrics(depth_hat, data, data["normals"])["angle_to_normals_deg"]
+        rows.append((evals, seconds, angle, 100 * ((depth_hat - ref).abs() / ref).median().item()))
+    evals, seconds, angles, gaps = map(np.array, zip(*rows, strict=True))
+    angle_in = view_metrics(data["depth"], data, data["normals"])["angle_to_normals_deg"]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.2), constrained_layout=True)
+    axes[0].plot(evals, angles, color=BLUE, marker="o", markersize=4, label="L-BFGS, E_d + E_n")
+    axes[0].axhline(reference.metrics["angle_to_normals_deg"], color=VIOLET, linestyle="--", linewidth=1,
+                    label=f"BiNI CG ({reference.seconds:.2f} s)")  # fmt: skip
+    axes[0].axhline(angle_in, color=INK_2, linestyle=":", linewidth=1, label="input")
+    axes[0].set(xscale="log", xlabel="function evaluations", ylabel="median angle to DSINE (°)")
+    axes[0].legend()
+    axes[1].plot(evals, gaps, color=BLUE, marker="o", markersize=4)
+    for e, g, t in zip(evals, gaps, seconds, strict=True):
+        axes[1].annotate(f"{t:.1f} s", (e, g), xytext=(4, 4), textcoords="offset points", fontsize=7, color=INK_2)
+    axes[1].set(xscale="log", xlabel="function evaluations", ylabel="median |D - D_BiNI| / D_BiNI (%)")
+    for ax in axes:
+        ax.xaxis.set_minor_formatter(NullFormatter())
+    fig.suptitle("L-BFGS against BiNI's CG on the normal term", color=INK)
+    fig.savefig(out / "convergence.png", dpi=150)
+    plt.close(fig)
+
+
+def ablation_table(variants: list[Variant]) -> list[str]:
+    """Markdown table of every variant's metrics."""
+    keys = list(variants[0].metrics)
+    lines = ["| variant | evaluations | seconds | " + " | ".join(keys) + " |", "|---" * (len(keys) + 3) + "|"]
+    lines += [
+        f"| {v.label} | {v.evaluations} | {v.seconds:.2f} | " + " | ".join(f"{v.metrics[k]:.4g}" for k in keys) + " |"
+        for v in variants
+    ]
+    return lines
+
+
 def figures(run: Path, out: Path) -> dict[str, float]:
     """Write all figures for a refinement run into `out`; return the metric table."""
     summary = yaml.safe_load((run / "run.yaml").read_text())
@@ -323,26 +537,46 @@ def figures(run: Path, out: Path) -> dict[str, float]:
     assert log.ndim == 2 and log.shape[1] == len(LOG_KEYS), log.shape  # noqa: PLR2004
     out.mkdir(parents=True, exist_ok=True)
 
+    normal = None
+    if "normals" in refined:
+        data["normals"] = torch.from_numpy(refined["normals"])
+        raw["normals"] = refined["normals"]
+        _, d0, _ = normalize(data["depth"], data["conf"])
+        normal = normal_term(data["normals"], data["rays"], d0, cfg.edge_tol)
+
     overview(out, depth, rays, gt, refined)
     energy_terms(out, log, cfg)
-    term_figures(out, depth, raw["conf"], refined["delta"], cfg)
-    sweep = summary["config"].get("sweep")
-    if gt is not None and sweep:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        gpu = {k: v.to(device) for k, v in data.items()}
-        sweep_figures(out, gpu, dataclasses.replace(cfg, device=device.type), sweep)
+    term_figures(out, depth, raw["conf"], refined["delta"], cfg, normal=normal)
+    config = summary["config"]
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gpu = {k: v.to(device) for k, v in data.items()}
+    gpu_cfg = dataclasses.replace(cfg, device=device.type)
+    if gt is not None and config.get("sweep"):
+        sweep_figures(out, gpu, gpu_cfg, config["sweep"])
+    extra = []
+    if config.get("ablation"):
+        bini_cfg = BiniConfig(**{**config["bini"], "device": device.type}) if "bini" in config else None
+        variants = run_ablation(gpu, gpu_cfg, config["ablation"], bini_cfg)
+        cut = normal is not None and any(bool((wf == 0).any()) for wf, _ in normal.weights)
+        ablation_figures(out, raw, variants, cut=cut)
+        extra = ["", "## ablation table", "", *ablation_table(variants)]
+        if config.get("convergence") and bini_cfg is not None:
+            convergence(out, gpu, gpu_cfg, config["convergence"], variants[-1])
 
     table = {"refine_seconds": summary["refine_seconds"], "E_initial": log[0, 0], "E_final": log[-1, 0]}
-    return write_readme(run, out, summary, table, list(CAPTIONS))
+    return write_readme(run, out, summary, table, list(CAPTIONS), extra=extra)
 
 
-def write_readme(run: Path, out: Path, summary: dict, table: dict[str, float], names: list[str]) -> dict[str, float]:
-    """Write the metric table and every existing figure with its caption; return the table."""
+def write_readme(  # noqa: PLR0913
+    run: Path, out: Path, summary: dict, table: dict[str, float], names: list[str], *, extra: list[str] | None = None
+) -> dict[str, float]:
+    """Write the metric table, any extra lines, and every existing figure with its caption; return the table."""
     if "metrics_input" in summary:
         for k in summary["metrics_input"]:
             table |= {f"{k}_input": summary["metrics_input"][k], f"{k}_refined": summary["metrics_refined"][k]}
     lines = [f"# {run.name}", "", f"git `{summary['git']}`", "", "| metric | value |", "|---|---|"]
     lines += [f"| {k} | {v:.4g} |" for k, v in table.items()]
+    lines += extra or []
     for name in names:
         if (out / f"{name}.png").exists():
             lines += ["", f"## {name}", "", CAPTIONS[name], "", f"![{name}]({name}.png)"]
@@ -440,10 +674,10 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     out = args.out or Path("figures") / args.run.name
-    if "bini" in yaml.safe_load((args.run / "run.yaml").read_text())["config"]:
-        bini_figures(args.run, out)
-    else:
+    if "refine" in yaml.safe_load((args.run / "run.yaml").read_text())["config"]:
         figures(args.run, out)
+    else:
+        bini_figures(args.run, out)
     print(f"wrote {out}")  # noqa: T201
 
 
