@@ -447,7 +447,10 @@ def local_planes(tree: cKDTree, queries: np.ndarray, k: int) -> tuple[np.ndarray
 
 @dataclass(frozen=True)
 class Truth:
-    """A scene's scan and ETH3D's cameras, the scan's depth in each view, and the similarity from Déjà View's frame."""
+    """A scene's scan and ETH3D's cameras, the scan's depth in each view, and the similarity from Déjà View's frame.
+
+    `sample` holds the flat indices of 200k pixels (all views) the scan saw, drawn once, scored for every variant.
+    """
 
     tree: cKDTree
     grid: cKDTree
@@ -455,6 +458,7 @@ class Truth:
     cam_to_world: np.ndarray
     depth: np.ndarray
     align: tuple[float, np.ndarray, np.ndarray]
+    sample: np.ndarray
 
 
 def load_truth(paths: dict, scene: Scene) -> Truth:
@@ -470,20 +474,26 @@ def load_truth(paths: dict, scene: Scene) -> Truth:
     align = similarity(scene.center.cpu().numpy().astype(np.float64), centers)
     grid = cKDTree(voxel_downsample(scan.astype(np.float64), VOXEL))
     k, c2w = cams["intrinsics"].astype(np.float64), cams["cam_to_world"].astype(np.float64)
-    return Truth(cKDTree(scan), grid, k, c2w, depth.astype(np.float64), align)
+    seen = np.flatnonzero(depth > 0)
+    sample = np.sort(np.random.default_rng(0).choice(seen, min(SAMPLES, len(seen)), replace=False))
+    return Truth(cKDTree(scan), grid, k, c2w, depth.astype(np.float64), align, sample)
 
 
 def fused_metrics(depth: np.ndarray, rays: np.ndarray, truth: Truth, tolerances_cm: list[int | float]) -> dict:
     """Accuracy of all views' points (where the scan saw the pixel), and the fidelity of the surface they form.
 
-    The cloud is mapped by the camera similarity, the same for every variant. Fidelity on a 5 mm voxel grid, so point
+    The cloud is mapped by the camera similarity, the same for every variant. Accuracy on the fixed pixel sample
+    (`Truth.sample`): exact distances, but 200k of about 3M, since a nearest-neighbor query for points far from the
+    scan costs ~40 µs each (2 min per variant for all); the fractions' standard error is under 0.12 points. Fidelity
+    on a 5 mm voxel grid of all points, so point
     density does not change it: at 200k sampled grid points, the RMS distance of the 24 nearest grid points to their
     plane (thickness: layering and noise, no ground truth needed), and the angle between that plane and the scan's.
     """
     s, rotation, t = truth.align
     points = s * points_from_rays(torch.from_numpy(depth), torch.from_numpy(rays)).numpy() @ rotation.T + t
+    dist = truth.tree.query(points.reshape(-1, 3)[truth.sample], workers=-1)[0]
+    out = {f"fused_{k}": v for k, v in accuracy(dist, tolerances_cm).items()}
     points = points[truth.depth > 0]
-    out = {f"fused_{k}": v for k, v in accuracy(truth.tree.query(points, workers=-1)[0], tolerances_cm).items()}
     grid = voxel_downsample(points, VOXEL)
     queries = grid[np.random.default_rng(0).choice(len(grid), min(SAMPLES, len(grid)), replace=False)]
     normals, thickness = local_planes(cKDTree(grid), queries, PLANE_K)
