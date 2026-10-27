@@ -29,8 +29,8 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_bd: smoothing within segments only, so boundaries stay sharp.
 - E_pr: planarity for structural classes (wall, floor, table).
 
-Scope: monocular only. Every run refines one view (`view:` in the config); no multi-view code, metrics or
-experiments until that is decided. E_mv above is the long-term plan, not current work.
+Scope: monocular refinement of one view (`refine.py`), and joint refinement of all views of a scene with E_mv
+(`multiview.py`, no segments yet, solved by Gauss-Newton and CG).
 
 Status: δ only (`refine.py`), no segments, no a or b; verified on a synthetic room with GT. `refine.py` also
 takes BiNI's normal term E_n (log depth, cut on the prior's occlusion contours) under the same L-BFGS. On real data,
@@ -38,7 +38,8 @@ Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477c
 view 13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the
 normals of the result (patch grid, edges) and their angle to DSINE's. ScanNet++'s laser scans need a token we lack;
 ground truth comes from ETH3D office and kicker (`eth3d.py`, data CC BY-NC-SA, never committed): `evaluate.py`
-scores three views per scene by accuracy against the laser scan.
+scores three views per scene by accuracy against the laser scan; `multiview.py` scores the fused cloud of all 20
+views (accuracy on 200k fixed pixels, thickness and normal angle on a 5 mm voxel grid).
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
