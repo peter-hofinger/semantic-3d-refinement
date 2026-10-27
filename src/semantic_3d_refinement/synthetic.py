@@ -25,8 +25,13 @@ def pinhole_rays(h: int, w: int, focal: float, yaw: float, origin: tuple[float, 
     return np.concatenate([origins, dirs], axis=-1)
 
 
-def ray_depth(rays: np.ndarray, planes: tuple[tuple[tuple[float, float, float], float], ...]) -> np.ndarray:
-    """Nearest positive intersection with planes n.x = c along origin + t * direction (convex room interior)."""
+def ray_depth(
+    rays: np.ndarray, planes: tuple[tuple[tuple[float, float, float], float], ...]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Nearest positive intersection with planes n.x = c along origin + t * direction (convex room interior).
+
+    Returns the depth and the unit normal of the plane hit, facing the camera.
+    """
     o, d = rays[..., :3], rays[..., 3:]
     ts = []
     for n, c in planes:
@@ -35,9 +40,11 @@ def ray_depth(rays: np.ndarray, planes: tuple[tuple[tuple[float, float, float], 
         with np.errstate(divide="ignore", invalid="ignore"):
             t = (c - o @ n_arr) / denom
         ts.append(np.where(denom > 0, t, np.inf))
-    depth = np.min(ts, axis=0)
+    hit = np.argmin(ts, axis=0)
+    depth = np.take_along_axis(np.stack(ts), hit[None], 0)[0]
     assert np.isfinite(depth).all() and (depth > 0).all()
-    return depth
+    normals = -np.array([n for n, _ in planes], dtype=np.float64)[hit]
+    return depth, normals / np.linalg.norm(normals, axis=-1, keepdims=True)
 
 
 def room_scene(  # noqa: PLR0913
@@ -46,20 +53,26 @@ def room_scene(  # noqa: PLR0913
     w: int = 128,
     noise: float = 0.02,
     outlier_frac: float = 0.01,
+    normal_noise: float = 0.0,
     planes: tuple[tuple[tuple[float, float, float], float], ...] = ROOM_PLANES,
     seed: int = 0,
 ) -> dict[str, np.ndarray]:
-    """Noisy inverse depth plus low-confidence outliers on a known planar scene."""
-    assert noise >= 0 and 0 <= outlier_frac < 1
+    """Noisy inverse depth plus low-confidence outliers on a known planar scene, and its normals.
+
+    The normals are the planes' own, each tilted by isotropic Gaussian noise of normal_noise rad per axis.
+    """
+    assert noise >= 0 and 0 <= outlier_frac < 1 and normal_noise >= 0
     rng = np.random.default_rng(seed)
     rays = pinhole_rays(h, w, focal=0.8 * w, yaw=0.3, origin=(0.1, -0.1, 0.2))
-    gt_depth = ray_depth(rays, planes)
+    gt_depth, gt_normals = ray_depth(rays, planes)
     inv = (1 / gt_depth) * (1 + noise * rng.standard_normal((h, w)))
     outliers = rng.random((h, w)) < outlier_frac
     inv = np.where(outliers, inv * rng.uniform(0.5, 1.5, (h, w)), inv)
     conf = np.where(outliers, 0.1, 1.0)
     depth = 1 / inv
     assert np.isfinite(depth).all() and (depth > 0).all()
+    normals = gt_normals + normal_noise * np.random.default_rng(seed + 1).standard_normal((h, w, 3))
+    normals /= np.linalg.norm(normals, axis=-1, keepdims=True)
     return {
         k: v.astype(np.float32)
         for k, v in {
@@ -67,6 +80,8 @@ def room_scene(  # noqa: PLR0913
             "rays": rays,
             "conf": conf,
             "gt_depth": gt_depth,
+            "normals": normals,
+            "gt_normals": gt_normals,
         }.items()
     }
 
@@ -118,10 +133,11 @@ def main() -> None:
     """Write the room scene: `uv run python -m semantic_3d_refinement.synthetic --out data/synthetic_room.npz`."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=Path("data/synthetic_room.npz"))
-    out: Path = parser.parse_args().out
-    out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(out, **room_scene())
-    print(f"wrote {out}")  # noqa: T201
+    parser.add_argument("--normal-noise", type=float, default=0.03, help="rad per axis; 0.03 is a median 2° tilt")
+    args = parser.parse_args()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(args.out, **room_scene(normal_noise=args.normal_noise))
+    print(f"wrote {args.out}")  # noqa: T201
 
 
 if __name__ == "__main__":

@@ -374,7 +374,12 @@ def to_world(normals_cam: np.ndarray, cam_to_world: np.ndarray, depth: Tensor, r
 
 
 def predicted_normals(raw: dict, data: dict[str, Tensor]) -> tuple[Tensor, dict]:
-    """Return the configured view's normals in the ray frame; DSINE outputs are cached next to the backbone's."""
+    """Return the configured view's normals in the ray frame; DSINE outputs are cached next to the backbone's.
+
+    "scene" takes the normals stored with a synthetic scene.
+    """
+    if raw["normals"] == "scene":
+        return data["normals"], {}
     if raw["normals"] == "depth":
         return normals_from_depth(data["depth"], data["rays"]), {}
     assert raw["normals"] == "dsine", raw["normals"]

@@ -10,6 +10,9 @@ from semantic_3d_refinement.normals import BiniConfig, bini, close_cuts, crack_t
 from semantic_3d_refinement.refine import (
     RefineConfig,
     depth_metrics,
+    energy_maps,
+    normal_term,
+    normalize,
     points_from_rays,
     refine,
     second_differences,
@@ -33,10 +36,18 @@ def test_planes_are_in_the_null_space_of_the_smoothness_term() -> None:
         assert diff.abs().max() < 1e-6
 
 
-@pytest.mark.parametrize("cfg", [dataclasses.replace(CFG, iters=0), dataclasses.replace(CFG, lambda_bd=0.0)])
+IDENTITY_CFGS = [
+    dataclasses.replace(CFG, iters=0, lambda_n=1.0),
+    dataclasses.replace(CFG, lambda_bd=0.0),
+    dataclasses.replace(CFG, lambda_bd=0.0, lambda_n=0.0),
+]
+
+
+@pytest.mark.parametrize("cfg", IDENTITY_CFGS)
 def test_identity(cfg: RefineConfig) -> None:
     depth, rays, conf, _ = scene()
-    depth_hat, points, delta, _ = refine(depth, rays, conf, cfg)
+    normals = torch.from_numpy(room_scene(normal_noise=0.03)["normals"])
+    depth_hat, points, delta, _ = refine(depth, rays, conf, cfg, normals)
     assert torch.equal(delta, torch.zeros_like(delta))
     assert torch.equal(depth_hat, depth)
     assert torch.equal(points, points_from_rays(depth, rays))
@@ -55,6 +66,45 @@ def test_room_error_drops() -> None:
     before, after = depth_metrics(depth, rays, gt), depth_metrics(depth_hat, rays, gt)
     assert log[-1]["E"] < log[0]["E"]
     assert after["point_rmse"] < 0.5 * before["point_rmse"], (before, after)
+
+
+def test_normal_term_vanishes_on_a_plane_given_its_normal() -> None:
+    depth, rays, conf, gt = scene(outlier_frac=0.0, planes=TILTED_PLANE)
+    normals = torch.from_numpy(room_scene(planes=TILTED_PLANE)["normals"])
+    _, d0, w = normalize(depth, conf)
+    scale, d_gt, _ = normalize(gt, conf)
+    delta_gt = d_gt * depth.median() / scale - d0  # GT on the input's normalization
+    maps = energy_maps(delta_gt, d0, w, CFG, normal_term(normals, rays, d0, CFG.edge_tol))
+    assert maps["E_n"].max() < 1e-8
+    assert energy_maps(torch.zeros_like(d0), d0, w, CFG, normal_term(normals, rays, d0, 0.02))["E_n"].mean() > 1e-3
+
+
+def test_normal_term_recovers_a_plane_by_lbfgs() -> None:
+    depth, rays, conf, gt = scene(outlier_frac=0.0, planes=TILTED_PLANE)
+    normals = torch.from_numpy(room_scene(planes=TILTED_PLANE)["normals"])
+    cfg = dataclasses.replace(CFG, lambda_bd=0.0, lambda_n=1.0, iters=500, edge_tol=1.0)  # 2% noise: no cuts
+    depth_hat, *_ = refine(depth, rays, conf, cfg, normals)
+    assert depth_metrics(depth_hat, rays, gt)["abs_rel"] < 2e-3 < depth_metrics(depth, rays, gt)["abs_rel"]
+
+
+def test_bending_alone_converges_to_the_least_squares_plane_of_the_input() -> None:
+    """L-BFGS steps are sums of gradients, which lie in the range of the Hessian: d0 keeps its null-space part."""
+    depth, rays, conf, _ = scene(h=8, w=9, outlier_frac=0.0)
+    cfg = dataclasses.replace(CFG, lambda_d=0.0, lambda_bd=1.0, iters=2000)
+    delta = refine(depth.double(), rays.double(), conf.double(), cfg)[2]
+    _, d0, _ = normalize(depth.double(), conf.double())
+    v, u = torch.meshgrid(torch.arange(8.0), torch.arange(9.0), indexing="ij")
+    basis = torch.stack([u.ravel(), v.ravel(), torch.ones(72)], 1).double()
+    plane = (basis @ torch.linalg.lstsq(basis, d0.ravel()[:, None]).solution).reshape(8, 9)
+    assert (d0 + delta - plane).abs().max() < 1e-3 < 0.1 < (d0 - plane).abs().max()
+
+
+def test_lbfgs_keeps_an_occlusion_edge_cut_on_the_contour() -> None:
+    scene_ = {k: torch.from_numpy(v) for k, v in occlusion_scene().items()}
+    gt, rays, depth = scene_["gt_depth"], scene_["rays"], scene_["depth"]
+    cfg = dataclasses.replace(CFG, lambda_bd=0.0, lambda_n=0.05, iters=1000)
+    d = refine(depth, rays, torch.ones_like(depth), cfg, scene_["normals"])[0]
+    assert ((d - gt).abs() / gt).max() < 0.05 < ((depth - gt).abs() / gt).max()
 
 
 def test_rejects_bad_inputs() -> None:

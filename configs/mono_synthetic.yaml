@@ -1,13 +1,30 @@
-input: data/synthetic_room.npz
+input: data/synthetic_room.npz   # uv run python -m semantic_3d_refinement.synthetic (normal noise 0.03 rad per axis)
+normals: scene   # the room's plane normals, tilted by the noise above
 output_dir: runs
 refine:
-  iters: 200
+  iters: 1000
   huber: 0.05
-  lambda_bd: 10.0
+  lambda_d: 1.0
+  lambda_bd: 1.0
+  lambda_n: 0.01   # chosen on this scene (grid 0.001-10): more integrates the normals' noise into a random walk
   lambda_delta: 0.0
+  edge_tol: 1.0   # no cuts: the room has no occlusions, and its 2% depth noise exceeds any tighter tolerance
   history_size: 20
   device: cuda
+bini:   # reference: BiNI's CG on the same normals; lambda_depth = 1 / (2 lambda_n) matches the weights
+  lambda_depth: 50.0
+  edges: depth
+  edge_tol: 1.0
+ablation:   # overrides of `refine`, one energy, then pairs, then all; no data term needs more iterations
+  - {lambda_d: 1.0, lambda_bd: 0.0, lambda_n: 0.0}
+  - {lambda_d: 0.0, lambda_bd: 1.0, lambda_n: 0.0, iters: 5000}
+  - {lambda_d: 0.0, lambda_bd: 0.0, lambda_n: 1.0, iters: 5000}
+  - {lambda_bd: 10.0, lambda_n: 0.0}
+  - {lambda_bd: 0.0}
+  - {lambda_d: 0.0, iters: 5000}
+  - {}
 sweep:
   lambda_bd: [0.0, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  lambda_n: [0.0, 0.001, 0.003, 0.01, 0.03, 0.1, 1.0]
   huber: [0.005, 0.02, 0.05, 0.2, 1.0, 1000.0]
   lambda_delta: [0.0, 0.01, 0.1, 1.0, 10.0]

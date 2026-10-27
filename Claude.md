@@ -32,7 +32,8 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 Scope: monocular only. Every run refines one view (`view:` in the config); no multi-view code, metrics or
 experiments until that is decided. E_mv above is the long-term plan, not current work.
 
-Status: δ only (`refine.py`), no segments, no a or b; verified on a synthetic room with GT. On real data,
+Status: δ only (`refine.py`), no segments, no a or b; verified on a synthetic room with GT. `refine.py` also
+takes BiNI's normal term E_n (log depth, cut on the prior's occlusion contours) under the same L-BFGS. On real data,
 Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0
 view 13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the
 normals of the result (patch grid, edges) and their angle to DSINE's. No GT depth yet: the laser-scan meshes
