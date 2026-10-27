@@ -1,0 +1,39 @@
+# Joint refinement of all 20 views of each scene (multiview.py), scored against ETH3D's laser scans: the fused cloud
+# of all views, and the three views of eval_eth3d.yaml under its per-view protocol. Weights as in eval_eth3d.yaml
+# (chosen on ScanNet++); lambda_mv = 1 is set before any run, not tuned.
+scenes:
+  office:
+    input: data/processed/eth3d/office/dejaview_k16_views_n20_uniform_504.npz
+    gt_views: data/processed/eth3d/office/views_n20_uniform_504.npz
+    scan: data/processed/eth3d/office/scan.npy
+  kicker:
+    input: data/processed/eth3d/kicker/dejaview_k16_views_n20_uniform_504.npz
+    gt_views: data/processed/eth3d/kicker/views_n20_uniform_504.npz
+    scan: data/processed/eth3d/kicker/scan.npy
+views: [5, 10, 14]
+rays: pinhole
+normals: dsine
+dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25, kept outside git (non-commercial licence)
+output_dir: runs
+tolerances_cm: [1, 2, 5, 10, 20]
+refine:
+  iters: 1000
+  huber: 0.05
+  lambda_d: 1.0
+  lambda_bd: 10.0
+  lambda_n: 0.005
+  lambda_delta: 0.0
+  edge_tol: 0.02
+  history_size: 20
+  device: cuda
+multiview:
+  lambda_mv: 1.0
+  # Log-depth tolerance of the input's matches: on both scenes the residuals of overlapping views split into
+  # agreeing ones (median 0.5 % office, 1.2 % kicker; < 3 % for most) and occlusions (> 15 %).
+  mv_tol: 0.05
+variants:   # overrides of `refine` and `multiview`
+  - {lambda_bd: 0.0, lambda_n: 0.0, lambda_mv: 0.0}   # the input
+  - {lambda_mv: 0.0}                                  # monocular, every view alone
+  - {lambda_bd: 0.0, lambda_n: 0.0}                   # agreement alone
+  - {lambda_n: 0.0}                                   # agreement + bending
+  - {}                                                # all
