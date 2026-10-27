@@ -1,0 +1,39 @@
+# Accuracy of refined Déjà View depth against ETH3D's laser scans (evaluate.py). The weights are the ones chosen on
+# ScanNet++ office view 6 and kitchen view 13 (configs/mono_office.yaml), not tuned on these scenes.
+scenes:
+  office:
+    input: data/processed/eth3d/office/dejaview_k16_views_n20_uniform_504.npz
+    gt_views: data/processed/eth3d/office/views_n20_uniform_504.npz
+    scan: data/processed/eth3d/office/scan.npy
+  kicker:
+    input: data/processed/eth3d/kicker/dejaview_k16_views_n20_uniform_504.npz
+    gt_views: data/processed/eth3d/kicker/views_n20_uniform_504.npz
+    scan: data/processed/eth3d/kicker/scan.npy
+views: [5, 10, 14]   # quartiles of the 20 views' capture order, fixed before any run
+rays: pinhole
+normals: dsine
+dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25, kept outside git (non-commercial licence)
+output_dir: runs
+tolerances_cm: [1, 2, 5, 10, 20]
+refine:
+  iters: 1000
+  huber: 0.05
+  lambda_d: 1.0
+  lambda_bd: 10.0
+  lambda_n: 0.005
+  lambda_delta: 0.0
+  edge_tol: 0.02
+  history_size: 20
+  device: cuda
+bini:   # BiNI's CG on the same normals and cuts
+  lambda_depth: 100.0
+  edges: depth
+  edge_tol: 0.02
+variants:   # overrides of `refine`: the input, one energy, pairs, all; BiNI is added last
+  - {lambda_d: 1.0, lambda_bd: 0.0, lambda_n: 0.0}
+  - {lambda_d: 0.0, lambda_bd: 1.0, lambda_n: 0.0, iters: 5000}
+  - {lambda_d: 0.0, lambda_bd: 0.0, lambda_n: 1.0, iters: 5000}
+  - {lambda_n: 0.0}
+  - {lambda_bd: 0.0}
+  - {lambda_d: 0.0, iters: 5000}
+  - {}
