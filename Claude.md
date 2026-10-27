@@ -39,7 +39,9 @@ view 13). Study (`normals.py`): DSINE normals integrated with BiNI against the D
 normals of the result (patch grid, edges) and their angle to DSINE's. ScanNet++'s laser scans need a token we lack;
 ground truth comes from ETH3D office and kicker (`eth3d.py`, data CC BY-NC-SA, never committed): `evaluate.py`
 scores three views per scene by accuracy against the laser scan; `multiview.py` scores the fused cloud of all 20
-views (accuracy on 200k fixed pixels, thickness and normal angle on a 5 mm voxel grid).
+views (accuracy on 200k fixed pixels, thickness and normal angle on a 5 mm voxel grid). `artifacts.py` checks the
+proposal's named artifacts on the same data: bleeding, wavy planes and drift confirmed; textureless not confirmed;
+reflective not measurable with a laser scan; confidence only partly locates errors.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
