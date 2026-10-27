@@ -16,8 +16,12 @@ Caveat: GT comes from the 5 cm mesh, so GT boundaries and depth edges are only
 accurate to a few px (printed as "px per 5 cm").
 
 uv run python experiments/scripts/e18_boundaries.py > experiments/results/e18_boundaries.txt
+
+Optional: a different segmentation stem and a figure prefix (E19 reuses this script):
+uv run python experiments/scripts/e18_boundaries.py <segmentation stem> <prefix>
 """
 
+import sys
 from pathlib import Path
 
 import matplotlib as mpl
@@ -41,8 +45,11 @@ SCENES = {"5ee7c22ba0": "kitchen", "7b6477cb95": "office"}
 VIEWS = "views_n20_uniform_504"
 GEOMETRY = f"dejaview_k16_{VIEWS}"
 SEGMENTATION = (
-    f"sam3image-top100-t0.3_{VIEWS}_assoc-xc0.7-vf0.25-kl0.5-{GEOMETRY}"  # E17 best
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else f"sam3image-top100-t0.3_{VIEWS}_assoc-xc0.7-vf0.25-kl0.5-{GEOMETRY}"  # E17 best
 )
+PREFIX = sys.argv[2] if len(sys.argv) > 2 else "e18"  # noqa: PLR2004
 DEPTH_JUMP = 0.05  # relative depth change between neighbours that makes a depth edge
 BLEED_ERROR = 0.05  # relative depth error that counts as bleeding (as in Peter's README)
 BLEED_RANGE = 3  # px from a GT depth edge
@@ -401,13 +408,13 @@ for ax in axes.flat:
     ax.spines[["top", "right"]].set_visible(False)
     ax.legend(fontsize=7, frameon=False)
 fig.suptitle(
-    "E18: SAM 3 boundaries vs depth edges. GT from the 5 cm mesh; depth edges = relative "
+    f"{PREFIX.upper()}: SAM 3 boundaries vs depth edges. GT from the 5 cm mesh; depth edges = relative "
     "jump > 5%, confirmed = image edge within 2 px; bleeding = Déjà View error > 5% within "
-    "3 px of an edge. Segmentation: top100 t0.3 + a + b",
+    f"3 px of an edge. Segmentation: {SEGMENTATION.split('_')[0]} + a + b",
     fontsize=10,
 )
 fig.tight_layout()
-fig.savefig(FIGURES / "e18_boundaries.jpg", dpi=110, pil_kwargs={"quality": 90})
+fig.savefig(FIGURES / f"{PREFIX}_boundaries.jpg", dpi=110, pil_kwargs={"quality": 90})
 
 # figure 2: the view with the most bleeding pixels per scene, edges overlaid
 fig, axes = plt.subplots(2, 2, figsize=(14, 7))
@@ -436,5 +443,5 @@ for row, (name, m) in zip(axes, results.items(), strict=True):
 for ax in axes.flat:
     ax.axis("off")
 fig.tight_layout()
-fig.savefig(FIGURES / "e18_example.jpg", dpi=110, pil_kwargs={"quality": 90})
-print(f"figures: {FIGURES / 'e18_boundaries.jpg'}, {FIGURES / 'e18_example.jpg'}")
+fig.savefig(FIGURES / f"{PREFIX}_example.jpg", dpi=110, pil_kwargs={"quality": 90})
+print(f"figures: {FIGURES / f'{PREFIX}_boundaries.jpg'}, {FIGURES / f'{PREFIX}_example.jpg'}")

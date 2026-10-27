@@ -1,0 +1,285 @@
+## kitchen (5ee7c22ba0)
+evaluated pixels 3265568 (96% of all); px per 5 cm at GT depth: median 7.5 (10-90%: 4.7-13.6)
+edge density (share of evaluated pixels): gt_depth 0.019, GT object boundaries 0.044, SAM 3 boundaries 0.062, Déjà View depth edges 0.010; dense Déjà View edges: jump > 0.012
+GT depth edges on a GT object boundary (<= 1 px): 0.55 (rest: inside one object or unlabeled)
+GT depth edges confirmed by an image edge (<= 2 px): 0.70; of these on a GT object boundary: 0.64
+
+SAM 3 boundaries vs GT object boundaries (precision / recall / F):
+| d | precision | recall | F | control precision | control recall |
+|---|---|---|---|---|---|
+| 1 | 0.61 | 0.73 | 0.67 | 0.09 | 0.10 |
+| 2 | 0.71 | 0.80 | 0.75 | 0.12 | 0.14 |
+| 3 | 0.76 | 0.85 | 0.80 | 0.16 | 0.18 |
+| 5 | 0.80 | 0.90 | 0.85 | 0.22 | 0.26 |
+| 8 | 0.83 | 0.94 | 0.88 | 0.30 | 0.35 |
+
+Matched masks vs their GT object (IoU >= 0.5), pixels by distance to the GT outline (last bin: >= that distance):
+| | 1 px | 2 px | 3 px | 4 px | 5 px | 6 px | total |
+|---|---|---|---|---|---|---|---|
+| mask outside the object | 23566 | 9669 | 6152 | 3489 | 3173 | 11940 | 57989 |
+| object outside the mask | 54613 | 28387 | 18996 | 11640 | 12211 | 155187 | 281034 |
+ratio outside / missed within 3 px: 0.39
+
+Edge positions, median distance in px: Déjà View depth edges -> GT depth edge 1.0; SAM 3 boundaries near a depth edge (<= 5 px, n=64095) -> GT depth edge 1.0, -> Déjà View depth edge 2.8; mean 3.71 / 13.04
+
+### All GT depth edges
+Share of these edges covered (edge within d px):
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.55 | 0.58 | 0.61 | 0.66 | 0.70 |
+| SAM 3 boundaries | 0.46 | 0.52 | 0.57 | 0.64 | 0.70 |
+| Déjà View depth edges | 0.29 | 0.37 | 0.43 | 0.49 | 0.57 |
+| Déjà View depth edges, as dense as SAM 3 | 0.58 | 0.65 | 0.71 | 0.78 | 0.84 |
+| SAM 3 or Déjà View | 0.53 | 0.59 | 0.65 | 0.71 | 0.77 |
+| control: SAM 3 of next view | 0.10 | 0.13 | 0.17 | 0.24 | 0.33 |
+
+Déjà View depth error by distance to the nearest of these edges:
+| distance px | pixels | median error | share > 5% |
+|---|---|---|---|
+| 0-1 | 118864 | 0.042 | 0.45 |
+| 1-3 | 109498 | 0.023 | 0.26 |
+| 3-7 | 171876 | 0.016 | 0.15 |
+| 7-15 | 264013 | 0.010 | 0.05 |
+| 15-inf | 2601317 | 0.006 | 0.01 |
+bleeding pixels (error > 5%, <= 3 px from such an edge): 81884 = 60% of all pixels with error > 5%
+Share of bleeding pixels with an edge within d px:
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.35 | 0.44 | 0.52 | 0.57 | 0.63 |
+| SAM 3 boundaries | 0.34 | 0.42 | 0.49 | 0.56 | 0.63 |
+| Déjà View depth edges | 0.29 | 0.35 | 0.39 | 0.46 | 0.52 |
+| Déjà View depth edges, as dense as SAM 3 | 0.56 | 0.62 | 0.66 | 0.73 | 0.79 |
+| SAM 3 or Déjà View | 0.44 | 0.51 | 0.57 | 0.64 | 0.71 |
+| control: SAM 3 of next view | 0.09 | 0.12 | 0.16 | 0.23 | 0.31 |
+
+Which object does SAM 3 assign a pixel to? (labeled GT pixels; right = the mask's dominant GT object is the pixel's own)
+| pixels | n | right object | other object | no mask |
+|---|---|---|---|---|
+| bleeding | 75648 | 0.78 | 0.08 | 0.15 |
+| all <= 3 px from such an edge | 208668 | 0.83 | 0.05 | 0.13 |
+| > 15 px from such an edge | 2522535 | 0.97 | 0.01 | 0.03 |
+
+Masks eroded by k px before assigning (labeled pixels):
+| k | bleeding: right | other | no mask | > 15 px: right | other | no mask |
+|---|---|---|---|---|---|---|
+| 0 | 0.78 | 0.08 | 0.15 | 0.97 | 0.01 | 0.03 |
+| 1 | 0.66 | 0.05 | 0.29 | 0.94 | 0.00 | 0.05 |
+| 2 | 0.58 | 0.04 | 0.39 | 0.92 | 0.00 | 0.08 |
+| 3 | 0.51 | 0.03 | 0.46 | 0.89 | 0.00 | 0.10 |
+
+Bleeding pixels by GT class (top 10 by count):
+| GT class | pixels | share of bleeding | right object | other object | no mask |
+|---|---|---|---|---|---|
+| copy machine | 23407 | 0.31 | 0.94 | 0.00 | 0.06 |
+| ceiling lamp | 16218 | 0.21 | 0.85 | 0.04 | 0.11 |
+| bottle crate | 12753 | 0.17 | 0.76 | 0.08 | 0.16 |
+| table | 4304 | 0.06 | 0.56 | 0.12 | 0.32 |
+| box | 4183 | 0.06 | 0.55 | 0.14 | 0.31 |
+| wall | 3757 | 0.05 | 0.13 | 0.50 | 0.37 |
+| microwave | 2819 | 0.04 | 0.98 | 0.00 | 0.02 |
+| refrigerator | 2799 | 0.04 | 0.83 | 0.02 | 0.15 |
+| trash bin | 2747 | 0.04 | 0.86 | 0.02 | 0.12 |
+| cabinet | 761 | 0.01 | 0.09 | 0.32 | 0.58 |
+
+### GT depth edges confirmed by an image edge (Canny, <= 2 px)
+Share of these edges covered (edge within d px):
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.64 | 0.67 | 0.70 | 0.75 | 0.79 |
+| SAM 3 boundaries | 0.57 | 0.63 | 0.68 | 0.75 | 0.80 |
+| Déjà View depth edges | 0.34 | 0.44 | 0.50 | 0.57 | 0.65 |
+| Déjà View depth edges, as dense as SAM 3 | 0.65 | 0.73 | 0.78 | 0.85 | 0.90 |
+| SAM 3 or Déjà View | 0.64 | 0.71 | 0.76 | 0.82 | 0.88 |
+| control: SAM 3 of next view | 0.09 | 0.13 | 0.17 | 0.24 | 0.33 |
+
+Déjà View depth error by distance to the nearest of these edges:
+| distance px | pixels | median error | share > 5% |
+|---|---|---|---|
+| 0-1 | 86565 | 0.040 | 0.43 |
+| 1-3 | 87488 | 0.022 | 0.24 |
+| 3-7 | 155220 | 0.016 | 0.15 |
+| 7-15 | 261255 | 0.011 | 0.09 |
+| 15-inf | 2675040 | 0.007 | 0.01 |
+bleeding pixels (error > 5%, <= 3 px from such an edge): 58665 = 43% of all pixels with error > 5%
+Share of bleeding pixels with an edge within d px:
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.43 | 0.54 | 0.62 | 0.68 | 0.73 |
+| SAM 3 boundaries | 0.43 | 0.53 | 0.61 | 0.69 | 0.76 |
+| Déjà View depth edges | 0.37 | 0.44 | 0.49 | 0.56 | 0.63 |
+| Déjà View depth edges, as dense as SAM 3 | 0.66 | 0.72 | 0.77 | 0.83 | 0.89 |
+| SAM 3 or Déjà View | 0.56 | 0.65 | 0.71 | 0.79 | 0.85 |
+| control: SAM 3 of next view | 0.09 | 0.12 | 0.16 | 0.23 | 0.32 |
+
+Which object does SAM 3 assign a pixel to? (labeled GT pixels; right = the mask's dominant GT object is the pixel's own)
+| pixels | n | right object | other object | no mask |
+|---|---|---|---|---|
+| bleeding | 53113 | 0.74 | 0.09 | 0.17 |
+| all <= 3 px from such an edge | 156141 | 0.81 | 0.05 | 0.14 |
+| > 15 px from such an edge | 2595127 | 0.96 | 0.01 | 0.03 |
+
+Masks eroded by k px before assigning (labeled pixels):
+| k | bleeding: right | other | no mask | > 15 px: right | other | no mask |
+|---|---|---|---|---|---|---|
+| 0 | 0.74 | 0.09 | 0.17 | 0.96 | 0.01 | 0.03 |
+| 1 | 0.59 | 0.05 | 0.36 | 0.94 | 0.00 | 0.05 |
+| 2 | 0.47 | 0.04 | 0.49 | 0.92 | 0.00 | 0.08 |
+| 3 | 0.39 | 0.03 | 0.58 | 0.89 | 0.00 | 0.11 |
+
+Bleeding pixels by GT class (top 10 by count):
+| GT class | pixels | share of bleeding | right object | other object | no mask |
+|---|---|---|---|---|---|
+| copy machine | 16388 | 0.31 | 0.93 | 0.01 | 0.07 |
+| bottle crate | 11999 | 0.23 | 0.76 | 0.08 | 0.16 |
+| ceiling lamp | 5905 | 0.11 | 0.73 | 0.08 | 0.19 |
+| box | 3967 | 0.07 | 0.54 | 0.15 | 0.31 |
+| table | 3612 | 0.07 | 0.55 | 0.12 | 0.33 |
+| wall | 2702 | 0.05 | 0.10 | 0.48 | 0.42 |
+| refrigerator | 2615 | 0.05 | 0.82 | 0.02 | 0.16 |
+| trash bin | 2068 | 0.04 | 0.87 | 0.02 | 0.11 |
+| microwave | 1733 | 0.03 | 0.97 | 0.00 | 0.03 |
+| floor | 599 | 0.01 | 0.04 | 0.44 | 0.53 |
+
+## office (7b6477cb95)
+evaluated pixels 3190005 (94% of all); px per 5 cm at GT depth: median 5.8 (10-90%: 3.3-12.2)
+edge density (share of evaluated pixels): gt_depth 0.041, GT object boundaries 0.074, SAM 3 boundaries 0.087, Déjà View depth edges 0.025; dense Déjà View edges: jump > 0.011
+GT depth edges on a GT object boundary (<= 1 px): 0.87 (rest: inside one object or unlabeled)
+GT depth edges confirmed by an image edge (<= 2 px): 0.79; of these on a GT object boundary: 0.89
+
+SAM 3 boundaries vs GT object boundaries (precision / recall / F):
+| d | precision | recall | F | control precision | control recall |
+|---|---|---|---|---|---|
+| 1 | 0.65 | 0.66 | 0.65 | 0.15 | 0.15 |
+| 2 | 0.76 | 0.73 | 0.75 | 0.20 | 0.20 |
+| 3 | 0.82 | 0.78 | 0.80 | 0.25 | 0.25 |
+| 5 | 0.86 | 0.84 | 0.85 | 0.35 | 0.35 |
+| 8 | 0.89 | 0.88 | 0.88 | 0.45 | 0.45 |
+
+Matched masks vs their GT object (IoU >= 0.5), pixels by distance to the GT outline (last bin: >= that distance):
+| | 1 px | 2 px | 3 px | 4 px | 5 px | 6 px | total |
+|---|---|---|---|---|---|---|---|
+| mask outside the object | 43074 | 19387 | 12875 | 8757 | 8107 | 104081 | 196281 |
+| object outside the mask | 90232 | 47252 | 27348 | 15283 | 12941 | 96449 | 289505 |
+ratio outside / missed within 3 px: 0.46
+
+Edge positions, median distance in px: Déjà View depth edges -> GT depth edge 1.0; SAM 3 boundaries near a depth edge (<= 5 px, n=142002) -> GT depth edge 1.0, -> Déjà View depth edge 2.0; mean 1.46 / 7.22
+
+### All GT depth edges
+Share of these edges covered (edge within d px):
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.87 | 0.89 | 0.92 | 0.95 | 0.97 |
+| SAM 3 boundaries | 0.60 | 0.68 | 0.74 | 0.80 | 0.86 |
+| Déjà View depth edges | 0.42 | 0.51 | 0.58 | 0.67 | 0.75 |
+| Déjà View depth edges, as dense as SAM 3 | 0.69 | 0.76 | 0.81 | 0.87 | 0.92 |
+| SAM 3 or Déjà View | 0.69 | 0.76 | 0.81 | 0.88 | 0.92 |
+| control: SAM 3 of next view | 0.15 | 0.20 | 0.26 | 0.35 | 0.46 |
+
+Déjà View depth error by distance to the nearest of these edges:
+| distance px | pixels | median error | share > 5% |
+|---|---|---|---|
+| 0-1 | 244197 | 0.033 | 0.41 |
+| 1-3 | 199687 | 0.015 | 0.17 |
+| 3-7 | 304543 | 0.010 | 0.07 |
+| 7-15 | 454784 | 0.007 | 0.03 |
+| 15-inf | 1986794 | 0.005 | 0.02 |
+bleeding pixels (error > 5%, <= 3 px from such an edge): 134157 = 67% of all pixels with error > 5%
+Share of bleeding pixels with an edge within d px:
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.67 | 0.80 | 0.89 | 0.93 | 0.96 |
+| SAM 3 boundaries | 0.50 | 0.60 | 0.68 | 0.76 | 0.84 |
+| Déjà View depth edges | 0.43 | 0.51 | 0.58 | 0.67 | 0.75 |
+| Déjà View depth edges, as dense as SAM 3 | 0.71 | 0.77 | 0.81 | 0.87 | 0.92 |
+| SAM 3 or Déjà View | 0.63 | 0.71 | 0.78 | 0.85 | 0.90 |
+| control: SAM 3 of next view | 0.16 | 0.21 | 0.27 | 0.36 | 0.47 |
+
+Which object does SAM 3 assign a pixel to? (labeled GT pixels; right = the mask's dominant GT object is the pixel's own)
+| pixels | n | right object | other object | no mask |
+|---|---|---|---|---|
+| bleeding | 122927 | 0.48 | 0.28 | 0.24 |
+| all <= 3 px from such an edge | 419247 | 0.63 | 0.16 | 0.21 |
+| > 15 px from such an edge | 1947545 | 0.84 | 0.05 | 0.11 |
+
+Masks eroded by k px before assigning (labeled pixels):
+| k | bleeding: right | other | no mask | > 15 px: right | other | no mask |
+|---|---|---|---|---|---|---|
+| 0 | 0.48 | 0.28 | 0.24 | 0.84 | 0.05 | 0.11 |
+| 1 | 0.37 | 0.18 | 0.44 | 0.81 | 0.04 | 0.15 |
+| 2 | 0.28 | 0.14 | 0.57 | 0.78 | 0.04 | 0.17 |
+| 3 | 0.22 | 0.12 | 0.66 | 0.76 | 0.04 | 0.20 |
+
+Bleeding pixels by GT class (top 10 by count):
+| GT class | pixels | share of bleeding | right object | other object | no mask |
+|---|---|---|---|---|---|
+| office chair | 20497 | 0.17 | 0.73 | 0.06 | 0.21 |
+| monitor | 17940 | 0.15 | 0.64 | 0.16 | 0.19 |
+| wall | 13301 | 0.11 | 0.13 | 0.61 | 0.25 |
+| table | 10255 | 0.08 | 0.19 | 0.38 | 0.43 |
+| pedestal fan | 10184 | 0.08 | 0.86 | 0.08 | 0.06 |
+| bookshelf | 9272 | 0.08 | 0.59 | 0.32 | 0.08 |
+| floor | 9111 | 0.07 | 0.04 | 0.56 | 0.40 |
+| coat rack | 6123 | 0.05 | 0.87 | 0.08 | 0.05 |
+| ceiling lamp | 3794 | 0.03 | 0.48 | 0.22 | 0.30 |
+| cabinet | 3002 | 0.02 | 0.31 | 0.31 | 0.38 |
+
+### GT depth edges confirmed by an image edge (Canny, <= 2 px)
+Share of these edges covered (edge within d px):
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.89 | 0.92 | 0.94 | 0.96 | 0.98 |
+| SAM 3 boundaries | 0.68 | 0.75 | 0.80 | 0.86 | 0.90 |
+| Déjà View depth edges | 0.48 | 0.57 | 0.63 | 0.72 | 0.79 |
+| Déjà View depth edges, as dense as SAM 3 | 0.74 | 0.81 | 0.85 | 0.90 | 0.95 |
+| SAM 3 or Déjà View | 0.76 | 0.83 | 0.88 | 0.93 | 0.96 |
+| control: SAM 3 of next view | 0.15 | 0.20 | 0.26 | 0.34 | 0.45 |
+
+Déjà View depth error by distance to the nearest of these edges:
+| distance px | pixels | median error | share > 5% |
+|---|---|---|---|
+| 0-1 | 197699 | 0.032 | 0.40 |
+| 1-3 | 174080 | 0.015 | 0.17 |
+| 3-7 | 285955 | 0.010 | 0.09 |
+| 7-15 | 464576 | 0.008 | 0.05 |
+| 15-inf | 2067695 | 0.005 | 0.02 |
+bleeding pixels (error > 5%, <= 3 px from such an edge): 109076 = 54% of all pixels with error > 5%
+Share of bleeding pixels with an edge within d px:
+| edges | d=1 | d=2 | d=3 | d=5 | d=8 |
+|---|---|---|---|---|---|
+| GT object boundaries | 0.71 | 0.83 | 0.91 | 0.95 | 0.97 |
+| SAM 3 boundaries | 0.56 | 0.66 | 0.74 | 0.82 | 0.89 |
+| Déjà View depth edges | 0.49 | 0.57 | 0.64 | 0.73 | 0.81 |
+| Déjà View depth edges, as dense as SAM 3 | 0.76 | 0.81 | 0.86 | 0.91 | 0.95 |
+| SAM 3 or Déjà View | 0.70 | 0.79 | 0.85 | 0.91 | 0.95 |
+| control: SAM 3 of next view | 0.15 | 0.21 | 0.26 | 0.36 | 0.47 |
+
+Which object does SAM 3 assign a pixel to? (labeled GT pixels; right = the mask's dominant GT object is the pixel's own)
+| pixels | n | right object | other object | no mask |
+|---|---|---|---|---|
+| bleeding | 99883 | 0.48 | 0.26 | 0.25 |
+| all <= 3 px from such an edge | 352271 | 0.61 | 0.17 | 0.22 |
+| > 15 px from such an edge | 2022694 | 0.83 | 0.05 | 0.11 |
+
+Masks eroded by k px before assigning (labeled pixels):
+| k | bleeding: right | other | no mask | > 15 px: right | other | no mask |
+|---|---|---|---|---|---|---|
+| 0 | 0.48 | 0.26 | 0.25 | 0.83 | 0.05 | 0.11 |
+| 1 | 0.35 | 0.16 | 0.49 | 0.81 | 0.05 | 0.15 |
+| 2 | 0.26 | 0.11 | 0.63 | 0.78 | 0.04 | 0.18 |
+| 3 | 0.19 | 0.09 | 0.72 | 0.75 | 0.04 | 0.21 |
+
+Bleeding pixels by GT class (top 10 by count):
+| GT class | pixels | share of bleeding | right object | other object | no mask |
+|---|---|---|---|---|---|
+| monitor | 14941 | 0.15 | 0.64 | 0.13 | 0.22 |
+| office chair | 12670 | 0.13 | 0.69 | 0.07 | 0.24 |
+| wall | 11814 | 0.12 | 0.14 | 0.58 | 0.27 |
+| pedestal fan | 9391 | 0.09 | 0.88 | 0.06 | 0.06 |
+| table | 9044 | 0.09 | 0.20 | 0.36 | 0.43 |
+| bookshelf | 8654 | 0.09 | 0.57 | 0.34 | 0.09 |
+| floor | 6994 | 0.07 | 0.06 | 0.48 | 0.47 |
+| coat rack | 5940 | 0.06 | 0.88 | 0.07 | 0.05 |
+| cabinet | 2767 | 0.03 | 0.32 | 0.29 | 0.39 |
+| ceiling lamp | 2641 | 0.03 | 0.60 | 0.12 | 0.28 |
+
+figures: experiments\figures\e19_union_boundaries.jpg, experiments\figures\e19_union_example.jpg

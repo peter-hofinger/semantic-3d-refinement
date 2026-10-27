@@ -1,0 +1,35 @@
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+435 of 712 counted masks unmatched (precision 0.39)
+unmatched masks by predicted class:
+  bottle             81
+  surface            43
+  container          31
+  plastic            28
+  box                26
+  wall               20
+  wire               17
+  storage cabinet    14
+  basket             14
+  door               13
+  handle             12
+  table              10
+  printer            10
+  paper               9
+  power cord          9
+top (predicted class -> dominant GT class, >90% inside it or spanning):
+  bottle           -> bottle crate       inside   73
+  plastic          -> bottle crate       inside   15
+  container        -> bottle crate       spans    14
+  box              -> bottle crate       spans    13
+  wall             -> wall               inside   12
+  door             -> cabinet            inside   11
+  container        -> bottle crate       inside   11
+  basket           -> bottle crate       inside   11
+  cloth            -> refrigerator       inside    9
+  storage cabinet  -> cabinet            inside    8
+  table            -> table              spans     7
+  surface          -> wall               spans     7
+  box              -> bottle crate       inside    7
+  plastic          -> bottle crate       spans     7
+  bottle           -> bottle crate       spans     7

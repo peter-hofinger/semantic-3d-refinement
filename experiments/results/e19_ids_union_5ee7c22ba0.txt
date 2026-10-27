@@ -1,0 +1,12 @@
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+GT objects split over several predicted ids:
+  GT   9 box                in  5 views -> 3 ids [70, 72, 170] classes ['box']
+  GT  21 wall               in 18 views -> 2 ids [41, 393] classes ['wall']
+  GT  41 light switch       in  2 views -> 2 ids [56, 438] classes ['light switch']
+  GT  34 box                in  6 views -> 2 ids [90, 116] classes ['box']
+  GT  35 box                in  6 views -> 2 ids [117, 168] classes ['box']
+  GT  22 bottle crate       in  5 views -> 2 ids [172, 292] classes ['crate']
+  0 of 6 split objects have ids with different classes
+predicted ids covering several GT objects (merges):
+  id    70 (box) -> 9:box, 10:box

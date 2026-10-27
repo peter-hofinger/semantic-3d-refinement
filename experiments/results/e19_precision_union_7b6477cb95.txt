@@ -1,0 +1,35 @@
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+688 of 1026 counted masks unmatched (precision 0.33)
+unmatched masks by predicted class:
+  cable              66
+  computer           46
+  cord               45
+  storage cabinet    31
+  shelf              31
+  door               29
+  table              27
+  socket             26
+  office chair       25
+  blackboard         22
+  cabinet            21
+  hook               19
+  electrical outlet   17
+  monitor            15
+  tv                 14
+top (predicted class -> dominant GT class, >90% inside it or spanning):
+  computer         -> monitor            spans    25
+  cable            -> table              inside   22
+  cable            -> table              spans    22
+  table            -> table              spans    21
+  door             -> storage cabinet    inside   19
+  socket           -> wall               inside   17
+  storage cabinet  -> storage cabinet    inside   16
+  shelf            -> bookshelf          inside   16
+  cord             -> table              inside   15
+  computer         -> monitor            inside   13
+  cord             -> table              spans    12
+  tv               -> monitor            spans    11
+  cabinet          -> storage cabinet    inside   10
+  office chair     -> office chair       spans    10
+  wall outlet      -> wall               inside   10

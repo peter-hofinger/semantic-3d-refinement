@@ -76,6 +76,15 @@ METHODS = {
         )
         for name, t in (("score > 0.5", "-ms0.5"), ("multi-view filter", "-kl0.5"))
     },
+    # E19: arm D, top100 + VLM prompts in one SAM 3 run, same settings as E16
+    **{
+        f"image-top100+vlm t0.3 + assoc Deja View, xc 0.7, vf 0.25, {name} (E19)": (
+            "sam3image-top100+vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3"
+            f"_views_n20_uniform_504_assoc-xc0.7-vf0.25{t}"
+            "-dejaview_k16_views_n20_uniform_504"
+        )
+        for name, t in (("score > 0.5", "-ms0.5"), ("multi-view filter", "-kl0.5"))
+    },
 }
 
 print(

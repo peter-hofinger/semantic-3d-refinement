@@ -1,0 +1,40 @@
+| scene | vocabulary | (b) | subset | masks | objects | recall | pixel recall | precision | leakage | cross-class leakage | consistent | GT in >=2 views | id switches | merges |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| kitchen | top100 | off | all | 925 | 301 | 0.84 | 0.92 | 0.49 | 0.010 | 0.007 | 0.80 | 35 | 8 | 1 |
+| kitchen | top100 | off | objects | 925 | 301 | 0.88 | 0.96 | 0.41 | 0.016 | 0.014 | 0.79 | 29 | 7 | 1 |
+| kitchen | top100 | on | all | 925 | 305 | 0.91 | 0.95 | 0.50 | 0.010 | 0.007 | 0.82 | 38 | 8 | 1 |
+| kitchen | top100 | on | objects | 925 | 305 | 0.94 | 0.97 | 0.42 | 0.017 | 0.015 | 0.80 | 30 | 7 | 1 |
+| kitchen | VLM | off | all | 1064 | 387 | 0.83 | 0.93 | 0.43 | 0.010 | 0.007 | 0.82 | 34 | 7 | 1 |
+| kitchen | VLM | off | objects | 1064 | 387 | 0.85 | 0.94 | 0.35 | 0.016 | 0.013 | 0.82 | 28 | 6 | 1 |
+| kitchen | VLM | on | all | 1064 | 391 | 0.89 | 0.94 | 0.44 | 0.010 | 0.007 | 0.83 | 36 | 7 | 1 |
+| kitchen | VLM | on | objects | 1064 | 391 | 0.90 | 0.96 | 0.35 | 0.016 | 0.013 | 0.82 | 28 | 6 | 1 |
+| kitchen | top100 + VLM | off | all | 1277 | 487 | 0.85 | 0.93 | 0.38 | 0.010 | 0.007 | 0.80 | 35 | 8 | 1 |
+| kitchen | top100 + VLM | off | objects | 1277 | 487 | 0.88 | 0.96 | 0.30 | 0.017 | 0.014 | 0.79 | 29 | 7 | 1 |
+| kitchen | top100 + VLM | on | all | 1277 | 490 | 0.91 | 0.94 | 0.39 | 0.011 | 0.007 | 0.84 | 38 | 7 | 1 |
+| kitchen | top100 + VLM | on | objects | 1277 | 490 | 0.93 | 0.97 | 0.31 | 0.018 | 0.015 | 0.83 | 30 | 6 | 1 |
+| office | top100 | off | all | 1099 | 409 | 0.66 | 0.79 | 0.46 | 0.082 | 0.047 | 0.76 | 49 | 16 | 4 |
+| office | top100 | off | objects | 1099 | 409 | 0.68 | 0.83 | 0.42 | 0.104 | 0.052 | 0.74 | 42 | 14 | 3 |
+| office | top100 | on | all | 1099 | 414 | 0.73 | 0.83 | 0.48 | 0.082 | 0.048 | 0.75 | 51 | 16 | 4 |
+| office | top100 | on | objects | 1099 | 414 | 0.72 | 0.84 | 0.43 | 0.105 | 0.054 | 0.72 | 43 | 15 | 3 |
+| office | VLM | off | all | 1508 | 545 | 0.66 | 0.80 | 0.39 | 0.081 | 0.051 | 0.74 | 46 | 15 | 4 |
+| office | VLM | off | objects | 1508 | 545 | 0.68 | 0.84 | 0.34 | 0.102 | 0.057 | 0.72 | 39 | 13 | 3 |
+| office | VLM | on | all | 1508 | 552 | 0.71 | 0.83 | 0.40 | 0.080 | 0.051 | 0.72 | 47 | 15 | 5 |
+| office | VLM | on | objects | 1508 | 552 | 0.70 | 0.85 | 0.35 | 0.103 | 0.058 | 0.69 | 39 | 14 | 4 |
+| office | top100 + VLM | off | all | 1827 | 756 | 0.69 | 0.80 | 0.32 | 0.086 | 0.051 | 0.73 | 49 | 17 | 4 |
+| office | top100 + VLM | off | objects | 1827 | 756 | 0.71 | 0.84 | 0.28 | 0.109 | 0.058 | 0.71 | 42 | 15 | 3 |
+| office | top100 + VLM | on | all | 1827 | 763 | 0.75 | 0.84 | 0.33 | 0.085 | 0.052 | 0.71 | 51 | 18 | 5 |
+| office | top100 + VLM | on | objects | 1827 | 763 | 0.74 | 0.86 | 0.28 | 0.109 | 0.059 | 0.67 | 43 | 17 | 4 |
+
+Runs:
+  kitchen top100 b=0: 14s, same as cache
+  kitchen top100 b=1: 15s, same as cache
+  kitchen VLM b=0: 15s, same as cache
+  kitchen VLM b=1: 14s, same as cache
+  kitchen top100 + VLM b=0: 14s, new
+  kitchen top100 + VLM b=1: 15s, new
+  office top100 b=0: 13s, same as cache
+  office top100 b=1: 14s, same as cache
+  office VLM b=0: 13s, same as cache
+  office VLM b=1: 14s, same as cache
+  office top100 + VLM b=0: 13s, new
+  office top100 + VLM b=1: 13s, new
