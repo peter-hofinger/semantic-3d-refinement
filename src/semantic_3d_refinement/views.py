@@ -21,10 +21,11 @@ def check_inputs(depth: Tensor, rays: Tensor, conf: Tensor) -> None:
     assert conf.isfinite().all() and (conf >= 0).all() and (conf > 0).any()
 
 
-def fit_pinhole(rays: np.ndarray, rotation: np.ndarray) -> np.ndarray:
+def fit_pinhole(rays: np.ndarray, rotation: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Replace a predicted ray map by the pinhole that fits it best, keeping the camera's center and rotation.
 
     Least squares for fx, cx and fy, cy on the camera-frame directions; the directions keep unit z in the camera.
+    Returns the rays and K, which maps camera coordinates to pixel indices (pixel centers at integers).
     Déjà View's rays deviate from it by 0.6-0.9 px (median) on ScanNet++, in patch-sized steps that show as a 14 px
     grid in every normal map lifted through them, and by up to 2.7 px on ETH3D office (1.8 px even with a free
     rotation, so the rays themselves are less pinhole-like there).
@@ -39,7 +40,8 @@ def fit_pinhole(rays: np.ndarray, rotation: np.ndarray) -> np.ndarray:
     assert np.median(residual) < 3, np.median(residual)  # noqa: PLR2004
     dirs = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
     origin = np.broadcast_to(rays[..., :3].reshape(-1, 3).mean(0), dirs.shape)
-    return np.concatenate([origin, dirs], axis=-1)
+    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    return np.concatenate([origin, dirs], axis=-1), k
 
 
 def load_view(path: Path, view: int | None = None, rays: str = "predicted") -> dict[str, Tensor]:
@@ -54,7 +56,8 @@ def load_view(path: Path, view: int | None = None, rays: str = "predicted") -> d
         assert view is not None, "a Déjà View export holds several frames; set `view` in the config"
         ray_map = np.concatenate([data["ray_origins"][view], data["ray_directions"][view]], axis=-1)
         if rays == "pinhole":
-            ray_map = fit_pinhole(ray_map.astype(np.float64), data["cam_to_world"][view, :3, :3].astype(np.float64))
+            rotation = data["cam_to_world"][view, :3, :3].astype(np.float64)
+            ray_map, _ = fit_pinhole(ray_map.astype(np.float64), rotation)
         data = {"depth": data["depth"][view], "rays": ray_map, "conf": data["confidence"][view]}
     else:
         assert rays == "predicted", "synthetic scenes are already pinhole"

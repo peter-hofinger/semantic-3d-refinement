@@ -171,11 +171,15 @@ def test_pinhole_fit_recovers_a_pinhole_and_removes_per_patch_ray_noise() -> Non
     _, rays, _, _ = scene(outlier_frac=0.0, h=98, w=126)
     rot = torch.linalg.matrix_exp(torch.tensor([[0.0, 0.0, 0.3], [0.0, 0.0, 0.0], [-0.3, 0.0, 0.0]])).double().numpy()
     exact = rays.double().numpy()
-    assert np.abs(fit_pinhole(exact, rot) - exact).max() < 1e-5
+    fitted, k = fit_pinhole(exact, rot)
+    assert np.abs(fitted - exact).max() < 1e-5
+    cam = exact[..., 3:] @ rot
+    v, u = np.mgrid[0:98, 0:126]
+    np.testing.assert_allclose(cam @ k.T, np.stack([u, v, np.ones_like(u)], -1) * cam[..., 2:], atol=1e-4)
     jitter = 2e-3 * torch.randn(7, 9, 2, generator=torch.Generator().manual_seed(0)).double().numpy()
     noisy = exact.copy()
     noisy[..., 3:5] += jitter.repeat(14, 0).repeat(14, 1) @ rot[:2, :2].T
-    assert np.abs(fit_pinhole(noisy, rot)[..., 3:] - exact[..., 3:]).max() < 0.2 * np.abs(jitter).max()
+    assert np.abs(fit_pinhole(noisy, rot)[0][..., 3:] - exact[..., 3:]).max() < 0.2 * np.abs(jitter).max()
 
 
 def test_occlusion_edge_is_cut_on_one_clean_contour() -> None:
