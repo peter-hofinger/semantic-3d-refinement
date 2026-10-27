@@ -36,8 +36,9 @@ Status: δ only (`refine.py`), no segments, no a or b; verified on a synthetic r
 takes BiNI's normal term E_n (log depth, cut on the prior's occlusion contours) under the same L-BFGS. On real data,
 Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0
 view 13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the
-normals of the result (patch grid, edges) and their angle to DSINE's. No GT depth yet: the laser-scan meshes
-need a ScanNet++ token.
+normals of the result (patch grid, edges) and their angle to DSINE's. ScanNet++'s laser scans need a token we lack;
+ground truth comes from ETH3D office and kicker (`eth3d.py`, data CC BY-NC-SA, never committed): `evaluate.py`
+scores three views per scene by accuracy against the laser scan.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
