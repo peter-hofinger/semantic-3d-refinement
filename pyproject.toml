@@ -4,31 +4,84 @@ version = "0.1.0"
 description = "Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)"
 readme = "README.md"
 authors = [
-    { name = "peter-hofinger", email = "hofinger-peter@gmx.de" }
+    { name = "peter-hofinger", email = "hofinger-peter@gmx.de" },
+    { name = "Pouya Esfahani", email = "pouya.esfahani@tum.de" },
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "dvlt",
+    "numpy>=2.4.6",
+    "pillow>=13.0.0",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
     "torch>=2.14.1",
 ]
 
 [project.scripts]
-semantic-3d-refinement = "semantic_3d_refinement:main"
+semantic-3d-refinement = "src:main"
+scannetpp-download = "src.loaders.scannetpp.download:main"
+scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
+run-pipeline = "src.pipeline:main"
+dejaview-predict = "src.backbone.dejaview:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
 
+# the code lives directly in src/ and is imported as `src`
+[tool.uv.build-backend]
+module-name = "src"
+module-root = ""
+
+[tool.uv.sources]
+dvlt = { git = "https://github.com/nv-tlabs/dvlt", rev = "f59bb18" }
+
+# dvlt pins exact old versions; use ours instead
+[tool.uv]
+override-dependencies = [
+    "torch>=2.14.1",
+    "torchvision>=0.21",
+    "numpy>=2.4.6",
+    "pillow>=13.0.0",
+    "matplotlib>=3.11.2",
+    "tqdm>=4.70.1",
+]
+
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
     "matplotlib>=3.11.2",
+    "pytest>=9.1.1",
     "ruff>=0.17.1",
     "tqdm>=4.70.1",
 ]
 
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["."]
+
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "D203",  # incorrect blank line before class
-    "D213",  # multi line summary second line
+    "D203",    # incorrect blank line before class
+    "D213",    # multi line summary second line
+    "COM812",  # conflicts with the formatter
+    "CPY001",  # no copyright header per file (LICENSE covers it)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",     # pytest uses assert
+    "PLR2004",  # literal values in tests
+    "INP001",   # tests is not a package
+    "D",        # no docstrings needed in tests
+]
+"notebooks/**/*.ipynb" = [
+    "T201",     # print is fine in notebooks
+    "D",        # no docstrings needed in notebooks
+    "INP001",   # notebooks are not a package
+]
+
+[tool.ruff.format]
+docstring-code-format = true

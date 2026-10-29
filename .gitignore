@@ -11,3 +11,14 @@ wheels/
 
 # macOS
 .DS_Store
+
+# Secrets
+.env
+
+# Data (raw downloads and preprocessed outputs), repo root only
+/data/
+/outputs/
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
