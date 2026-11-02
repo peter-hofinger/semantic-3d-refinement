@@ -52,6 +52,7 @@ Metrics:
 | E22 | Side decision: edge pixels take the nearby segment plane closest to their Déjà View depth (instead of only their own mask) | harmful for every segmentation, GT included (realistic mean error SAM 3 0.068 -> 0.093 office, GT 0.056 -> 0.091; kitchen 0.046 -> 0.062): Déjà View's own depth at an edge does not tell the side. Even the GT-chosen best candidate is worse than own mask on the realistic region; on bleeding pixels it would help (office 0.238 -> 0.220 SAM 3). Gap pixels need another cue (multi-view / image), the own mask stays the better side cue |
 | E23 | Déjà View paper's point-map metric on our scenes (one Sim(3) per scene) | Rel. L2 0.024 / 0.026, inlier ratio (< 3%) 82-84% / 86-89% vs paper 0.015 / 93.3%: same order, somewhat worse (5 cm mesh GT, plain least-squares alignment, our 20 views; normaliser unclear). Error is uneven over views (worst 0.061 kitchen v12, 0.070 office v5); per-view alignment helps the kitchen (0.017, 92%) more than the office -> kitchen has cross-view drift |
 | E24 | 3D point-cloud overlap from Replicate Any Scene (RAS) instead of our reprojection overlap, same linking | not adopted: consistency collapses 0.82 -> 0.27 kitchen / 0.75 -> 0.18 office (id switches 8 -> 100 / 16 -> 112) for fewer merges (1 -> 0 / 4 -> 1); still 0.47 / 0.34 with GT geometry, so the rule, not Déjà View, is the cause: single-view masks see different parts of an object and the cloud rule has no visibility test. RAS's either-direction rule: worse on both (consistent 0.34 / 0.45, merges 4 / 5, wrong links 14 / 27). Reprojection + vf0.25 stays |
+| E25 | Progressive VLM vocabulary (RAS scheme: one view at a time, list so far shown, only new names), Qwen3-VL-2B | the 2B model copies the list instead of adding to it (16 of 20 views add nothing): 12 / 22 names vs 46 / 60 (union). Short list -> precision 0.45 -> 0.69 / 0.40 -> 0.60, but recall 0.89 -> 0.82 / 0.72 -> 0.64 (pixel recall -0.02); synonyms stay (socket / power outlet, chair / office chair, all from view 1); loops still 8 / 3 of 20. Scheme untested with a model that follows the instruction -> step 2 |
 
 ## Reference table (current scorer, E11)
 
@@ -1121,3 +1122,78 @@ The three open options change different stages, so they can be combined, and eac
   points visible in the other view (= reprojection again). A track-level variant (merge objects after our
   association by comparing their aggregated multi-view clouds, as RAS does) is a possible later step against
   remaining splits.
+
+## Plan: progressive VLM vocabulary (02.11.2026)
+Motivation: E16's VLM vocabulary (one question per view, union of the answers) gives near-synonym duplicates
+(E12/E16) and repetition loops (16-18 of 20 answers). Replicate Any Scene (arXiv 2604.10789, Sec. 3.1, Table 2) builds
+the list progressively: one frame at a time, the VLM sees the current list and names only new objects, "treating
+'sofa' and 'couch' as identical"; in their ablation same recall as per-frame union (91.4 vs 91.3), no redundant names.
+Their prompt is not published; ours is written and fixed before any run.
+- **Step 1 (E25): same model, new scheme.** Qwen3-VL-2B-Instruct (4-bit), same 20 views in the same order, greedy,
+  256 new tokens (as E16). View 1 gets E16's question unchanged; every later view gets E16's question + the current
+  list + "name only objects and surfaces NOT already in the list, treat synonyms as the same object (e.g. sofa and
+  couch), answer NONE if nothing new". Exact duplicates of listed names are dropped when parsing. Output: a prompt
+  file `vlmprog-<model>_<views>.txt`, so SAM 3, association and scorer are unchanged. One change only: the scheme.
+- **Run:** student cluster (RTX 5090). VLM for both scenes, then SAM 3 image mode at threshold 0.3 with three
+  vocabularies on the same machine (top100, E16 union list, progressive list), since bf16 results differ slightly
+  across GPUs. Association locally with the working setting (`--cross-class 0.7 --min-visible-fraction 0.25
+  --keep-linked-below 0.5`, Déjà View K=16 geometry), scorer as E17.
+- **Report:** list size, near-synonym pairs (listed by hand from the lists), truncated answers, VLM time; pixel
+  recall, recall, precision, cross-class leakage, consistent, merges, wrong links (E24 check); top100 / union /
+  progressive side by side. Expectation: fewer synonyms -> precision back up towards top100 (E17: VLM -0.06/-0.08),
+  fewer loops. Risks: a 2B model may ignore "only new" (then ~ union + dedupe), order dependence.
+- **Step 2 (E26), only after E25:** the bigger VLM (TODO Qwen-3.8-27B: check checkpoint name, image input,
+  transformers support; 4-bit ~15 GB on the 5090) with whichever scheme wins E25.
+- Caveat: the two ScanNet++ scenes are test scenes, top100 is ScanNet++-specific; the real generalisation test is
+  Hypersim (no loader yet).
+
+## E25: Progressive VLM vocabulary, Qwen3-VL-2B (02.11.2026)
+- **Goal:** step 1 of the plan above: does Replicate Any Scene's progressive list (one view at a time, the VLM sees
+  the list so far and names only new objects, synonyms counting as the same) remove E16's near-synonyms and loops
+  without losing recall? Same model as E16, only the scheme changes.
+- **Settings:** Qwen3-VL-2B-Instruct 4-bit, greedy, 256 new tokens, same 20 views in the same order. View 1 gets
+  E16's question; later views get E16's question + "These objects and surfaces are already listed: <list>. Name only
+  objects and surfaces in this image that are NOT already listed. Treat synonyms as the same object (for example,
+  sofa and couch). If nothing new is visible, answer NONE." (`NEW_ONLY` in `src/segmentation/vocabulary.py`, written
+  before the run). Exact duplicates are dropped. SAM 3 image mode, threshold 0.3, with top100 / E16 union list /
+  progressive list, all three on the cluster in one job (RTX 5090, job 658); association locally with the working
+  setting (xc0.7, vf0.25, kl0.5, Déjà View K=16). Laptop rows (E17 caches) for cross-machine noise.
+- **Code / command:** `uv run vlm-vocabulary --progressive <views...>` -> `vlmprog-qwen3vl2binstruct_<views>.txt`
+  (+ `.json` with raw answers, new names and time per view). Cluster job `experiments/scripts/e25_vlm_progressive.sbatch`
+  (log `results/e25_cluster_job658.txt`; VLM both scenes 87 s incl. load, SAM 3 5-62 s per run, peak 2.8 GB), SAM 3
+  caches copied to `<scene>/e25_cluster/`. Scoring: `uv run python experiments/scripts/e25_vlm_progressive.py >
+  experiments/results/e25_vlm_progressive.txt` (CPU, ~2 min; rerun identical; laptop rows reproduce the E17 caches).
+- **Results** (`results/e25_vlm_progressive.txt`, all classes, cluster runs):
+
+  | scene | vocabulary | names | recall | pixel recall | precision | consistent | GT in >=2 views | merges | wrong links | mixed-class objects |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | kitchen | top100 | 100 | 0.92 | 0.95 | 0.51 | 0.82 | 38 | 1 | 5 | 20 |
+  | kitchen | VLM union (E16) | 46 | 0.89 | 0.94 | 0.45 | 0.83 | 36 | 1 | 5 | 18 |
+  | kitchen | VLM progressive | 12 | 0.82 | 0.92 | 0.69 | 0.85 | 33 | 1 | 4 | 13 |
+  | office | top100 | 100 | 0.73 | 0.83 | 0.48 | 0.76 | 51 | 5 | 10 | 22 |
+  | office | VLM union (E16) | 60 | 0.72 | 0.84 | 0.40 | 0.73 | 48 | 5 | 11 | 21 |
+  | office | VLM progressive | 22 | 0.64 | 0.82 | 0.60 | 0.78 | 41 | 4 | 10 | 12 |
+
+  (mixed-class objects: linked objects whose per-view masks carry more than one class name.)
+  1. **The 2B model copies the list instead of extending it.** New names per view: kitchen 8, 0, 2, 0, 0, 0, 0, 1,
+     0 ... (16 of 20 views add nothing), office 15, 0, 0, 4, 0, 0, 0, 2, 0 ... (16 of 20). The answers mostly
+     repeat listed names ("cabinet | window | paper | surface | door"), i.e. the instruction "only new" is not
+     followed; the list is essentially view 1's answer plus a few names.
+  2. **Short list -> precision up, recall down:** precision 0.45 -> 0.69 / 0.40 -> 0.60 (above top100's
+     0.51 / 0.48), recall 0.89 -> 0.82 / 0.72 -> 0.64; pixel recall only -0.02 (large surfaces and frequent objects
+     are in view 1's list). Fewer GT objects are found in >= 2 views (36 -> 33, 48 -> 41), so the slightly higher
+     consistency (0.85 / 0.78) is over fewer, easier objects. Merges unchanged.
+  3. **Synonyms are not collapsed:** socket / power outlet, chair / office chair (office) and the junk names
+     "surface", "paper" (kitchen) all come from view 1, which has no list yet. Fewer mixed-class objects (18 -> 13,
+     21 -> 12) come from the shorter list, not from merged synonyms.
+  4. **Loops remain** in the long answers (truncated 8 / 3 of 20 vs 18 / 16): fewer, because most answers are short
+     copies. VLM time 60 s / 11 s per scene on the 5090 (kitchen view 1 loop 43 s incl. warm-up).
+  5. Cross-machine noise (cluster vs laptop, same lists): recall / precision within 0.01, consistent within 0.01-0.04,
+     id switches +-2, merges +-1, as on 28.10.
+- **Figure:** `figures/e25_vlm_progressive.jpg` (names, pixel recall, precision, consistent, merges per vocabulary).
+- **Conclusion:** with Qwen3-VL-2B the progressive scheme is not what RAS describes: the model does not follow "name
+  only new objects", so the result is a shorter list (precision/recall trade-off), not a cleaner one. This tests the
+  model's instruction following as much as the scheme. Step 2 (bigger VLM) should therefore run **both** schemes
+  (union and progressive), not only "the winner" as planned: E25 has no clear winner, and the scheme's idea is only
+  tested once the model follows it. Not changed (would be tuning on the test scenes): prompt wording, a synonym rule
+  for view 1.
