@@ -1474,3 +1474,10 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Expected caveats (E29):** walls / floors / ceilings are one instance per class -> SAM 3 wall-plane masks miss
   IoU 0.5; NYU40 `otherprop` makes cross-class leakage look smaller; conference room 23% unlabeled.
 - **Run:** cluster job `experiments/scripts/e30_hypersim.sbatch`; association + scoring locally.
+- **Change after job 760 (02.11), before any segmentation scoring:** Déjà View's fitted cameras always have a centred
+  principal point; a free pinhole fit to its raw rays agrees (cx / cy within 2-3 px of the centre, residual 0.06 deg),
+  so the network cannot represent Hypersim's tilt-shift cameras. Conference room (cy 106 vs 189): point-map Rel. L2
+  0.116, 15% inliers. Only 14 of 46 val scenes have plain cameras. Decision (user): finish E30 on the three tilt-shift
+  scenes and add three plain-camera val scenes chosen from previews before scoring: `ai_010_007` living room,
+  `ai_006_007` bedroom, `ai_044_001` hotel lobby (`ai_003_010` was picked first but has 78% unlabeled pixels:
+  walls / floor / ceiling without class). Same settings; job `experiments/scripts/e30_plain.sbatch`.
