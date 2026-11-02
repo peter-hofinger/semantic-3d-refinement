@@ -103,8 +103,10 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 once: each view stays near Déjà View's depth (E_d) and overlapping views must agree
 (E_mv, log depth ratio of each pixel and its projection), cameras fixed, solved by
 Gauss-Newton with conjugate gradients. Settings in `configs/refine.yaml`; E_n on DSINE
-normals is opt-in (DSINE is non-commercial and stays outside git). The segmentation is
-not used by the energy yet.
+normals is opt-in (DSINE is non-commercial and stays outside git). The segmentation
+enters through `semantic:` in the config, off by default: E_bd cut at mask boundaries,
+per-segment scale and shift of inverse depth (a, b), and E_mv only between pixels of one
+object.
 
 ```bash
 D=data/processed/scannetpp/5ee7c22ba0
@@ -134,6 +136,44 @@ surface only 7 % closer to the scan: it fixes what the views disagree on, not th
 they share. Refinement takes 2.1 s for the 20 views on an RTX 3080; SAM 3 and the linking
 about 1.5 min.
 
+## Evaluation (Hypersim)
+
+One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
+- **Scenes:** Hypersim validation scenes, 20 views each. The test split is never used, and
+  weights are tuned on the conference room only.
+- **Inputs:** cached Déjà View geometry and linked SAM 3 masks, with one prompt per NYU40
+  class.
+- **Scores** (`src/evaluation/labeled.py`): the output scored as a labeled cloud against
+  Hypersim's per-pixel ground truth, on a 1 cm grid, after one similarity fitted on pixel
+  correspondences:
+  - AbsRel per pixel;
+  - accuracy, completeness and F-score at 1 / 2 / 5 cm (Tanks and Temples);
+  - mIoU and instance AP / AP50 / AP25 (ScanNet's protocol), on labels transferred to the
+    ground-truth points.
+
+```bash
+uv run hypersim-download && uv run hypersim-prepare
+uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, sam3-segment
+uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
+```
+
+Conference room (tuning scene) and restaurant (held out), F-score at 2 cm, AbsRel and mIoU
+(`figures/eval_hypersim-20261102-232027`):
+
+| | F-score 2 cm | AbsRel | mIoU |
+|---|---|---|---|
+| Déjà View | 0.216 / 0.464 | 0.0758 / 0.0518 | 0.381 / 0.543 |
+| + E_d + E_mv (agreement) | 0.170 / 0.423 | 0.0757 / 0.0516 | 0.345 / 0.524 |
+| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks | 0.211 / 0.464 | 0.0754 / 0.0514 | 0.371 / 0.544 |
+| same, ground-truth masks | 0.200 / 0.464 | 0.0740 / 0.0500 | 0.379 / 0.549 |
+| same, shuffled masks (control) | 0.225 / 0.465 | 0.0772 / 0.0511 | 0.414 / 0.547 |
+
+Agreement makes the views consistent (disagreement 0.6–1 % → 0.05 %) but not closer to the
+truth: the cloud loses recall, as one surface no longer straddles the truth the way the
+input's layers did. The semantic terms recover what agreement costs. AbsRel follows mask
+quality (ground truth < SAM 3 < none), but shuffled masks match them on the cloud scores, so
+there is no semantic gain beyond noise yet.
+
 ## Layout
 
 ```
@@ -150,8 +190,9 @@ src/                the code, imported as `src`
                     (monocular.py) refinement, BiNI + DSINE normals (normals.py)
   output.py         PointCloud, PLY export
   pipeline.py       chains the stages
-  evaluation/       metrics against ground truth: instances, depth, fused cloud
-  analysis/         refinement studies: artifacts, solver benchmark, figures
+  evaluation/       metrics against ground truth: instances, depth, fused cloud,
+                    labeled cloud (labeled.py: F-score, mIoU, instance AP)
+  analysis/         refinement studies, the Hypersim protocol (scene_eval.py) and figures
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README
 tests/

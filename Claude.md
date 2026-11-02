@@ -30,7 +30,10 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_pr: planarity for structural classes (wall, floor, table).
 
 Scope: monocular refinement of one view (`src/refinement/monocular.py`), and joint refinement of all views of a
-scene with E_mv (`src/refinement/multiview.py`, no segments yet, solved by Gauss-Newton and CG). The joint
+scene with E_mv (`src/refinement/multiview.py`, solved by Gauss-Newton and CG). Segments enter the joint energy
+through `SemanticConfig` (E_bd cut at masks, per-segment a and b, same-segment E_mv; all off by default); E_pr is
+not implemented. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim validation scenes
+(`configs/eval_hypersim.yaml`, tuned on ai_047_009 only), scored by `src/evaluation/labeled.py`. The joint
 refinement is the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
 Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end.
 
