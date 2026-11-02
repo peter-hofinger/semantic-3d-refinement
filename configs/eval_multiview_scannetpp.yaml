@@ -1,11 +1,11 @@
-# Joint refinement of all 20 views (multiview.py) on the ScanNet++ kitchen (5ee7c22ba0), scored against its laser-scan
-# mesh: Mircea's rendered ground-truth depth, lifted into scan.npy by scannetpp.py. Weights as in eval_multiview.yaml,
+# Joint refinement of all 20 views (src/analysis/multiview_eval.py) on the ScanNet++ kitchen (5ee7c22ba0), scored
+# against its laser-scan mesh: Mircea's rendered ground-truth depth (gt), lifted into a cloud. Weights as in eval_multiview.yaml,
 # not tuned; the variants are those of the ETH3D slide (input, agreement alone, agreement + normals).
 scenes:
   kitchen:
     input: data/processed/scannetpp/5ee7c22ba0/dejaview_k16_views_n20_uniform_504.npz
     gt_views: data/processed/scannetpp/5ee7c22ba0/views_n20_uniform_504.npz
-    scan: data/processed/scannetpp/5ee7c22ba0/scan.npy
+    gt: data/processed/scannetpp/5ee7c22ba0/gt_views_n20_uniform_504.npz   # scannetpp-render-gt
 views: [5, 10, 14]
 rays: pinhole
 normals: dsine

@@ -1,4 +1,4 @@
-# Joint refinement of all 20 views of each scene (multiview.py), scored against ETH3D's laser scans: the fused cloud
+# Joint refinement of all 20 views of each scene (src/analysis/multiview_eval.py), scored against ETH3D's laser scans: the fused cloud
 # of all views, and the three views of eval_eth3d.yaml under its per-view protocol. Weights as in eval_eth3d.yaml
 # (chosen on ScanNet++); lambda_mv = 1 is set before any run, not tuned.
 scenes:

@@ -3,10 +3,10 @@
 # same energy (multiview.scene_residuals) on the same fixed problem (DSINE normals, occlusion cuts, matches) from
 # δ = 0; only the optimizer differs. Weights as in eval_multiview.yaml, set before this run.
 scenes:
-  kitchen:   # ScanNet++ 5ee7c22ba0; scan.npy lifted from the laser-scan mesh's rendered depth (scannetpp.py)
+  kitchen:   # ScanNet++ 5ee7c22ba0; scan: the laser-scan mesh rendered into the views (gt), lifted
     input: data/processed/scannetpp/5ee7c22ba0/dejaview_k16_views_n20_uniform_504.npz
     gt_views: data/processed/scannetpp/5ee7c22ba0/views_n20_uniform_504.npz
-    scan: data/processed/scannetpp/5ee7c22ba0/scan.npy
+    gt: data/processed/scannetpp/5ee7c22ba0/gt_views_n20_uniform_504.npz   # scannetpp-render-gt
 rays: pinhole
 normals: dsine
 dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25, kept outside git (non-commercial licence)

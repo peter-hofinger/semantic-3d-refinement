@@ -13,7 +13,7 @@ ETH3D office and kicker, Déjà View with K = 16 loops, the inputs of `depth.py`
 - planes are found in the scan by RANSAC; a view's pixels on one are lifted through
   ETH3D's camera, and the flatness of Déjà View's points is their RMS distance to their
   own best-fit plane, next to the scan's;
-- layering uses the fused cloud of all views in the scan's frame (`multiview.similarity`
+- layering uses the fused cloud of all views in the scan's frame (`geometry.similarity`
   on the camera centers).
 
 Glass and lamps return no laser, so where they are, the scan has holes and only Déjà
@@ -52,14 +52,13 @@ from src.analysis.visualize import (
     up_frame,
 )
 from src.evaluation.depth import lift, scan_depth
+from src.evaluation.geometry import similarity, voxel_downsample
 from src.refinement.inputs import git_hash
 from src.refinement.multiview import (
     MultiviewConfig,
     find_matches,
     load_scene,
     residuals,
-    similarity,
-    voxel_downsample,
 )
 from src.refinement.normals import grid_score, normals_from_depth
 

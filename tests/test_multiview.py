@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
+from src.evaluation.geometry import local_planes, similarity, voxel_downsample
 from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
 from src.refinement.multiview import (
     MultiviewConfig,
@@ -12,13 +13,10 @@ from src.refinement.multiview import (
     bilinear,
     find_matches,
     grid_operator,
-    local_planes,
     match_jacobian,
     refine_scene,
     residuals,
     scene_residuals,
-    similarity,
-    voxel_downsample,
 )
 from src.refinement.normals import normals_from_depth
 

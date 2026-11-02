@@ -31,34 +31,19 @@ This is the E_mv of the method in `Claude.md` without segments: agreement is req
 wherever the input already roughly agrees, not only within a segment.
 """
 
-import argparse
 import dataclasses
 import math
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
-import yaml
-from scipy.spatial import cKDTree
 from torch import Tensor
 
-from src.evaluation.depth import accuracy, scan_depth, score
-from src.refinement.inputs import check_inputs, fit_pinhole, git_hash
-from src.refinement.monocular import (
-    NormalTerm,
-    RefineConfig,
-    normal_term,
-    points_from_rays,
-    variant_label,
-)
-from src.refinement.normals import predicted_normals
-
-VOXEL = 0.005
-PLANE_K = 24
-SAMPLES = 200_000
+from src.geometry import Geometry
+from src.refinement.inputs import check_inputs, fit_pinhole
+from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
 
 
 @dataclass(frozen=True)
@@ -77,30 +62,36 @@ class Scene:
         return Scene(*(getattr(self, f).to(device) for f in self.__dataclass_fields__))
 
 
-def load_scene(path: Path) -> Scene:
-    """Every view of a Déjà View export, its rays replaced by the fitted pinhole."""
-    data = np.load(path)
+def scene_from_geometry(geometry: Geometry) -> Scene:
+    """All views of a backbone's geometry, each ray map replaced by its pinhole fit."""
+    assert geometry.ray_origins is not None and geometry.ray_directions is not None
     rays, ks = [], []
-    for v in range(len(data["depth"])):
+    for v in range(len(geometry.depth)):
         ray_map = np.concatenate(
-            [data["ray_origins"][v], data["ray_directions"][v]], axis=-1
+            [geometry.ray_origins[v], geometry.ray_directions[v]], axis=-1
         ).astype(np.float64)
-        r, k = fit_pinhole(ray_map, data["cam_to_world"][v, :3, :3].astype(np.float64))
+        rotation = geometry.cam_to_world[v, :3, :3].astype(np.float64)
+        r, k = fit_pinhole(ray_map, rotation)
         rays.append(r)
         ks.append(k)
     rays = np.stack(rays)
     scene = Scene(
         *(
             torch.from_numpy(np.ascontiguousarray(a)).float()
-            for a in (data["depth"], rays, data["confidence"])
+            for a in (geometry.depth, rays, geometry.confidence)
         ),
         torch.from_numpy(np.stack(ks)).float(),
-        torch.from_numpy(data["cam_to_world"][:, :3, :3]).float(),
+        torch.from_numpy(geometry.cam_to_world[:, :3, :3]).float(),
         torch.from_numpy(rays[:, 0, 0, :3]).float(),
     )
     for v in range(len(scene.depth)):
         check_inputs(scene.depth[v], scene.rays[v], scene.conf[v])
     return scene
+
+
+def load_scene(path: Path) -> Scene:
+    """Every view of a saved backbone geometry (`dejaview-predict`), pinhole rays."""
+    return scene_from_geometry(Geometry.load(path))
 
 
 @dataclass(frozen=True)
@@ -558,281 +549,3 @@ def gauss_newton(
         if on_step is not None:
             on_step(delta, log[-1], cg_total)
     return delta, log, cg_total
-
-
-def similarity(a: np.ndarray, b: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
-    """Scale, rotation, translation minimizing Σ ‖s R a + t - b‖² (Umeyama 1991)."""
-    assert a.shape == b.shape and a.shape[1] == 3 and len(a) >= 3, (a.shape, b.shape)  # noqa: PLR2004
-    ma, mb = a.mean(0), b.mean(0)
-    u, sv, vt = np.linalg.svd((b - mb).T @ (a - ma) / len(a))
-    sign = np.diag([1.0, 1.0, np.sign(np.linalg.det(u @ vt))])
-    rotation = u @ sign @ vt
-    scale = float((sv * np.diag(sign)).sum() / ((a - ma) ** 2).sum(1).mean())
-    return scale, rotation, mb - scale * rotation @ ma
-
-
-def voxel_downsample(points: np.ndarray, size: float) -> np.ndarray:
-    """One point per occupied voxel of the given size, the mean of its points."""
-    keys = np.floor(points / size).astype(np.int64)
-    _, inverse, counts = np.unique(
-        keys, axis=0, return_inverse=True, return_counts=True
-    )
-    out = np.zeros((len(counts), 3))
-    np.add.at(out, inverse.ravel(), points)
-    return out / counts[:, None]
-
-
-def local_planes(
-    tree: cKDTree, queries: np.ndarray, k: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """PCA of each query's k nearest points: unit normal, RMS distance to the plane."""
-    _, idx = tree.query(queries, k=k, workers=-1)
-    nb = tree.data[idx]
-    nb = nb - nb.mean(1, keepdims=True)
-    values, vectors = np.linalg.eigh(np.einsum("nki,nkj->nij", nb, nb) / k)
-    return vectors[..., 0], np.sqrt(values[:, 0].clip(0))
-
-
-@dataclass(frozen=True)
-class Truth:
-    """A scan, its cameras and per-view depth, the similarity from Déjà View's frame.
-
-    `sample` holds the flat indices of 200k pixels (all views) the scan saw, drawn once
-    and scored for every variant.
-    """
-
-    tree: cKDTree
-    grid: cKDTree
-    k: np.ndarray
-    cam_to_world: np.ndarray
-    depth: np.ndarray
-    align: tuple[float, np.ndarray, np.ndarray]
-    sample: np.ndarray
-
-
-def load_truth(paths: dict, scene: Scene) -> Truth:
-    """Scan, its 5 mm grid, cameras and per-view depth; Déjà View aligned to them."""
-    scan, cams = np.load(paths["scan"]), np.load(paths["gt_views"])
-    scan_gpu = torch.from_numpy(scan).to(scene.depth.device)
-    h, w = scene.depth.shape[1:]
-    depth = np.stack(
-        [
-            scan_depth(
-                scan_gpu,
-                torch.from_numpy(k).to(scan_gpu),
-                torch.from_numpy(c).to(scan_gpu),
-                h,
-                w,
-            )
-            .cpu()
-            .numpy()
-            for k, c in zip(cams["intrinsics"], cams["cam_to_world"], strict=True)
-        ]
-    )
-    centers = cams["cam_to_world"][:, :3, 3].astype(np.float64)
-    align = similarity(scene.center.cpu().numpy().astype(np.float64), centers)
-    grid = cKDTree(voxel_downsample(scan.astype(np.float64), VOXEL))
-    k, c2w = (
-        cams["intrinsics"].astype(np.float64),
-        cams["cam_to_world"].astype(np.float64),
-    )
-    seen = np.flatnonzero(depth > 0)
-    sample = np.sort(
-        np.random.default_rng(0).choice(seen, min(SAMPLES, len(seen)), replace=False)
-    )
-    return Truth(cKDTree(scan), grid, k, c2w, depth.astype(np.float64), align, sample)
-
-
-def fused_metrics(
-    depth: np.ndarray, rays: np.ndarray, truth: Truth, tolerances_cm: list[int | float]
-) -> dict:
-    """Accuracy of all views' points where the scan saw them, and the surface fidelity.
-
-    The cloud is mapped by the camera similarity, the same for every variant. Accuracy
-    on the fixed pixel sample (`Truth.sample`): exact distances, but 200k of about 3M,
-    since a nearest-neighbor query for points far from the scan costs ~40 µs each (2 min
-    per variant for all); the fractions' standard error is under 0.12 points. Fidelity
-    on a 5 mm voxel grid of all points, so point density does not change it: at 200k
-    sampled grid points, the RMS distance of the 24 nearest grid points to their plane
-    (thickness: layering and noise, no ground truth needed), and the angle between that
-    plane and the scan's.
-    """
-    s, rotation, t = truth.align
-    points = (
-        s
-        * points_from_rays(torch.from_numpy(depth), torch.from_numpy(rays)).numpy()
-        @ rotation.T
-        + t
-    )
-    dist = truth.tree.query(points.reshape(-1, 3)[truth.sample], workers=-1)[0]
-    out = {f"fused_{k}": v for k, v in accuracy(dist, tolerances_cm).items()}
-    points = points[truth.depth > 0]
-    grid = voxel_downsample(points, VOXEL)
-    queries = grid[
-        np.random.default_rng(0).choice(
-            len(grid), min(SAMPLES, len(grid)), replace=False
-        )
-    ]
-    normals, thickness = local_planes(cKDTree(grid), queries, PLANE_K)
-    scan_normals, _ = local_planes(
-        truth.grid, truth.grid.data[truth.grid.query(queries, workers=-1)[1]], PLANE_K
-    )
-    angle = np.degrees(np.arccos(np.abs((normals * scan_normals).sum(-1)).clip(0, 1)))
-    return out | {
-        "thickness_mm": float(1000 * np.median(thickness)),
-        "normal_angle_deg": float(np.median(angle)),
-    }
-
-
-def scan_fidelity(truth: Truth) -> dict[str, float]:
-    """Return the scan's own thickness on its grid, the floor of `thickness_mm`."""
-    queries = truth.grid.data[
-        np.random.default_rng(0).choice(
-            truth.grid.n, min(SAMPLES, truth.grid.n), replace=False
-        )
-    ]
-    return {
-        "thickness_mm": float(
-            1000 * np.median(local_planes(truth.grid, queries, PLANE_K)[1])
-        )
-    }
-
-
-def scene_label(cfg: RefineConfig, mv: MultiviewConfig) -> str:
-    """Name the active terms, e.g. "E_d + E_mv"; E_d alone is the input."""
-    label = variant_label(cfg) + (" + E_mv" if mv.lambda_mv > 0 else "")
-    return label + (" (= input)" if label == "E_d" else "")
-
-
-def run_variant(
-    scene: Scene,
-    normals: Tensor,
-    cfg: RefineConfig,
-    mv: MultiviewConfig,
-    problem: tuple[Truth, Matches, dict],
-) -> tuple[dict, np.ndarray]:
-    """Refine all views under one configuration and score the fused cloud and views."""
-    truth, matches, raw = problem
-    t0 = time.perf_counter()
-    depth_hat, log, counts = refine_scene(scene, cfg, mv, normals)
-    if depth_hat.is_cuda:
-        torch.cuda.synchronize()
-    seconds = time.perf_counter() - t0
-    scale = scene.depth.median()
-    disagreement = (
-        100 * residuals(scale / depth_hat, scale, scene, matches).abs().median().item()
-    )
-    depth = depth_hat.cpu().numpy().astype(np.float64)
-    record = {
-        "label": scene_label(cfg, mv),
-        "seconds": seconds,
-        "gn_steps": len(log) - 1,
-        **counts,
-        "energy_initial": log[0],
-        "energy_final": log[-1],
-        "disagreement_pct": disagreement,
-        **fused_metrics(
-            depth,
-            scene.rays.cpu().numpy().astype(np.float64),
-            truth,
-            raw["tolerances_cm"],
-        ),
-        "per_view": {},
-    }
-    for v in raw["views"]:
-        dist, _ = score(
-            depth[v], truth.depth[v], truth.k[v], truth.cam_to_world[v], truth.tree
-        )
-        record["per_view"][v] = accuracy(dist[np.isfinite(dist)], raw["tolerances_cm"])
-    return record, depth_hat.cpu().numpy()
-
-
-def main() -> None:
-    """Refine jointly: `uv run python -m src.refinement.multiview --cfg <cfg>`."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--cfg", type=Path, required=True)
-    cfg_path: Path = parser.parse_args().cfg
-    raw = yaml.safe_load(cfg_path.read_text())
-    base = RefineConfig(**raw["refine"])
-    device = torch.device(
-        base.device if base.device != "cuda" or torch.cuda.is_available() else "cpu"
-    )
-    base = dataclasses.replace(base, device=device.type)
-
-    out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
-    out.mkdir(parents=True)
-    scenes, arrays = {}, {}
-    for name, paths in raw["scenes"].items():
-        t0 = time.perf_counter()
-        scene = load_scene(Path(paths["input"])).to(device)
-        normals = torch.stack(
-            [
-                predicted_normals(
-                    {**raw, **paths, "view": v},
-                    {"depth": scene.depth[v], "rays": scene.rays[v]},
-                )[0]
-                for v in range(len(scene.depth))
-            ]
-        )
-        truth = load_truth(paths, scene)
-        scale = scene.depth.median()
-        base_mv = MultiviewConfig(**raw["multiview"])
-        matches = find_matches(
-            scene, scale / scene.depth, scale, base_mv.mv_tol, base_mv.neighbors
-        )
-        s, rotation, t = truth.align
-        centers = s * scene.center.cpu().numpy() @ rotation.T + t
-        center_residual = np.linalg.norm(centers - truth.cam_to_world[:, :3, 3], axis=1)
-        scenes[name] = {
-            "setup_seconds": time.perf_counter() - t0,
-            "align": {
-                "scale": s,
-                "rotation": rotation.tolist(),
-                "translation": t.tolist(),
-            },
-            "center_residual_cm": float(100 * np.median(center_residual)),
-            "scan": scan_fidelity(truth),
-            "variants": [],
-        }
-        refine_scene(
-            scene, base, dataclasses.replace(base_mv, gn_iters=1, cg_iters=1), normals
-        )
-        for i, o in enumerate(raw["variants"]):
-            mv = MultiviewConfig(
-                **{**raw["multiview"], **{k: v for k, v in o.items() if k in MV_KEYS}}
-            )
-            cfg = dataclasses.replace(
-                base, **{k: v for k, v in o.items() if k not in MV_KEYS}
-            )
-            record, depth = run_variant(scene, normals, cfg, mv, (truth, matches, raw))
-            scenes[name]["variants"].append(record)
-            arrays[f"{name}_{i}_depth"] = depth
-            keys = (
-                "fused_median_cm",
-                "thickness_mm",
-                "normal_angle_deg",
-                "disagreement_pct",
-                "seconds",
-            )
-            print(  # noqa: T201
-                name,
-                record["label"],
-                {k: round(record[k], 3) for k in keys},
-                flush=True,
-            )
-
-    summary = {
-        "config": raw,
-        "resolved": dataclasses.asdict(base),
-        "git": git_hash(),
-        "scenes": scenes,
-    }
-    (out / "run.yaml").write_text(
-        yaml.safe_dump(summary, sort_keys=False, allow_unicode=True)
-    )
-    np.savez_compressed(out / "results.npz", **arrays)
-    print(f"wrote {out}")  # noqa: T201
-
-
-if __name__ == "__main__":
-    main()

@@ -110,7 +110,7 @@ ignore = [
 ]
 # Peter's refinement code: design by contract, asserts state shapes, ranges and
 # finiteness on entry and exit
-"src/{analysis/*,refinement/{monocular,multiview,normals,inputs},evaluation/depth,loaders/{eth3d,synthetic,scannetpp/scan}}.py" = [
+"src/{analysis/*,refinement/{monocular,multiview,normals,inputs},evaluation/{depth,geometry},loaders/{eth3d,synthetic}}.py" = [
     "S101",     # contract asserts
     "PT018",    # composite contract asserts
 ]

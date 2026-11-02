@@ -16,7 +16,7 @@ converges: Gauss-Newton for `gn_iters` steps, L-BFGS until E changes by less tha
 converged once E is within `converged_frac` of E* (relative), E* the lowest energy
 either reached.
 
-Accuracy is the fused cloud's (`multiview.fused_metrics`): all views' points mapped by
+Accuracy is the fused cloud's (`geometry.fused_metrics`): all views' points mapped by
 the camera similarity, the distance of each sampled pixel's point to its nearest scan
 point. It is scored at each solver's end, at Gauss-Newton's operating point (10 steps,
 as in `eval_multiview.yaml`), and for L-BFGS after the same wall time.
@@ -39,18 +39,16 @@ import yaml
 from torch import Tensor
 
 from src.analysis.visualize import BLUE, GRID, INK, INK_2, SURFACE
+from src.evaluation.geometry import Truth, fused_metrics, load_truth
 from src.refinement.inputs import git_hash
 from src.refinement.monocular import RefineConfig
 from src.refinement.multiview import (
     MultiviewConfig,
     Problem,
     Scene,
-    Truth,
     build_problem,
-    fused_metrics,
     gauss_newton,
     load_scene,
-    load_truth,
     scene_residuals,
 )
 from src.refinement.normals import predicted_normals

@@ -22,6 +22,7 @@ from matplotlib.image import AxesImage
 from matplotlib.ticker import NullFormatter
 from scipy.spatial import cKDTree
 
+from src.evaluation.geometry import PLANE_K, VOXEL, local_planes, voxel_downsample
 from src.refinement.inputs import view_from_config
 from src.refinement.monocular import (
     LOG_KEYS,
@@ -38,13 +39,7 @@ from src.refinement.monocular import (
     timed_refine,
     view_metrics,
 )
-from src.refinement.multiview import (
-    PLANE_K,
-    VOXEL,
-    load_scene,
-    local_planes,
-    voxel_downsample,
-)
+from src.refinement.multiview import load_scene
 from src.refinement.normals import BiniConfig, bini, grid_score, normals_from_depth
 
 SURFACE = "#fcfcfb"

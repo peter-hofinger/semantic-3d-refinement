@@ -13,9 +13,9 @@ beartype_packages(
         "src.refinement.normals",
         "src.refinement.inputs",
         "src.evaluation.depth",
+        "src.evaluation.geometry",
         "src.loaders.eth3d",
         "src.loaders.synthetic",
-        "src.loaders.scannetpp.scan",
     )
 )
 
