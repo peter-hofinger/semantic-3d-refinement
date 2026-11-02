@@ -4,13 +4,16 @@ version = "0.1.0"
 description = "Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)"
 readme = "README.md"
 authors = [
-    { name = "peter-hofinger", email = "hofinger-peter@gmx.de" },
-    { name = "Pouya Esfahani", email = "pouya.esfahani@tum.de" },
+    { name = "Pouya Shekarchizadeh Esfahani", email = "pouya.esfahani@tum.de" },
+    { name = "Peter Hofinger", email = "peter.hofinger@tum.de" },
+    { name = "Mircea-Alexandru Răuțoiu", email = "mircea.rautoiu@tum.de" },
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "beartype>=0.23.1",
     "bitsandbytes>=0.50.2 ; sys_platform != 'darwin'",
     "dvlt",
+    "matplotlib>=3.11.2",
     "numpy>=2.4.6",
     "pillow>=13.0.0",
     "python-dotenv>=1.2.4",
@@ -31,6 +34,7 @@ dejaview-predict = "src.backbone.dejaview:main"
 sam3-segment = "src.segmentation.sam3:main"
 vlm-vocabulary = "src.segmentation.vocabulary:main"
 eval-instances = "src.evaluation.instances:main"
+eval-geometry = "src.evaluation.geometry:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
@@ -44,12 +48,12 @@ module-root = ""
 [tool.uv.sources]
 dvlt = { git = "https://github.com/nv-tlabs/dvlt", rev = "f59bb18" }
 # CUDA builds on Linux/Windows, default PyPI wheels on macOS
-torch = { index = "pytorch-cu126", marker = "sys_platform != 'darwin'" }
-torchvision = { index = "pytorch-cu126", marker = "sys_platform != 'darwin'" }
+torch = { index = "pytorch-cu130", marker = "sys_platform != 'darwin'" }
+torchvision = { index = "pytorch-cu130", marker = "sys_platform != 'darwin'" }
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 # dvlt pins exact old versions; use ours instead
@@ -68,10 +72,12 @@ override-dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
-    "matplotlib>=3.11.2",
     "pytest>=9.1.1",
     "ruff>=0.17.1",
     "tqdm>=4.70.1",
+]
+normals = [  # DSINE (data/third_party/dsine_hub, not in git)
+    "geffnet>=1.0.2",
 ]
 
 [tool.ruff]
@@ -102,6 +108,18 @@ ignore = [
     "S101",     # asserts are fine in one-off checks
     "PLR2004",  # literal values in one-off checks
     "E501",     # long report lines
+]
+# Peter's refinement code: design by contract, asserts state shapes, ranges and
+# finiteness on entry and exit
+"src/{analysis/*,refinement/{monocular,multiview,normals,inputs},evaluation/{depth,geometry},loaders/{eth3d,synthetic}}.py" = [
+    "S101",     # contract asserts
+    "PT018",    # composite contract asserts
+]
+"src/analysis/*.py" = [
+    "E501",     # figure captions, slide text and README tables as long f-strings
+]
+"tests/test_{artifacts,evaluate,multiview,refine}.py" = [
+    "PT018",    # composite contract asserts
 ]
 "notebooks/**/*.ipynb" = [
     "T201",     # print is fine in notebooks

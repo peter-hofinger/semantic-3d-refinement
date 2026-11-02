@@ -1,0 +1,30 @@
+input: data/processed/scannetpp/7b6477cb95/dejaview_k16_views_n20_uniform_504.npz
+gt_views: data/processed/scannetpp/7b6477cb95/views_n20_uniform_504.npz
+view: 6
+rays: pinhole   # predicted | pinhole: Déjà View's ray map carries its 14 px patch grid; the pinhole fit does not
+normals: dsine
+dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25, kept outside git (non-commercial licence)
+output_dir: runs
+refine:
+  iters: 1000
+  huber: 0.05
+  lambda_d: 1.0
+  lambda_bd: 10.0
+  lambda_n: 0.005   # matches BiNI's lambda_depth = 100, chosen on office view 6 and kitchen view 13
+  lambda_delta: 0.0
+  edge_tol: 0.02   # cut on the prior's occlusion contours, as BiNI with edges: depth
+  history_size: 20
+  device: cuda
+bini:   # reference: BiNI's CG on the same normals and cuts (configs/bini_office.yaml)
+  lambda_depth: 100.0
+  edges: depth
+  edge_tol: 0.02
+ablation:   # overrides of `refine`, one energy, then pairs, then all; no data term needs more iterations
+  - {lambda_d: 1.0, lambda_bd: 0.0, lambda_n: 0.0}
+  - {lambda_d: 0.0, lambda_bd: 1.0, lambda_n: 0.0, iters: 5000}
+  - {lambda_d: 0.0, lambda_bd: 0.0, lambda_n: 1.0, iters: 5000}
+  - {lambda_n: 0.0}
+  - {lambda_bd: 0.0}
+  - {lambda_d: 0.0, iters: 5000}
+  - {}
+convergence: [10, 30, 100, 300, 1000]   # iteration budgets for E_d + E_n against BiNI

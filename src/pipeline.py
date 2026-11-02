@@ -78,11 +78,24 @@ def main() -> None:
         help="sam3: prompt file, repeat to combine; default: ScanNet++ top-100 classes",
     )
     parser.add_argument(
+        "--refiner",
+        choices=["identity", "joint"],
+        default="identity",
+        help="identity: unchanged depth (placeholder); joint: all views by "
+        "Gauss-Newton, E_d + E_mv (src/refinement/multiview.py)",
+    )
+    parser.add_argument(
+        "--refine-config",
+        type=Path,
+        default=Path("configs/refine.yaml"),
+        help="joint: energy weights and solver budget",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=Path("outputs/cloud.ply"),
-        help="point cloud; the segmentation and refined geometry are saved next to "
-        "it as <stem>_segmentation.npz and <stem>_geometry.npz",
+        help="point cloud; saved next to it: <stem>_segmentation.npz, the backbone's "
+        "<stem>_backbone.npz and the refined <stem>_geometry.npz",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -92,11 +105,12 @@ def main() -> None:
     pipeline = Pipeline(
         _backbone(args.backbone, args.geometry),
         _segmenter(args.segmenter, args.prompts),
-        IdentityRefiner(),
+        _refiner(args.refiner, args.refine_config),
     )
     result = pipeline.run(views)
     result.cloud.save_ply(args.out)
     result.segmentation.save(args.out.with_name(f"{args.out.stem}_segmentation.npz"))
+    result.geometry.save(args.out.with_name(f"{args.out.stem}_backbone.npz"))
     result.refined.save(args.out.with_name(f"{args.out.stem}_geometry.npz"))
     log.info(
         "%s: %d points, %d instances -> %s",
@@ -125,6 +139,15 @@ def _segmenter(name: str, prompt_files: list[Path] | None) -> Segmenter:
 
         return sam3_segmenter(prompt_files)
     return EmptySegmenter()
+
+
+def _refiner(name: str, config: Path) -> Refiner:
+    """Refiner by name; the joint solver is imported only when chosen."""
+    if name == "joint":
+        from src.refinement.multiview import JointRefiner  # noqa: PLC0415
+
+        return JointRefiner.from_config(config)
+    return IdentityRefiner()
 
 
 if __name__ == "__main__":
