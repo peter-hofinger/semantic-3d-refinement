@@ -105,6 +105,9 @@ class VlmVocabulary:
             add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
+            # Qwen3.8 thinks by default; off = a short list as from the 2B model.
+            # Templates without the flag (Qwen3-VL-2B) give the same prompt.
+            enable_thinking=False,
         ).to(model.device)
         out = model.generate(
             **inputs, max_new_tokens=self.max_new_tokens, do_sample=False

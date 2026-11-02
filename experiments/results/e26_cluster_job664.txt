@@ -1,0 +1,207 @@
+/var/lib/slurm/slurmd/job00664/slurm_script: line 16: git: command not found
+node VC18 | NVIDIA GeForce RTX 5090, 595.99.02 |  + local vocabulary.py
+=== vlm union
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+DSC08832.JPG: 15 names, 15 total, 23.2s
+DSC08844.JPG: 15 names, 21 total, 1.2s
+DSC08856.JPG: 92 names, 100 total, 7.8s
+DSC08868.JPG: 12 names, 101 total, 0.9s
+DSC08880.JPG: 14 names, 108 total, 1.2s
+DSC08892.JPG: 10 names, 110 total, 0.8s
+DSC08904.JPG: 12 names, 112 total, 1.0s
+DSC08916.JPG: 10 names, 114 total, 0.8s
+DSC08928.JPG: 10 names, 115 total, 0.8s
+DSC08941.JPG: 121 names, 203 total, 7.8s
+DSC08952.JPG: 103 names, 264 total, 7.8s
+DSC08964.JPG: 122 names, 326 total, 7.8s
+DSC08976.JPG: 8 names, 327 total, 0.7s
+DSC08988.JPG: 117 names, 385 total, 7.8s
+DSC09002.JPG: 5 names, 385 total, 0.4s
+DSC09015.JPG: 19 names, 386 total, 1.4s
+DSC09027.JPG: 14 names, 386 total, 1.1s
+DSC09039.JPG: 14 names, 389 total, 1.1s
+DSC09054.JPG: 11 names, 389 total, 0.9s
+DSC09073.JPG: 7 names, 389 total, 0.6s
+5ee7c22ba0: 389 names, 75s, peak GPU 19.47 GB -> data/processed/scannetpp/5ee7c22ba0/vlm-qwen3827b_views_n20_uniform_504.txt
+DSC03468.JPG: 14 names, 14 total, 1.1s
+DSC03492.JPG: 118 names, 120 total, 7.8s
+DSC03514.JPG: 12 names, 122 total, 1.0s
+DSC03535.JPG: 77 names, 167 total, 5.5s
+DSC03552.JPG: 16 names, 169 total, 1.2s
+DSC03572.JPG: 15 names, 171 total, 1.1s
+DSC03594.JPG: 117 names, 242 total, 7.8s
+DSC03611.JPG: 11 names, 243 total, 0.9s
+DSC03628.JPG: 13 names, 245 total, 1.0s
+DSC03648.JPG: 115 names, 310 total, 7.8s
+DSC03665.JPG: 119 names, 364 total, 7.8s
+DSC03686.JPG: 14 names, 364 total, 1.0s
+DSC03710.JPG: 16 names, 366 total, 1.3s
+DSC03734.JPG: 6 names, 366 total, 0.5s
+DSC03756.JPG: 16 names, 367 total, 1.1s
+DSC03776.JPG: 110 names, 407 total, 7.8s
+DSC03803.JPG: 105 names, 461 total, 7.8s
+DSC03820.JPG: 113 names, 492 total, 7.8s
+DSC03840.JPG: 119 names, 506 total, 7.8s
+DSC03862.JPG: 12 names, 506 total, 0.9s
+7b6477cb95: 506 names, 79s, peak GPU 19.47 GB -> data/processed/scannetpp/7b6477cb95/vlm-qwen3827b_views_n20_uniform_504.txt
+=== took 158467 ms
+=== vlm progressive
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+DSC08832.JPG: 15 names, 15 total, 22.5s
+DSC08844.JPG: 0 names, 15 total, 0.2s
+DSC08856.JPG: 0 names, 15 total, 0.2s
+DSC08868.JPG: 0 names, 15 total, 0.2s
+DSC08880.JPG: 0 names, 15 total, 0.2s
+DSC08892.JPG: 98 names, 110 total, 7.8s
+DSC08904.JPG: 102 names, 117 total, 7.8s
+DSC08916.JPG: 0 names, 117 total, 0.3s
+DSC08928.JPG: 0 names, 117 total, 0.3s
+DSC08941.JPG: 102 names, 175 total, 7.9s
+DSC08952.JPG: 0 names, 175 total, 0.3s
+DSC08964.JPG: 0 names, 175 total, 0.3s
+DSC08976.JPG: 0 names, 175 total, 0.3s
+DSC08988.JPG: 0 names, 175 total, 0.3s
+DSC09002.JPG: 0 names, 175 total, 0.3s
+DSC09015.JPG: 70 names, 243 total, 7.9s
+DSC09027.JPG: 0 names, 243 total, 0.4s
+DSC09039.JPG: 98 names, 249 total, 7.9s
+DSC09054.JPG: 0 names, 249 total, 0.4s
+DSC09073.JPG: 0 names, 249 total, 0.4s
+5ee7c22ba0: 249 names, 66s, peak GPU 19.66 GB -> data/processed/scannetpp/5ee7c22ba0/vlmprog-qwen3827b_views_n20_uniform_504.txt
+DSC03468.JPG: 14 names, 14 total, 1.1s
+DSC03492.JPG: 119 names, 131 total, 7.8s
+DSC03514.JPG: 0 names, 131 total, 0.3s
+DSC03535.JPG: 97 names, 222 total, 7.9s
+DSC03552.JPG: 127 names, 223 total, 7.9s
+DSC03572.JPG: 0 names, 223 total, 0.3s
+DSC03594.JPG: 0 names, 223 total, 0.3s
+DSC03611.JPG: 85 names, 304 total, 7.7s
+DSC03628.JPG: 67 names, 370 total, 8.0s
+DSC03648.JPG: 0 names, 370 total, 0.5s
+DSC03665.JPG: 0 names, 370 total, 0.5s
+DSC03686.JPG: 0 names, 370 total, 0.5s
+DSC03710.JPG: 1 names, 371 total, 0.5s
+DSC03734.JPG: 0 names, 371 total, 0.5s
+DSC03756.JPG: 0 names, 371 total, 0.5s
+DSC03776.JPG: 0 names, 371 total, 0.5s
+DSC03803.JPG: 0 names, 371 total, 0.5s
+DSC03820.JPG: 0 names, 371 total, 0.5s
+DSC03840.JPG: 0 names, 371 total, 0.5s
+DSC03862.JPG: 0 names, 371 total, 0.5s
+7b6477cb95: 371 names, 47s, peak GPU 19.78 GB -> data/processed/scannetpp/7b6477cb95/vlmprog-qwen3827b_views_n20_uniform_504.txt
+=== took 116848 ms
+=== 5ee7c22ba0 sam3 vlm-qwen3827b_views_n20_uniform_504.txt
+/rhome/pr26rb01/mircea/semantic-3d-refinement/.venv/lib/python3.11/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+5ee7c22ba0: 20 views, 389 prompts, 389 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0: 185 masks
+  view  1: 119 masks
+  view  2: 181 masks
+  view  3: 203 masks
+  view  4: 161 masks
+  view  5:  49 masks
+  view  6: 133 masks
+  view  7: 170 masks
+  view  8: 191 masks
+  view  9: 248 masks
+  view 10: 246 masks
+  view 11: 191 masks
+  view 12: 156 masks
+  view 13: 302 masks
+  view 14:  94 masks
+  view 15: 241 masks
+  view 16: 142 masks
+  view 17: 226 masks
+  view 18: 114 masks
+  view 19: 117 masks
+5ee7c22ba0: 3469 instances in 20 views, 108s, peak GPU 2.15 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-vlm-qwen3827b_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 111698 ms
+=== 5ee7c22ba0 sam3 vlmprog-qwen3827b_views_n20_uniform_504.txt
+/rhome/pr26rb01/mircea/semantic-3d-refinement/.venv/lib/python3.11/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+5ee7c22ba0: 20 views, 249 prompts, 249 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0: 135 masks
+  view  1:  88 masks
+  view  2: 128 masks
+  view  3: 126 masks
+  view  4:  81 masks
+  view  5:  84 masks
+  view  6: 109 masks
+  view  7: 119 masks
+  view  8: 127 masks
+  view  9: 181 masks
+  view 10: 184 masks
+  view 11: 120 masks
+  view 12: 150 masks
+  view 13: 220 masks
+  view 14:  68 masks
+  view 15: 166 masks
+  view 16: 100 masks
+  view 17: 163 masks
+  view 18:  78 masks
+  view 19:  84 masks
+5ee7c22ba0: 2511 instances in 20 views, 69s, peak GPU 2.14 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-vlmprog-qwen3827b_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 71976 ms
+=== 7b6477cb95 sam3 vlm-qwen3827b_views_n20_uniform_504.txt
+/rhome/pr26rb01/mircea/semantic-3d-refinement/.venv/lib/python3.11/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+7b6477cb95: 20 views, 506 prompts, 506 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0: 104 masks
+  view  1: 186 masks
+  view  2: 102 masks
+  view  3: 194 masks
+  view  4: 102 masks
+  view  5: 151 masks
+  view  6: 137 masks
+  view  7: 112 masks
+  view  8: 108 masks
+  view  9: 143 masks
+  view 10: 190 masks
+  view 11: 104 masks
+  view 12: 127 masks
+  view 13:  35 masks
+  view 14: 202 masks
+  view 15: 220 masks
+  view 16: 188 masks
+  view 17: 202 masks
+  view 18: 166 masks
+  view 19: 122 masks
+7b6477cb95: 2895 instances in 20 views, 139s, peak GPU 2.16 GB -> data/processed/scannetpp/7b6477cb95/sam3image-vlm-qwen3827b_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 141340 ms
+=== 7b6477cb95 sam3 vlmprog-qwen3827b_views_n20_uniform_504.txt
+/rhome/pr26rb01/mircea/semantic-3d-refinement/.venv/lib/python3.11/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+7b6477cb95: 20 views, 371 prompts, 371 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  86 masks
+  view  1: 158 masks
+  view  2:  97 masks
+  view  3: 178 masks
+  view  4:  93 masks
+  view  5: 139 masks
+  view  6: 113 masks
+  view  7:  93 masks
+  view  8: 104 masks
+  view  9: 116 masks
+  view 10: 155 masks
+  view 11:  91 masks
+  view 12: 116 masks
+  view 13:  25 masks
+  view 14: 193 masks
+  view 15: 193 masks
+  view 16: 177 masks
+  view 17: 191 masks
+  view 18: 163 masks
+  view 19:  97 masks
+7b6477cb95: 2578 instances in 20 views, 102s, peak GPU 2.15 GB -> data/processed/scannetpp/7b6477cb95/sam3image-vlmprog-qwen3827b_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 104452 ms
+peak GPU memory used (nvidia-smi):  19758 MiB

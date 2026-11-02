@@ -53,6 +53,7 @@ Metrics:
 | E23 | Déjà View paper's point-map metric on our scenes (one Sim(3) per scene) | Rel. L2 0.024 / 0.026, inlier ratio (< 3%) 82-84% / 86-89% vs paper 0.015 / 93.3%: same order, somewhat worse (5 cm mesh GT, plain least-squares alignment, our 20 views; normaliser unclear). Error is uneven over views (worst 0.061 kitchen v12, 0.070 office v5); per-view alignment helps the kitchen (0.017, 92%) more than the office -> kitchen has cross-view drift |
 | E24 | 3D point-cloud overlap from Replicate Any Scene (RAS) instead of our reprojection overlap, same linking | not adopted: consistency collapses 0.82 -> 0.27 kitchen / 0.75 -> 0.18 office (id switches 8 -> 100 / 16 -> 112) for fewer merges (1 -> 0 / 4 -> 1); still 0.47 / 0.34 with GT geometry, so the rule, not Déjà View, is the cause: single-view masks see different parts of an object and the cloud rule has no visibility test. RAS's either-direction rule: worse on both (consistent 0.34 / 0.45, merges 4 / 5, wrong links 14 / 27). Reprojection + vf0.25 stays |
 | E25 | Progressive VLM vocabulary (RAS scheme: one view at a time, list so far shown, only new names), Qwen3-VL-2B | the 2B model copies the list instead of adding to it (16 of 20 views add nothing): 12 / 22 names vs 46 / 60 (union). Short list -> precision 0.45 -> 0.69 / 0.40 -> 0.60, but recall 0.89 -> 0.82 / 0.72 -> 0.64 (pixel recall -0.02); synonyms stay (socket / power outlet, chair / office chair, all from view 1); loops still 8 / 3 of 20. Scheme untested with a model that follows the instruction -> step 2 |
+| E26 | Bigger VLM: Qwen3.8-27B (4-bit, thinking off, greedy) with both schemes (per-view union, progressive) | greedy decoding makes the 27B model loop into word association ("...velocity, acceleration, force...", "...HTTP, FTP, SSH...") in 4-8 of 20 answers -> 389 / 506 names (union), 249 / 371 (progressive); precision collapses to 0.15-0.26 (top100 0.51 / 0.48), pixel recall 0.85-0.95 / 0.88-0.90 (top100 0.95 / 0.83), consistency and merges ~unchanged. Outside the loops it follows "only new names" (13-16 of 20 views add <= 1 name, correct NONE answers), unlike the 2B model. Lists as produced are unusable; decoding (repetition control) is the next variable |
 
 ## Reference table (current scorer, E11)
 
@@ -1197,3 +1198,70 @@ Their prompt is not published; ours is written and fixed before any run.
   (union and progressive), not only "the winner" as planned: E25 has no clear winner, and the scheme's idea is only
   tested once the model follows it. Not changed (would be tuning on the test scenes): prompt wording, a synonym rule
   for view 1.
+
+## E26: Bigger VLM (Qwen3.8-27B), both schemes (02.11.2026)
+- **Goal:** step 2 of the plan, changed after E25: run the bigger VLM with **both** schemes (per-view union as E16,
+  progressive as E25). Questions: does it follow "only new names"? Fewer synonyms? Recall vs top100? Loops?
+- **Model check (before running):** `Qwen/Qwen3.8-27B` exists on Hugging Face (Apache-2.0, not gated, 55.6 GB bf16
+  safetensors), natively multimodal (`qwen3_5`, `Qwen3_5ForConditionalGeneration`; loads with
+  `AutoModelForImageTextToText` in transformers 5.20.2, as `vocabulary.py` already does). Hybrid attention (3 of 4
+  layers linear / gated delta rule). It **thinks by default**; the only code change is `enable_thinking=False` in
+  `apply_chat_template` (checked: for Qwen3-VL-2B the prompt is identical with and without the flag, so E16/E25 stay
+  reproducible; for the 27B it removes the system line "Reasoning effort is set to xhigh" and inserts an empty
+  `<think></think>`; image tokens identical).
+- **Settings:** as E16/E25, only the model changes: 4-bit nf4 (bitsandbytes), greedy, 256 new tokens, same 20 views
+  in the same order, same questions (`QUESTION`, `NEW_ONLY`). Qwen's model card recommends sampling with presence
+  penalty 1.5 for non-thinking mode; deliberately not used (one change per run). SAM 3 image mode t0.3 with the two new
+  lists on the cluster; top100 / 2B lists reuse job 658's caches (same cluster). Association locally, working setting
+  (xc0.7, vf0.25, kl0.5, Déjà View K=16).
+- **Code / command:** `uv run vlm-vocabulary --checkpoint Qwen/Qwen3.8-27B [--progressive] <views...>` ->
+  `vlm[prog]-qwen3827b_<views>.txt` + `.json`. Smoke test `experiments/scripts/e26_smoke.sbatch` (job 663: load 19 s,
+  19.1 GB weights, peak 19.5 GB, 19-23 tokens/s without the optional flash-linear-attention / causal-conv1d kernels).
+  Full job `experiments/scripts/e26_vlm_big.sbatch` (job 664, 11 min: VLM ~2 min per scheme for both scenes incl.
+  load, SAM 3 70-140 s per run, peak 19.8 GB), raw log `results/e26_cluster_job664.txt`; SAM 3 caches in
+  `<scene>/e26_cluster/`. Scoring `uv run python experiments/scripts/e26_vlm_big.py > experiments/results/e26_vlm_big.txt`
+  (CPU ~4 min, rerun identical; the E25 rows reproduce E25's association caches exactly, asserted).
+- **Results** (`results/e26_vlm_big.txt`, all classes, all cluster runs):
+
+  | scene | vocabulary | names | recall | pixel recall | precision | consistent | GT in >=2 views | merges | wrong links | mixed-class objects |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | kitchen | top100 | 100 | 0.92 | 0.95 | 0.51 | 0.82 | 38 | 1 | 5 | 20 |
+  | kitchen | 2B union (E16) | 46 | 0.89 | 0.94 | 0.45 | 0.83 | 36 | 1 | 5 | 18 |
+  | kitchen | 2B progressive (E25) | 12 | 0.82 | 0.92 | 0.69 | 0.85 | 33 | 1 | 4 | 13 |
+  | kitchen | 27B union | 389 | 0.82 | 0.85 | 0.15 | 0.80 | 35 | 3 | 8 | 40 |
+  | kitchen | 27B progressive | 249 | 0.91 | 0.95 | 0.24 | 0.82 | 38 | 1 | 8 | 45 |
+  | office | top100 | 100 | 0.73 | 0.83 | 0.48 | 0.76 | 51 | 5 | 10 | 22 |
+  | office | 2B union (E16) | 60 | 0.72 | 0.84 | 0.40 | 0.73 | 48 | 5 | 11 | 21 |
+  | office | 2B progressive (E25) | 22 | 0.64 | 0.82 | 0.60 | 0.78 | 41 | 4 | 10 | 12 |
+  | office | 27B union | 506 | 0.74 | 0.88 | 0.24 | 0.73 | 49 | 6 | 11 | 51 |
+  | office | 27B progressive | 371 | 0.77 | 0.90 | 0.26 | 0.71 | 51 | 5 | 14 | 48 |
+
+  1. **Greedy decoding makes the 27B model loop into free word association.** Answers start with a sensible list,
+     then drift: "...shape, size, dimension, scale, ... velocity, acceleration, force, energy...", "...HDMI, USB,
+     Ethernet, ... HTTP, HTTPS, FTP, SMTP, SSH...", "...primary, secondary, tertiary, quaternary, quinary...",
+     "...curtain fondness, curtain affection, curtain love, curtain passion...". Truncated at 256 tokens: 5 / 8 of 20
+     (union), 5 / 4 (progressive); some loops end before the limit, so dropping truncated answers does not clean the
+     lists (union from non-truncated answers only: 50 / 100 names, still with "primary ... pentadecimal"). Lists:
+     389 / 506 names (union), 249 / 371 (progressive) vs 46 / 60 and 12 / 22 for the 2B model.
+  2. **Outside the loops, it follows "only new names" (unlike the 2B model).** Progressive, new names per view:
+     kitchen 15, 0, 0, 0, 0, 95, 7, 0, 0, 58, 0, ... (16 of 20 views add <= 1 name; the big numbers are the loops),
+     office 14, 117, 0, 91, 1, 0, 0, 81, 66, 0, ... (13 of 20). Smoke test, one kitchen view, list "wall, floor,
+     cabinet, table" -> "microwave, box, paper, doorknob, counter, mat" (only new names); several views answer "NONE".
+     Clean first answers: kitchen "wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, cable,
+     mat, drawer, handle, card, box"; office "door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet,
+     light switch, handle, paper, cardboard". The synonym question cannot be judged on these lists (the loops add
+     near-duplicates such as socket / wall socket / electrical outlet, curtain / curtain panel / curtain drape).
+  3. **Junk names cost precision, little else.** Precision 0.15 / 0.24 (union) and 0.24 / 0.26 (progressive) vs
+     top100 0.51 / 0.48: SAM 3 finds masks for abstract prompts ("room", "surface", "area", "corner"), 3469 / 2895
+     per-view masks (27B union) vs 920 / 1092 (top100). Pixel recall stays high or rises (office 0.88 / 0.90 vs 0.83
+     top100: more prompts cover more GT pixels); kitchen union drops to 0.85 (not analysed further; likely junk masks
+     winning the highest-score overlap rule, e.g. a "room" mask over two walls). Consistency within 0.05 of top100,
+     merges ~same (kitchen union 3: "room" -> 2 walls, "wall" -> 2 walls), wrong links up (8 vs 5, 11-14 vs 10),
+     mixed-class objects about doubled (40-51 vs 20-22).
+  4. Runtime: VLM 47-79 s per scene on the 5090 (each loop ~8 s); SAM 3 time grows with the list (70-140 s per run).
+- **Figure:** `figures/e26_vlm_big.jpg` (names, pixel recall, precision, consistent, merges for the five vocabularies).
+- **Conclusion:** E26 as run tests greedy decoding more than the model. The 27B model does follow the progressive
+  instruction where the 2B model did not (finding 2), so the progressive scheme becomes testable, but the lists are
+  unusable because of degenerate loops under greedy decoding. The next variable is decoding (one change), e.g.
+  `repetition_penalty` / `no_repeat_ngram_size` (deterministic) or Qwen's recommended non-thinking sampling
+  (temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5; needs a fixed seed). Not decided yet (E27, with the user).
