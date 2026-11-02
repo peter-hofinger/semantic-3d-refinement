@@ -15,9 +15,10 @@ wheels/
 # Secrets
 .env
 
-# Data (raw downloads and preprocessed outputs), repo root only
+# Data (raw downloads and preprocessed outputs) and run outputs, repo root only
 /data/
 /outputs/
+/runs/
 
 # Tool caches
 .ruff_cache/
