@@ -10,6 +10,8 @@ import numpy as np
 from src.geometry import Geometry
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from src.loaders import Views
 
 
@@ -35,3 +37,18 @@ class ConstantDepthBackbone:
             intrinsics=views.intrinsics.copy(),
             cam_to_world=views.cam_to_world.copy(),
         )
+
+
+@dataclass
+class CachedBackbone:
+    """Geometry saved earlier (e.g. by `dejaview-predict`): skips the GPU step."""
+
+    path: Path
+
+    def predict(self, views: Views) -> Geometry:
+        """Load the cached geometry and check it matches the views."""
+        geometry = Geometry.load(self.path)
+        if geometry.depth.shape != views.images.shape[:3]:
+            msg = f"{self.path}: depth {geometry.depth.shape} does not match views"
+            raise ValueError(msg)
+        return geometry
