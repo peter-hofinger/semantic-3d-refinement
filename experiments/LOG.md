@@ -51,6 +51,7 @@ Metrics:
 | E21 | Class-agnostic SAM 2 automatic masks fill the pixels without a SAM 3 mask (option B) | no gain: automatic masks cover only 33% / 22% of the no-mask pixels, the E20 proxy fix changes 7-11% of them, results = next-view control (realistic mean error 0.046 / 0.068 as SAM 3 alone). Gaps are mostly slivers next to a mask (63-82% within 3 px) plus unprompted objects (pedestal fan) |
 | E22 | Side decision: edge pixels take the nearby segment plane closest to their Déjà View depth (instead of only their own mask) | harmful for every segmentation, GT included (realistic mean error SAM 3 0.068 -> 0.093 office, GT 0.056 -> 0.091; kitchen 0.046 -> 0.062): Déjà View's own depth at an edge does not tell the side. Even the GT-chosen best candidate is worse than own mask on the realistic region; on bleeding pixels it would help (office 0.238 -> 0.220 SAM 3). Gap pixels need another cue (multi-view / image), the own mask stays the better side cue |
 | E23 | Déjà View paper's point-map metric on our scenes (one Sim(3) per scene) | Rel. L2 0.024 / 0.026, inlier ratio (< 3%) 82-84% / 86-89% vs paper 0.015 / 93.3%: same order, somewhat worse (5 cm mesh GT, plain least-squares alignment, our 20 views; normaliser unclear). Error is uneven over views (worst 0.061 kitchen v12, 0.070 office v5); per-view alignment helps the kitchen (0.017, 92%) more than the office -> kitchen has cross-view drift |
+| E24 | 3D point-cloud overlap from Replicate Any Scene (RAS) instead of our reprojection overlap, same linking | not adopted: consistency collapses 0.82 -> 0.27 kitchen / 0.75 -> 0.18 office (id switches 8 -> 100 / 16 -> 112) for fewer merges (1 -> 0 / 4 -> 1); still 0.47 / 0.34 with GT geometry, so the rule, not Déjà View, is the cause: single-view masks see different parts of an object and the cloud rule has no visibility test. RAS's either-direction rule: worse on both (consistent 0.34 / 0.45, merges 4 / 5, wrong links 14 / 27). Reprojection + vf0.25 stays |
 
 ## Reference table (current scorer, E11)
 
@@ -1058,3 +1059,65 @@ The three open options change different stages, so they can be combined, and eac
 - **Conclusion:** our Déjà View run is in the paper's range, a bit worse under our (stricter, mesh-based) GT; no sign
   of a broken setup. There is headroom both in single views (a few bad views) and across views (kitchen drift), which
   a multi-view term (E_mv) targets. Caveat: one run, two scenes, metric details guessed.
+
+## E24: 3D point-cloud overlap (Replicate Any Scene) as an association variant (02.11.2026)
+- **Goal:** test the overlap rule of Replicate Any Scene (RAS, arXiv 2604.10789, Sec. 3.2, Eqs. 1-2) in our
+  association. RAS lifts SAM 3 masks with VGGT depth and compares point clouds in 3D: a -> b = share of a's points
+  whose nearest point of b is within tau_a = 3 x mean nearest-neighbour distance inside a's own cloud. No projection,
+  so no visibility handling; a monitor hidden behind a chair is simply not near the chair cloud -> could fix the
+  E14 chair -> monitor case without our visibility rule (vf0.25).
+- **Settings (fixed before running):** same per-view masks (`sam3image-top100-t0.3`), same linking as the working
+  setting (cross-class 0.7, `--keep-linked-below 0.5`, greedy, one mask per view, min overlap 0.5), Déjà View K=16
+  geometry; only the overlap measure changes. Rows: reprojection + vf0.25 (working setting), reprojection without
+  vf, cloud with our two-sided rule (both directions >= threshold), cloud with RAS's own rule (either direction,
+  reference only), and reprojection + vf0.25 / cloud with rendered GT geometry (upper bound). Differences to RAS:
+  RAS aggregates all masks of a SAM 3 *track* into one cloud (dense video); we have one mask per view, so each cloud
+  is a single view's mask. Masks with < 50 lifted points get no links (as `min_visible`). a -> b is estimated on a
+  fixed random sample of 1000 of a's points (seed 0); box prefilter (boxes within tau_a).
+- **Code / command:** `Associator(overlap_rule="cloud", direction_rule="min"|"max")` in
+  `src/segmentation/associate.py` (CLI `--overlap cloud`, `--either-direction`; cache tags `pc`, `or`);
+  `uv run python experiments/scripts/e24_cloud_overlap.py > experiments/results/e24_cloud_overlap.txt`
+  (CPU, ~12 min; cloud rule ~2 min kitchen / ~3.5 min office per run vs 13 s reprojection). scipy added as a
+  direct dependency (was already installed indirectly). Reprojection rows reproduce the E17 caches exactly.
+  New output column "wrong links": objects joining per-view masks that lie mostly (> 50%) on different GT objects.
+- **Results** (`results/e24_cloud_overlap.txt`, all classes):
+
+  | scene | overlap | geometry | pixel recall | precision | consistent | id switches | merges | wrong links |
+  |---|---|---|---|---|---|---|---|---|
+  | kitchen | reproject + vf0.25 (working) | DV | 0.95 | 0.50 | 0.82 | 8 | 1 | 5 |
+  | kitchen | reproject | DV | 0.95 | 0.50 | 0.84 | 6 | 1 | 5 |
+  | kitchen | cloud, both directions | DV | 0.94 | 0.50 | 0.27 | 100 | 0 | 3 |
+  | kitchen | cloud, either direction (RAS) | DV | 0.95 | 0.48 | 0.34 | 50 | 4 | 14 |
+  | kitchen | reproject + vf0.25 | GT | 0.95 | 0.50 | 0.95 | 2 | 1 | 5 |
+  | kitchen | cloud, both directions | GT | 0.94 | 0.50 | 0.47 | 57 | 0 | 3 |
+  | office | reproject + vf0.25 (working) | DV | 0.83 | 0.48 | 0.75 | 16 | 4 | 10 |
+  | office | reproject | DV | 0.83 | 0.48 | 0.76 | 15 | 6 | 12 |
+  | office | cloud, both directions | DV | 0.82 | 0.47 | 0.18 | 112 | 1 | 6 |
+  | office | cloud, either direction (RAS) | DV | 0.83 | 0.45 | 0.45 | 42 | 5 | 27 |
+  | office | reproject + vf0.25 | GT | 0.83 | 0.48 | 0.80 | 12 | 5 | 12 |
+  | office | cloud, both directions | GT | 0.82 | 0.47 | 0.34 | 69 | 1 | 7 |
+
+  1. **Cloud rule with both directions links far too little:** objects 305 -> 412 kitchen, 414 -> 547 office;
+     consistency 0.82 -> 0.27 / 0.75 -> 0.18. It does remove almost all merges (1 -> 0, 4 -> 1, only the two
+     adjacent storage cabinets remain) and the chair -> monitor link (also gone with vf0.25).
+  2. **Not Déjà View's fault:** with GT geometry the cloud rule still reaches only 0.47 / 0.34 (reprojection 0.95 /
+     0.80). Cause: two single-view masks of one object see different parts of it (other side, occluded part, image
+     border); points of a that b's view never saw have no partner in b's cloud, so a -> b stays low. Reprojection
+     only counts points visible in the other view, which is exactly what the cloud rule lacks. RAS avoids this by
+     aggregating many frames of a track into one fuller cloud; with sparse single views it breaks.
+  3. **tau is tight for Déjà View:** median tau = 2.1% / 1.8% of the mask depth (10-90%: ~1-4 cm in scene units),
+     about the size of Déjà View's cross-view disagreement (Peter, ETH3D: 0.4-0.8%; per-view offsets ~3%; E23 kitchen
+     drift). This explains the further drop GT -> DV (0.47 -> 0.27, 0.34 -> 0.18).
+  4. **RAS's either-direction rule** recovers some consistency (0.34 / 0.45) but merges and wrong links go up
+     (4 / 5 merges, 14 / 27 wrong links vs 1 / 4 and 5 / 10): partial masks (door + doorframe, socket + wall,
+     whiteboard + eraser, adjacent cabinets/tables) lie inside a bigger cloud. Confirms not adopting that rule.
+  5. Side result: with the working setting, GT geometry is now clearly better than Déjà View in the kitchen (0.95 vs
+     0.82 consistent; E9 at t0.5 / 16 prompts: 0.79 vs 0.75). More, smaller masks (top100, t0.3) seem more
+     sensitive to geometry errors; the office gap is small (0.80 vs 0.75).
+- **Figure:** `figures/e24_cloud_overlap.jpg` (pixel recall, consistent, merges, wrong links per setup).
+- **Conclusion:** the RAS overlap rule does not transfer to sparse single-view masks; reprojection + vf0.25 stays.
+  What RAS and we share is the design (ids resolved in 3D with lifted masks + union-find), not the overlap measure.
+  Not tried (would be tuning on the test scenes or a new method): larger tau, or cloud overlap restricted to the
+  points visible in the other view (= reprojection again). A track-level variant (merge objects after our
+  association by comparing their aggregated multi-view clouds, as RAS does) is a possible later step against
+  remaining splits.

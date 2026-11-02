@@ -13,6 +13,12 @@ view into one object. An object takes the class covering most of its pixels.
 With detection scores, low-score masks can be dropped before linking, or kept only
 if they end up linked to a mask in another view (false detections rarely reappear
 at the same 3D place).
+
+Alternative overlap ("cloud", after Replicate Any Scene, arXiv 2604.10789, Eqs. 1-2):
+lift each mask to a point cloud and compare the clouds in 3D, with no projection
+and no visibility test. a -> b is the share of a's points whose nearest point of b
+lies within tau_a = 3 x the mean nearest-neighbour distance inside a's own cloud.
+The linking rule above (both directions, classes, greedy, one mask per view) stays.
 """
 
 from __future__ import annotations
@@ -51,11 +57,20 @@ class Associator:
     min_score: float = 0.0  # masks not passing are dropped before linking
     # masks not passing are kept only if linked to a mask in another view
     keep_linked_below: float = 0.0
+    # "reproject": project into the other view; "cloud": 3D point-cloud distance
+    overlap_rule: str = "reproject"
+    cloud_tau_factor: float = 3.0  # tau = factor x mean nearest-neighbour distance
+    cloud_samples: int = 1000  # points of a per pair that estimate a -> b
+    # "min": both directions must overlap (ours); "max": either direction (RAS)
+    direction_rule: str = "min"
 
     def overlaps(
         self, seg: Segmentation, geometry: Geometry
     ) -> dict[tuple[int, int], float]:
         """Directed overlap a -> b for every pair of masks in different views."""
+        if self.overlap_rule == "cloud":
+            return self.cloud_overlaps(seg, geometry)
+        assert self.overlap_rule == "reproject", self.overlap_rule  # noqa: S101
         num, height, width = seg.instance_ids.shape
         points = geometry.world_points()
         world_to_cam = np.linalg.inv(geometry.cam_to_world)
@@ -99,6 +114,63 @@ class Associator:
                         overlap[int(a_ids[a]), int(b)] = c / a_count[a]
         return overlap
 
+    def cloud_overlaps(
+        self, seg: Segmentation, geometry: Geometry
+    ) -> dict[tuple[int, int], float]:
+        """Directed 3D point-cloud overlap a -> b (RAS rule), masks in different views.
+
+        Masks with fewer than `min_visible` lifted points get no overlaps. The share
+        is estimated on a fixed random sample of a's points (`cloud_samples`).
+        """
+        from scipy.spatial import cKDTree  # noqa: PLC0415
+
+        points = geometry.world_points()
+        rng = np.random.default_rng(0)
+        masks: list[int] = []
+        trees, samples, taus, lows, highs = [], [], [], [], []
+        for i, view_ids in enumerate(seg.instance_ids):
+            valid = (
+                (view_ids >= 0)
+                & (geometry.depth[i] > 0)
+                & np.isfinite(points[i]).all(-1)
+            )
+            ids, pts = view_ids[valid], points[i][valid]
+            order = np.argsort(ids, kind="stable")
+            ids, pts = ids[order], pts[order]
+            starts = np.flatnonzero(np.r_[True, ids[1:] != ids[:-1]])
+            for m, cloud in zip(ids[starts], np.split(pts, starts[1:]), strict=True):
+                if len(cloud) < self.min_visible:
+                    continue
+                tree = cKDTree(cloud)
+                nn = tree.query(cloud, k=2, workers=-1)[0][:, 1]
+                pick = rng.choice(
+                    len(cloud), min(self.cloud_samples, len(cloud)), replace=False
+                )
+                masks.append(int(m))
+                trees.append(tree)
+                samples.append(cloud[pick])
+                taus.append(self.cloud_tau_factor * float(nn.mean()))
+                lows.append(cloud.min(0))
+                highs.append(cloud.max(0))
+        view = np.array(masks) // ID_STRIDE
+        low, high, tau = np.array(lows), np.array(highs), np.array(taus)
+        overlap: dict[tuple[int, int], float] = {}
+        for a in range(len(masks)):
+            # only clouds whose boxes come within tau_a can share points
+            near = (
+                (view != view[a])
+                & np.all(low[a] - tau[a] <= high, axis=1)
+                & np.all(high[a] + tau[a] >= low, axis=1)
+            )
+            for b in np.flatnonzero(near):
+                dist = trees[b].query(
+                    samples[a], distance_upper_bound=tau[a], workers=-1
+                )[0]
+                share = float(np.mean(dist < tau[a]))
+                if share > 0:
+                    overlap[masks[a], masks[b]] = share
+        return overlap
+
     def _needed(self, same_class: bool) -> float:  # noqa: FBT001
         """Overlap a link needs; inf for different classes unless allowed."""
         if same_class:
@@ -128,12 +200,15 @@ class Associator:
             assert np.all(local == i), f"ids in view {i} are not view-local"  # noqa: S101
         seg = self._drop_low(seg)
         overlap = self.overlaps(seg, geometry)
+        combine = {"min": min, "max": max}[self.direction_rule]
+        pairs = {(min(a, b), max(a, b)) for a, b in overlap}
         edges = sorted(
             (
                 (score, a, b)
-                for (a, b), s in overlap.items()
-                if a < b
-                and (score := min(s, overlap.get((b, a), 0.0)))
+                for a, b in pairs
+                if (
+                    score := combine(overlap.get((a, b), 0.0), overlap.get((b, a), 0.0))
+                )
                 >= self._needed(seg.classes.get(a) == seg.classes.get(b))
             ),
             reverse=True,
@@ -221,6 +296,19 @@ def main() -> None:
         help="keep masks scoring <= this only if linked to a mask in another view; "
         "output name gets kl<value>",
     )
+    parser.add_argument(
+        "--overlap",
+        choices=("reproject", "cloud"),
+        default="reproject",
+        help="'cloud': 3D point-cloud overlap after Replicate Any Scene; output name "
+        "gets pc",
+    )
+    parser.add_argument(
+        "--either-direction",
+        action="store_true",
+        help="link if either direction overlaps enough (RAS), not both; output name "
+        "gets or",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -237,7 +325,13 @@ def main() -> None:
         min_visible_fraction=args.min_visible_fraction,
         min_score=args.min_score,
         keep_linked_below=args.keep_linked_below,
+        overlap_rule=args.overlap,
+        direction_rule="max" if args.either_direction else "min",
     ).associate(seg, geometry)
+    if args.either_direction:
+        tag = f"or-{tag}"
+    if args.overlap == "cloud":
+        tag = f"pc-{tag}"
     if args.keep_linked_below > 0:
         tag = f"kl{args.keep_linked_below:g}-{tag}"
     if args.min_score > 0:
