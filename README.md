@@ -21,6 +21,27 @@ Each `.npz` holds `images` (N, H, W, 3), `intrinsics` (N, 3, 3) and `cam_to_worl
 OpenCV camera, same world frame as the laser-scan mesh). Load it with
 `src.loaders.Views.load(path)`.
 
+## Data (Hypersim)
+
+Scenes (scene -> camera trajectory) and settings live in `configs/hypersim.yaml`; the
+three default scenes are from the official v1 validation split.
+
+```bash
+uv run hypersim-download   # metadata CSVs + only the needed files (~45 MB per trajectory)
+uv run hypersim-prepare    # -> data/processed/hypersim/<scene>_<cam>/views_*.npz + gt_views_*.npz
+```
+
+The download reads Apple's per-scene ZIPs with HTTP range requests, so it fetches only
+the tone-mapped images, depth, NYU40 class, instance and render-entity maps of the
+trajectory's public frames. `prepare` writes `Views` (same format as ScanNet++, OpenCV
+cameras in meters) and `GroundTruth` (instance ids, z-depth, classes) straight from
+Hypersim's per-pixel maps, so `eval-instances` works unchanged. Notes:
+- Most Hypersim cameras are tilt-shift: `M_cam_from_uv` is split into a pinhole K
+  (off-centre principal point) and a camera rotation; the few with skew are rejected.
+- Walls, floors and ceilings have no instance ids in Hypersim; each such class becomes
+  one instance (`STUFF_BASE + NYU40 id`). Pixels without a label stay unlabeled.
+- Class names are NYU40 (many small objects are `otherprop`).
+
 ## Pipeline
 
 ```
@@ -84,6 +105,7 @@ data/               downloaded and preprocessed files (git-ignored)
 src/                the code, imported as `src`
   loaders/          dataset loaders and the shared Views format
     scannetpp/      download, scene loading, preprocessing
+    hypersim/       download, scene loading, preprocessing + ground truth
   geometry.py       Geometry (depth + cameras), lifting to 3D
   backbone/         Backbone interface; Déjà View goes here
   segmentation/     Segmentation, Segmenter interface, SAM 3 + association
