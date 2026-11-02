@@ -32,18 +32,26 @@ wherever the input already roughly agrees, not only within a segment.
 """
 
 import dataclasses
+import logging
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 from torch import Tensor
 
 from src.geometry import Geometry
+from src.loaders.views import Views
 from src.refinement.inputs import check_inputs, fit_pinhole
 from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
+from src.refinement.normals import run_dsine, to_world
+from src.segmentation.base import Segmentation
+
+log_info = logging.getLogger(__name__).info
 
 
 @dataclass(frozen=True)
@@ -92,6 +100,30 @@ def scene_from_geometry(geometry: Geometry) -> Scene:
 def load_scene(path: Path) -> Scene:
     """Every view of a saved backbone geometry (`dejaview-predict`), pinhole rays."""
     return scene_from_geometry(Geometry.load(path))
+
+
+def geometry_from_scene(scene: Scene, depth: Tensor, confidence: Tensor) -> Geometry:
+    """Return the pipeline's Geometry of the scene's pinholes with new depth.
+
+    Geometry's intrinsics put pixel centers at +0.5 (COLMAP), the scene's at integers,
+    so cx and cy move by half a pixel; cam_to_world keeps the backbone's rotation and
+    the fitted center, and the rays are the pinhole's.
+    """
+    assert depth.shape == scene.depth.shape and (depth > 0).all(), depth.shape
+    k = scene.k.double().cpu().numpy()
+    k[:, :2, 2] += 0.5
+    cam_to_world = np.tile(np.eye(4), (len(k), 1, 1))
+    cam_to_world[:, :3, :3] = scene.rotation.double().cpu().numpy()
+    cam_to_world[:, :3, 3] = scene.center.double().cpu().numpy()
+    rays = scene.rays.cpu().numpy()
+    return Geometry(
+        depth=depth.cpu().numpy().astype(np.float32),
+        confidence=confidence.cpu().numpy().astype(np.float32),
+        intrinsics=k.astype(np.float32),
+        cam_to_world=cam_to_world.astype(np.float32),
+        ray_origins=np.ascontiguousarray(rays[..., :3]),
+        ray_directions=np.ascontiguousarray(rays[..., 3:]),
+    )
 
 
 @dataclass(frozen=True)
@@ -549,3 +581,81 @@ def gauss_newton(
         if on_step is not None:
             on_step(delta, log[-1], cg_total)
     return delta, log, cg_total
+
+
+@dataclass
+class JointRefiner:
+    """The pipeline's refiner: all views at once by Gauss-Newton, cameras fixed.
+
+    E_d + λ_mv E_mv by default; with `dsine_repo` and λ_n > 0 also E_n on DSINE's
+    normals, with E_bd cut on the input's occlusion contours. The segmentation is not
+    used yet: the semantic terms are the next step. The output keeps the backbone's
+    cameras with each ray map replaced by its fitted pinhole (`inputs.fit_pinhole`).
+    """
+
+    cfg: RefineConfig
+    mv: MultiviewConfig
+    dsine_repo: Path | None = None
+
+    def __post_init__(self) -> None:
+        """Check that E_n has normals to work with."""
+        assert self.cfg.lambda_n == 0 or self.dsine_repo is not None, "E_n: DSINE"
+
+    @classmethod
+    def from_config(cls, path: Path) -> "JointRefiner":
+        """Read `refine`, `multiview` and the optional `dsine_repo` from a YAML file."""
+        raw = yaml.safe_load(path.read_text())
+        repo = raw.get("dsine_repo")
+        return cls(
+            RefineConfig(**raw["refine"]),
+            MultiviewConfig(**raw["multiview"]),
+            None if repo is None else Path(repo),
+        )
+
+    def refine(
+        self,
+        views: Views,
+        geometry: Geometry,
+        segmentation: Segmentation,  # noqa: ARG002
+    ) -> Geometry:
+        """Return the jointly refined depth of every view, same shapes as the input."""
+        assert views.images.shape[:3] == geometry.depth.shape, geometry.depth.shape
+        cuda = self.cfg.device == "cuda" and torch.cuda.is_available()
+        device = torch.device("cuda" if cuda else "cpu")
+        scene = scene_from_geometry(geometry).to(device)
+        normals = None
+        if self.cfg.lambda_n > 0:
+            normals = torch.stack(
+                [
+                    self.dsine_normals(views, geometry, scene, v)
+                    for v in range(len(views))
+                ]
+            )
+        t0 = time.perf_counter()
+        depth, log, counts = refine_scene(scene, self.cfg, self.mv, normals)
+        log_info(
+            "refined %d views in %.1f s: E %.4g -> %.4g, %d Gauss-Newton steps, %s",
+            len(views),
+            time.perf_counter() - t0,
+            log[0]["E"],
+            log[-1]["E"],
+            len(log) - 1,
+            counts,
+        )
+        return geometry_from_scene(scene, depth, scene.conf)
+
+    def dsine_normals(
+        self, views: Views, geometry: Geometry, scene: Scene, view: int
+    ) -> Tensor:
+        """DSINE's normals of one view, rotated into the frame of the scene's rays."""
+        assert self.dsine_repo is not None
+        camera = run_dsine(
+            views.images[view], geometry.intrinsics[view], self.dsine_repo
+        )
+        world, _ = to_world(
+            camera,
+            geometry.cam_to_world[view],
+            scene.depth[view],
+            scene.rays[view],
+        )
+        return world

@@ -34,6 +34,7 @@ dejaview-predict = "src.backbone.dejaview:main"
 sam3-segment = "src.segmentation.sam3:main"
 vlm-vocabulary = "src.segmentation.vocabulary:main"
 eval-instances = "src.evaluation.instances:main"
+eval-geometry = "src.evaluation.geometry:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]

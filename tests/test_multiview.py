@@ -5,20 +5,30 @@ import torch
 from scipy.spatial import cKDTree
 
 from src.evaluation.geometry import local_planes, similarity, voxel_downsample
-from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
+from src.loaders.views import Views
+from src.refinement.monocular import (
+    NormalTerm,
+    RefineConfig,
+    normal_term,
+    points_from_rays,
+)
 from src.refinement.multiview import (
+    JointRefiner,
     MultiviewConfig,
     Problem,
     Scene,
     bilinear,
     find_matches,
+    geometry_from_scene,
     grid_operator,
     match_jacobian,
     refine_scene,
     residuals,
+    scene_from_geometry,
     scene_residuals,
 )
 from src.refinement.normals import normals_from_depth
+from src.segmentation.base import Segmentation
 
 H, W = 48, 64
 K = torch.tensor([[50.0, 0, 31.5], [0, 50.0, 23.5], [0, 0, 1]], dtype=torch.float64)
@@ -115,6 +125,38 @@ def test_agreement_meets_halfway_between_two_views() -> None:
         0.3 * error[1] < error[2] < 0.7 * error[1]
         and 0.3 * error[1] < error[3] < 0.7 * error[1]
     )
+
+
+def test_geometry_lifts_every_pixel_where_the_rays_do() -> None:
+    scene, _ = two_views(bump=0.03)
+    geometry = geometry_from_scene(scene, scene.depth, scene.conf)
+    lifted = points_from_rays(scene.depth.double(), scene.rays.double()).numpy()
+    np.testing.assert_allclose(geometry.world_points(), lifted, atol=1e-5)
+    back = scene_from_geometry(geometry)
+    np.testing.assert_allclose(back.k.numpy(), scene.k.numpy(), atol=1e-4)
+    np.testing.assert_allclose(back.rays.numpy(), scene.rays.numpy(), atol=1e-5)
+
+
+def test_joint_refiner_is_refine_scene_on_the_pipeline_types() -> None:
+    scene, _ = two_views(bump=0.03)
+    geometry = geometry_from_scene(scene, scene.depth, scene.conf)
+    views = Views(
+        "toy",
+        ["0", "1"],
+        np.zeros((2, H, W, 3), dtype=np.uint8),
+        geometry.intrinsics,
+        geometry.cam_to_world,
+    )
+    cfg, mv = (
+        RefineConfig(lambda_bd=0.0, device="cpu"),
+        MultiviewConfig(lambda_mv=100.0),
+    )
+    refiner = JointRefiner(cfg, mv)
+    refined = refiner.refine(views, geometry, Segmentation.empty(2, H, W))
+    expected, _, _ = refine_scene(scene_from_geometry(geometry), cfg, mv)
+    np.testing.assert_allclose(refined.depth, expected.numpy(), rtol=1e-5)
+    np.testing.assert_array_equal(refined.cam_to_world, geometry.cam_to_world)
+    assert (np.abs(refined.depth / geometry.depth - 1) > 1e-3).any()
 
 
 def test_similarity_recovers_a_known_transform() -> None:

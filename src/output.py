@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class PointCloud:
-    """Fused points from all views, each with color and instance."""
+    """Fused points from all views, each with color, instance and class."""
 
     points: np.ndarray  # (M, 3) float32, world frame
     colors: np.ndarray  # (M, 3) uint8
@@ -28,8 +28,19 @@ class PointCloud:
         """Return the number of points."""
         return len(self.points)
 
+    def semantic_ids(self) -> tuple[np.ndarray, list[str]]:
+        """Per point the index of its class in the sorted class names, -1 for none."""
+        names = sorted(set(self.classes.values()))
+        index = {i: names.index(c) for i, c in self.classes.items()}
+        ids, inverse = np.unique(self.instance_ids, return_inverse=True)
+        lut = np.array([index.get(int(i), -1) for i in ids], dtype=np.int32)
+        return lut[inverse.ravel()], names
+
     def save_ply(self, path: Path) -> None:
-        """Write a binary PLY with xyz, rgb and an instance id per point."""
+        """Write a binary PLY with xyz, rgb, instance and class index per point.
+
+        The class names are listed in the header as `comment class <index> <name>`.
+        """
         vertex = np.empty(
             len(self),
             dtype=[
@@ -40,17 +51,20 @@ class PointCloud:
                 ("green", "u1"),
                 ("blue", "u1"),
                 ("instance", "<i4"),
+                ("semantic", "<i4"),
             ],
         )
         vertex["x"], vertex["y"], vertex["z"] = self.points.T
         vertex["red"], vertex["green"], vertex["blue"] = self.colors.T
         vertex["instance"] = self.instance_ids
+        vertex["semantic"], names = self.semantic_ids()
         header = (
             "ply\nformat binary_little_endian 1.0\n"
-            f"element vertex {len(self)}\n"
+            + "".join(f"comment class {i} {name}\n" for i, name in enumerate(names))
+            + f"element vertex {len(self)}\n"
             "property float x\nproperty float y\nproperty float z\n"
             "property uchar red\nproperty uchar green\nproperty uchar blue\n"
-            "property int instance\nend_header\n"
+            "property int instance\nproperty int semantic\nend_header\n"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as f:
