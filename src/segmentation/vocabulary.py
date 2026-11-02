@@ -66,6 +66,8 @@ class VlmVocabulary:
     checkpoint: str = CHECKPOINT
     max_new_tokens: int = 256
     progressive: bool = False  # show the list so far, ask only for new names
+    # HF penalty on every token already in prompt or answer; 1.0 = off (E16-E26)
+    repetition_penalty: float = 1.0
     _model: Any = field(default=None, init=False, repr=False)
     _processor: Any = field(default=None, init=False, repr=False)
 
@@ -110,7 +112,10 @@ class VlmVocabulary:
             enable_thinking=False,
         ).to(model.device)
         out = model.generate(
-            **inputs, max_new_tokens=self.max_new_tokens, do_sample=False
+            **inputs,
+            max_new_tokens=self.max_new_tokens,
+            do_sample=False,
+            repetition_penalty=self.repetition_penalty,
         )
         new = out[0, inputs["input_ids"].shape[1] :]
         truncated = len(new) == self.max_new_tokens
@@ -156,6 +161,13 @@ def main() -> None:
         "vlmprog-<model>_<views>.txt",
     )
     parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.0,
+        help="penalise tokens already in prompt or answer (greedy stays on); "
+        "values != 1.0 add -rp<value> to the output tag",
+    )
+    parser.add_argument(
         "--max-gpu-gb",
         type=float,
         default=3.5,
@@ -171,7 +183,13 @@ def main() -> None:
     tag = ("vlmprog-" if args.progressive else "vlm-") + re.sub(
         r"[^a-z0-9]", "", args.checkpoint.split("/")[-1].lower()
     )
-    vlm = VlmVocabulary(checkpoint=args.checkpoint, progressive=args.progressive)
+    if args.repetition_penalty != 1.0:
+        tag += f"-rp{args.repetition_penalty:g}"
+    vlm = VlmVocabulary(
+        checkpoint=args.checkpoint,
+        progressive=args.progressive,
+        repetition_penalty=args.repetition_penalty,
+    )
     for path in args.views:
         views = Views.load(path)
         torch.cuda.reset_peak_memory_stats()
@@ -179,6 +197,8 @@ def main() -> None:
         vocabulary, answers = vlm.scene(views)
         out = path.with_name(f"{tag}_{path.stem}.txt")
         scheme = "progressive" if args.progressive else "union"
+        if args.repetition_penalty != 1.0:
+            scheme += f", repetition penalty {args.repetition_penalty:g}"
         header = (
             f"# {args.checkpoint}, {scheme} over {len(views)} views of {path.name}\n"
         )

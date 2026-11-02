@@ -54,6 +54,7 @@ Metrics:
 | E24 | 3D point-cloud overlap from Replicate Any Scene (RAS) instead of our reprojection overlap, same linking | not adopted: consistency collapses 0.82 -> 0.27 kitchen / 0.75 -> 0.18 office (id switches 8 -> 100 / 16 -> 112) for fewer merges (1 -> 0 / 4 -> 1); still 0.47 / 0.34 with GT geometry, so the rule, not Déjà View, is the cause: single-view masks see different parts of an object and the cloud rule has no visibility test. RAS's either-direction rule: worse on both (consistent 0.34 / 0.45, merges 4 / 5, wrong links 14 / 27). Reprojection + vf0.25 stays |
 | E25 | Progressive VLM vocabulary (RAS scheme: one view at a time, list so far shown, only new names), Qwen3-VL-2B | the 2B model copies the list instead of adding to it (16 of 20 views add nothing): 12 / 22 names vs 46 / 60 (union). Short list -> precision 0.45 -> 0.69 / 0.40 -> 0.60, but recall 0.89 -> 0.82 / 0.72 -> 0.64 (pixel recall -0.02); synonyms stay (socket / power outlet, chair / office chair, all from view 1); loops still 8 / 3 of 20. Scheme untested with a model that follows the instruction -> step 2 |
 | E26 | Bigger VLM: Qwen3.8-27B (4-bit, thinking off, greedy) with both schemes (per-view union, progressive) | greedy decoding makes the 27B model loop into word association ("...velocity, acceleration, force...", "...HTTP, FTP, SSH...") in 4-8 of 20 answers -> 389 / 506 names (union), 249 / 371 (progressive); precision collapses to 0.15-0.26 (top100 0.51 / 0.48), pixel recall 0.85-0.95 / 0.88-0.90 (top100 0.95 / 0.83), consistency and merges ~unchanged. Outside the loops it follows "only new names" (13-16 of 20 views add <= 1 name, correct NONE answers), unlike the 2B model. Lists as produced are unusable; decoding (repetition control) is the next variable |
+| E27 | Qwen3.8-27B as E26 + repetition penalty 1.1 (still greedy), both schemes | loops not fixed: still 3-7 of 20 answers run into word association (truncated 3 / 7 union, 5 / 4 progressive vs 5 / 8 and 5 / 4); the penalty moves the drift to other words (verbs, pronouns, utensils, physics terms) and removes some loops while creating others (kitchen view 1 now loops). Lists 265 / 476 (union), 323 / 236 (progressive); precision 0.23-0.28 (E26 0.15-0.26, top100 0.51 / 0.48), pixel recall 0.88-0.95, consistency / merges ~E26; kitchen union cross-class leakage 0.033 (junk prompt "workstation"). Repetition penalty is not the fix; next: cap the answer (deterministic) or Qwen's sampling |
 
 ## Reference table (current scorer, E11)
 
@@ -1265,3 +1266,75 @@ Their prompt is not published; ours is written and fixed before any run.
   unusable because of degenerate loops under greedy decoding. The next variable is decoding (one change), e.g.
   `repetition_penalty` / `no_repeat_ngram_size` (deterministic) or Qwen's recommended non-thinking sampling
   (temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5; needs a fixed seed). Not decided yet (E27, with the user).
+
+## Plan: E27 = decoding fix for the 27B (02.11.2026)
+Decided with the user: deterministic repetition control (a), not Qwen's recommended sampling (b).
+- **One change vs E26:** `repetition_penalty=1.1` in `model.generate` (Hugging Face `RepetitionPenaltyLogitsProcessor`:
+  logits of every token already in prompt or answer divided by 1.1). Still greedy, 256 new tokens, Qwen3.8-27B 4-bit,
+  thinking off, same questions, views, order, both schemes. Value fixed now (mild), not tuned on scores.
+- **Expected side effects:** the penalty also hits the newline token every line uses and, in the progressive prompt,
+  the listed names (that is the intent there). Too strong -> lists end early or the one-name-per-line format breaks.
+- **Caveat:** most E26 loops drift into *new* words ("velocity, acceleration, force"), not repeated n-grams, so
+  `no_repeat_ngram_size` would not help (not used); the penalty helps where tokens recur ("curtain X, curtain Y",
+  "top surface, bottom surface"). It may not stop the drift; then that is the result, and the next options are capping
+  names per answer / fewer new tokens (deterministic) or (b).
+- **Smoke test first** (sanity check of the setting, not tuning): two answers that looped in E26 (office progressive
+  view 2 DSC03492 with view 1's 14 names; kitchen union view 3 DSC08856), at 1.0 and 1.1. Check: loop gone, line
+  format intact, list not cut to a few names. If 1.1 clearly breaks the format, ask before changing the value.
+- **Full run:** cluster, VLM both schemes + SAM 3 t0.3 with the two new lists; association locally with the working
+  setting; report as E26 (names, new names per view, truncated, loops by eye, synonyms by hand, recall / pixel recall /
+  precision / consistent / merges / wrong links), with the E26 rows kept.
+
+## E27: Qwen3.8-27B with repetition penalty 1.1 (02.11.2026)
+- **Goal:** plan above: does a mild repetition penalty (still greedy) remove E26's loops, so that the 27B lists become
+  usable and the progressive scheme can be judged?
+- **Settings:** as E26, one change: `repetition_penalty=1.1` in `generate` (both schemes, same 20 views, order,
+  questions, 256 new tokens, 4-bit, thinking off). SAM 3 image mode t0.3 with the two new lists on the cluster;
+  association locally with the working setting (xc0.7, vf0.25, kl0.5, Déjà View K=16). Value fixed before running.
+- **Code / command:** `VlmVocabulary(repetition_penalty=...)`, CLI `vlm-vocabulary --repetition-penalty 1.1` -> tag
+  `vlm[prog]-qwen3827b-rp1.1_<views>` (default 1.0 keeps all earlier outputs and tags). Smoke test
+  `experiments/scripts/e27_smoke.sbatch` (job 666), full job `experiments/scripts/e27_vlm_rp.sbatch` (job 667 on VC18,
+  ~10 min; VLM 2 min per scheme for both scenes, SAM 3 66-130 s per run, peak 19.7 GB), raw log
+  `results/e27_cluster_job667.txt`, SAM 3 caches in `<scene>/e27_cluster/`. Scoring
+  `uv run python experiments/scripts/e27_vlm_rp.py > experiments/results/e27_vlm_rp.txt` (CPU ~4 min; rerun identical;
+  the E25/E26 rows reproduce their association caches exactly, asserted).
+- **Smoke test** (job 666): rp 1.0 reproduces E26's answers word for word. Kitchen union view 3 (DSC08856): 92 names
+  ending in "...matte surface, textured surface..." -> 13 clean names at 1.1 ("wall, ceiling, floor, desk, cabinet,
+  paper, notebook, box, light switch, door handle, cardboard box, sticky note, calendar"). Office progressive view 2
+  (DSC03492): still loops at 1.1, into other words. Line format intact, lists not cut short -> setting kept.
+- **Results** (`results/e27_vlm_rp.txt`, all classes, cluster runs; top100 and E26 rows for reference):
+
+  | scene | vocabulary | names | recall | pixel recall | precision | cross-class leakage | consistent | merges | wrong links | mixed-class objects |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | kitchen | top100 | 100 | 0.92 | 0.95 | 0.51 | 0.007 | 0.82 | 1 | 5 | 20 |
+  | kitchen | 27B union (E26) | 389 | 0.82 | 0.85 | 0.15 | 0.012 | 0.80 | 3 | 8 | 40 |
+  | kitchen | 27B progressive (E26) | 249 | 0.91 | 0.95 | 0.24 | 0.008 | 0.82 | 1 | 8 | 45 |
+  | kitchen | 27B union rp1.1 | 265 | 0.80 | 0.89 | 0.23 | 0.033 | 0.78 | 1 | 5 | 35 |
+  | kitchen | 27B progressive rp1.1 | 323 | 0.90 | 0.95 | 0.28 | 0.008 | 0.81 | 1 | 6 | 31 |
+  | office | top100 | 100 | 0.73 | 0.83 | 0.48 | 0.049 | 0.76 | 5 | 10 | 22 |
+  | office | 27B union (E26) | 506 | 0.74 | 0.88 | 0.24 | 0.063 | 0.73 | 6 | 11 | 51 |
+  | office | 27B progressive (E26) | 371 | 0.77 | 0.90 | 0.26 | 0.047 | 0.71 | 5 | 14 | 48 |
+  | office | 27B union rp1.1 | 476 | 0.73 | 0.88 | 0.23 | 0.066 | 0.74 | 6 | 11 | 48 |
+  | office | 27B progressive rp1.1 | 236 | 0.73 | 0.88 | 0.28 | 0.060 | 0.70 | 6 | 11 | 39 |
+
+  1. **The loops stay.** Truncated answers 3 / 7 (union) and 5 / 4 (progressive) of 20 vs 5 / 8 and 5 / 4 in E26;
+     each loop still adds ~50-110 names. The penalty changes *where* the drift goes, not whether it happens: "deny,
+     allow, block, enable, disable, activate...", "who, whom, whose, this, that...", "fork, knife, spoon, chopsticks,
+     ladle...", "velocity, acceleration, momentum, inertia, friction...", "stone, rock, pebble, gravel, sand, dust...".
+     It also moves loops between views: kitchen view 3 is fixed (smoke test), but kitchen view 1, clean in E26, now
+     loops (its 109 names open both rp1.1 lists). As stated in the plan's caveat: the drift is into new words, so a
+     penalty on repeated tokens cannot stop it.
+  2. **Outside the loops nothing changes much:** clean answers are 5-20 names, and the progressive scheme still follows
+     "only new names" (15 / 15 of 20 views add <= 1 name, "NONE" answers).
+  3. **Scores:** precision a bit up (0.15-0.26 -> 0.23-0.28, still about half of top100's 0.51 / 0.48), only because
+     the lists are somewhat shorter; pixel recall 0.88-0.95, consistency and merges as E26 (office 6 merges, among them
+     "room" -> two walls, "desk" -> three tables, "fan"/"wood" -> pedestal fan + object). Kitchen union rp1.1 has
+     cross-class leakage 0.033 (all others 0.006-0.012): a "workstation" mask covering cabinet, wall, whiteboard and
+     calendar (>= 0.021 of the 0.034, own check); one junk name can create the harmful error type.
+- **Figure:** `figures/e27_vlm_rp.jpg` (names, pixel recall, precision, consistent, merges for the seven vocabularies).
+- **Conclusion:** repetition penalty 1.1 does not make the 27B lists usable; it shifts the loops. Not tried: a higher
+  penalty (would be tuning on the test scenes, and the plan's risk of broken line format grows). The loops are an
+  open-ended list question meeting greedy decoding; options that limit the answer itself are more promising: a cap on
+  names per answer / much lower `max_new_tokens` (e.g. 64, deterministic, also cuts the loops' cost), or Qwen's
+  recommended non-thinking sampling (temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5, fixed seed). To decide
+  with the user. top100 stays the default vocabulary.
