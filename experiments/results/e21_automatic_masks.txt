@@ -1,0 +1,67 @@
+## kitchen (5ee7c22ba0)
+automatic masks per view: median 12 (min 4, max 22); pixels with an automatic mask 0.70, with a SAM 3 mask 0.95; SAM 3 no-mask pixels covered by an automatic mask 0.33
+
+### realistic region: <= 3 px from Déjà View's own dense depth jumps (no GT)
+| segments | with a mask | right object | other object | no mask | share > 5% after fix | mean error after fix | changed px: Déjà View mean | fixed mean |
+|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | | | | 0.208 | 0.0473 | | |
+| SAM 3 top100 | 0.86 | 0.86 | 0.03 | 0.11 | 0.219 | 0.0462 | 0.0433 | 0.0416 |
+| automatic only | 0.42 | 0.40 | 0.02 | 0.58 | 0.215 | 0.0473 | 0.0364 | 0.0365 |
+| top100 + automatic | 0.89 | 0.88 | 0.03 | 0.09 | 0.220 | 0.0462 | 0.0429 | 0.0413 |
+| top100 + automatic of next view | 0.94 | 0.89 | 0.06 | 0.05 | 0.222 | 0.0466 | 0.0430 | 0.0421 |
+| GT | 1.00 | - | - | - | 0.208 | 0.0427 | 0.0447 | 0.0381 |
+pixels without a SAM 3 mask (0.14 of the region), filled with automatic: changed 0.07, mean error 0.0644 -> 0.0649, share > 5% 0.250 -> 0.255
+pixels without a SAM 3 mask (0.14 of the region), filled with next view's automatic: changed 0.21, mean error 0.0644 -> 0.0677, share > 5% 0.250 -> 0.269
+which object on labeled pixels without a SAM 3 mask, after the fill: right 0.15, other 0.04, still none 0.81
+distance of these pixels to the nearest SAM 3 mask: <= 1 px 0.57, <= 3 px 0.82, <= 10 px 0.98
+GT class of these pixels: wall 0.27, unlabeled 0.24, cabinet 0.08, table 0.07, bottle crate 0.06, copy machine 0.06, refrigerator 0.05, floor 0.03
+
+### oracle region: E18 bleeding pixels (error > 5% within 3 px of a GT depth edge)
+| segments | with a mask | right object | other object | no mask | share > 5% after fix | mean error after fix | changed px: Déjà View mean | fixed mean |
+|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | | | | 1.000 | 0.1737 | | |
+| SAM 3 top100 | 0.82 | 0.76 | 0.07 | 0.16 | 0.897 | 0.1589 | 0.1618 | 0.1388 |
+| automatic only | 0.37 | 0.34 | 0.03 | 0.63 | 0.964 | 0.1696 | 0.1234 | 0.1104 |
+| top100 + automatic | 0.84 | 0.78 | 0.08 | 0.14 | 0.897 | 0.1589 | 0.1617 | 0.1386 |
+| top100 + automatic of next view | 0.91 | 0.80 | 0.12 | 0.08 | 0.893 | 0.1593 | 0.1594 | 0.1381 |
+| GT | 1.00 | - | - | - | 0.845 | 0.1433 | 0.1532 | 0.1085 |
+pixels without a SAM 3 mask (0.18 of the region), filled with automatic: changed 0.01, mean error 0.1975 -> 0.1973, share > 5% 1.000 -> 0.997
+pixels without a SAM 3 mask (0.18 of the region), filled with next view's automatic: changed 0.19, mean error 0.1975 -> 0.1996, share > 5% 1.000 -> 0.973
+which object on labeled pixels without a SAM 3 mask, after the fill: right 0.07, other 0.04, still none 0.89
+distance of these pixels to the nearest SAM 3 mask: <= 1 px 0.47, <= 3 px 0.75, <= 10 px 0.98
+GT class of these pixels: unlabeled 0.17, bottle crate 0.15, copy machine 0.12, ceiling lamp 0.12, wall 0.10, table 0.09, box 0.09, refrigerator 0.04
+
+## office (7b6477cb95)
+automatic masks per view: median 19 (min 7, max 30); pixels with an automatic mask 0.42, with a SAM 3 mask 0.85; SAM 3 no-mask pixels covered by an automatic mask 0.22
+
+### realistic region: <= 3 px from Déjà View's own dense depth jumps (no GT)
+| segments | with a mask | right object | other object | no mask | share > 5% after fix | mean error after fix | changed px: Déjà View mean | fixed mean |
+|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | | | | 0.231 | 0.0695 | | |
+| SAM 3 top100 | 0.76 | 0.64 | 0.13 | 0.23 | 0.243 | 0.0681 | 0.0513 | 0.0488 |
+| automatic only | 0.31 | 0.28 | 0.04 | 0.68 | 0.241 | 0.0687 | 0.0531 | 0.0500 |
+| top100 + automatic | 0.80 | 0.67 | 0.14 | 0.19 | 0.248 | 0.0683 | 0.0537 | 0.0517 |
+| top100 + automatic of next view | 0.85 | 0.68 | 0.18 | 0.14 | 0.247 | 0.0687 | 0.0522 | 0.0509 |
+| GT | 1.00 | - | - | - | 0.211 | 0.0561 | 0.0538 | 0.0350 |
+pixels without a SAM 3 mask (0.24 of the region), filled with automatic: changed 0.09, mean error 0.1115 -> 0.1123, share > 5% 0.322 -> 0.341
+pixels without a SAM 3 mask (0.24 of the region), filled with next view's automatic: changed 0.19, mean error 0.1115 -> 0.1141, share > 5% 0.322 -> 0.341
+which object on labeled pixels without a SAM 3 mask, after the fill: right 0.13, other 0.05, still none 0.82
+distance of these pixels to the nearest SAM 3 mask: <= 1 px 0.37, <= 3 px 0.63, <= 10 px 0.90
+GT class of these pixels: wall 0.18, table 0.15, floor 0.14, pedestal fan 0.09, unlabeled 0.08, monitor 0.06, office chair 0.05, storage cabinet 0.03
+
+### oracle region: E18 bleeding pixels (error > 5% within 3 px of a GT depth edge)
+| segments | with a mask | right object | other object | no mask | share > 5% after fix | mean error after fix | changed px: Déjà View mean | fixed mean |
+|---|---|---|---|---|---|---|---|---|
+| Déjà View (input) | | | | | 1.000 | 0.2592 | | |
+| SAM 3 top100 | 0.65 | 0.40 | 0.25 | 0.35 | 0.882 | 0.2381 | 0.2279 | 0.1821 |
+| automatic only | 0.28 | 0.18 | 0.10 | 0.72 | 0.945 | 0.2470 | 0.2610 | 0.2044 |
+| top100 + automatic | 0.73 | 0.46 | 0.27 | 0.27 | 0.880 | 0.2375 | 0.2375 | 0.1939 |
+| top100 + automatic of next view | 0.78 | 0.44 | 0.34 | 0.22 | 0.875 | 0.2372 | 0.2256 | 0.1828 |
+| GT | 1.00 | - | - | - | 0.727 | 0.1918 | 0.2178 | 0.0774 |
+pixels without a SAM 3 mask (0.35 of the region), filled with automatic: changed 0.11, mean error 0.3180 -> 0.3161, share > 5% 1.000 -> 0.994
+pixels without a SAM 3 mask (0.35 of the region), filled with next view's automatic: changed 0.16, mean error 0.3180 -> 0.3153, share > 5% 1.000 -> 0.977
+which object on labeled pixels without a SAM 3 mask, after the fill: right 0.18, other 0.05, still none 0.77
+distance of these pixels to the nearest SAM 3 mask: <= 1 px 0.36, <= 3 px 0.63, <= 10 px 0.86
+GT class of these pixels: pedestal fan 0.20, table 0.10, office chair 0.09, wall 0.09, floor 0.08, monitor 0.08, unlabeled 0.08, coat rack 0.03
+
+figures: experiments/figures/e21_automatic_masks.jpg, experiments/figures/e21_example.jpg

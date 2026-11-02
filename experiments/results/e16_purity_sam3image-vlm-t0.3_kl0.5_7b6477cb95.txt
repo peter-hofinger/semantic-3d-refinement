@@ -1,0 +1,12 @@
+objects with >= 2 masks on labeled GT: 84, impure: 11
+  id   153 (desk) -> 55:table x11, 79:table x3, 93:table x3
+  id   154 (door) -> 65:door x11, 66:doorframe x1
+  id    68 (cabinet) -> 69:bookshelf x9, 43:wall x2
+  id     0 (cabinet) -> 34:storage cabinet x8, 35:storage cabinet x2
+  id   148 (wall) -> 15:wall x5, 17:wall x4
+  id    67 (ceiling) -> 42:ceiling x6, 43:wall x2
+  id   337 (fan) -> 59:object x6, 1:pedestal fan x1
+  id    28 (window) -> 13:window x5, 2:window x1, 18:windowframe x1
+  id   240 (desk) -> 79:table x4, 93:table x2
+  id    22 (power outlet) -> 29:power socket x2, 39:wall x1
+  id    55 (window frame) -> 40:windowsill x1, 18:windowframe x1

@@ -1,0 +1,8 @@
+objects with >= 2 masks on labeled GT: 42, impure: 7
+  id     9 (table) -> 55:table x11, 93:table x3, 79:table x2
+  id    21 (cabinet) -> 69:bookshelf x9, 43:wall x2
+  id     3 (cabinet) -> 34:storage cabinet x6, 35:storage cabinet x2
+  id    68 (table) -> 79:table x5, 93:table x2
+  id    17 (ceiling) -> 42:ceiling x6, 43:wall x1
+  id     7 (window) -> 13:window x5, 2:window x1
+  id    26 (wall) -> 15:wall x3, 17:wall x2

@@ -4,7 +4,8 @@ import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
-from semantic_3d_refinement.multiview import (
+from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
+from src.refinement.multiview import (
     MultiviewConfig,
     Problem,
     Scene,
@@ -19,8 +20,7 @@ from semantic_3d_refinement.multiview import (
     similarity,
     voxel_downsample,
 )
-from semantic_3d_refinement.normals import normals_from_depth
-from semantic_3d_refinement.refine import NormalTerm, RefineConfig, normal_term
+from src.refinement.normals import normals_from_depth
 
 H, W = 48, 64
 K = torch.tensor([[50.0, 0, 31.5], [0, 50.0, 23.5], [0, 0, 1]], dtype=torch.float64)

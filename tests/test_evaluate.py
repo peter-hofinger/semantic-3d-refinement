@@ -6,9 +6,14 @@ import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
-from semantic_3d_refinement.eth3d import load_scan, quat_to_rotation, read_calibration, read_ply_xyz
-from semantic_3d_refinement.evaluate import accuracy, lift, scan_depth, score
-from semantic_3d_refinement.views import write_ply
+from src.evaluation.depth import accuracy, lift, scan_depth, score
+from src.loaders.eth3d import (
+    load_scan,
+    quat_to_rotation,
+    read_calibration,
+    read_ply_xyz,
+)
+from src.refinement.inputs import write_ply
 
 K = np.array([[40.0, 0, 16.5], [0, 41.0, 12.0], [0, 0, 1]])
 H, W = 24, 32

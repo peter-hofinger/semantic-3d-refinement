@@ -1,0 +1,52 @@
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+5ee7c22ba0: 20 views, 125 prompts, 125 classes
+Loading weights:   0%|          | 0/1468 [00:00<?, ?it/s]Loading weights:  20%|#9        | 291/1468 [00:00<00:00, 2882.76it/s]Loading weights:  40%|###9      | 580/1468 [00:00<00:01, 687.97it/s] Loading weights:  49%|####9     | 726/1468 [00:01<00:01, 423.19it/s]Loading weights:  56%|#####5    | 815/1468 [00:01<00:01, 352.88it/s]Loading weights:  60%|#####9    | 878/1468 [00:02<00:01, 325.68it/s]Loading weights:  63%|######3   | 927/1468 [00:02<00:01, 309.63it/s]Loading weights:  66%|######5   | 968/1468 [00:02<00:01, 292.63it/s]Loading weights:  68%|######8   | 1003/1468 [00:02<00:01, 274.11it/s]Loading weights:  70%|#######   | 1034/1468 [00:02<00:01, 255.03it/s]Loading weights:  72%|#######2  | 1061/1468 [00:02<00:01, 240.65it/s]Loading weights:  74%|#######3  | 1086/1468 [00:03<00:01, 236.36it/s]Loading weights:  76%|#######5  | 1110/1468 [00:03<00:01, 226.99it/s]Loading weights:  77%|#######7  | 1134/1468 [00:03<00:01, 222.05it/s]Loading weights:  79%|#######8  | 1156/1468 [00:03<00:01, 199.89it/s]Loading weights:  80%|########  | 1179/1468 [00:03<00:01, 198.24it/s]Loading weights:  82%|########1 | 1202/1468 [00:03<00:01, 198.60it/s]Loading weights:  83%|########3 | 1225/1468 [00:03<00:01, 205.44it/s]Loading weights:  85%|########4 | 1246/1468 [00:03<00:01, 203.34it/s]Loading weights:  86%|########6 | 1267/1468 [00:03<00:01, 194.19it/s]Loading weights:  88%|########7 | 1287/1468 [00:04<00:01, 148.60it/s]Loading weights:  89%|########9 | 1311/1468 [00:04<00:00, 162.73it/s]Loading weights:  91%|######### | 1329/1468 [00:04<00:00, 164.08it/s]Loading weights:  92%|#########1| 1350/1468 [00:04<00:00, 173.69it/s]Loading weights:  94%|#########3| 1375/1468 [00:04<00:00, 188.68it/s]Loading weights:  95%|#########5| 1395/1468 [00:04<00:00, 181.60it/s]Loading weights:  97%|#########6| 1421/1468 [00:04<00:00, 188.89it/s]Loading weights:  98%|#########8| 1441/1468 [00:05<00:00, 184.09it/s]Loading weights: 100%|##########| 1468/1468 [00:05<00:00, 289.68it/s]
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  51 masks
+  view  1:  47 masks
+  view  2:  72 masks
+  view  3:  61 masks
+  view  4:  42 masks
+  view  5:  39 masks
+  view  6:  52 masks
+  view  7:  48 masks
+  view  8:  61 masks
+  view  9:  88 masks
+  view 10:  96 masks
+  view 11:  93 masks
+  view 12:  81 masks
+  view 13: 110 masks
+  view 14:  31 masks
+  view 15:  80 masks
+  view 16:  53 masks
+  view 17:  82 masks
+  view 18:  41 masks
+  view 19:  49 masks
+5ee7c22ba0: 1277 instances in 20 views, 346s, peak GPU 2.13 GB -> data\processed\scannetpp\5ee7c22ba0\sam3image-top100+vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+7b6477cb95: 20 views, 133 prompts, 133 classes
+Loading weights:   0%|          | 0/1468 [00:00<?, ?it/s]Loading weights:  19%|#9        | 283/1468 [00:00<00:00, 2829.72it/s]Loading weights:  39%|###8      | 566/1468 [00:00<00:01, 870.57it/s] Loading weights:  49%|####8     | 718/1468 [00:01<00:01, 472.82it/s]Loading weights:  55%|#####5    | 811/1468 [00:01<00:01, 392.83it/s]Loading weights:  60%|#####9    | 877/1468 [00:01<00:01, 349.21it/s]Loading weights:  63%|######3   | 928/1468 [00:02<00:01, 332.24it/s]Loading weights:  66%|######6   | 971/1468 [00:02<00:01, 306.70it/s]Loading weights:  69%|######8   | 1007/1468 [00:02<00:01, 270.41it/s]Loading weights:  71%|#######   | 1037/1468 [00:02<00:01, 259.90it/s]Loading weights:  73%|#######2  | 1065/1468 [00:02<00:01, 235.50it/s]Loading weights:  74%|#######4  | 1089/1468 [00:02<00:01, 231.36it/s]Loading weights:  76%|#######5  | 1113/1468 [00:03<00:01, 215.21it/s]Loading weights:  77%|#######7  | 1135/1468 [00:03<00:01, 199.69it/s]Loading weights:  79%|#######8  | 1158/1468 [00:03<00:01, 201.66it/s]Loading weights:  81%|########  | 1182/1468 [00:03<00:01, 202.61it/s]Loading weights:  82%|########1 | 1203/1468 [00:03<00:01, 195.88it/s]Loading weights:  83%|########3 | 1224/1468 [00:03<00:01, 198.34it/s]Loading weights:  85%|########5 | 1248/1468 [00:03<00:01, 201.47it/s]Loading weights:  86%|########6 | 1269/1468 [00:03<00:01, 187.70it/s]Loading weights:  88%|########8 | 1296/1468 [00:04<00:00, 189.34it/s]Loading weights:  90%|########9 | 1318/1468 [00:04<00:00, 194.65it/s]Loading weights:  91%|#########1| 1342/1468 [00:04<00:00, 196.13it/s]Loading weights:  93%|#########2| 1362/1468 [00:04<00:00, 188.09it/s]Loading weights:  94%|#########4| 1382/1468 [00:04<00:00, 189.77it/s]Loading weights:  96%|#########5| 1404/1468 [00:04<00:00, 190.03it/s]Loading weights:  97%|#########7| 1425/1468 [00:04<00:00, 191.42it/s]Loading weights:  99%|#########8| 1446/1468 [00:04<00:00, 195.09it/s]Loading weights: 100%|##########| 1468/1468 [00:04<00:00, 303.75it/s]
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  56 masks
+  view  1: 140 masks
+  view  2:  62 masks
+  view  3: 128 masks
+  view  4:  64 masks
+  view  5: 101 masks
+  view  6:  92 masks
+  view  7:  44 masks
+  view  8:  68 masks
+  view  9:  91 masks
+  view 10: 112 masks
+  view 11:  55 masks
+  view 12:  70 masks
+  view 13:  18 masks
+  view 14: 115 masks
+  view 15: 144 masks
+  view 16: 129 masks
+  view 17: 146 masks
+  view 18: 127 masks
+  view 19:  65 masks
+7b6477cb95: 1827 instances in 20 views, 372s, peak GPU 2.11 GB -> data\processed\scannetpp\7b6477cb95\sam3image-top100+vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz

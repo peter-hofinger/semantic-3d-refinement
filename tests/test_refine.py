@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 import torch
 
-from semantic_3d_refinement.normals import BiniConfig, bini, close_cuts, crack_tips, grid_score, normals_from_depth
-from semantic_3d_refinement.refine import (
+from src.loaders.synthetic import junction_scene, occlusion_scene, room_scene
+from src.refinement.inputs import fit_pinhole
+from src.refinement.monocular import (
     RefineConfig,
     depth_metrics,
     energy_maps,
@@ -17,8 +18,14 @@ from semantic_3d_refinement.refine import (
     refine,
     second_differences,
 )
-from semantic_3d_refinement.synthetic import junction_scene, occlusion_scene, room_scene
-from semantic_3d_refinement.views import fit_pinhole
+from src.refinement.normals import (
+    BiniConfig,
+    bini,
+    close_cuts,
+    crack_tips,
+    grid_score,
+    normals_from_depth,
+)
 
 CFG = RefineConfig(device="cpu")
 

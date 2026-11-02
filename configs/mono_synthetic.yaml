@@ -1,4 +1,4 @@
-input: data/synthetic_room.npz   # uv run python -m semantic_3d_refinement.synthetic (normal noise 0.03 rad per axis)
+input: data/synthetic_room.npz   # uv run python -m src.loaders.synthetic (normal noise 0.03 rad per axis)
 normals: scene   # the room's plane normals, tilted by the noise above
 output_dir: runs
 refine:

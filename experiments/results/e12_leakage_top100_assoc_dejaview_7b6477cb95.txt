@@ -1,0 +1,20 @@
+leaked pixels by predicted class (share of all leakage, rate within class):
+  cabinet       26.7%   rate 0.22
+  table         21.3%   rate 0.14
+  door          14.1%   rate 0.15
+  storage cabinet  12.5%   rate 0.29
+  window         3.6%   rate 0.34
+  tv             3.2%   rate 0.04
+  wall           2.9%   rate 0.01
+  office chair   2.5%   rate 0.08
+top (predicted class -> GT class it leaks into):
+  table        -> table               17.0%
+  storage cabinet -> storage cabinet     12.4%
+  cabinet      -> bookshelf           10.7%
+  cabinet      -> storage cabinet      9.9%
+  door         -> wall                 9.8%
+  cabinet      -> wall                 5.5%
+  door         -> window               2.8%
+  window       -> window               2.2%
+  office chair -> floor                1.6%
+  table        -> floor                1.5%

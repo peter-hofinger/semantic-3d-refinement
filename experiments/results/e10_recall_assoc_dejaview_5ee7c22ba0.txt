@@ -1,0 +1,22 @@
+instance recall 0.64, pixel-weighted recall 0.84
+  GT class               found/total  % of scored px  prompted
+  wall                     52/70           51.3%     yes
+  ceiling                  12/12            9.7%     yes
+  door                     10/10            8.1%     yes
+  cabinet                  10/10            7.0%     yes
+  copy machine              2/12            5.4%     NO
+  floor                     9/13            4.5%     yes
+  refrigerator              6/9             2.5%     yes
+  box                      46/50            2.0%     yes
+  bottle crate             26/39            2.0%     NO
+  table                    11/11            1.7%     yes
+  ceiling lamp              1/5             1.6%     yes
+  microwave                 2/11            1.2%     NO
+  calendar                  0/18            1.0%     NO
+  electric box              5/7             0.8%     yes
+  whiteboard                4/6             0.6%     yes
+  doorframe                 0/8             0.3%     yes
+  trash bin                 0/6             0.2%     NO
+  books                     0/4             0.1%     NO
+  light switch              0/2             0.0%     NO
+  book                      0/2             0.0%     NO

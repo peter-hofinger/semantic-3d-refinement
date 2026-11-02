@@ -1,0 +1,5 @@
+7b6477cb95 sam3image-t0.3_views_n20_uniform_504 xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504: masks with score <= 0.5
+  kept       32, matching a GT instance (IoU >= 0.5):   32 (1.00)
+    top classes: wall 12, box 7, floor 6, cabinet 3, chair 1, door 1, ceiling 1, window 1
+  dropped   129, matching a GT instance (IoU >= 0.5):    7 (0.05)
+    top classes: wall 30, cabinet 20, door 17, chair 15, box 12, shelf 9, table 6, window 5

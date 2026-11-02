@@ -1,0 +1,24 @@
+5ee7c22ba0: 255 masks -> 72 objects, 12s -> data\processed\scannetpp\5ee7c22ba0\sam3image_views_n20_uniform_504_assoc-xc0.7-vf0.5-dejaview_k16_views_n20_uniform_504.npz
+5ee7c22ba0 all     recall 0.64  pixel recall 0.84  precision 0.83  leakage 0.009 (cross-class 0.005)  consistent 0.64 (28 GT in >=2 views)  id switches 11  merges 1
+5ee7c22ba0 objects recall 0.59  pixel recall 0.71  precision 0.75  leakage 0.014 (cross-class 0.011)  consistent 0.59 (22 GT in >=2 views)  id switches 10  merges 1
+5ee7c22ba0: 255 masks -> 68 objects, 13s -> data\processed\scannetpp\5ee7c22ba0\sam3image_views_n20_uniform_504_assoc-xc0.7-vf0.25-dejaview_k16_views_n20_uniform_504.npz
+5ee7c22ba0 all     recall 0.64  pixel recall 0.84  precision 0.83  leakage 0.009 (cross-class 0.005)  consistent 0.79 (28 GT in >=2 views)  id switches 7  merges 1
+5ee7c22ba0 objects recall 0.59  pixel recall 0.71  precision 0.75  leakage 0.014 (cross-class 0.011)  consistent 0.77 (22 GT in >=2 views)  id switches 6  merges 1
+5ee7c22ba0: 583 masks -> 308 objects, 14s -> data\processed\scannetpp\5ee7c22ba0\sam3image-top100_views_n20_uniform_504_assoc-xc0.7-vf0.5-dejaview_k16_views_n20_uniform_504.npz
+5ee7c22ba0 all     recall 0.84  pixel recall 0.92  precision 0.49  leakage 0.010 (cross-class 0.007)  consistent 0.63 (35 GT in >=2 views)  id switches 15  merges 1
+5ee7c22ba0 objects recall 0.88  pixel recall 0.96  precision 0.41  leakage 0.016 (cross-class 0.014)  consistent 0.59 (29 GT in >=2 views)  id switches 14  merges 1
+5ee7c22ba0: 583 masks -> 301 objects, 14s -> data\processed\scannetpp\5ee7c22ba0\sam3image-top100_views_n20_uniform_504_assoc-xc0.7-vf0.25-dejaview_k16_views_n20_uniform_504.npz
+5ee7c22ba0 all     recall 0.84  pixel recall 0.92  precision 0.49  leakage 0.010 (cross-class 0.007)  consistent 0.80 (35 GT in >=2 views)  id switches 8  merges 1
+5ee7c22ba0 objects recall 0.88  pixel recall 0.96  precision 0.41  leakage 0.016 (cross-class 0.014)  consistent 0.79 (29 GT in >=2 views)  id switches 7  merges 1
+7b6477cb95: 391 masks -> 157 objects, 13s -> data\processed\scannetpp\7b6477cb95\sam3image_views_n20_uniform_504_assoc-xc0.7-vf0.5-dejaview_k16_views_n20_uniform_504.npz
+7b6477cb95 all     recall 0.58  pixel recall 0.78  precision 0.71  leakage 0.077 (cross-class 0.045)  consistent 0.59 (39 GT in >=2 views)  id switches 23  merges 3
+7b6477cb95 objects recall 0.57  pixel recall 0.80  precision 0.67  leakage 0.098 (cross-class 0.049)  consistent 0.53 (32 GT in >=2 views)  id switches 21  merges 2
+7b6477cb95: 391 masks -> 143 objects, 13s -> data\processed\scannetpp\7b6477cb95\sam3image_views_n20_uniform_504_assoc-xc0.7-vf0.25-dejaview_k16_views_n20_uniform_504.npz
+7b6477cb95 all     recall 0.58  pixel recall 0.78  precision 0.71  leakage 0.077 (cross-class 0.045)  consistent 0.77 (39 GT in >=2 views)  id switches 11  merges 4
+7b6477cb95 objects recall 0.57  pixel recall 0.80  precision 0.67  leakage 0.098 (cross-class 0.049)  consistent 0.75 (32 GT in >=2 views)  id switches 9  merges 3
+7b6477cb95: 732 masks -> 425 objects, 14s -> data\processed\scannetpp\7b6477cb95\sam3image-top100_views_n20_uniform_504_assoc-xc0.7-vf0.5-dejaview_k16_views_n20_uniform_504.npz
+7b6477cb95 all     recall 0.66  pixel recall 0.79  precision 0.46  leakage 0.082 (cross-class 0.047)  consistent 0.61 (49 GT in >=2 views)  id switches 29  merges 3
+7b6477cb95 objects recall 0.68  pixel recall 0.83  precision 0.42  leakage 0.104 (cross-class 0.052)  consistent 0.57 (42 GT in >=2 views)  id switches 27  merges 2
+7b6477cb95: 732 masks -> 409 objects, 14s -> data\processed\scannetpp\7b6477cb95\sam3image-top100_views_n20_uniform_504_assoc-xc0.7-vf0.25-dejaview_k16_views_n20_uniform_504.npz
+7b6477cb95 all     recall 0.66  pixel recall 0.79  precision 0.46  leakage 0.082 (cross-class 0.047)  consistent 0.76 (49 GT in >=2 views)  id switches 16  merges 4
+7b6477cb95 objects recall 0.68  pixel recall 0.83  precision 0.42  leakage 0.104 (cross-class 0.052)  consistent 0.74 (42 GT in >=2 views)  id switches 14  merges 3

@@ -1,0 +1,25 @@
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+GT objects split over several predicted ids:
+  GT  40 windowsill         in  5 views -> 4 ids [54, 136, 145, 334] classes ['air vent', 'windowsill']
+  GT   2 window             in  4 views -> 3 ids [132, 331, 643] classes ['window', 'window frame']
+  GT   1 pedestal fan       in  8 views -> 2 ids [149, 494] classes ['fan']
+  GT  34 storage cabinet    in  6 views -> 2 ids [6, 402] classes ['door', 'storage cabinet']
+  GT  35 storage cabinet    in  7 views -> 2 ids [4, 6] classes ['cabinet', 'storage cabinet']
+  GT  16 window             in  2 views -> 2 ids [28, 332] classes ['blinds', 'window frame']
+  GT  24 container          in  3 views -> 2 ids [35, 147] classes ['binder', 'box']
+  GT  77 office chair       in  9 views -> 2 ids [29, 694] classes ['office chair']
+  GT  79 table              in  7 views -> 2 ids [214, 342] classes ['desk']
+  GT  44 floor              in  9 views -> 2 ids [284, 687] classes ['floor']
+  GT  64 coat rack          in  8 views -> 2 ids [197, 308] classes ['coat rack']
+  GT   5 ceiling lamp       in  6 views -> 2 ids [303, 757] classes ['light', 'light fixture']
+  GT  91 office chair       in  4 views -> 2 ids [325, 534] classes ['office chair']
+  GT  18 windowframe        in  2 views -> 2 ids [36, 644] classes ['window', 'window frame']
+  GT  93 table              in  4 views -> 2 ids [214, 342] classes ['desk']
+  8 of 15 split objects have ids with different classes
+predicted ids covering several GT objects (merges):
+  id   214 (desk) -> 55:table, 79:table, 93:table
+  id     6 (storage cabinet) -> 34:storage cabinet, 35:storage cabinet
+  id   494 (fan) -> 1:pedestal fan, 59:object
+  id   199 (wall) -> 15:wall, 17:wall
+  id   342 (desk) -> 79:table, 93:table

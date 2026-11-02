@@ -1,0 +1,201 @@
+/var/lib/slurm/slurmd/job00676/slurm_script: line 15: git: command not found
+node VC16 | NVIDIA GeForce RTX 5090, 595.99.02 |  + local vocabulary.py
+=== vlm union
+  warn(
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+DSC08832.JPG: 15 names, 15 total, 488.1s
+DSC08844.JPG: 15 names, 21 total, 1.2s
+DSC08856.JPG: 29 names, 37 total, 2.0s
+DSC08868.JPG: 12 names, 38 total, 0.9s
+DSC08880.JPG: 14 names, 45 total, 1.2s
+DSC08892.JPG: 10 names, 47 total, 0.8s
+DSC08904.JPG: 12 names, 49 total, 1.0s
+DSC08916.JPG: 10 names, 51 total, 0.8s
+DSC08928.JPG: 10 names, 52 total, 0.8s
+DSC08941.JPG: 27 names, 61 total, 2.0s
+DSC08952.JPG: 23 names, 69 total, 2.0s
+DSC08964.JPG: 28 names, 79 total, 2.1s
+DSC08976.JPG: 8 names, 80 total, 0.7s
+DSC08988.JPG: 26 names, 85 total, 2.1s
+DSC09002.JPG: 5 names, 85 total, 0.5s
+DSC09015.JPG: 19 names, 87 total, 1.4s
+DSC09027.JPG: 14 names, 87 total, 1.1s
+DSC09039.JPG: 14 names, 90 total, 1.1s
+DSC09054.JPG: 11 names, 90 total, 0.9s
+DSC09073.JPG: 7 names, 90 total, 0.6s
+5ee7c22ba0: 90 names, 511s, peak GPU 19.47 GB -> data/processed/scannetpp/5ee7c22ba0/vlm-qwen3827b-mt64_views_n20_uniform_504.txt
+DSC03468.JPG: 14 names, 14 total, 1.1s
+DSC03492.JPG: 27 names, 34 total, 2.1s
+DSC03514.JPG: 12 names, 36 total, 1.0s
+DSC03535.JPG: 29 names, 48 total, 2.1s
+DSC03552.JPG: 16 names, 50 total, 1.2s
+DSC03572.JPG: 15 names, 52 total, 1.1s
+DSC03594.JPG: 29 names, 57 total, 2.1s
+DSC03611.JPG: 11 names, 59 total, 0.9s
+DSC03628.JPG: 13 names, 61 total, 1.0s
+DSC03648.JPG: 29 names, 63 total, 2.1s
+DSC03665.JPG: 29 names, 69 total, 2.1s
+DSC03686.JPG: 14 names, 69 total, 1.0s
+DSC03710.JPG: 16 names, 71 total, 1.3s
+DSC03734.JPG: 6 names, 71 total, 0.5s
+DSC03756.JPG: 16 names, 72 total, 1.1s
+DSC03776.JPG: 28 names, 74 total, 2.1s
+DSC03803.JPG: 29 names, 74 total, 2.0s
+DSC03820.JPG: 29 names, 76 total, 2.1s
+DSC03840.JPG: 28 names, 79 total, 2.1s
+DSC03862.JPG: 12 names, 79 total, 0.9s
+7b6477cb95: 79 names, 30s, peak GPU 19.47 GB -> data/processed/scannetpp/7b6477cb95/vlm-qwen3827b-mt64_views_n20_uniform_504.txt
+=== took 558920 ms
+=== vlm progressive
+  warn(
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+DSC08832.JPG: 15 names, 15 total, 458.0s
+DSC08844.JPG: 0 names, 15 total, 0.2s
+DSC08856.JPG: 0 names, 15 total, 0.2s
+DSC08868.JPG: 0 names, 15 total, 0.2s
+DSC08880.JPG: 0 names, 15 total, 0.2s
+DSC08892.JPG: 29 names, 44 total, 2.1s
+DSC08904.JPG: 29 names, 68 total, 2.1s
+DSC08916.JPG: 0 names, 68 total, 0.2s
+DSC08928.JPG: 28 names, 96 total, 2.1s
+DSC08941.JPG: 0 names, 96 total, 0.3s
+DSC08952.JPG: 0 names, 96 total, 0.3s
+DSC08964.JPG: 0 names, 96 total, 0.3s
+DSC08976.JPG: 0 names, 96 total, 0.3s
+DSC08988.JPG: 0 names, 96 total, 0.3s
+DSC09002.JPG: 0 names, 96 total, 0.3s
+DSC09015.JPG: 0 names, 96 total, 0.3s
+DSC09027.JPG: 0 names, 96 total, 0.3s
+DSC09039.JPG: 0 names, 96 total, 0.3s
+DSC09054.JPG: 0 names, 96 total, 0.3s
+DSC09073.JPG: 0 names, 96 total, 0.3s
+5ee7c22ba0: 96 names, 468s, peak GPU 19.51 GB -> data/processed/scannetpp/5ee7c22ba0/vlmprog-qwen3827b-mt64_views_n20_uniform_504.txt
+DSC03468.JPG: 14 names, 14 total, 1.1s
+DSC03492.JPG: 29 names, 41 total, 2.1s
+DSC03514.JPG: 0 names, 41 total, 0.2s
+DSC03535.JPG: 0 names, 41 total, 0.2s
+DSC03552.JPG: 0 names, 41 total, 0.2s
+DSC03572.JPG: 27 names, 68 total, 2.1s
+DSC03594.JPG: 0 names, 68 total, 0.2s
+DSC03611.JPG: 0 names, 68 total, 0.2s
+DSC03628.JPG: 23 names, 91 total, 2.1s
+DSC03648.JPG: 0 names, 91 total, 0.3s
+DSC03665.JPG: 0 names, 91 total, 0.3s
+DSC03686.JPG: 0 names, 91 total, 0.3s
+DSC03710.JPG: 0 names, 91 total, 0.3s
+DSC03734.JPG: 0 names, 91 total, 0.3s
+DSC03756.JPG: 0 names, 91 total, 0.3s
+DSC03776.JPG: 0 names, 91 total, 0.3s
+DSC03803.JPG: 0 names, 91 total, 0.3s
+DSC03820.JPG: 0 names, 91 total, 0.3s
+DSC03840.JPG: 0 names, 91 total, 0.3s
+DSC03862.JPG: 0 names, 91 total, 0.3s
+7b6477cb95: 91 names, 11s, peak GPU 19.51 GB -> data/processed/scannetpp/7b6477cb95/vlmprog-qwen3827b-mt64_views_n20_uniform_504.txt
+=== took 495980 ms
+=== 5ee7c22ba0 sam3 vlm-qwen3827b-mt64_views_n20_uniform_504.txt
+5ee7c22ba0: 20 views, 90 prompts, 90 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  80 masks
+  view  1:  55 masks
+  view  2: 100 masks
+  view  3: 100 masks
+  view  4:  52 masks
+  view  5:  43 masks
+  view  6:  62 masks
+  view  7:  72 masks
+  view  8:  84 masks
+  view  9: 141 masks
+  view 10: 141 masks
+  view 11: 120 masks
+  view 12: 105 masks
+  view 13: 180 masks
+  view 14:  36 masks
+  view 15: 114 masks
+  view 16:  65 masks
+  view 17: 113 masks
+  view 18:  44 masks
+  view 19:  54 masks
+5ee7c22ba0: 1761 instances in 20 views, 55s, peak GPU 2.15 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-vlm-qwen3827b-mt64_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 69038 ms
+=== 5ee7c22ba0 sam3 vlmprog-qwen3827b-mt64_views_n20_uniform_504.txt
+5ee7c22ba0: 20 views, 96 prompts, 96 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  61 masks
+  view  1:  48 masks
+  view  2:  64 masks
+  view  3:  68 masks
+  view  4:  47 masks
+  view  5:  40 masks
+  view  6:  51 masks
+  view  7:  62 masks
+  view  8:  72 masks
+  view  9:  99 masks
+  view 10:  99 masks
+  view 11:  94 masks
+  view 12: 106 masks
+  view 13: 129 masks
+  view 14:  34 masks
+  view 15:  93 masks
+  view 16:  60 masks
+  view 17:  77 masks
+  view 18:  38 masks
+  view 19:  38 masks
+5ee7c22ba0: 1380 instances in 20 views, 28s, peak GPU 2.14 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-vlmprog-qwen3827b-mt64_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 32575 ms
+=== 7b6477cb95 sam3 vlm-qwen3827b-mt64_views_n20_uniform_504.txt
+7b6477cb95: 20 views, 79 prompts, 79 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  61 masks
+  view  1: 116 masks
+  view  2:  66 masks
+  view  3: 111 masks
+  view  4:  68 masks
+  view  5:  90 masks
+  view  6:  81 masks
+  view  7:  60 masks
+  view  8:  71 masks
+  view  9:  94 masks
+  view 10:  96 masks
+  view 11:  69 masks
+  view 12:  79 masks
+  view 13:  21 masks
+  view 14: 124 masks
+  view 15: 126 masks
+  view 16: 103 masks
+  view 17: 122 masks
+  view 18: 125 masks
+  view 19:  72 masks
+7b6477cb95: 1755 instances in 20 views, 24s, peak GPU 2.13 GB -> data/processed/scannetpp/7b6477cb95/sam3image-vlm-qwen3827b-mt64_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 28043 ms
+=== 7b6477cb95 sam3 vlmprog-qwen3827b-mt64_views_n20_uniform_504.txt
+7b6477cb95: 20 views, 91 prompts, 91 classes
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+  view  0:  70 masks
+  view  1: 130 masks
+  view  2:  69 masks
+  view  3: 141 masks
+  view  4:  70 masks
+  view  5: 121 masks
+  view  6:  91 masks
+  view  7:  68 masks
+  view  8:  71 masks
+  view  9: 100 masks
+  view 10: 129 masks
+  view 11:  69 masks
+  view 12:  80 masks
+  view 13:  21 masks
+  view 14: 147 masks
+  view 15: 160 masks
+  view 16: 140 masks
+  view 17: 153 masks
+  view 18: 144 masks
+  view 19:  84 masks
+7b6477cb95: 2058 instances in 20 views, 27s, peak GPU 2.14 GB -> data/processed/scannetpp/7b6477cb95/sam3image-vlmprog-qwen3827b-mt64_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 31146 ms
+peak GPU memory used (nvidia-smi):  19478 MiB

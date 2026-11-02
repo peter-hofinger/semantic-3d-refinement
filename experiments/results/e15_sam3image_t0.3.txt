@@ -1,0 +1,12 @@
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+5ee7c22ba0: 20 views, 16 prompts, 16 classes
+5ee7c22ba0: 376 instances in 20 views, 60s, peak GPU 2.09 GB -> data\processed\scannetpp\5ee7c22ba0\sam3image-t0.3_views_n20_uniform_504.npz
+7b6477cb95: 20 views, 16 prompts, 16 classes
+7b6477cb95: 552 instances in 20 views, 52s, peak GPU 2.08 GB -> data\processed\scannetpp\7b6477cb95\sam3image-t0.3_views_n20_uniform_504.npz
+F:\Dev\TUM\Sem3\Generative AI Practical\semantic-3d-refinement\.venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+5ee7c22ba0: 20 views, 100 prompts, 100 classes
+5ee7c22ba0: 925 instances in 20 views, 262s, peak GPU 2.13 GB -> data\processed\scannetpp\5ee7c22ba0\sam3image-top100-t0.3_views_n20_uniform_504.npz
+7b6477cb95: 20 views, 100 prompts, 100 classes
+7b6477cb95: 1099 instances in 20 views, 259s, peak GPU 2.08 GB -> data\processed\scannetpp\7b6477cb95\sam3image-top100-t0.3_views_n20_uniform_504.npz

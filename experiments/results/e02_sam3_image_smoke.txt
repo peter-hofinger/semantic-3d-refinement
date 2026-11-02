@@ -1,0 +1,15 @@
+load: 8.3s, weights on GPU: 1.68 GB
+inference (12 prompts): 3.0s, peak GPU 2.10 GB
+  wall        3 found  scores 0.89 0.88 0.66
+  floor       0 found  scores 
+  ceiling     0 found  scores 
+  door        4 found  scores 0.61 0.97 0.57 0.65
+  window      0 found  scores 
+  table       1 found  scores 0.92
+  chair       4 found  scores 0.55 0.57 0.83 0.88
+  monitor     5 found  scores 0.85 0.91 0.93 0.93 0.90
+  keyboard    1 found  scores 0.96
+  cabinet     2 found  scores 0.81 0.70
+  bookshelf   0 found  scores 
+  whiteboard  1 found  scores 0.97
+figure -> experiments\figures

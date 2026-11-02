@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from semantic_3d_refinement.artifacts import (
+from src.analysis.artifacts import (
     SceneData,
     confidence,
     depth_edges,

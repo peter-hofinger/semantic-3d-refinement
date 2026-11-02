@@ -101,7 +101,7 @@ Fixed scenes, metrics, alignment and seeds; never tune on test scenes, and say s
 ## Visuals
 Robin: show visuals, tables and graphs every week; time belongs to ideation and direction, not implementation.
 - Everything that can be visualized is visualized, as PNG.
-  `uv run python -m semantic_3d_refinement.visualize --run runs/<run>` writes `figures/<run>/` with a README table.
+  `uv run python -m src.analysis.visualize --run runs/<run>` writes `figures/<run>/` with a README table.
 - Before and after side by side, on shared scales, with units and a caption that says what to look at.
 - Each figure README ends with findings that stand on their own, without this conversation.
 - Commit and push `figures/`; `runs/` and `data/` stay local.

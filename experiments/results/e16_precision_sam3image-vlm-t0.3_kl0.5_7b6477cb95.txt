@@ -1,0 +1,33 @@
+487 of 809 counted masks unmatched (precision 0.40)
+unmatched masks by predicted class:
+  cable              66
+  computer           48
+  cord               47
+  shelf              31
+  door               30
+  socket             26
+  blackboard         22
+  hook               20
+  cabinet            18
+  electrical outlet   17
+  wall outlet        14
+  pen                13
+  marker             12
+  lamp               12
+  pipe               12
+top (predicted class -> dominant GT class, >90% inside it or spanning):
+  computer         -> monitor            spans    35
+  cable            -> table              inside   22
+  cable            -> table              spans    22
+  door             -> storage cabinet    inside   21
+  socket           -> wall               inside   17
+  cord             -> table              inside   16
+  shelf            -> bookshelf          inside   16
+  cord             -> table              spans    13
+  blackboard       -> whiteboard         spans    11
+  cabinet          -> storage cabinet    inside   11
+  wall outlet      -> wall               inside   10
+  hook             -> wall               inside    9
+  electrical outlet -> wall               inside    8
+  door             -> storage cabinet    spans     7
+  shelf            -> bookshelf          spans     7
