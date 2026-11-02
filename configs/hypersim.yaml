@@ -1,0 +1,17 @@
+# Hypersim download and preprocessing. Paths are relative to the repo root.
+
+data_root: data/hypersim/raw            # raw Hypersim layout: <scene>/_detail, <scene>/images
+metadata_root: data/hypersim/metadata   # CSVs from github.com/apple/ml-hypersim (split, camera parameters)
+output_root: data/processed/hypersim    # preprocessed views and ground truth (.npz)
+
+# validation scenes of the official v1 split, pinhole cameras (no tilt-shift)
+scenes:
+  ai_015_001: cam_00   # kitchen
+  ai_047_009: cam_00   # conference room, many identical chairs
+  ai_052_001: cam_00   # restaurant, crowded, repeated chairs and tables
+
+prepare:
+  num_frames: 20       # 16 to 24
+  sampling: uniform    # uniform (over trajectory order) | farthest (spread camera positions)
+  long_side: 504       # Déjà View input size
+  patch_size: 14       # output width and height are multiples of this
