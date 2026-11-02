@@ -1,0 +1,31 @@
+# The joint refiner with all three semantic terms (multiview.SemanticConfig), weights as
+# in the "all three" variant of configs/eval_hypersim.yaml (chosen on Hypersim ai_047_009
+# only). run-pipeline ... --refiner joint --refine-config configs/refine_semantic.yaml
+refine:
+  lambda_d: 1.0
+  huber: 0.05
+  lambda_bd: 100.0
+  # E_n (BiNI's normal term on DSINE normals) gains 0.2 mm on the kitchen, costs on
+  # ETH3D, and needs DSINE (non-commercial licence, kept outside git): off by default.
+  # To enable: lambda_n: 0.005, edge_tol: 0.02 and dsine_repo below.
+  lambda_n: 0.0
+  lambda_delta: 10.0
+  edge_tol: 0.02
+  device: cuda   # falls back to the CPU without a GPU
+multiview:
+  lambda_mv: 1.0
+  mv_tol: 0.05     # log-depth gap above which overlapping pixels count as occluded
+  neighbors: 4     # views each view is matched with, the ones it overlaps most
+  gn_iters: 10     # Gauss-Newton steps of 20 CG iterations: 2.8 s for 20 views (RTX 3080)
+  cg_iters: 20
+  cg_tol: 0.001
+# dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25
+# Semantics in the energy (multiview.SemanticConfig), off by default. cut_boundaries:
+# E_bd only within one instance id (needs lambda_bd > 0); affine: per-segment a, b on
+# inverse depth (matters with lambda_delta > 0); same_segment: E_mv only between pixels
+# of one instance id. Studied in configs/eval_hypersim.yaml.
+semantic:
+  cut_boundaries: true
+  affine: true
+  same_segment: true
+  min_pixels: 100
