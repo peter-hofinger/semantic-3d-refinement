@@ -29,19 +29,22 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_bd: smoothing within segments only, so boundaries stay sharp.
 - E_pr: planarity for structural classes (wall, floor, table).
 
-Scope: monocular refinement of one view (`refine.py`), and joint refinement of all views of a scene with E_mv
-(`multiview.py`, no segments yet, solved by Gauss-Newton and CG).
+Scope: monocular refinement of one view (`src/refinement/monocular.py`), and joint refinement of all views of a
+scene with E_mv (`src/refinement/multiview.py`, no segments yet, solved by Gauss-Newton and CG). The joint
+refinement is the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
+Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end.
 
-Status: δ only (`refine.py`), no segments, no a or b; verified on a synthetic room with GT. `refine.py` also
+Status: δ only (`monocular.py`), no segments, no a or b; verified on a synthetic room with GT. `monocular.py` also
 takes BiNI's normal term E_n (log depth, cut on the prior's occlusion contours) under the same L-BFGS. On real data,
-Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0
-view 13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the
-normals of the result (patch grid, edges) and their angle to DSINE's. ScanNet++'s laser scans need a token we lack;
-ground truth comes from ETH3D office and kicker (`eth3d.py`, data CC BY-NC-SA, never committed): `evaluate.py`
-scores three views per scene by accuracy against the laser scan; `multiview.py` scores the fused cloud of all 20
-views (accuracy on 200k fixed pixels, thickness and normal angle on a 5 mm voxel grid). `artifacts.py` checks the
-proposal's named artifacts on the same data: bleeding, wavy planes and drift confirmed; textureless not confirmed;
-reflective not measurable with a laser scan; confidence only partly locates errors.
+Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0 view
+13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the normals of
+the result (patch grid, edges) and their angle to DSINE's. Ground truth comes from ETH3D office and kicker
+(`loaders/eth3d.py`, data CC BY-NC-SA, never committed): `depth.py` scores three views per scene by accuracy against
+the laser scan; `evaluation/geometry.py` scores the fused cloud of all 20 views (accuracy on 200k fixed pixels,
+thickness and normal angle on a 5 mm voxel grid), now also on the ScanNet++ kitchen through Mircea's rendered GT.
+`analysis/artifacts.py` checks the proposal's named artifacts on the same data: bleeding, wavy planes and drift
+confirmed; textureless not confirmed; reflective not measurable with a laser scan; confidence only partly locates
+errors.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
@@ -55,13 +58,15 @@ reflective not measurable with a laser scan; confidence only partly locates erro
 
 ## Commands
 - `uv sync --all-groups` · `uv add <pkg>` · `uv run <cmd>`. Never pip, never bare `python`.
-- `uv run python -m semantic_3d_refinement.<entry> --cfg configs/<name>.yaml`
+- `uv run python -m src.<package>.<entry> --cfg configs/<name>.yaml` (refinement studies; see each module's docstring)
+- `uv run run-pipeline <views> --geometry <dejaview npz> --segmenter sam3 --refiner joint`; `uv run eval-geometry`
 - `uv run pytest -q` · `uv run ruff check --fix && uv run ruff format`
 
 ## Code
 - Minimal and dense, from first principles. Fewer files, fewer abstractions; delete before adding.
 - Design by contract: assert shapes, dtypes, ranges and finiteness on entry and before return.
-- Type hints everywhere, enforced at runtime by `beartype_this_package()` in `__init__.py`.
+- Type hints everywhere, enforced at runtime for the refinement modules by `beartype_packages` in `src/__init__.py`
+  (the teammates' stages import annotation types under TYPE_CHECKING, which beartype cannot resolve).
 - Module docstrings state the idea, the equation and the paper it comes from; function docstrings state the
   contract in one line. No other comments except ones that structure code; names carry meaning.
 - No dead code, no commented-out code, no TODOs, no debug prints. Ruff `ALL` stays clean; every `noqa` names
