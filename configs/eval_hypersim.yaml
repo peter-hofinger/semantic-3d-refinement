@@ -11,30 +11,40 @@ backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3
 classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
 refine: configs/refine.yaml          # base weights and solver budget of every variant
-# Weights of the semantic variants: lambda_bd as in the ETH3D study (eval_multiview),
-# lambda_delta = 1 set before any run; both are tuned in eval_hypersim_tuning.yaml.
+# Weights from the coarse grid on the conference room only (eval_hypersim_tuning.yaml):
+# no setting beat Déjà View there; within each kind the one closest to it was taken
+# (lambda_bd 100 with cuts, lambda_delta 10). Kitchen and restaurant are held out.
 variants:
   - name: Déjà View
     refiner: none
   - name: E_d + E_mv
   - name: + E_bd
-    refine: {lambda_bd: 10.0}
+    refine: {lambda_bd: 100.0}
   - name: + E_bd cut at masks
-    refine: {lambda_bd: 10.0}
+    refine: {lambda_bd: 100.0}
     semantic: {cut_boundaries: true}
-  - name: + a, b
-    refine: {lambda_delta: 1.0}
+  - name: + λ_δ (no a, b)
+    refine: {lambda_delta: 10.0}
+  - name: + λ_δ + a, b
+    refine: {lambda_delta: 10.0}
     semantic: {affine: true}
-  - name: + E_bd cut + a, b
-    refine: {lambda_bd: 10.0, lambda_delta: 1.0}
-    semantic: {cut_boundaries: true, affine: true}
-  - name: + E_bd cut + a, b, shuffled masks
-    refine: {lambda_bd: 10.0, lambda_delta: 1.0}
-    semantic: {cut_boundaries: true, affine: true}
+  - name: + E_mv same segment
+    semantic: {same_segment: true}
+  - name: all three
+    refine: {lambda_bd: 100.0, lambda_delta: 10.0}
+    semantic: {cut_boundaries: true, affine: true, same_segment: true}
+  - name: all three, shuffled masks
+    refine: {lambda_bd: 100.0, lambda_delta: 10.0}
+    semantic: {cut_boundaries: true, affine: true, same_segment: true}
     masks: shuffled
-  - name: + E_bd cut + a, b, GT masks
-    refine: {lambda_bd: 10.0, lambda_delta: 1.0}
-    semantic: {cut_boundaries: true, affine: true}
+  - name: all three, GT masks
+    refine: {lambda_bd: 100.0, lambda_delta: 10.0}
+    semantic: {cut_boundaries: true, affine: true, same_segment: true}
     masks: gt
+  - name: Déjà View, GT cameras
+    refiner: none
+    cameras: gt
+  - name: E_d + E_mv, GT cameras
+    cameras: gt
   - name: GT geometry
     geometry: gt
