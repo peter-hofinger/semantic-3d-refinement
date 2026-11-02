@@ -1,4 +1,4 @@
-"""Artifact measurements: occlusion edges, plane fits, RANSAC, texture and the sparsification curve."""
+"""Artifact measurements: occlusion edges, planes, RANSAC, texture, sparsification."""
 
 import numpy as np
 import torch
@@ -40,7 +40,11 @@ def test_ransac_finds_the_planes_of_a_corner() -> None:
 
 def test_texture_is_zero_on_flat_images_and_positive_on_a_checkerboard() -> None:
     flat = np.full((1, 20, 20, 3), 120, dtype=np.uint8)
-    board = (255 * ((np.indices((20, 20)).sum(0) % 2)[None, ..., None])).repeat(3, -1).astype(np.uint8)
+    board = (
+        (255 * ((np.indices((20, 20)).sum(0) % 2)[None, ..., None]))
+        .repeat(3, -1)
+        .astype(np.uint8)
+    )
     assert texture(flat, 7).max() < 1e-6 and texture(board, 7)[0, 10, 10] > 0.4
 
 
@@ -49,7 +53,19 @@ def test_sparsification_by_a_perfect_confidence_is_the_oracle() -> None:
     gt = rng.uniform(1, 3, size=(1, 30, 40))
     pred = gt * np.exp(rng.normal(scale=0.05, size=gt.shape))
     blank = np.zeros(0)
-    data = SceneData(blank, gt, pred, -np.abs(np.log(pred / gt)), blank, blank, blank, blank, blank, blank, blank)
+    data = SceneData(
+        blank,
+        gt,
+        pred,
+        -np.abs(np.log(pred / gt)),
+        blank,
+        blank,
+        blank,
+        blank,
+        blank,
+        blank,
+        blank,
+    )
     summary, arrays = confidence(data)
     np.testing.assert_allclose(arrays["by_conf"], arrays["oracle"])
     assert np.isclose(arrays["by_conf"][0], np.abs(np.log(pred / gt)).mean())

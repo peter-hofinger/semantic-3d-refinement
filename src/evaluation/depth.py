@@ -1,14 +1,16 @@
 """Accuracy of refined monocular depth against a laser scan (ETH3D, `eth3d.py`).
 
-Per view, the scan z-buffered into the calibrated camera gives a ground-truth depth D_gt wherever a scan point lands.
-Each depth map is aligned by one scale, s = median(D_gt / D) over those pixels (monocular depth is known up to scale),
-lifted through the calibrated camera, X = cam_to_world · s D K⁻¹ (u + ½, v + ½, 1), and scored by each point's distance
-to its nearest scan point: accuracy as in ETH3D's benchmark (Schöps et al. 2017), the fraction within τ, plus the mean
-and median. Completeness is not measured, since three views see only part of the scan.
+Per view, the scan z-buffered into the calibrated camera gives a ground-truth depth D_gt
+wherever a scan point lands. Each depth map is aligned by one scale, s = median(D_gt /
+D) over those pixels (monocular depth is known up to scale), lifted through the
+calibrated camera, X = cam_to_world · s D K⁻¹ (u + ½, v + ½, 1), and scored by each
+point's distance to its nearest scan point: accuracy as in ETH3D's benchmark (Schöps et
+al. 2017), the fraction within τ, plus the mean and median. Completeness is not
+measured, since three views see only part of the scan.
 
-The refinement never sees the calibration: its rays are the pinhole fitted to Déjà View's (`rays: pinhole`), along
-which D is z-depth. Lifting through the true camera keeps any focal error of Déjà View in the score, the same for
-every variant.
+The refinement never sees the calibration: its rays are the pinhole fitted to Déjà
+View's (`rays: pinhole`), along which D is z-depth. Lifting through the true camera
+keeps any focal error of Déjà View in the score, the same for every variant.
 """
 
 import argparse
@@ -27,8 +29,10 @@ from src.refinement.monocular import RefineConfig, run_ablation
 from src.refinement.normals import BiniConfig, predicted_normals
 
 
-def scan_depth(points: Tensor, k: Tensor, cam_to_world: Tensor, h: int, w: int) -> Tensor:
-    """Depth of the nearest scan point per pixel (a z-buffer), 0 where none lands; pixel centers at +0.5."""
+def scan_depth(
+    points: Tensor, k: Tensor, cam_to_world: Tensor, h: int, w: int
+) -> Tensor:
+    """Z-buffer of the scan per pixel (centers at +0.5), 0 where no point lands."""
     assert points.ndim == 2 and points.shape[1] == 3, points.shape  # noqa: PLR2004
     world_to_cam, k = torch.linalg.inv(cam_to_world.double()).to(points), k.to(points)
     p = points @ world_to_cam[:3, :3].T + world_to_cam[:3, 3]
@@ -37,7 +41,9 @@ def scan_depth(points: Tensor, k: Tensor, cam_to_world: Tensor, h: int, w: int) 
     col, row = uv[:, 0].floor().long(), uv[:, 1].floor().long()
     inside = (col >= 0) & (col < w) & (row >= 0) & (row < h)
     depth = torch.full((h * w,), torch.inf, dtype=p.dtype, device=p.device)
-    depth = depth.scatter_reduce(0, (row * w + col)[inside], p[inside, 2], reduce="amin")
+    depth = depth.scatter_reduce(
+        0, (row * w + col)[inside], p[inside, 2], reduce="amin"
+    )
     depth = torch.where(depth.isinf(), 0, depth).reshape(h, w)
     assert depth.isfinite().all() and (depth >= 0).all()
     return depth
@@ -52,7 +58,7 @@ def lift(depth: np.ndarray, k: np.ndarray, cam_to_world: np.ndarray) -> np.ndarr
 
 
 def accuracy(dist: np.ndarray, tolerances_cm: list[int | float]) -> dict[str, float]:
-    """Mean and median distance in cm, and the fraction of points within each tolerance."""
+    """Mean and median distance in cm, and the fraction within each tolerance."""
     assert dist.ndim == 1 and dist.size > 0 and np.isfinite(dist).all(), dist.shape
     cm = 100 * dist
     return {"mean_cm": float(cm.mean()), "median_cm": float(np.median(cm))} | {
@@ -61,9 +67,13 @@ def accuracy(dist: np.ndarray, tolerances_cm: list[int | float]) -> dict[str, fl
 
 
 def score(
-    depth: np.ndarray, gt_depth: np.ndarray, k: np.ndarray, cam_to_world: np.ndarray, tree: cKDTree
+    depth: np.ndarray,
+    gt_depth: np.ndarray,
+    k: np.ndarray,
+    cam_to_world: np.ndarray,
+    tree: cKDTree,
 ) -> tuple[np.ndarray, float]:
-    """Distance to the scan per pixel (NaN where the scan saw nothing) after median scaling; and the scale."""
+    """Distance to the scan per pixel after median scaling (NaN: unseen); scale."""
     valid = gt_depth > 0
     assert valid.mean() > 0.1, valid.mean()  # noqa: PLR2004
     scale = float(np.median(gt_depth[valid] / depth[valid]))
@@ -75,14 +85,22 @@ def score(
 def evaluate_view(
     raw: dict, cfg: RefineConfig, bini_cfg: BiniConfig, scan: tuple[cKDTree, Tensor]
 ) -> tuple[dict, dict[str, np.ndarray]]:
-    """Refine one view under every variant and score each against the scan; return the record and its arrays."""
+    """Refine one view per variant and score each against the scan."""
     tree, points = scan
     view, cams = raw["view"], np.load(raw["gt_views"])
     data = {key: v.to(points.device) for key, v in view_from_config(raw).items()}
     data["normals"], info = predicted_normals(raw, data)
     variants = run_ablation(data, cfg, raw["variants"], bini_cfg)
-    k, c2w = cams["intrinsics"][view].astype(np.float64), cams["cam_to_world"][view].astype(np.float64)
-    gt = scan_depth(points, torch.from_numpy(k).to(points), torch.from_numpy(c2w).to(points), *data["depth"].shape)
+    k, c2w = (
+        cams["intrinsics"][view].astype(np.float64),
+        cams["cam_to_world"][view].astype(np.float64),
+    )
+    gt = scan_depth(
+        points,
+        torch.from_numpy(k).to(points),
+        torch.from_numpy(c2w).to(points),
+        *data["depth"].shape,
+    )
     gt = gt.cpu().numpy().astype(np.float64)
     fitted = np.load(raw["input"])["intrinsics"][view]
     record = {
@@ -97,21 +115,29 @@ def evaluate_view(
     for i, v in enumerate(variants):
         dist, scale = score(v.depth.astype(np.float64), gt, k, c2w, tree)
         arrays |= {f"{i}_depth": v.depth, f"{i}_dist": dist.astype(np.float32)}
-        record["variants"].append({
-            "label": v.label, "evaluations": v.evaluations, "seconds": v.seconds, "scale": scale,
-            **v.metrics, **accuracy(dist[np.isfinite(dist)], raw["tolerances_cm"]),
-        })  # fmt: skip
+        record["variants"].append(
+            {
+                "label": v.label,
+                "evaluations": v.evaluations,
+                "seconds": v.seconds,
+                "scale": scale,
+                **v.metrics,
+                **accuracy(dist[np.isfinite(dist)], raw["tolerances_cm"]),
+            }
+        )
     return record, arrays
 
 
 def main() -> None:
-    """Refine and score every configured view: `uv run python -m src.evaluation.depth --cfg <cfg>`."""
+    """Refine and score: `uv run python -m src.evaluation.depth --cfg <cfg>`."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
     cfg_path: Path = parser.parse_args().cfg
     raw = yaml.safe_load(cfg_path.read_text())
     cfg = RefineConfig(**raw["refine"])
-    device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu"
+    )
     cfg = dataclasses.replace(cfg, device=device.type)
     bini_cfg = BiniConfig(**{**raw["bini"], "device": device.type})
 
@@ -124,14 +150,28 @@ def main() -> None:
         tree, scan_gpu = cKDTree(scan), torch.from_numpy(scan).to(device)
         tree_seconds = time.perf_counter() - t0
         for view in raw["views"]:
-            record, view_arrays = evaluate_view({**raw, **paths, "view": view}, cfg, bini_cfg, (tree, scan_gpu))
+            record, view_arrays = evaluate_view(
+                {**raw, **paths, "view": view}, cfg, bini_cfg, (tree, scan_gpu)
+            )
             record["scan_tree_seconds"] = tree_seconds
             views.append({"scene": scene, **record})
             arrays |= {f"{scene}_{view}_{k}": v for k, v in view_arrays.items()}
-            print(f"{scene} {view}: " + ", ".join(f"{r['label']} {r['median_cm']:.2f}" for r in record["variants"]))  # noqa: T201
+            print(  # noqa: T201
+                f"{scene} {view}: "
+                + ", ".join(
+                    f"{r['label']} {r['median_cm']:.2f}" for r in record["variants"]
+                )
+            )
 
-    summary = {"config": raw, "resolved": dataclasses.asdict(cfg), "git": git_hash(), "views": views}
-    (out / "run.yaml").write_text(yaml.safe_dump(summary, sort_keys=False, allow_unicode=True))
+    summary = {
+        "config": raw,
+        "resolved": dataclasses.asdict(cfg),
+        "git": git_hash(),
+        "views": views,
+    }
+    (out / "run.yaml").write_text(
+        yaml.safe_dump(summary, sort_keys=False, allow_unicode=True)
+    )
     np.savez_compressed(out / "results.npz", **arrays)
     print(f"wrote {out}")  # noqa: T201
 

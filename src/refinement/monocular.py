@@ -1,18 +1,21 @@
-"""Monocular variational refinement of one depth map: a dense residual δ on normalized inverse depth, by L-BFGS.
+"""Variational refinement of one depth map: a residual δ on inverse depth, by L-BFGS.
 
-  d = d0 + δ,   d0 = median(D0) / D0,   z = -log d (log depth up to a constant),   D = median(D0) / d
+  d = d0 + δ,   d0 = median(D0) / D0,   D = median(D0) / d,
+  z = -log d (log depth up to a constant)
 
   E(δ) = λ_d E_d + λ_bd E_bd + λ_n E_n + λ_δ ‖δ‖²,   each a mean over pixels:
 
 - E_d = conf-weighted Huber(δ): anchor to the prediction.
-- E_bd = d_xx² + d_yy² + 2 d_xy²: thin-plate bending energy on inverse depth, zero on every plane, since a plane's
-  inverse depth is affine in pixel coordinates.
-- E_n: BiNI's normal term (Cao et al. 2022, as in `normals.py`) on log depth, where a normal fixes the slope
-  independently of the plane's distance: on each edge (p, q), w+ (a_p dz + g_p)² + w- (a_q dz + g_q)².
+- E_bd = d_xx² + d_yy² + 2 d_xy²: thin-plate bending energy on inverse depth, zero on
+  every plane, since a plane's inverse depth is affine in pixel coordinates.
+- E_n: BiNI's normal term (Cao et al. 2022, as in `normals.py`) on log depth, where a
+  normal fixes the slope independently of the plane's distance: on each edge (p, q), w+
+  (a_p dz + g_p)² + w- (a_q dz + g_q)².
 
-With normals given, edges crossing the prior's occlusion contours (`normals.cut_weights`) are cut from both E_n
-and E_bd. Unlike BiNI, which alternates its weights with a CG solve of a quadratic, the weights stay fixed, so
-E is one smooth energy and the robust data term costs nothing extra.
+With normals given, edges crossing the prior's occlusion contours
+(`normals.cut_weights`) are cut from both E_n and E_bd. Unlike BiNI, which alternates
+its weights with a CG solve of a quadratic, the weights stay fixed, so E is one smooth
+energy and the robust data term costs nothing extra.
 """
 
 import argparse
@@ -42,7 +45,7 @@ from src.refinement.normals import (
 
 @dataclass(frozen=True)
 class RefineConfig:
-    """Energy weights and solver settings; inverse depth is normalized by the median depth."""
+    """Energy weights and solver settings; inverse depth is normalized by its median."""
 
     iters: int = 200
     huber: float = 0.05
@@ -58,7 +61,12 @@ class RefineConfig:
         """Check ranges."""
         assert self.iters >= 0
         assert self.huber > 0
-        assert self.lambda_d >= 0 and self.lambda_bd >= 0 and self.lambda_n >= 0 and self.lambda_delta >= 0
+        assert (
+            self.lambda_d >= 0
+            and self.lambda_bd >= 0
+            and self.lambda_n >= 0
+            and self.lambda_delta >= 0
+        )
         assert self.edge_tol > 0
         assert self.history_size > 0
 
@@ -69,7 +77,7 @@ def points_from_rays(depth: Tensor, rays: Tensor) -> Tensor:
 
 
 def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Return d_xx, d_yy, d_xy; all vanish where d is affine in pixel coordinates (planes)."""
+    """Return d_xx, d_yy, d_xy; all vanish where d is affine in pixels (planes)."""
     dxx = d[:, 2:] - 2 * d[:, 1:-1] + d[:, :-2]
     dyy = d[2:] - 2 * d[1:-1] + d[:-2]
     dxy = d[1:, 1:] - d[1:, :-1] - d[:-1, 1:] + d[:-1, :-1]
@@ -78,14 +86,19 @@ def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
 
 @dataclass(frozen=True)
 class NormalTerm:
-    """Per axis (x, y), BiNI's edge coefficients (a_p, g_p, a_q, g_q) and the weights (w+, w-), 0 on cut edges."""
+    """Per axis, BiNI's coefficients (a_p, g_p, a_q, g_q) and weights (w+, w-).
+
+    The weights are 0 on cut edges.
+    """
 
     terms: list[tuple[Tensor, Tensor, Tensor, Tensor]]
     weights: list[tuple[Tensor, Tensor]]
 
 
-def normal_term(normals: Tensor, rays: Tensor, d0: Tensor, edge_tol: float) -> NormalTerm:
-    """BiNI's residuals for the given normals, cut on the occlusion contours of the prior d0 (tol in log depth)."""
+def normal_term(
+    normals: Tensor, rays: Tensor, d0: Tensor, edge_tol: float
+) -> NormalTerm:
+    """BiNI's residuals for the normals, cut on d0's occlusion contours (tol: log)."""
     h, w = d0.shape
     assert normals.shape == (h, w, 3) and normals.isfinite().all(), normals.shape
     assert ((normals.norm(dim=-1) - 1).abs() < 1e-3).all()  # noqa: PLR2004
@@ -101,23 +114,35 @@ LOG_KEYS = ("E", "E_d", "E_bd", "E_n", "E_delta")
 
 
 def normalize(depth: Tensor, conf: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Median depth scale, normalized inverse depth d0 = scale / depth, and mean-one confidence weights."""
+    """Median depth scale, d0 = scale / depth, and mean-one confidence weights."""
     scale = depth.median()
     return scale, scale / depth, conf / conf.mean()
 
 
 def term_weights(cfg: RefineConfig) -> dict[str, float]:
     """Weight of each energy term in E."""
-    return {"E_d": cfg.lambda_d, "E_bd": cfg.lambda_bd, "E_n": cfg.lambda_n, "E_delta": cfg.lambda_delta}
+    return {
+        "E_d": cfg.lambda_d,
+        "E_bd": cfg.lambda_bd,
+        "E_n": cfg.lambda_n,
+        "E_delta": cfg.lambda_delta,
+    }
 
 
 def energy_maps(
-    delta: Tensor, d0: Tensor, w: Tensor, cfg: RefineConfig, normal: NormalTerm | None = None
+    delta: Tensor,
+    d0: Tensor,
+    w: Tensor,
+    cfg: RefineConfig,
+    normal: NormalTerm | None = None,
 ) -> dict[str, Tensor]:
-    """Unweighted per-pixel cost of each term (an edge's on its upper-left pixel); their means are the terms of E.
+    """Unweighted per-pixel cost of each term; their means are the terms of E.
 
-    A second difference whose stencil crosses a cut edge is dropped. Log depth clamps d at 1e-6, so a line-search
-    trial step past d = 0 costs a lot instead of returning NaN.
+    An edge's cost sits on its upper-left pixel.
+
+    A second difference whose stencil crosses a cut edge is dropped. Log depth clamps d
+    at 1e-6, so a line-search trial step past d = 0 costs a lot instead of returning
+    NaN.
     """
     d = d0 + delta
     dxx, dyy, dxy = second_differences(d)
@@ -130,10 +155,19 @@ def energy_maps(
         for (af, gf, ab, gb), (wf, wb), dz, pad in zip(
             normal.terms, normal.weights, diffs(z), ((0, 1), (0, 0, 0, 1)), strict=True
         ):
-            normal_cost = normal_cost + F.pad(wf * (af * dz + gf).square() + wb * (ab * dz + gb).square(), pad)
-    smooth = F.pad(dxx.square(), (1, 1)) + F.pad(dyy.square(), (0, 0, 1, 1)) + 2 * F.pad(dxy.square(), (0, 1, 0, 1))
+            normal_cost = normal_cost + F.pad(
+                wf * (af * dz + gf).square() + wb * (ab * dz + gb).square(), pad
+            )
+    smooth = (
+        F.pad(dxx.square(), (1, 1))
+        + F.pad(dyy.square(), (0, 0, 1, 1))
+        + 2 * F.pad(dxy.square(), (0, 1, 0, 1))
+    )
     return {
-        "E_d": w * F.huber_loss(delta, torch.zeros_like(delta), reduction="none", delta=cfg.huber),
+        "E_d": w
+        * F.huber_loss(
+            delta, torch.zeros_like(delta), reduction="none", delta=cfg.huber
+        ),
         "E_bd": smooth,
         "E_n": normal_cost,
         "E_delta": delta.square(),
@@ -141,9 +175,13 @@ def energy_maps(
 
 
 def energy(
-    delta: Tensor, d0: Tensor, w: Tensor, cfg: RefineConfig, normal: NormalTerm | None = None
+    delta: Tensor,
+    d0: Tensor,
+    w: Tensor,
+    cfg: RefineConfig,
+    normal: NormalTerm | None = None,
 ) -> tuple[Tensor, dict[str, float]]:
-    """E = lambda_d E_d + lambda_bd E_bd + lambda_n E_n + lambda_delta ||delta||^2, each a per-pixel mean."""
+    """E = λ_d E_d + λ_bd E_bd + λ_n E_n + λ_δ ||δ||², each a per-pixel mean."""
     terms = {k: v.mean() for k, v in energy_maps(delta, d0, w, cfg, normal).items()}
     e = sum(term_weights(cfg)[k] * terms[k] for k in terms)
     assert isinstance(e, Tensor) and e.isfinite(), e
@@ -157,9 +195,10 @@ def refine(
     cfg: RefineConfig,
     normals: Tensor | None = None,
 ) -> tuple[Tensor, Tensor, Tensor, list[dict[str, float]]]:
-    """Optimize the dense residual delta on normalized inverse depth; return depth, points, delta, energy log.
+    """Optimize the residual δ on inverse depth; return depth, points, δ, energy log.
 
-    Normals (unit, in the frame of the rays) enable E_n and cut E_bd on the prior's occlusion contours.
+    Normals (unit, in the frame of the rays) enable E_n and cut E_bd on the prior's
+    occlusion contours.
     """
     check_inputs(depth, rays, conf)
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
@@ -193,7 +232,11 @@ def refine(
 
     depth_hat = depth / (1 + delta * depth / scale)
     points = points_from_rays(depth_hat, rays)
-    assert depth_hat.shape == depth.shape and depth_hat.isfinite().all() and (depth_hat > 0).all()
+    assert (
+        depth_hat.shape == depth.shape
+        and depth_hat.isfinite().all()
+        and (depth_hat > 0).all()
+    )
     assert points.shape == (*depth.shape, 3) and points.isfinite().all()
     assert log[-1]["E"] <= log[0]["E"] + 1e-6, (log[0], log[-1])
     return depth_hat, points, delta, log
@@ -201,15 +244,19 @@ def refine(
 
 def depth_metrics(depth: Tensor, rays: Tensor, gt_depth: Tensor) -> dict[str, float]:
     """Sanity metrics against a known ground truth (synthetic scenes only)."""
-    err = (points_from_rays(depth, rays) - points_from_rays(gt_depth, rays)).norm(dim=-1)
+    err = (points_from_rays(depth, rays) - points_from_rays(gt_depth, rays)).norm(
+        dim=-1
+    )
     return {
         "abs_rel": ((depth - gt_depth).abs() / gt_depth).mean().item(),
         "point_rmse": err.square().mean().sqrt().item(),
     }
 
 
-def view_metrics(depth_hat: Tensor, data: dict[str, Tensor], normals: Tensor | None) -> dict[str, float]:
-    """Drift from the input, angle to the given normals, and the error against ground truth where it is known."""
+def view_metrics(
+    depth_hat: Tensor, data: dict[str, Tensor], normals: Tensor | None
+) -> dict[str, float]:
+    """Drift from the input, angle to the normals, error against known truth."""
     depth, rays = data["depth"], data["rays"]
     out = {"drift_pct": drift(depth_hat, depth)}
     if normals is not None:
@@ -237,27 +284,44 @@ class Variant:
     seconds: float
 
 
-def timed_refine(data: dict[str, torch.Tensor], cfg: RefineConfig) -> tuple[torch.Tensor, int, float]:
+def timed_refine(
+    data: dict[str, torch.Tensor], cfg: RefineConfig
+) -> tuple[torch.Tensor, int, float]:
     """Refine the run's view; return depth, function evaluations, seconds."""
     t0 = time.perf_counter()
-    depth_hat, _, _, log = refine(data["depth"], data["rays"], data["conf"], cfg, data.get("normals"))
+    depth_hat, _, _, log = refine(
+        data["depth"], data["rays"], data["conf"], cfg, data.get("normals")
+    )
     if depth_hat.is_cuda:
         torch.cuda.synchronize()
     return depth_hat, len(log) - 1, time.perf_counter() - t0
 
 
 def run_ablation(
-    data: dict[str, torch.Tensor], cfg: RefineConfig, overrides: list[dict], bini_cfg: BiniConfig | None
+    data: dict[str, torch.Tensor],
+    cfg: RefineConfig,
+    overrides: list[dict],
+    bini_cfg: BiniConfig | None,
 ) -> list[Variant]:
-    """Refine once per override of the run's config, then BiNI's CG on the same normals; untimed warm-up first."""
+    """Refine once per config override, then BiNI's CG on the same normals.
+
+    An untimed warm-up runs first.
+    """
     timed_refine(data, dataclasses.replace(cfg, iters=1))
     variants = []
     for o in overrides:
         c = dataclasses.replace(cfg, **o)
         depth_hat, evals, seconds = timed_refine(data, c)
         label = variant_label(c) + (" (= input)" if variant_label(c) == "E_d" else "")
-        variants.append(Variant(label, depth_hat.cpu().numpy(), view_metrics(depth_hat, data, data.get("normals")),
-                                evals, seconds))  # fmt: skip
+        variants.append(
+            Variant(
+                label,
+                depth_hat.cpu().numpy(),
+                view_metrics(depth_hat, data, data.get("normals")),
+                evals,
+                seconds,
+            )
+        )
     if bini_cfg is not None:
         t0 = time.perf_counter()
         depth_hat, _, log = bini(data["normals"], data["rays"], data["depth"], bini_cfg)
@@ -265,22 +329,34 @@ def run_ablation(
             torch.cuda.synchronize()
         label = f"BiNI CG, λ_depth = {bini_cfg.lambda_depth:g}"
         metrics = view_metrics(depth_hat, data, data["normals"])
-        variants.append(Variant(label, depth_hat.cpu().numpy(), metrics, len(log) - 1, time.perf_counter() - t0))
+        variants.append(
+            Variant(
+                label,
+                depth_hat.cpu().numpy(),
+                metrics,
+                len(log) - 1,
+                time.perf_counter() - t0,
+            )
+        )
     return variants
 
 
 def main() -> None:
-    """Refine one cached view: `uv run python -m src.refinement.monocular --cfg configs/<name>.yaml`."""
+    """Refine one view: `uv run python -m src.refinement.monocular --cfg <cfg>`."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
     cfg_path: Path = parser.parse_args().cfg
     raw = yaml.safe_load(cfg_path.read_text())
     cfg = RefineConfig(**raw["refine"])
-    device = torch.device(cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu"
+    )
 
     data = {k: v.to(device) for k, v in view_from_config(raw).items()}
     depth, rays = data["depth"], data["rays"]
-    normals, normals_info = predicted_normals(raw, data) if "normals" in raw else (None, {})
+    normals, normals_info = (
+        predicted_normals(raw, data) if "normals" in raw else (None, {})
+    )
 
     t0 = time.perf_counter()
     depth_hat, points, delta, log = refine(depth, rays, data["conf"], cfg, normals)
@@ -310,7 +386,9 @@ def main() -> None:
         energy=np.array([[e[k] for k in LOG_KEYS] for e in log]),
         **({} if normals is None else {"normals": normals.cpu().numpy()}),
     )
-    write_ply(out / "input.ply", points_from_rays(depth, rays).reshape(-1, 3).cpu().numpy())
+    write_ply(
+        out / "input.ply", points_from_rays(depth, rays).reshape(-1, 3).cpu().numpy()
+    )
     write_ply(out / "refined.ply", points.reshape(-1, 3).cpu().numpy())
     print(yaml.safe_dump(summary, sort_keys=False))  # noqa: T201
     print(f"wrote {out}")  # noqa: T201

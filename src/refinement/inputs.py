@@ -21,14 +21,17 @@ def check_inputs(depth: Tensor, rays: Tensor, conf: Tensor) -> None:
     assert conf.isfinite().all() and (conf >= 0).all() and (conf > 0).any()
 
 
-def fit_pinhole(rays: np.ndarray, rotation: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Replace a predicted ray map by the pinhole that fits it best, keeping the camera's center and rotation.
+def fit_pinhole(
+    rays: np.ndarray, rotation: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replace a ray map by its best-fitting pinhole, same camera center and rotation.
 
-    Least squares for fx, cx and fy, cy on the camera-frame directions; the directions keep unit z in the camera.
-    Returns the rays and K, which maps camera coordinates to pixel indices (pixel centers at integers).
-    Déjà View's rays deviate from it by 0.6-0.9 px (median) on ScanNet++, in patch-sized steps that show as a 14 px
-    grid in every normal map lifted through them, and by up to 2.7 px on ETH3D office (1.8 px even with a free
-    rotation, so the rays themselves are less pinhole-like there).
+    Least squares for fx, cx and fy, cy on the camera-frame directions; the directions
+    keep unit z in the camera. Returns the rays and K, which maps camera coordinates to
+    pixel indices (pixel centers at integers). Déjà View's rays deviate from it by
+    0.6-0.9 px (median) on ScanNet++, in patch-sized steps that show as a 14 px grid in
+    every normal map lifted through them, and by up to 2.7 px on ETH3D office (1.8 px
+    even with a free rotation, so the rays themselves are less pinhole-like there).
     """
     h, w = rays.shape[:2]
     d = rays[..., 3:] @ rotation
@@ -38,31 +41,48 @@ def fit_pinhole(rays: np.ndarray, rotation: np.ndarray) -> tuple[np.ndarray, np.
     fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
     residual = np.hypot(fx * x + cx - u, fy * y + cy - v)
     assert np.median(residual) < 3, np.median(residual)  # noqa: PLR2004
-    dirs = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
+    dirs = (
+        np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
+    )
     origin = np.broadcast_to(rays[..., :3].reshape(-1, 3).mean(0), dirs.shape)
     k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     return np.concatenate([origin, dirs], axis=-1), k
 
 
-def load_view(path: Path, view: int | None = None, rays: str = "predicted") -> dict[str, Tensor]:
-    """Load one cached view as (H, W[, C]) float tensors: depth, rays, conf, and gt_depth when known.
+def load_view(
+    path: Path, view: int | None = None, rays: str = "predicted"
+) -> dict[str, Tensor]:
+    """Load one cached view as (H, W[, C]) tensors: depth, rays, conf, gt_depth.
 
-    Accepts the synthetic single-view format and the Déjà View export (ray_origins, ray_directions, confidence),
-    from which `view` picks one frame. rays = "pinhole" replaces its ray map by the best-fitting pinhole.
+    gt_depth only where it is known.
+
+    Accepts the synthetic single-view format and the Déjà View export (ray_origins,
+    ray_directions, confidence), from which `view` picks one frame. rays = "pinhole"
+    replaces its ray map by the best-fitting pinhole.
     """
     assert rays in {"predicted", "pinhole"}, rays
     data = dict(np.load(path))
     if "ray_origins" in data:
-        assert view is not None, "a Déjà View export holds several frames; set `view` in the config"
-        ray_map = np.concatenate([data["ray_origins"][view], data["ray_directions"][view]], axis=-1)
+        assert view is not None, (
+            "a Déjà View export holds several frames; set `view` in the config"
+        )
+        ray_map = np.concatenate(
+            [data["ray_origins"][view], data["ray_directions"][view]], axis=-1
+        )
         if rays == "pinhole":
             rotation = data["cam_to_world"][view, :3, :3].astype(np.float64)
             ray_map, _ = fit_pinhole(ray_map.astype(np.float64), rotation)
-        data = {"depth": data["depth"][view], "rays": ray_map, "conf": data["confidence"][view]}
+        data = {
+            "depth": data["depth"][view],
+            "rays": ray_map,
+            "conf": data["confidence"][view],
+        }
     else:
         assert rays == "predicted", "synthetic scenes are already pinhole"
     data.setdefault("conf", np.ones_like(data["depth"]))
-    out = {k: torch.from_numpy(np.ascontiguousarray(v)).float() for k, v in data.items()}
+    out = {
+        k: torch.from_numpy(np.ascontiguousarray(v)).float() for k, v in data.items()
+    }
     check_inputs(out["depth"], out["rays"], out["conf"])
     return out
 
@@ -84,6 +104,16 @@ def write_ply(path: Path, points: np.ndarray) -> None:
 
 def git_hash() -> str:
     """Return HEAD, marked dirty if the tree has uncommitted changes."""
-    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
-    dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
     return head + ("-dirty" if dirty else "")

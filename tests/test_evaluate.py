@@ -1,4 +1,4 @@
-"""Accuracy against a scan: z-buffer, lifting conventions, scale alignment, and the ETH3D readers."""
+"""Accuracy against a scan: z-buffer, lifting, scale alignment, the ETH3D readers."""
 
 from pathlib import Path
 
@@ -27,7 +27,7 @@ def pose() -> np.ndarray:
 
 
 def wall(z: float, c2w: np.ndarray, step: float = 0.002) -> np.ndarray:
-    """Dense points of the fronto-parallel plane at depth z in the camera, in world coordinates."""
+    """Dense points of the fronto-parallel plane at depth z, in world coordinates."""
     s = np.arange(-1.5, 1.5, step) * z
     x, y = np.meshgrid(s, s)
     cam = np.stack([x.ravel(), y.ravel(), np.full(x.size, z)], 1)
@@ -35,7 +35,9 @@ def wall(z: float, c2w: np.ndarray, step: float = 0.002) -> np.ndarray:
 
 
 def depth_of(points: np.ndarray, c2w: np.ndarray) -> np.ndarray:
-    return scan_depth(torch.from_numpy(points), torch.from_numpy(K), torch.from_numpy(c2w), H, W).numpy()
+    return scan_depth(
+        torch.from_numpy(points), torch.from_numpy(K), torch.from_numpy(c2w), H, W
+    ).numpy()
 
 
 def test_scan_depth_keeps_the_nearest_surface() -> None:
@@ -76,7 +78,10 @@ def test_quaternion_rotates_a_quarter_turn_about_z() -> None:
 
 def test_readers_return_camera_centers_and_aligned_scans(tmp_path: Path) -> None:
     (tmp_path / "cameras.txt").write_text("# header\n0 PINHOLE 64 48 40 41 32 24\n")
-    images = "# header\n1 1 0 0 0 1 2 3 0 dslr_images_undistorted/b.JPG\n\n2 1 0 0 0 0 0 0 0 a.JPG\n\n"
+    images = (
+        "# header\n1 1 0 0 0 1 2 3 0 dslr_images_undistorted/b.JPG\n\n"
+        "2 1 0 0 0 0 0 0 0 a.JPG\n\n"
+    )
     (tmp_path / "images.txt").write_text(images)
     calib = read_calibration(tmp_path)
     assert [c[0] for c in calib] == ["a.JPG", "b.JPG"]
@@ -87,6 +92,11 @@ def test_readers_return_camera_centers_and_aligned_scans(tmp_path: Path) -> None
     write_ply(tmp_path / "scan1.ply", xyz)
     np.testing.assert_array_equal(read_ply_xyz(tmp_path / "scan1.ply"), xyz)
     matrix = "1 0 0 5\n0 1 0 0\n0 0 1 0\n0 0 0 1"
-    mlp = f'<MLMesh label="scan1.ply" filename="scan1.ply">\n<MLMatrix44>\n{matrix}\n</MLMatrix44>\n</MLMesh>'
+    mlp = (
+        '<MLMesh label="scan1.ply" filename="scan1.ply">\n'
+        f"<MLMatrix44>\n{matrix}\n</MLMatrix44>\n</MLMesh>"
+    )
     (tmp_path / "scan_alignment.mlp").write_text(mlp)
-    np.testing.assert_allclose(load_scan(tmp_path), xyz + np.array([5, 0, 0]), atol=1e-6)
+    np.testing.assert_allclose(
+        load_scan(tmp_path), xyz + np.array([5, 0, 0]), atol=1e-6
+    )

@@ -33,7 +33,7 @@ setups:   # λ_mv per setup: monocular has no cross-view term, so its views are 
 gn_iters: 40
 gn_operating_point: 10
 lbfgs:
-  history_size: 20          # as refine.py
+  history_size: 20          # as monocular.py
   chunk: 20                 # iterations between energy and time readings
   max_iters: 3000
   max_seconds: 300

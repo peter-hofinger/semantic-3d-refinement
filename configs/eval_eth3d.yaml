@@ -1,4 +1,4 @@
-# Accuracy of refined Déjà View depth against ETH3D's laser scans (evaluate.py). The weights are the ones chosen on
+# Accuracy of refined Déjà View depth against ETH3D's laser scans (src/evaluation/depth.py). The weights are the ones chosen on
 # ScanNet++ office view 6 and kitchen view 13 (configs/mono_office.yaml), not tuned on these scenes.
 scenes:
   office:
