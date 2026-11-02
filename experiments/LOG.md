@@ -1458,3 +1458,19 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   Caveats for the coming SAM 3 runs: whole-room wall / floor instances, coarse NYU40 classes (cross-class leakage
   between two `otherprop` objects counts as same class), principal points far from the centre (check Déjà View copes).
   Not checked: whether Déjà View or SAM 3 trained on Hypersim (MoGe-2 did).
+
+## Plan: E30 = first Hypersim run of the segmenter (02.11.2026)
+- **Goal:** does the segmenter (SAM 3 image mode + 3D association, working setting) carry over from ScanNet++ to
+  Hypersim, and is the VLM vocabulary better than top100 outside ScanNet++ (top100 is a ScanNet++ list)?
+- **Settings, fixed before running (none tuned on Hypersim):** E29's three scenes, 20 views at 504x378; Déjà View K=16;
+  SAM 3 image mode t0.3; vocabularies top100 (plain list) and Qwen3.8-27B union cap 64 tokens (E28 setting, one list
+  per scene from the same 20 views); association `--cross-class 0.7 --min-visible-fraction 0.25 --keep-linked-below 0.5`
+  with Déjà View geometry, and with GT geometry as the upper bound. Scorer `eval-instances` unchanged.
+- **Checks first:** Déjà View copes with the off-centre principal points (fitted K vs GT, per-view scale median depth
+  error vs GT, as E8).
+- **Training-data overlap:** Déjà View: 0.69% of its training set is Hypersim (user, from the paper); scene-level
+  split not checked -> the three scenes are from the official v1 val split, but treat DV depth here as possibly
+  optimistic. MoGe-2 also trained on Hypersim (not used here). SAM 3: not checked.
+- **Expected caveats (E29):** walls / floors / ceilings are one instance per class -> SAM 3 wall-plane masks miss
+  IoU 0.5; NYU40 `otherprop` makes cross-class leakage look smaller; conference room 23% unlabeled.
+- **Run:** cluster job `experiments/scripts/e30_hypersim.sbatch`; association + scoring locally.
