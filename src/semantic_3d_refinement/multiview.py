@@ -382,6 +382,16 @@ def refine_scene(
     (the logs clamp d at 1e-6, so E alone would not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the
     frame of the rays, enable E_n and cut E_bd on the input's occlusion contours, as in `refine.refine`.
     """
+    p = build_problem(scene, cfg, mv, normals)
+    delta, log, cg_total = gauss_newton(p, cfg, mv)
+    depth_hat = p.scale / (p.d0 + delta)
+    assert depth_hat.shape == scene.depth.shape and depth_hat.isfinite().all() and (depth_hat > 0).all()
+    assert log[-1]["E"] <= log[0]["E"] + 1e-9, (log[0], log[-1])
+    return depth_hat, log, {"matches": len(p.matches.src), "cg_iterations": cg_total}
+
+
+def build_problem(scene: Scene, cfg: RefineConfig, mv: MultiviewConfig, normals: Tensor | None = None) -> Problem:
+    """Fix what the solve keeps constant: scale, d0, confidence weights, stacked normal terms and the matches."""
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
     scale = scene.depth.median()
     d0 = scale / scene.depth
@@ -393,15 +403,24 @@ def refine_scene(
             [tuple(torch.stack([t.terms[a][k] for t in per_view]) for k in range(4)) for a in range(2)],
             [tuple(torch.stack([t.weights[a][k] for t in per_view]) for k in range(2)) for a in range(2)],
         )
-    p = Problem(scene, scale, d0, w, terms, find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors))
+    return Problem(scene, scale, d0, w, terms, find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors))
 
-    delta = torch.zeros_like(d0)
+
+def gauss_newton(
+    p: Problem, cfg: RefineConfig, mv: MultiviewConfig, on_step: Callable[[Tensor, dict, int], None] | None = None
+) -> tuple[Tensor, list[dict[str, float]], int]:
+    """Run `mv.gn_iters` Gauss-Newton steps from δ = 0; return δ, the energy log and the CG iterations used.
+
+    Each step is halved until E decreases and no depth grows tenfold; on_step(δ, energies, CG iterations so far) is
+    called after every accepted step.
+    """
+    delta = torch.zeros_like(p.d0)
     log, cg_total = [scene_energy(delta, cfg, mv, p)], 0
     for _ in range(mv.gn_iters):
         step, used = gauss_newton_step(delta, cfg, mv, p)
         cg_total += used
         for _ in range(8):
-            positive = bool((d0 + delta + step > 0.1 * d0).all())
+            positive = bool((p.d0 + delta + step > 0.1 * p.d0).all())
             trial = scene_energy(delta + step, cfg, mv, p) if positive else {"E": math.inf}
             if trial["E"] < log[-1]["E"]:
                 delta = delta + step
@@ -410,10 +429,9 @@ def refine_scene(
             step = step / 2
         else:
             break
-    depth_hat = scale / (d0 + delta)
-    assert depth_hat.shape == scene.depth.shape and depth_hat.isfinite().all() and (depth_hat > 0).all()
-    assert log[-1]["E"] <= log[0]["E"] + 1e-9, (log[0], log[-1])
-    return depth_hat, log, {"matches": len(p.matches.src), "cg_iterations": cg_total}
+        if on_step is not None:
+            on_step(delta, log[-1], cg_total)
+    return delta, log, cg_total
 
 
 def similarity(a: np.ndarray, b: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
