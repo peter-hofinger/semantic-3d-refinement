@@ -22,3 +22,10 @@ multiview:
   cg_iters: 20
   cg_tol: 0.001
 # dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25
+# Semantics in the energy (multiview.SemanticConfig), off by default. cut_boundaries:
+# E_bd only within one instance id (needs lambda_bd > 0); affine: per-segment a, b on
+# inverse depth (matters with lambda_delta > 0). Studied in configs/eval_hypersim.yaml.
+semantic:
+  cut_boundaries: false
+  affine: false
+  min_pixels: 100

@@ -27,8 +27,22 @@ stencils on the pixel grid and linear in δ (E_d, E_bd) or in log depth (E_n); E
 has five entries per match, the source pixel and j's four interpolated pixels. On 20
 views of 504 x 336 this takes 2-3 s where L-BFGS took a minute.
 
-This is the E_mv of the method in `Claude.md` without segments: agreement is required
-wherever the input already roughly agrees, not only within a segment.
+Semantics (`SemanticConfig`, the method in `Claude.md`) enter in two ways, each off
+by default:
+
+- Cut: E_bd only on stencils whose pixels all carry the same instance id (no mask
+  counts as one more id), so the smoothing stops at object boundaries.
+- Affine: inverse depth per segment s of view i, d = a_{i,s} d0 + b_{i,s} + δ. E_d
+  anchors the whole change d - d0, and λ_δ ‖δ‖² makes the dense residual cost more
+  than moving a segment as a whole, so a correction found where views overlap carries
+  over the segment's pixels that no other view sees. With a = 1, b = 0 at the start
+  and λ_δ = 0, a and b add nothing the residual could not do.
+
+d is linear in (δ, a, b), d - d0 = L x, so every residual's Jacobian is J_d L and the
+normal equations stay matrix-free: L^T J_d^T J_d L.
+
+E_mv is required wherever the input already roughly agrees, not only within a
+segment.
 """
 
 import dataclasses
@@ -273,11 +287,25 @@ MV_KEYS = {f.name for f in dataclasses.fields(MultiviewConfig)}
 
 
 @dataclass(frozen=True)
+class SemanticConfig:
+    """How the segmentation enters the energy; see the module docstring."""
+
+    cut_boundaries: bool = False  # E_bd only within one instance id
+    affine: bool = False  # per-segment a, b on inverse depth
+    min_pixels: int = 100  # smaller segments of a view get no a, b
+
+    def __post_init__(self) -> None:
+        """Check ranges."""
+        assert self.min_pixels >= 1
+
+
+@dataclass(frozen=True)
 class Problem:
     """What stays fixed in the solve: scene, scale s, d0, weights, normals, matches.
 
     Normal terms are stacked over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+,
-    w-) as in `refine.NormalTerm`.
+    w-) as in `refine.NormalTerm`. `cut` masks the (xx, yy, xy) stencils of E_bd at
+    segment boundaries; `segments` holds each pixel's segment (-1: none), flat.
     """
 
     scene: Scene
@@ -286,6 +314,96 @@ class Problem:
     w: Tensor
     normals: NormalTerm | None
     matches: Matches
+    cut: tuple[Tensor, Tensor, Tensor] | None = None
+    segments: Tensor | None = None
+    num_segments: int = 0
+
+
+def same_id_stencils(ids: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Masks of the xx, yy and xy stencils whose pixels all share one id, (V, H, W)."""
+    same_x = ids[..., 1:] == ids[..., :-1]
+    same_y = ids[..., 1:, :] == ids[..., :-1, :]
+    return (
+        same_x[..., :-1] & same_x[..., 1:],
+        same_y[..., :-1, :] & same_y[..., 1:, :],
+        same_x[..., :-1, :] & same_x[..., 1:, :] & same_y[..., :-1] & same_y[..., 1:],
+    )
+
+
+def segment_index(ids: Tensor, min_pixels: int) -> tuple[Tensor, int]:
+    """Flat segment index per pixel: one per (view, id) with min_pixels, else -1."""
+    views = torch.arange(len(ids), device=ids.device)[:, None, None].expand_as(ids)
+    key = torch.where(ids >= 0, views * (int(ids.max()) + 2) + ids + 1, -1)
+    unique, inverse, counts = torch.unique(
+        key.flatten(), return_inverse=True, return_counts=True
+    )
+    valid = (unique >= 0) & (counts >= min_pixels)
+    number = torch.where(valid, valid.long().cumsum(0) - 1, -1)
+    return number[inverse], int(valid.sum())
+
+
+def smoothing_masks(p: Problem) -> tuple[Tensor, Tensor, Tensor] | None:
+    """E_bd's stencil masks: segment cuts and the normals' occlusion cuts, both."""
+    masks = p.cut
+    if p.normals is not None:
+        (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
+        contours = (
+            kx[..., :-1] & kx[..., 1:],
+            ky[..., :-1, :] & ky[..., 1:, :],
+            kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:],
+        )
+        masks = (
+            contours
+            if masks is None
+            else tuple(a & b for a, b in zip(masks, contours, strict=True))
+        )
+    return masks
+
+
+def unknowns(x: Tensor, p: Problem) -> tuple[Tensor, Tensor, Tensor]:
+    """Split x into δ (V, H, W) and the segments' a - 1 and b."""
+    n, s = p.d0.numel(), p.num_segments
+    flat = x.reshape(-1)
+    assert len(flat) == n + 2 * s, (len(flat), n, s)
+    return flat[:n].view_as(p.d0), flat[n : n + s], flat[n + s :]
+
+
+def zero_unknowns(p: Problem) -> Tensor:
+    """Return x = 0 (δ = 0, a = 1, b = 0), shaped as d0 when there are no segments."""
+    if p.num_segments == 0:
+        return torch.zeros_like(p.d0)
+    return p.d0.new_zeros(p.d0.numel() + 2 * p.num_segments)
+
+
+def change(x: Tensor, p: Problem) -> Tensor:
+    """Return d - d0 = δ + (a - 1) d0 + b (on each segment's pixels): L x, linear."""
+    delta, alpha, beta = unknowns(x, p)
+    if p.num_segments == 0:
+        return delta
+    assert p.segments is not None
+    i = p.segments.clamp_min(0)
+    moved = torch.where(
+        p.segments >= 0, alpha[i] * p.d0.reshape(-1) + beta[i], 0
+    ).view_as(p.d0)
+    return delta + moved
+
+
+def change_transpose(y: Tensor, p: Problem) -> Tensor:
+    """L^T y for y on the pixels (V, H, W); shaped as x."""
+    if p.num_segments == 0:
+        return y
+    assert p.segments is not None
+    flat = y.reshape(-1)
+    has = p.segments >= 0
+    i = p.segments[has]
+    zeros = flat.new_zeros(p.num_segments)
+    return torch.cat(
+        [
+            flat,
+            zeros.index_add(0, i, (flat * p.d0.reshape(-1))[has]),
+            zeros.index_add(0, i, flat[has]),
+        ]
+    )
 
 
 def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -297,29 +415,27 @@ def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
 
 
 def scene_residuals(
-    delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
+    x: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
 ) -> dict[str, Tensor]:
     """Weighted residuals of each term, flat: E = Σ of their squares / N.
 
-    N is the number of pixels over all views.
+    N is the number of pixels over all views; x holds δ and, with segments, a - 1 and b
+    (`unknowns`).
 
-    The same terms as `monocular.energy_maps`, except that E_d is quadratic, w δ²/2:
-    Huber's quadratic branch, which holds for |δ| < `huber` (0.05; the input's views
-    disagree by about 1 %).
+    The same terms as `monocular.energy_maps`, except that E_d is quadratic, w u²/2 on
+    the change u = d - d0: Huber's quadratic branch, which holds for |u| < `huber`
+    (0.05; the input's views disagree by about 1 %).
     """
-    d = p.d0 + delta
-    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * delta}
+    u = change(x, p)
+    d = p.d0 + u
+    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * u}
     if cfg.lambda_delta > 0:
-        out["E_delta"] = math.sqrt(cfg.lambda_delta) * delta
+        out["E_delta"] = math.sqrt(cfg.lambda_delta) * unknowns(x, p)[0]
     if cfg.lambda_bd > 0:
         dxx, dyy, dxy = second_differences(d)
-        if p.normals is not None:
-            (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
-            dxx, dyy = (
-                dxx * (kx[..., :-1] & kx[..., 1:]),
-                dyy * (ky[..., :-1, :] & ky[..., 1:, :]),
-            )
-            dxy = dxy * (kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:])
+        masks = smoothing_masks(p)
+        if masks is not None:
+            dxx, dyy, dxy = dxx * masks[0], dyy * masks[1], dxy * masks[2]
         root = math.sqrt(cfg.lambda_bd)
         out["E_bd"] = torch.cat(
             [
@@ -349,12 +465,12 @@ def scene_residuals(
 
 
 def scene_energy(
-    delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
+    x: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
 ) -> dict[str, float]:
     """E and each weighted term's share of it."""
     terms = {
         k: (v.square().sum() / p.d0.numel()).item()
-        for k, v in scene_residuals(delta, cfg, mv, p).items()
+        for k, v in scene_residuals(x, cfg, mv, p).items()
     }
     e = sum(terms.values())
     assert math.isfinite(e), terms
@@ -364,9 +480,10 @@ def scene_energy(
 def grid_operator(
     d: Tensor, cfg: RefineConfig, p: Problem, *, squared: bool = False
 ) -> Callable[[Tensor], Tensor]:
-    """J v of the per-view residuals (all but E_mv) at d, in `scene_residuals` order.
+    """J v of the residuals on the pixel grid at d: E_d, E_bd, E_n, in that order.
 
-    With squared, J's entries are squared.
+    v is a change of d; E_mv and E_delta (a function of δ alone) are added by
+    `normal_equations`. With squared, J's entries are squared.
 
     E_d and E_bd are linear in δ; E_n is linear in z = -log d, so dz moves by -(v_q/d_q
     - v_p/d_p). With squared entries, J∘J applied to v and transposed onto the
@@ -375,21 +492,12 @@ def grid_operator(
     power = 2 if squared else 1
     a_d = (0.5 * cfg.lambda_d * p.w).sqrt() ** power
     root_bd = math.sqrt(cfg.lambda_bd) ** power
-    masks = None
-    if p.normals is not None:
-        (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
-        masks = (
-            kx[..., :-1] & kx[..., 1:],
-            ky[..., :-1, :] & ky[..., 1:, :],
-            kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:],
-        )
+    masks = smoothing_masks(p)
     inv_d = (1 / d) ** power
     sign = 1 if squared else -1
 
     def apply(v: Tensor) -> Tensor:
         out = [a_d * v]
-        if cfg.lambda_delta > 0:
-            out.append(cfg.lambda_delta ** (power / 2) * v)
         if cfg.lambda_bd > 0:
             c = 4 if squared else -2
             dxx = v[..., 2:] + c * v[..., 1:-1] + v[..., :-2]
@@ -455,43 +563,87 @@ def conjugate_gradient(
     return x, iters
 
 
-def gauss_newton_step(
-    delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
-) -> tuple[Tensor, int]:
-    """Solve J^T J s = -J^T r at δ by preconditioned CG; return s and CG iterations."""
-    d = p.d0 + delta
-    parts = scene_residuals(delta, cfg, mv, p)
+def normal_equations(
+    x: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
+) -> tuple[Tensor, Callable[[Tensor], Tensor], Tensor]:
+    """Gradient J^T r, the product v -> J^T J v and diag(J^T J) at x, all flat.
+
+    J = (J_grid, J_mv) L on the pixels plus E_delta's √λ_δ on δ. For a and b the
+    diagonal keeps only each pixel's own entries, Σ_p c_p² diag_d(p), not the
+    couplings between pixels: a preconditioner, not the exact diagonal.
+    """
+    d = p.d0 + change(x, p)
+    parts = scene_residuals(x, cfg, mv, p)
     r_mv = parts.pop("E_mv", None)
+    r_delta = parts.pop("E_delta", None)
     r_grid = torch.cat(list(parts.values()))
     grid = grid_operator(d, cfg, p)
     _, grid_t = torch.func.vjp(grid, torch.zeros_like(d))
     _, grid_sq_t = torch.func.vjp(
         grid_operator(d, cfg, p, squared=True), torch.zeros_like(d)
     )
-    diag = grid_sq_t(torch.ones_like(r_grid))[0].flatten()
-    gradient = grid_t(r_grid)[0].flatten()
+    diag_d = grid_sq_t(torch.ones_like(r_grid))[0].flatten()
+    gradient_d = grid_t(r_grid)[0].flatten()
     cols = vals = None
     if r_mv is not None:
         cols, vals = match_jacobian(d, p.scale, p.scene, p.matches)
         vals = math.sqrt(mv.lambda_mv) * vals
-        diag = diag.index_add(0, cols.flatten(), vals.square().flatten())
-        gradient = gradient.index_add(0, cols.flatten(), (vals * r_mv).flatten())
+        diag_d = diag_d.index_add(0, cols.flatten(), vals.square().flatten())
+        gradient_d = gradient_d.index_add(0, cols.flatten(), (vals * r_mv).flatten())
+    n = p.d0.numel()
+    gradient = change_transpose(gradient_d.view_as(d), p).reshape(-1).clone()
+    diag = diag_d
+    if p.num_segments > 0:
+        assert p.segments is not None
+        has = p.segments >= 0
+        i, d0 = p.segments[has], p.d0.reshape(-1)[has]
+        zeros = diag_d.new_zeros(p.num_segments)
+        diag = torch.cat(
+            [
+                diag_d,
+                zeros.index_add(0, i, d0.square() * diag_d[has]),
+                zeros.index_add(0, i, diag_d[has]),
+            ]
+        )
+    if r_delta is not None:
+        gradient[:n] += math.sqrt(cfg.lambda_delta) * r_delta
+        diag = diag.clone()
+        diag[:n] += cfg.lambda_delta
 
     def hv(v: Tensor) -> Tensor:
-        out = grid_t(grid(v.view_as(d)))[0].flatten()
+        vd = change(v, p)
+        out_d = grid_t(grid(vd))[0].flatten()
         if cols is not None and vals is not None:
-            jv = (vals * v[cols]).sum(0)
-            out = out.index_add(0, cols.flatten(), (vals * jv).flatten())
+            jv = (vals * vd.reshape(-1)[cols]).sum(0)
+            out_d = out_d.index_add(0, cols.flatten(), (vals * jv).flatten())
+        out = change_transpose(out_d.view_as(d), p).reshape(-1)
+        if r_delta is not None:
+            out = out.clone()
+            out[:n] += cfg.lambda_delta * v.reshape(-1)[:n]
         return out
 
+    return gradient, hv, diag
+
+
+def gauss_newton_step(
+    x: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
+) -> tuple[Tensor, int]:
+    """Solve J^T J s = -J^T r at x by preconditioned CG; return s and CG iterations."""
+    gradient, hv, diag = normal_equations(x, cfg, mv, p)
     step, used = conjugate_gradient(
         hv, -gradient, 1 / diag.clamp_min(1e-12), mv.cg_iters, mv.cg_tol
     )
-    return step.view_as(d), used
+    return step.view_as(x), used
 
 
-def refine_scene(
-    scene: Scene, cfg: RefineConfig, mv: MultiviewConfig, normals: Tensor | None = None
+def refine_scene(  # noqa: PLR0913
+    scene: Scene,
+    cfg: RefineConfig,
+    mv: MultiviewConfig,
+    normals: Tensor | None = None,
+    *,
+    segments: Tensor | None = None,
+    semantic: SemanticConfig | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], dict[str, int]]:
     """Gauss-Newton on all views at once; return depth (V, H, W), energy log, counts.
 
@@ -500,25 +652,53 @@ def refine_scene(
     E decreases and no depth grows tenfold (the logs clamp d at 1e-6, so E alone would
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
     rays, enable E_n and cut E_bd on the input's occlusion contours, as in
-    `monocular.refine`.
+    `monocular.refine`. Segments (V, H, W), instance ids with -1 for none, enter as
+    `semantic` says.
     """
-    p = build_problem(scene, cfg, mv, normals)
-    delta, log, cg_total = gauss_newton(p, cfg, mv)
-    depth_hat = p.scale / (p.d0 + delta)
+    p = build_problem(scene, cfg, mv, normals, segments=segments, semantic=semantic)
+    x, log, cg_total = gauss_newton(p, cfg, mv)
+    depth_hat = p.scale / (p.d0 + change(x, p))
     assert (
         depth_hat.shape == scene.depth.shape
         and depth_hat.isfinite().all()
         and (depth_hat > 0).all()
     )
     assert log[-1]["E"] <= log[0]["E"] + 1e-9, (log[0], log[-1])
-    return depth_hat, log, {"matches": len(p.matches.src), "cg_iterations": cg_total}
+    return (
+        depth_hat,
+        log,
+        {
+            "matches": len(p.matches.src),
+            "cg_iterations": cg_total,
+            "segments": p.num_segments,
+        },
+    )
 
 
-def build_problem(
-    scene: Scene, cfg: RefineConfig, mv: MultiviewConfig, normals: Tensor | None = None
+def build_problem(  # noqa: PLR0913
+    scene: Scene,
+    cfg: RefineConfig,
+    mv: MultiviewConfig,
+    normals: Tensor | None = None,
+    *,
+    segments: Tensor | None = None,
+    semantic: SemanticConfig | None = None,
 ) -> Problem:
-    """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches."""
+    """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
+
+    With segments, also the cut stencils and the segment of each pixel, as `semantic`
+    says (default: neither).
+    """
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
+    semantic = semantic or SemanticConfig()
+    cut, index, count = None, None, 0
+    if segments is not None:
+        assert segments.shape == scene.depth.shape, segments.shape
+        segments = segments.to(scene.depth.device)
+        if semantic.cut_boundaries:
+            cut = same_id_stencils(segments)
+        if semantic.affine:
+            index, count = segment_index(segments, semantic.min_pixels)
     scale = scene.depth.median()
     d0 = scale / scene.depth
     w = scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)
@@ -547,6 +727,9 @@ def build_problem(
         w,
         terms,
         find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors),
+        cut,
+        index,
+        count,
     )
 
 
@@ -556,31 +739,30 @@ def gauss_newton(
     mv: MultiviewConfig,
     on_step: Callable[[Tensor, dict, int], None] | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], int]:
-    """Run `mv.gn_iters` Gauss-Newton steps from δ = 0; return δ, energy log, CG count.
+    """Run `mv.gn_iters` Gauss-Newton steps from x = 0; return x, energy log, CG count.
 
-    Each step is halved until E decreases and no depth grows tenfold; on_step(δ,
-    energies, CG iterations so far) is called after every accepted step.
+    x is δ (shaped as d0) without segments, else δ, a - 1, b flat (`unknowns`). Each
+    step is halved until E decreases and no depth grows tenfold; on_step(x, energies,
+    CG iterations so far) is called after every accepted step.
     """
-    delta = torch.zeros_like(p.d0)
-    log, cg_total = [scene_energy(delta, cfg, mv, p)], 0
+    x = zero_unknowns(p)
+    log, cg_total = [scene_energy(x, cfg, mv, p)], 0
     for _ in range(mv.gn_iters):
-        step, used = gauss_newton_step(delta, cfg, mv, p)
+        step, used = gauss_newton_step(x, cfg, mv, p)
         cg_total += used
         for _ in range(8):
-            positive = bool((p.d0 + delta + step > 0.1 * p.d0).all())
-            trial = (
-                scene_energy(delta + step, cfg, mv, p) if positive else {"E": math.inf}
-            )
+            positive = bool((p.d0 + change(x + step, p) > 0.1 * p.d0).all())
+            trial = scene_energy(x + step, cfg, mv, p) if positive else {"E": math.inf}
             if trial["E"] < log[-1]["E"]:
-                delta = delta + step
+                x = x + step
                 log.append(trial)
                 break
             step = step / 2
         else:
             break
         if on_step is not None:
-            on_step(delta, log[-1], cg_total)
-    return delta, log, cg_total
+            on_step(x, log[-1], cg_total)
+    return x, log, cg_total
 
 
 @dataclass
@@ -588,14 +770,16 @@ class JointRefiner:
     """The pipeline's refiner: all views at once by Gauss-Newton, cameras fixed.
 
     E_d + λ_mv E_mv by default; with `dsine_repo` and λ_n > 0 also E_n on DSINE's
-    normals, with E_bd cut on the input's occlusion contours. The segmentation is not
-    used yet: the semantic terms are the next step. The output keeps the backbone's
-    cameras with each ray map replaced by its fitted pinhole (`inputs.fit_pinhole`).
+    normals, with E_bd cut on the input's occlusion contours. The segmentation enters
+    as `semantic` says (cut smoothing, per-segment a, b; default neither). The output
+    keeps the backbone's cameras with each ray map replaced by its fitted pinhole
+    (`inputs.fit_pinhole`).
     """
 
     cfg: RefineConfig
     mv: MultiviewConfig
     dsine_repo: Path | None = None
+    semantic: SemanticConfig = dataclasses.field(default_factory=SemanticConfig)
 
     def __post_init__(self) -> None:
         """Check that E_n has normals to work with."""
@@ -603,20 +787,21 @@ class JointRefiner:
 
     @classmethod
     def from_config(cls, path: Path) -> "JointRefiner":
-        """Read `refine`, `multiview` and the optional `dsine_repo` from a YAML file."""
+        """Read `refine`, `multiview`, optional `semantic` and `dsine_repo` (YAML)."""
         raw = yaml.safe_load(path.read_text())
         repo = raw.get("dsine_repo")
         return cls(
             RefineConfig(**raw["refine"]),
             MultiviewConfig(**raw["multiview"]),
             None if repo is None else Path(repo),
+            SemanticConfig(**raw.get("semantic", {})),
         )
 
     def refine(
         self,
         views: Views,
         geometry: Geometry,
-        segmentation: Segmentation,  # noqa: ARG002
+        segmentation: Segmentation,
     ) -> Geometry:
         """Return the jointly refined depth of every view, same shapes as the input."""
         assert views.images.shape[:3] == geometry.depth.shape, geometry.depth.shape
@@ -632,7 +817,10 @@ class JointRefiner:
                 ]
             )
         t0 = time.perf_counter()
-        depth, log, counts = refine_scene(scene, self.cfg, self.mv, normals)
+        segments = torch.from_numpy(segmentation.instance_ids.astype(np.int64))
+        depth, log, counts = refine_scene(
+            scene, self.cfg, self.mv, normals, segments=segments, semantic=self.semantic
+        )
         log_info(
             "refined %d views in %.1f s: E %.4g -> %.4g, %d Gauss-Newton steps, %s",
             len(views),
