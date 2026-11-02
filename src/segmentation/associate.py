@@ -239,14 +239,31 @@ class Associator:
         for m, r in roots.items():
             lookup[m] = new_id[r]
         ids = lookup[seg.instance_ids]  # NO_INSTANCE = -1 indexes the last slot
-        # class of an object: the one covering most of its pixels over all views
-        masks, area = np.unique(seg.instance_ids, return_counts=True)
-        votes: dict[int, Counter[str]] = defaultdict(Counter)
-        for m, a in zip(masks.tolist(), area.tolist(), strict=True):
-            if m in roots:
-                votes[new_id[roots[m]]][seg.classes[m]] += a
-        classes = {n: v.most_common(1)[0][0] for n, v in votes.items()}
-        return Segmentation(ids, classes)
+        return Segmentation(
+            ids, *object_labels(seg, {m: new_id[r] for m, r in roots.items()})
+        )
+
+
+def object_labels(
+    seg: Segmentation, owner: dict[int, int]
+) -> tuple[dict[int, str], dict[int, float]]:
+    """Class and score of each object from its masks (mask id -> object id).
+
+    The class is the one covering most of the object's pixels over all views, the
+    score the masks' detection scores weighted by their area.
+    """
+    masks, area = np.unique(seg.instance_ids, return_counts=True)
+    votes: dict[int, Counter[str]] = defaultdict(Counter)
+    weighted: dict[int, list[float]] = defaultdict(lambda: [0.0, 0.0])
+    for m, a in zip(masks.tolist(), area.tolist(), strict=True):
+        if m not in owner:
+            continue
+        votes[owner[m]][seg.classes[m]] += a
+        if m in seg.scores:
+            weighted[owner[m]][0] += a * seg.scores[m]
+            weighted[owner[m]][1] += a
+    classes = {n: v.most_common(1)[0][0] for n, v in votes.items()}
+    return classes, {n: s / a for n, (s, a) in weighted.items()}
 
 
 def gt_geometry(views: Views, gt: GroundTruth) -> Geometry:
