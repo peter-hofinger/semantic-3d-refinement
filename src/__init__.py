@@ -14,6 +14,7 @@ beartype_packages(
         "src.refinement.inputs",
         "src.evaluation.depth",
         "src.evaluation.geometry",
+        "src.evaluation.labeled",
         "src.loaders.eth3d",
         "src.loaders.synthetic",
     )
