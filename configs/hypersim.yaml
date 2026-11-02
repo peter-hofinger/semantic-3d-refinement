@@ -4,11 +4,16 @@ data_root: data/hypersim/raw            # raw Hypersim layout: <scene>/_detail, 
 metadata_root: data/hypersim/metadata   # CSVs from github.com/apple/ml-hypersim (split, camera parameters)
 output_root: data/processed/hypersim    # preprocessed views and ground truth (.npz)
 
-# validation scenes of the official v1 split, pinhole cameras (no tilt-shift)
+# validation scenes of the official v1 split
 scenes:
+  # tilt-shift cameras (off-centre principal point; Deja View assumes a centred one, E30)
   ai_015_001: cam_00   # kitchen
   ai_047_009: cam_00   # conference room, many identical chairs
   ai_052_001: cam_00   # restaurant, crowded, repeated chairs and tables
+  # plain pinhole cameras (principal point at the centre)
+  ai_010_007: cam_00   # living room, sofas, cushions, pictures
+  ai_006_007: cam_00   # bedroom, many distinct objects
+  ai_044_001: cam_00   # hotel lobby, crowded, repeated sofas and armchairs
 
 prepare:
   num_frames: 20       # 16 to 24
