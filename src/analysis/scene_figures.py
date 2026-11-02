@@ -289,6 +289,64 @@ def precision_recall_figure(run: dict, names: list[str], out: Path) -> None:
     plt.close(fig)
 
 
+def point_normals(points: np.ndarray) -> np.ndarray:
+    """Return a point map's normals (central differences) as RGB (H, W, 3) in [0, 1]."""
+    du = np.zeros_like(points)
+    dv = np.zeros_like(points)
+    du[:, 1:-1] = points[:, 2:] - points[:, :-2]
+    dv[1:-1] = points[2:] - points[:-2]
+    n = np.cross(du, dv)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True).clip(1e-12)
+    return 0.5 * (1 - n)
+
+
+def normals_figure(
+    inputs: SceneInputs,
+    depths: dict[str, np.ndarray],
+    variants: dict[str, dict],
+    name: str,
+    out: Path,
+) -> None:
+    """Draw one view's normals per variant, SAM 3 boundaries, ground truth, a zoom."""
+    v = SHOWN_VIEWS[1]
+    ids = inputs.labels.instance_ids[v]
+    edges = np.zeros(ids.shape, dtype=bool)
+    edges[:, 1:] |= ids[:, 1:] != ids[:, :-1]
+    edges[1:] |= ids[1:] != ids[:-1]
+    overlay = inputs.views.images[v].astype(float) / 255
+    overlay[edges] = (1.0, 0.2, 0.2)
+    panels = {"image + SAM 3 boundaries": overlay}
+    panels |= {
+        k: point_normals(pixel_points(inputs, d, variants[k])[v])
+        for k, d in depths.items()
+    }
+    panels["ground truth"] = point_normals(ground_truth_points(inputs)[v])
+    h, w = ids.shape
+    zoom = (slice(h // 4, 3 * h // 4), slice(w // 4, 3 * w // 4))
+    fig, axes = plt.subplots(
+        2, len(panels), figsize=(3.0 * len(panels), 4.8), layout="constrained"
+    )
+    for col, (title, image) in zip(axes.T, panels.items(), strict=True):
+        col[0].imshow(image)
+        col[1].imshow(image[zoom])
+        col[0].set_title(title, fontsize=8)
+        for ax in col:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(visible=False)
+    axes[1, 0].set_ylabel("center, 2x")
+    fig.suptitle(
+        f"{name}, view {v}: surface normals of each variant's points (central "
+        "differences; color = direction). Smoothing across an object edge shows as a "
+        "blurred color change where the red boundary runs.",
+        x=0.01,
+        ha="left",
+        fontsize=9,
+    )
+    fig.savefig(out / f"{name}_normals.png", dpi=120)
+    plt.close(fig)
+
+
 def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
     """IoU of every evaluated class present in the scene, per shown variant."""
     classes = sorted(
@@ -346,6 +404,15 @@ def main() -> None:
         variants = {v["name"]: v for v in run["config"]["variants"]}
         medians[scene] = views_figure(inputs, depths, variants, scene, out)
         topdown_figure(inputs, depths, variants, scene, out)
+        smoothing = ["Déjà View", "+ E_bd", "+ E_bd cut at masks"]
+        if all(n in names for n in smoothing):
+            normals_figure(
+                inputs,
+                {n: arrays[f"{scene}/{names.index(n)}"] for n in smoothing},
+                variants,
+                scene,
+                out,
+            )
         class_figure(
             run["scenes"][scene]["variants"], [*args.show, "GT geometry"], scene, out
         )

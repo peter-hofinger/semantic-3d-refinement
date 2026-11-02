@@ -157,22 +157,30 @@ uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # in
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Conference room (tuning scene) and restaurant (held out), F-score at 2 cm, AbsRel and mIoU
-(`figures/eval_hypersim-20261102-232027`):
+Kitchen, conference room (tuning scene) and restaurant, 20 views each
+(`figures/eval_hypersim-20261102-235032`):
 
-| | F-score 2 cm | AbsRel | mIoU |
+| AbsRel (per pixel) | kitchen | conference | restaurant |
 |---|---|---|---|
-| Déjà View | 0.216 / 0.464 | 0.0758 / 0.0518 | 0.381 / 0.543 |
-| + E_d + E_mv (agreement) | 0.170 / 0.423 | 0.0757 / 0.0516 | 0.345 / 0.524 |
-| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks | 0.211 / 0.464 | 0.0754 / 0.0514 | 0.371 / 0.544 |
-| same, ground-truth masks | 0.200 / 0.464 | 0.0740 / 0.0500 | 0.379 / 0.549 |
-| same, shuffled masks (control) | 0.225 / 0.465 | 0.0772 / 0.0511 | 0.414 / 0.547 |
+| Déjà View | 0.0279 | 0.0758 | 0.0518 |
+| + agreement (E_d + E_mv) | 0.0274 | 0.0757 | 0.0516 |
+| + cut E_bd, a, b, same-segment E_mv, shuffled masks (control) | 0.0283 | 0.0772 | 0.0511 |
+| same, SAM 3 masks (`configs/refine_semantic.yaml`) | 0.0272 | 0.0754 | 0.0514 |
+| same, ground-truth masks | 0.0260 | 0.0740 | 0.0500 |
 
-Agreement makes the views consistent (disagreement 0.6–1 % → 0.05 %) but not closer to the
-truth: the cloud loses recall, as one surface no longer straddles the truth the way the
-input's layers did. The semantic terms recover what agreement costs. AbsRel follows mask
-quality (ground truth < SAM 3 < none), but shuffled masks match them on the cloud scores, so
-there is no semantic gain beyond noise yet.
+| F-score at 2 cm (fused cloud) | kitchen | conference | restaurant |
+|---|---|---|---|
+| Déjà View | 0.573 | 0.216 | 0.464 |
+| + agreement (E_d + E_mv) | 0.521 | 0.170 | 0.423 |
+| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks | 0.572 | 0.211 | 0.464 |
+
+- **Agreement:** the views become consistent (disagreement 0.5–1 % → 0.05 %) but not closer to
+  the truth. The fused cloud loses recall: one surface no longer straddles the truth the way the
+  input's layers did.
+- **Smoothing:** cut at SAM 3's mask boundaries, it no longer melts objects together.
+- **Masks:** per-pixel error follows mask quality on every scene (ground truth < SAM 3 < none),
+  and shuffled masks are worse than none on two of three. The gains are small: 0.5–2.5 % with
+  SAM 3, 2.4–6.8 % with ground-truth masks.
 
 ## Layout
 
