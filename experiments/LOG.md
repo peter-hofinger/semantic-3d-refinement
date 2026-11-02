@@ -55,6 +55,7 @@ Metrics:
 | E25 | Progressive VLM vocabulary (RAS scheme: one view at a time, list so far shown, only new names), Qwen3-VL-2B | the 2B model copies the list instead of adding to it (16 of 20 views add nothing): 12 / 22 names vs 46 / 60 (union). Short list -> precision 0.45 -> 0.69 / 0.40 -> 0.60, but recall 0.89 -> 0.82 / 0.72 -> 0.64 (pixel recall -0.02); synonyms stay (socket / power outlet, chair / office chair, all from view 1); loops still 8 / 3 of 20. Scheme untested with a model that follows the instruction -> step 2 |
 | E26 | Bigger VLM: Qwen3.8-27B (4-bit, thinking off, greedy) with both schemes (per-view union, progressive) | greedy decoding makes the 27B model loop into word association ("...velocity, acceleration, force...", "...HTTP, FTP, SSH...") in 4-8 of 20 answers -> 389 / 506 names (union), 249 / 371 (progressive); precision collapses to 0.15-0.26 (top100 0.51 / 0.48), pixel recall 0.85-0.95 / 0.88-0.90 (top100 0.95 / 0.83), consistency and merges ~unchanged. Outside the loops it follows "only new names" (13-16 of 20 views add <= 1 name, correct NONE answers), unlike the 2B model. Lists as produced are unusable; decoding (repetition control) is the next variable |
 | E27 | Qwen3.8-27B as E26 + repetition penalty 1.1 (still greedy), both schemes | loops not fixed: still 3-7 of 20 answers run into word association (truncated 3 / 7 union, 5 / 4 progressive vs 5 / 8 and 5 / 4); the penalty moves the drift to other words (verbs, pronouns, utensils, physics terms) and removes some loops while creating others (kitchen view 1 now loops). Lists 265 / 476 (union), 323 / 236 (progressive); precision 0.23-0.28 (E26 0.15-0.26, top100 0.51 / 0.48), pixel recall 0.88-0.95, consistency / merges ~E26; kitchen union cross-class leakage 0.033 (junk prompt "workstation"). Repetition penalty is not the fix; next: cap the answer (deterministic) or Qwen's sampling |
+| E28 | Qwen3.8-27B as E26 with answers capped at 64 new tokens (greedy), both schemes | best 27B variant so far: lists 90 / 79 (union) and 96 / 91 (progressive) instead of 389 / 506 and 249 / 371; union answers are exactly the first 64 tokens of E26's (20/20). Union cap64: pixel recall 0.94 / 0.89 (top100 0.95 / 0.83), recall 0.91 / 0.75, consistent 0.84 / 0.76, merges 1 / 5, cross-class leakage 0.008 / 0.048 (all ~top100 or better), but precision 0.29 / 0.33 (top100 0.51 / 0.48) from abstract names at loop starts ("edge, corner, surface, front, back"). Progressive: same picture, its few loops dump ~25 junk names each |
 
 ## Reference table (current scorer, E11)
 
@@ -1338,3 +1339,69 @@ Decided with the user: deterministic repetition control (a), not Qwen's recommen
   names per answer / much lower `max_new_tokens` (e.g. 64, deterministic, also cuts the loops' cost), or Qwen's
   recommended non-thinking sampling (temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5, fixed seed). To decide
   with the user. top100 stays the default vocabulary.
+
+## Plan: E28 = answer cap for the 27B (02.11.2026)
+Decided with the user after E27: cap the answer length instead of a stronger penalty or sampling.
+- **One change vs E26:** `max_new_tokens` 256 -> 64. Greedy, no repetition penalty (1.0, as E26), Qwen3.8-27B 4-bit,
+  thinking off, same questions, views, order, both schemes. Value fixed before running.
+- **Why 64:** clean (non-truncated) E26 answers are 10-42 tokens (measured with the Qwen3-VL-2B tokenizer as a proxy
+  for the 27B's; the only longer non-truncated answers, 181 and 245, are loops that ended by themselves). So 64 should
+  cut only loops, keeping their first ~20-25 names; the last, possibly cut-off line of a truncated answer is dropped
+  (unchanged parsing).
+- **Expectations / checks:** union = greedy with the same prompts, so each answer should be the first 64 tokens of its
+  E26 answer (check; bf16 may break exact equality). Progressive differs (the list fed back is shorter). Loops are
+  not removed, only shortened: their first ~20 names include drift words ("edge", "corner", "surface"), so junk
+  prompts remain; report how many. VLM time should drop (each loop ~8 s -> ~2 s).
+- **Run / report:** as E27 (cluster job, SAM 3 t0.3 with the two new lists, association locally with the working
+  setting; rows top100, E26, E27, E28).
+
+## E28: Qwen3.8-27B with answers capped at 64 tokens (02.11.2026)
+- **Goal:** plan above: does capping the answer length (deterministic, greedy) make the 27B lists usable?
+- **Settings:** as E26, one change: `max_new_tokens` 256 -> 64 (no repetition penalty). SAM 3 image mode t0.3 with the
+  two new lists on the cluster; association locally with the working setting (xc0.7, vf0.25, kl0.5, Déjà View K=16).
+- **Code / command:** `vlm-vocabulary --max-new-tokens 64` -> tag `vlm[prog]-qwen3827b-mt64_<views>` (default 256 keeps
+  all earlier outputs). Job `experiments/scripts/e28_vlm_cap.sbatch` (job 676 on VC16, ~19 min, of which ~16 min loading
+  the 27B weights from VC18's scratch; answering itself 11-30 s per scene; SAM 3 24-55 s per run; peak 19.5 GB), raw log
+  `results/e28_cluster_job676.txt`, SAM 3 caches in `<scene>/e28_cluster/`. Scoring
+  `uv run python experiments/scripts/e28_vlm_cap.py > experiments/results/e28_vlm_cap.txt` (CPU ~5 min; rerun
+  identical; the E25-E27 rows reproduce their association caches exactly, asserted).
+- **Check (as expected in the plan):** union = same prompts, greedy, so every capped answer is the start of its E26
+  answer: 20 / 20 in both scenes (exact, also across bf16 runs). Truncated (cap hit): 5 / 9 (union), 3 / 3 (progressive).
+- **Results** (`results/e28_vlm_cap.txt`, all classes, cluster runs; selected rows):
+
+  | scene | vocabulary | names | recall | pixel recall | precision | cross-class leakage | consistent | merges | wrong links | mixed-class objects |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | kitchen | top100 | 100 | 0.92 | 0.95 | 0.51 | 0.007 | 0.82 | 1 | 5 | 20 |
+  | kitchen | 2B union (E16) | 46 | 0.89 | 0.94 | 0.45 | 0.007 | 0.83 | 1 | 5 | 18 |
+  | kitchen | 27B union (E26) | 389 | 0.82 | 0.85 | 0.15 | 0.012 | 0.80 | 3 | 8 | 40 |
+  | kitchen | 27B union rp1.1 (E27) | 265 | 0.80 | 0.89 | 0.23 | 0.033 | 0.78 | 1 | 5 | 35 |
+  | kitchen | 27B union cap64 | 90 | 0.91 | 0.94 | 0.29 | 0.008 | 0.84 | 1 | 5 | 37 |
+  | kitchen | 27B progressive cap64 | 96 | 0.89 | 0.94 | 0.36 | 0.007 | 0.83 | 1 | 6 | 31 |
+  | office | top100 | 100 | 0.73 | 0.83 | 0.48 | 0.049 | 0.76 | 5 | 10 | 22 |
+  | office | 2B union (E16) | 60 | 0.72 | 0.84 | 0.40 | 0.051 | 0.73 | 5 | 11 | 21 |
+  | office | 27B union (E26) | 506 | 0.74 | 0.88 | 0.24 | 0.063 | 0.73 | 6 | 11 | 51 |
+  | office | 27B union rp1.1 (E27) | 476 | 0.73 | 0.88 | 0.23 | 0.066 | 0.74 | 6 | 11 | 48 |
+  | office | 27B union cap64 | 79 | 0.75 | 0.89 | 0.33 | 0.048 | 0.76 | 5 | 11 | 37 |
+  | office | 27B progressive cap64 | 91 | 0.75 | 0.89 | 0.30 | 0.048 | 0.73 | 5 | 11 | 34 |
+
+  1. **The cap bounds the damage of each loop:** a loop now adds at most ~25 names (the start of the drift) instead
+     of ~100, so the lists shrink to 79-96 names, the size of top100. Precision, merges and leakage improve over
+     E26/E27; recall and pixel recall stay within 0.02 of E26's best rows.
+  2. **Union cap64 is on par with top100 on everything except precision:** pixel recall 0.94 / 0.89 (office +0.06 over
+     top100; likely from names top100 lacks, e.g. fan and coat rack as in E19; not checked per object), recall 0.91 / 0.75,
+     consistency 0.84 / 0.76, merges 1 / 5 and cross-class leakage 0.008 / 0.048 equal to top100. Against the 2B union
+     (E16): recall and pixel recall up (office pixel recall 0.84 -> 0.89), precision down (0.45 / 0.40 -> 0.29 / 0.33).
+  3. **Precision stays low (0.29-0.36 vs 0.51 / 0.48)** because the loops' first names are abstract or part words:
+     "edge, corner, surface, top, side, front, back, object", "frame, panel, base", progressive also "inner, outer, upper,
+     lower, frontal, rear, lateral" and "marker cap, marker body, marker tip, marker ink...". SAM 3 finds masks for such
+     prompts (1380-2058 per-view masks vs 920 / 1092 for top100). By the asymmetry noted after E17, low precision (extra
+     part masks) mostly removes constraints for the refiner; the harmful errors (merges, cross-class leakage) are at
+     top100's level here.
+  4. **Union vs progressive: no clear winner.** Progressive follows "only new names" (16 / 16 of 20 views add nothing)
+     but each of its 3 loops dumps ~25 junk names at once; precision 0.36 vs 0.29 kitchen, 0.30 vs 0.33 office;
+     consistency slightly lower in the office (0.73 vs 0.76). Union is simpler and needs no list in the prompt.
+- **Figure:** `figures/e28_vlm_cap.jpg` (names, pixel recall, precision, consistent, merges for nine vocabularies).
+- **Conclusion:** capping the answer is the decoding fix that works: Qwen3.8-27B union cap64 matches top100 on pixel
+  recall, consistency, merges and leakage (office pixel recall better) without being a ScanNet++ list, at the cost of
+  precision from abstract part names. Candidate VLM vocabulary for the Hypersim test (where top100 has no advantage).
+  Not done (would be tuning on the test scenes): picking the cap from these scores, a stop-word list for abstract names.

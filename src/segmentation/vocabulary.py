@@ -41,6 +41,7 @@ NEW_ONLY = (
     "If nothing new is visible, answer NONE."
 )
 MAX_WORDS = 3
+MAX_NEW_TOKENS = 256  # answer cap per view (E16-E27)
 
 
 def parse_names(text: str, *, truncated: bool = False) -> list[str]:
@@ -64,7 +65,7 @@ class VlmVocabulary:
     """Asks a VLM for the objects in each view and collects them into one list."""
 
     checkpoint: str = CHECKPOINT
-    max_new_tokens: int = 256
+    max_new_tokens: int = MAX_NEW_TOKENS
     progressive: bool = False  # show the list so far, ask only for new names
     # HF penalty on every token already in prompt or answer; 1.0 = off (E16-E26)
     repetition_penalty: float = 1.0
@@ -161,6 +162,13 @@ def main() -> None:
         "vlmprog-<model>_<views>.txt",
     )
     parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=MAX_NEW_TOKENS,
+        help=f"answer length cap per view; values != {MAX_NEW_TOKENS} add "
+        "-mt<value> to the output tag",
+    )
+    parser.add_argument(
         "--repetition-penalty",
         type=float,
         default=1.0,
@@ -185,10 +193,13 @@ def main() -> None:
     )
     if args.repetition_penalty != 1.0:
         tag += f"-rp{args.repetition_penalty:g}"
+    if args.max_new_tokens != MAX_NEW_TOKENS:
+        tag += f"-mt{args.max_new_tokens}"
     vlm = VlmVocabulary(
         checkpoint=args.checkpoint,
         progressive=args.progressive,
         repetition_penalty=args.repetition_penalty,
+        max_new_tokens=args.max_new_tokens,
     )
     for path in args.views:
         views = Views.load(path)
@@ -199,6 +210,8 @@ def main() -> None:
         scheme = "progressive" if args.progressive else "union"
         if args.repetition_penalty != 1.0:
             scheme += f", repetition penalty {args.repetition_penalty:g}"
+        if args.max_new_tokens != MAX_NEW_TOKENS:
+            scheme += f", max {args.max_new_tokens} new tokens"
         header = (
             f"# {args.checkpoint}, {scheme} over {len(views)} views of {path.name}\n"
         )
