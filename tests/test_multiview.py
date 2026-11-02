@@ -30,6 +30,7 @@ from src.refinement.multiview import (
     refine_scene,
     residuals,
     same_id_stencils,
+    same_segment_matches,
     scene_from_geometry,
     scene_residuals,
     segment_index,
@@ -339,3 +340,19 @@ def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
     assert 0.01 < seen_d < 0.02 and 0.01 < seen_ab < 0.02
     assert unseen_d > 0.028  # δ alone: pixels without a match keep the 3 %
     assert abs(unseen_ab - seen_ab) < 0.002  # with a, b they move with the segment
+
+
+def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    m = find_matches(scene, d0, scale, 0.05, 4)
+    same = torch.zeros(2, H, W, dtype=torch.long)
+    assert len(same_segment_matches(m, scene, d0, scale, same).src) == len(m.src)
+    split = same.clone()
+    split[1] = 7  # view 1 is one other object: nothing may match across
+    assert len(same_segment_matches(m, scene, d0, scale, split).src) == 0
+    shifted = halves()
+    shifted[1] = torch.roll(shifted[1], 20, dims=1)  # view 1's boundary elsewhere
+    kept = same_segment_matches(m, scene, d0, scale, shifted)
+    assert 0.2 * len(m.src) < len(kept.src) < 0.9 * len(m.src)

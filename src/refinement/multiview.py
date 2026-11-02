@@ -27,7 +27,7 @@ stencils on the pixel grid and linear in δ (E_d, E_bd) or in log depth (E_n); E
 has five entries per match, the source pixel and j's four interpolated pixels. On 20
 views of 504 x 336 this takes 2-3 s where L-BFGS took a minute.
 
-Semantics (`SemanticConfig`, the method in `Claude.md`) enter in two ways, each off
+Semantics (`SemanticConfig`, the method in `Claude.md`) enter in three ways, each off
 by default:
 
 - Cut: E_bd only on stencils whose pixels all carry the same instance id (no mask
@@ -37,12 +37,14 @@ by default:
   than moving a segment as a whole, so a correction found where views overlap carries
   over the segment's pixels that no other view sees. With a = 1, b = 0 at the start
   and λ_δ = 0, a and b add nothing the residual could not do.
+- Same segment: a match of E_mv is kept only where the pixel it lands on in view j
+  carries the source pixel's instance id, so agreement is not asked across an object
+  boundary, where one view sees the object and the other what is behind it.
 
 d is linear in (δ, a, b), d - d0 = L x, so every residual's Jacobian is J_d L and the
 normal equations stay matrix-free: L^T J_d^T J_d L.
 
-E_mv is required wherever the input already roughly agrees, not only within a
-segment.
+Without it, E_mv is required wherever the input already roughly agrees.
 """
 
 import dataclasses
@@ -292,6 +294,7 @@ class SemanticConfig:
 
     cut_boundaries: bool = False  # E_bd only within one instance id
     affine: bool = False  # per-segment a, b on inverse depth
+    same_segment: bool = False  # E_mv only between pixels of one instance id
     min_pixels: int = 100  # smaller segments of a view get no a, b
 
     def __post_init__(self) -> None:
@@ -340,6 +343,20 @@ def segment_index(ids: Tensor, min_pixels: int) -> tuple[Tensor, int]:
     valid = (unique >= 0) & (counts >= min_pixels)
     number = torch.where(valid, valid.long().cumsum(0) - 1, -1)
     return number[inverse], int(valid.sum())
+
+
+def same_segment_matches(
+    m: Matches, scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor
+) -> Matches:
+    """Keep the matches whose source pixel and nearest target pixel share an id."""
+    _, h, w = d0.shape
+    depth = scale / d0.reshape(-1)[m.src]
+    u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
+    col = u.round().long().clamp(0, w - 1)
+    row = v.round().long().clamp(0, h - 1)
+    flat = ids.reshape(-1)
+    keep = flat[m.src] == flat[(m.dst * h + row) * w + col]
+    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
 
 
 def smoothing_masks(p: Problem) -> tuple[Tensor, Tensor, Tensor] | None:
@@ -720,17 +737,10 @@ def build_problem(  # noqa: PLR0913
                 for a in range(2)
             ],
         )
-    return Problem(
-        scene,
-        scale,
-        d0,
-        w,
-        terms,
-        find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors),
-        cut,
-        index,
-        count,
-    )
+    matches = find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors)
+    if segments is not None and semantic.same_segment:
+        matches = same_segment_matches(matches, scene, d0, scale, segments)
+    return Problem(scene, scale, d0, w, terms, matches, cut, index, count)
 
 
 def gauss_newton(
