@@ -5,12 +5,16 @@ its points, so point density and view overlap do not weigh in. Ground truth is e
 pixel of the views with ground-truth depth, lifted through the ground-truth cameras
 (Hypersim's per-pixel maps, ScanNet++'s rendered mesh). A prediction comes in its own
 frame (Déjà View's, up to scale) and is mapped into the ground truth's by one
-similarity fitted on the camera centers (Umeyama 1991), the same for every variant.
+similarity (Umeyama 1991) fitted on per-pixel correspondences, the usual protocol for
+point maps (VGGT, CUT3R): `align_points`. Camera centers alone do not fix it: Hypersim's
+trajectories are close to a line, so the rotation about it is left free.
 
 Surface (Knapitsch et al. 2017, Tanks and Temples): accuracy is the distance of each
 predicted point to the nearest ground-truth point, completeness the other way round;
 precision and recall are the fractions of either within a tolerance τ, and the F-score
-their harmonic mean.
+their harmonic mean. Distances are capped at `CAP` (1 m), as DTU's evaluation caps
+outliers: a nearest-neighbor query for a point far from the other cloud costs
+milliseconds, and a mean should not hinge on a few points outside a window.
 
 Labels are transferred to the ground truth: every ground-truth point takes the
 instance of the nearest predicted point within `TRANSFER`, none if there is no such
@@ -39,14 +43,18 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from src.evaluation.depth import lift
+from src.evaluation.geometry import similarity
 
 VOXEL = 0.01  # m, grid both clouds are reduced to
 TOLERANCES = (0.01, 0.02, 0.05)  # m, precision / recall / F-score thresholds
 TRANSFER = 0.05  # m, a ground-truth point takes the label of a prediction this close
+CAP = 1.0  # m, distances above count as this
 MIN_POINTS = 100  # voxels; smaller instances are not scored (ScanNet: 100 vertices)
 IOU_THRESHOLDS = np.round(np.arange(0.5, 0.951, 0.05), 2)
 STRUCTURE = ("wall", "floor", "ceiling")  # no instances (ScanNet's AP leaves them out)
 NONE = -1
+ALIGN_SAMPLES = 200_000  # pixels the similarity is fitted on
+ALIGN_TRIM = 3.0  # refit on pixels within this many median residuals of the first fit
 
 
 @dataclass
@@ -68,6 +76,27 @@ class LabeledCloud:
         """Class name of each id, '' for NONE and ids without a class."""
         lut = {NONE: ""} | self.classes
         return np.array([lut.get(int(i), "") for i in ids], dtype=object)
+
+
+def align_points(
+    pred: np.ndarray, truth: np.ndarray, valid: np.ndarray
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Similarity mapping per-pixel points onto ground truth, robust to outliers.
+
+    Fitted on up to `ALIGN_SAMPLES` valid pixels (fixed seed), then refitted on those
+    within `ALIGN_TRIM` times the median residual, so a few points far off (glass,
+    sky) do not tilt it.
+    """
+    assert pred.shape == truth.shape and pred.shape[:-1] == valid.shape, pred.shape
+    index = np.flatnonzero(valid)
+    rng = np.random.default_rng(0)
+    index = rng.choice(index, min(ALIGN_SAMPLES, len(index)), replace=False)
+    a = pred.reshape(-1, 3)[index].astype(np.float64)
+    b = truth.reshape(-1, 3)[index].astype(np.float64)
+    s, rotation, t = similarity(a, b)
+    residual = np.linalg.norm(s * a @ rotation.T + t - b, axis=1)
+    keep = residual <= ALIGN_TRIM * np.median(residual)
+    return similarity(a[keep], b[keep])
 
 
 def voxelize(
@@ -131,8 +160,10 @@ def surface_metrics(
     pred: np.ndarray, truth: np.ndarray, tolerances: tuple[float, ...] = TOLERANCES
 ) -> dict[str, float]:
     """Accuracy, completeness (mean, cm), Chamfer, precision / recall / F-score at τ."""
-    acc = cKDTree(truth).query(pred, workers=-1)[0]
-    comp = cKDTree(pred).query(truth, workers=-1)[0]
+    acc, comp = (
+        np.minimum(cKDTree(b).query(a, workers=-1, distance_upper_bound=CAP)[0], CAP)
+        for a, b in ((pred, truth), (truth, pred))
+    )
     out = {
         "accuracy_cm": 100 * float(acc.mean()),
         "completeness_cm": 100 * float(comp.mean()),
@@ -153,8 +184,13 @@ def transfer(
     pred: LabeledCloud, truth: LabeledCloud, radius: float = TRANSFER
 ) -> np.ndarray:
     """Instance of the nearest predicted point within radius per ground-truth point."""
-    dist, nearest = cKDTree(pred.points).query(truth.points, workers=-1)
-    return np.where(dist <= radius, pred.instance[nearest], NONE)
+    dist, nearest = cKDTree(pred.points).query(
+        truth.points, workers=-1, distance_upper_bound=radius
+    )
+    found = np.isfinite(dist)
+    out = np.full(len(truth.points), NONE, dtype=np.int64)
+    out[found] = pred.instance[nearest[found]]
+    return out
 
 
 def semantic_iou(

@@ -5,6 +5,7 @@ import numpy as np
 from src.evaluation.labeled import (
     NONE,
     LabeledCloud,
+    align_points,
     average_precision,
     ground_truth_cloud,
     label_metrics,
@@ -91,3 +92,16 @@ def test_an_object_split_across_views_loses_its_match() -> None:
     scores = label_metrics(truth, pred, ["floor", "chair"])
     assert scores["miou"] == 1.0  # classes are all right
     assert scores["ap50"] == 0.5  # one of two chairs found, at full precision
+
+
+def test_alignment_recovers_a_similarity_despite_outliers() -> None:
+    rng = np.random.default_rng(0)
+    truth = rng.uniform(-2, 2, size=(40, 50, 3))
+    c, s = np.cos(0.4), np.sin(0.4)
+    rotation = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    pred = (truth - [1, 0, 2]) @ rotation / 3.0  # truth = 3 R pred + t
+    pred[0, 0] += 50.0  # one point far off, as behind glass
+    scale, r, t = align_points(pred, truth, np.ones((40, 50), dtype=bool))
+    assert np.isclose(scale, 3.0)
+    np.testing.assert_allclose(r, rotation, atol=1e-9)
+    np.testing.assert_allclose(t, [1, 0, 2], atol=1e-9)
