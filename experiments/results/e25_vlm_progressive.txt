@@ -1,0 +1,78 @@
+| scene | vocabulary | machine | names | subset | recall | pixel recall | precision | cross-class leakage | consistent | GT in >=2 views | id switches | merges | wrong links | mixed-class objects |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| kitchen | top100 | cluster | 100 | all | 0.92 | 0.95 | 0.51 | 0.007 | 0.82 | 38 | 8 | 1 | 5 | 20 |
+| kitchen | top100 | cluster | 100 | objects | 0.94 | 0.97 | 0.43 | 0.015 | 0.80 | 30 | 7 | 1 |  |  |
+| kitchen | VLM union (E16) | cluster | 46 | all | 0.89 | 0.94 | 0.45 | 0.007 | 0.83 | 36 | 7 | 1 | 5 | 18 |
+| kitchen | VLM union (E16) | cluster | 46 | objects | 0.90 | 0.96 | 0.36 | 0.013 | 0.82 | 28 | 6 | 1 |  |  |
+| kitchen | VLM progressive | cluster | 12 | all | 0.82 | 0.92 | 0.69 | 0.006 | 0.85 | 33 | 7 | 1 | 4 | 13 |
+| kitchen | VLM progressive | cluster | 12 | objects | 0.80 | 0.89 | 0.60 | 0.012 | 0.84 | 25 | 6 | 1 |  |  |
+| kitchen | top100 | laptop | 100 | all | 0.91 | 0.95 | 0.50 | 0.007 | 0.82 | 38 | 8 | 1 | 5 | 19 |
+| kitchen | top100 | laptop | 100 | objects | 0.94 | 0.97 | 0.42 | 0.015 | 0.80 | 30 | 7 | 1 |  |  |
+| kitchen | VLM union (E16) | laptop | 46 | all | 0.89 | 0.94 | 0.44 | 0.007 | 0.83 | 36 | 7 | 1 | 5 | 17 |
+| kitchen | VLM union (E16) | laptop | 46 | objects | 0.90 | 0.96 | 0.35 | 0.013 | 0.82 | 28 | 6 | 1 |  |  |
+| office | top100 | cluster | 100 | all | 0.73 | 0.83 | 0.48 | 0.049 | 0.76 | 51 | 14 | 5 | 10 | 22 |
+| office | top100 | cluster | 100 | objects | 0.73 | 0.84 | 0.42 | 0.054 | 0.74 | 43 | 13 | 4 |  |  |
+| office | VLM union (E16) | cluster | 60 | all | 0.72 | 0.84 | 0.40 | 0.051 | 0.73 | 48 | 15 | 5 | 11 | 21 |
+| office | VLM union (E16) | cluster | 60 | objects | 0.71 | 0.86 | 0.35 | 0.058 | 0.70 | 40 | 14 | 4 |  |  |
+| office | VLM progressive | cluster | 22 | all | 0.64 | 0.82 | 0.60 | 0.050 | 0.78 | 41 | 10 | 4 | 10 | 12 |
+| office | VLM progressive | cluster | 22 | objects | 0.62 | 0.83 | 0.54 | 0.056 | 0.76 | 33 | 9 | 3 |  |  |
+| office | top100 | laptop | 100 | all | 0.73 | 0.83 | 0.48 | 0.048 | 0.75 | 51 | 16 | 4 | 10 | 20 |
+| office | top100 | laptop | 100 | objects | 0.72 | 0.84 | 0.43 | 0.054 | 0.72 | 43 | 15 | 3 |  |  |
+| office | VLM union (E16) | laptop | 60 | all | 0.71 | 0.83 | 0.40 | 0.051 | 0.72 | 47 | 15 | 5 | 11 | 19 |
+| office | VLM union (E16) | laptop | 60 | objects | 0.70 | 0.85 | 0.35 | 0.058 | 0.69 | 39 | 14 | 4 |  |  |
+
+Masks and merges (cluster runs):
+
+kitchen / top100: 920 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / VLM union (E16): 1056 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / VLM progressive: 545 per-view masks
+  merge: box -> box 10, box 9
+
+office / top100: 1092 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: cabinet -> storage cabinet 34, storage cabinet 35
+  merge: table -> table 55, table 79, table 93
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: window -> window 13, window 2
+  merge: wall -> wall 15, wall 17
+  merge: table -> table 79, table 93
+
+office / VLM union (E16): 1514 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: window frame -> windowframe 18, windowsill 40
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: cabinet -> storage cabinet 34, storage cabinet 35
+  merge: fan -> object 59, pedestal fan 1
+
+office / VLM progressive: 697 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: cabinet -> storage cabinet 34, storage cabinet 35
+
+Vocabularies:
+
+kitchen / VLM union (E16): 46 names, truncated answers 18/20
+  wall, floor, table, microwave, box, paper, door, surface, ceiling, desk, cabinet, book, notebook, window, scissors, tape, light, switch, calendar, latch, handle, magnet, refrigerator, mat, wire, printer, monitor, shelf, electrical outlet, board, screen, copier, trash can, crate, cable, picture, bottle, power strip, power cord, nail, ladder, blackboard, laser, plastic, toy, hat
+
+kitchen / VLM progressive: 12 names, truncated answers 8/20, VLM 60s
+  new names per view: [8, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+  wall, floor, table, microwave, box, paper, door, surface, cabinet, window, printer, ceiling
+
+office / VLM union (E16): 60 names, truncated answers 16/20
+  wall, floor, ceiling, cabinet, chair, fan, desk, whiteboard, door, power outlet, socket, window, light switch, trash can, box, book, monitor, computer, keyboard, power strip, cable, phone, laptop, computer mouse, light, wall outlet, shelf, cord, blackboard, text, drawer, mouse, cup, can, latch, door handle, window frame, light fixture, coat rack, curtain, hook, towel, mirror, paper, card, bin, bookshelf, cog, lamp, pen, marker, notepad, lightbulb, switch, pencil, caddy, hanger, staircase, pipe, electrical outlet
+
+office / VLM progressive: 22 names, truncated answers 3/20, VLM 11s
+  new names per view: [15, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+  wall, floor, ceiling, cabinet, chair, fan, whiteboard, trash can, desk, door, window, socket, power outlet, light switch, office chair, monitor, computer mouse, telephone, book, shelf, coat rack, keyboard
+
+figure: experiments\figures\e25_vlm_progressive.jpg

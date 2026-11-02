@@ -1,0 +1,5 @@
+objects with >= 2 masks on labeled GT: 57, impure: 4
+  id    10 (floor) -> 30:floor x9, 36:table x1
+  id    38 (box) -> 10:box x8, 9:box x1
+  id    32 (mouse) -> 7:box x1, 21:wall x1
+  id    58 (cabinet) -> 31:wall x1, 29:wall x1

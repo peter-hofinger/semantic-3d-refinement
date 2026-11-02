@@ -1,0 +1,5 @@
+5ee7c22ba0: camera step between views [m] min 0.15 median 0.30 max 1.57
+  labeled 93%  unlabeled 4%  no mesh 4%  instances 42  depth 0.19-2.44 m
+7b6477cb95: camera step between views [m] min 0.11 median 0.92 max 1.95
+  labeled 92%  unlabeled 2%  no mesh 6%  instances 92  depth 0.27-4.76 m
+figures -> experiments\figures

@@ -1,0 +1,88 @@
+| scene | vocabulary | (a) vf 0.25 | (b) multi-view filter | subset | recall | pixel recall | precision | leakage | cross-class leakage | consistent | GT in >=2 views | id switches | merges |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| kitchen | top100 | off | off | all | 0.84 | 0.92 | 0.49 | 0.010 | 0.007 | 0.83 | 35 | 6 | 1 |
+| kitchen | top100 | off | off | objects | 0.88 | 0.96 | 0.41 | 0.016 | 0.014 | 0.83 | 29 | 5 | 1 |
+| kitchen | top100 | off | on | all | 0.91 | 0.95 | 0.50 | 0.010 | 0.007 | 0.84 | 38 | 6 | 1 |
+| kitchen | top100 | off | on | objects | 0.94 | 0.97 | 0.42 | 0.017 | 0.015 | 0.83 | 30 | 5 | 1 |
+| kitchen | top100 | on | off | all | 0.84 | 0.92 | 0.49 | 0.010 | 0.007 | 0.80 | 35 | 8 | 1 |
+| kitchen | top100 | on | off | objects | 0.88 | 0.96 | 0.41 | 0.016 | 0.014 | 0.79 | 29 | 7 | 1 |
+| kitchen | top100 | on | on | all | 0.91 | 0.95 | 0.50 | 0.010 | 0.007 | 0.82 | 38 | 8 | 1 |
+| kitchen | top100 | on | on | objects | 0.94 | 0.97 | 0.42 | 0.017 | 0.015 | 0.80 | 30 | 7 | 1 |
+| kitchen | VLM | off | off | all | 0.83 | 0.93 | 0.43 | 0.010 | 0.007 | 0.85 | 34 | 5 | 1 |
+| kitchen | VLM | off | off | objects | 0.85 | 0.94 | 0.35 | 0.016 | 0.013 | 0.86 | 28 | 4 | 1 |
+| kitchen | VLM | off | on | all | 0.89 | 0.94 | 0.44 | 0.010 | 0.007 | 0.86 | 36 | 5 | 1 |
+| kitchen | VLM | off | on | objects | 0.90 | 0.96 | 0.35 | 0.016 | 0.013 | 0.86 | 28 | 4 | 1 |
+| kitchen | VLM | on | off | all | 0.83 | 0.93 | 0.43 | 0.010 | 0.007 | 0.82 | 34 | 7 | 1 |
+| kitchen | VLM | on | off | objects | 0.85 | 0.94 | 0.35 | 0.016 | 0.013 | 0.82 | 28 | 6 | 1 |
+| kitchen | VLM | on | on | all | 0.89 | 0.94 | 0.44 | 0.010 | 0.007 | 0.83 | 36 | 7 | 1 |
+| kitchen | VLM | on | on | objects | 0.90 | 0.96 | 0.35 | 0.016 | 0.013 | 0.82 | 28 | 6 | 1 |
+| office | top100 | off | off | all | 0.66 | 0.79 | 0.46 | 0.082 | 0.047 | 0.76 | 49 | 16 | 5 |
+| office | top100 | off | off | objects | 0.68 | 0.83 | 0.42 | 0.104 | 0.052 | 0.74 | 42 | 14 | 4 |
+| office | top100 | off | on | all | 0.73 | 0.83 | 0.48 | 0.081 | 0.048 | 0.76 | 51 | 15 | 6 |
+| office | top100 | off | on | objects | 0.72 | 0.84 | 0.43 | 0.105 | 0.054 | 0.72 | 43 | 15 | 4 |
+| office | top100 | on | off | all | 0.66 | 0.79 | 0.46 | 0.082 | 0.047 | 0.76 | 49 | 16 | 4 |
+| office | top100 | on | off | objects | 0.68 | 0.83 | 0.42 | 0.104 | 0.052 | 0.74 | 42 | 14 | 3 |
+| office | top100 | on | on | all | 0.73 | 0.83 | 0.48 | 0.082 | 0.048 | 0.75 | 51 | 16 | 4 |
+| office | top100 | on | on | objects | 0.72 | 0.84 | 0.43 | 0.105 | 0.054 | 0.72 | 43 | 15 | 3 |
+| office | VLM | off | off | all | 0.66 | 0.80 | 0.39 | 0.081 | 0.051 | 0.74 | 46 | 14 | 5 |
+| office | VLM | off | off | objects | 0.68 | 0.84 | 0.34 | 0.102 | 0.057 | 0.72 | 39 | 12 | 4 |
+| office | VLM | off | on | all | 0.71 | 0.84 | 0.40 | 0.080 | 0.051 | 0.74 | 47 | 13 | 7 |
+| office | VLM | off | on | objects | 0.70 | 0.85 | 0.35 | 0.103 | 0.058 | 0.69 | 39 | 13 | 5 |
+| office | VLM | on | off | all | 0.66 | 0.80 | 0.39 | 0.081 | 0.051 | 0.74 | 46 | 15 | 4 |
+| office | VLM | on | off | objects | 0.68 | 0.84 | 0.34 | 0.102 | 0.057 | 0.72 | 39 | 13 | 3 |
+| office | VLM | on | on | all | 0.71 | 0.83 | 0.40 | 0.080 | 0.051 | 0.72 | 47 | 15 | 5 |
+| office | VLM | on | on | objects | 0.70 | 0.85 | 0.35 | 0.103 | 0.058 | 0.69 | 39 | 14 | 4 |
+
+Runs:
+  kitchen top100 a=0 b=0: 299 objects, 13s, new
+  kitchen top100 a=0 b=1: 303 objects, 13s, new
+  kitchen top100 a=1 b=0: 301 objects, 12s, same as cache
+  kitchen top100 a=1 b=1: 305 objects, 13s, same as cache
+  kitchen VLM a=0 b=0: 385 objects, 12s, new
+  kitchen VLM a=0 b=1: 389 objects, 13s, new
+  kitchen VLM a=1 b=0: 387 objects, 12s, same as cache
+  kitchen VLM a=1 b=1: 391 objects, 13s, same as cache
+  office top100 a=0 b=0: 403 objects, 12s, new
+  office top100 a=0 b=1: 406 objects, 13s, new
+  office top100 a=1 b=0: 409 objects, 12s, same as cache
+  office top100 a=1 b=1: 414 objects, 13s, same as cache
+  office VLM a=0 b=0: 539 objects, 12s, new
+  office VLM a=0 b=1: 544 objects, 13s, new
+  office VLM a=1 b=0: 545 objects, 16s, same as cache
+  office VLM a=1 b=1: 552 objects, 14s, same as cache
+
+Main effects (all): mean change when the factor is switched on
+| factor | scene | pixel recall | recall | precision | cross-class leakage | consistent | id switches | merges |
+|---|---|---|---|---|---|---|---|---|
+| (a) visible share 0.25 | kitchen | +0.00 | +0.00 | +0.00 | +0.000 | -0.03 | +2.00 | +0.00 |
+| (a) visible share 0.25 | office | -0.00 | -0.00 | -0.00 | +0.000 | -0.01 | +1.00 | -1.50 |
+| (b) multi-view filter | kitchen | +0.02 | +0.06 | +0.01 | +0.000 | +0.01 | +0.00 | +0.00 |
+| (b) multi-view filter | office | +0.04 | +0.06 | +0.01 | +0.000 | -0.00 | -0.50 | +1.00 |
+| (c) VLM instead of top100 | kitchen | +0.00 | -0.02 | -0.06 | -0.000 | +0.02 | -1.00 | +0.00 |
+| (c) VLM instead of top100 | office | +0.01 | -0.01 | -0.08 | +0.003 | -0.02 | -1.50 | +0.50 |
+
+Main effects (objects): mean change when the factor is switched on
+| factor | scene | pixel recall | recall | precision | cross-class leakage | consistent | id switches | merges |
+|---|---|---|---|---|---|---|---|---|
+| (a) visible share 0.25 | kitchen | +0.00 | +0.00 | +0.00 | +0.000 | -0.03 | +2.00 | +0.00 |
+| (a) visible share 0.25 | office | +0.00 | +0.00 | +0.00 | -0.000 | +0.00 | +0.50 | -1.00 |
+| (b) multi-view filter | kitchen | +0.01 | +0.05 | +0.01 | +0.001 | +0.00 | +0.00 | +0.00 |
+| (b) multi-view filter | office | +0.01 | +0.03 | +0.01 | +0.001 | -0.02 | +1.00 | +0.50 |
+| (c) VLM instead of top100 | kitchen | -0.01 | -0.04 | -0.06 | -0.001 | +0.03 | -1.00 | +0.00 |
+| (c) VLM instead of top100 | office | +0.01 | -0.01 | -0.08 | +0.005 | -0.02 | -1.50 | +0.50 |
+
+Effect of each factor split by another factor (all, kitchen / office):
+  a with b=off: pixel_recall +0.00/+0.00, precision +0.00/+0.00, consistent -0.03/+0.00, merges +0.00/-1.00
+  a with b=on: pixel_recall +0.00/-0.00, precision +0.00/-0.00, consistent -0.03/-0.02, merges +0.00/-2.00
+  a with VLM=off: pixel_recall +0.00/-0.00, precision +0.00/-0.00, consistent -0.03/-0.01, merges +0.00/-1.50
+  a with VLM=on: pixel_recall +0.00/-0.00, precision +0.00/-0.00, consistent -0.03/-0.01, merges +0.00/-1.50
+  b with a=off: pixel_recall +0.02/+0.04, precision +0.01/+0.01, consistent +0.01/+0.01, merges +0.00/+1.50
+  b with a=on: pixel_recall +0.02/+0.04, precision +0.01/+0.01, consistent +0.01/-0.01, merges +0.00/+0.50
+  b with VLM=off: pixel_recall +0.03/+0.04, precision +0.01/+0.02, consistent +0.01/-0.00, merges +0.00/+0.50
+  b with VLM=on: pixel_recall +0.01/+0.04, precision +0.01/+0.01, consistent +0.01/-0.01, merges +0.00/+1.50
+  VLM with a=off: pixel_recall +0.00/+0.01, precision -0.06/-0.08, consistent +0.02/-0.02, merges +0.00/+0.50
+  VLM with a=on: pixel_recall +0.00/+0.01, precision -0.06/-0.08, consistent +0.02/-0.02, merges +0.00/+0.50
+  VLM with b=off: pixel_recall +0.01/+0.01, precision -0.06/-0.08, consistent +0.02/-0.02, merges +0.00/+0.00
+  VLM with b=on: pixel_recall -0.01/+0.00, precision -0.06/-0.08, consistent +0.02/-0.02, merges +0.00/+1.00
+
+figure: experiments\figures\e17_main_effects.jpg

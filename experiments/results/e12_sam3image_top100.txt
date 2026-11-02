@@ -1,0 +1,44 @@
+5ee7c22ba0: 20 views, 100 prompts, 100 classes
+  view  0:  20 masks
+  view  1:  20 masks
+  view  2:  33 masks
+  view  3:  25 masks
+  view  4:  18 masks
+  view  5:  14 masks
+  view  6:  17 masks
+  view  7:  19 masks
+  view  8:  22 masks
+  view  9:  43 masks
+  view 10:  51 masks
+  view 11:  58 masks
+  view 12:  48 masks
+  view 13:  59 masks
+  view 14:  12 masks
+  view 15:  30 masks
+  view 16:  16 masks
+  view 17:  30 masks
+  view 18:  17 masks
+  view 19:  31 masks
+5ee7c22ba0: 583 instances in 20 views, 261s, peak GPU 2.10 GB -> data\processed\scannetpp\5ee7c22ba0\sam3image-top100_views_n20_uniform_504.npz
+7b6477cb95: 20 views, 100 prompts, 100 classes
+  view  0:  27 masks
+  view  1:  50 masks
+  view  2:  34 masks
+  view  3:  39 masks
+  view  4:  34 masks
+  view  5:  25 masks
+  view  6:  39 masks
+  view  7:  26 masks
+  view  8:  31 masks
+  view  9:  43 masks
+  view 10:  38 masks
+  view 11:  28 masks
+  view 12:  40 masks
+  view 13:  10 masks
+  view 14:  49 masks
+  view 15:  56 masks
+  view 16:  40 masks
+  view 17:  42 masks
+  view 18:  44 masks
+  view 19:  37 masks
+7b6477cb95: 732 instances in 20 views, 271s, peak GPU 2.08 GB -> data\processed\scannetpp\7b6477cb95\sam3image-top100_views_n20_uniform_504.npz

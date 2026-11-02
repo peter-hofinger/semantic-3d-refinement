@@ -1,0 +1,216 @@
+| scene | vocabulary | machine | names | subset | recall | pixel recall | precision | cross-class leakage | consistent | GT in >=2 views | id switches | merges | wrong links | mixed-class objects |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| kitchen | top100 | cluster | 100 | all | 0.92 | 0.95 | 0.51 | 0.007 | 0.82 | 38 | 8 | 1 | 5 | 20 |
+| kitchen | top100 | cluster | 100 | objects | 0.94 | 0.97 | 0.43 | 0.015 | 0.80 | 30 | 7 | 1 |  |  |
+| kitchen | 2B union (E16) | cluster | 46 | all | 0.89 | 0.94 | 0.45 | 0.007 | 0.83 | 36 | 7 | 1 | 5 | 18 |
+| kitchen | 2B union (E16) | cluster | 46 | objects | 0.90 | 0.96 | 0.36 | 0.013 | 0.82 | 28 | 6 | 1 |  |  |
+| kitchen | 2B progressive (E25) | cluster | 12 | all | 0.82 | 0.92 | 0.69 | 0.006 | 0.85 | 33 | 7 | 1 | 4 | 13 |
+| kitchen | 2B progressive (E25) | cluster | 12 | objects | 0.80 | 0.89 | 0.60 | 0.012 | 0.84 | 25 | 6 | 1 |  |  |
+| kitchen | 27B union | cluster | 389 | all | 0.82 | 0.85 | 0.15 | 0.012 | 0.80 | 35 | 8 | 3 | 8 | 40 |
+| kitchen | 27B union | cluster | 389 | objects | 0.90 | 0.92 | 0.11 | 0.018 | 0.79 | 29 | 7 | 1 |  |  |
+| kitchen | 27B progressive | cluster | 249 | all | 0.91 | 0.95 | 0.24 | 0.008 | 0.82 | 38 | 8 | 1 | 8 | 45 |
+| kitchen | 27B progressive | cluster | 249 | objects | 0.92 | 0.97 | 0.18 | 0.015 | 0.80 | 30 | 7 | 1 |  |  |
+| kitchen | 27B union rp1.1 | cluster | 265 | all | 0.80 | 0.89 | 0.23 | 0.033 | 0.78 | 36 | 9 | 1 | 5 | 35 |
+| kitchen | 27B union rp1.1 | cluster | 265 | objects | 0.83 | 0.90 | 0.18 | 0.055 | 0.79 | 29 | 7 | 1 |  |  |
+| kitchen | 27B progressive rp1.1 | cluster | 323 | all | 0.90 | 0.95 | 0.28 | 0.008 | 0.81 | 37 | 8 | 1 | 6 | 31 |
+| kitchen | 27B progressive rp1.1 | cluster | 323 | objects | 0.90 | 0.96 | 0.21 | 0.015 | 0.79 | 29 | 7 | 1 |  |  |
+| kitchen | 27B union cap64 | cluster | 90 | all | 0.91 | 0.94 | 0.29 | 0.008 | 0.84 | 38 | 7 | 1 | 5 | 37 |
+| kitchen | 27B union cap64 | cluster | 90 | objects | 0.93 | 0.97 | 0.23 | 0.015 | 0.83 | 30 | 6 | 1 |  |  |
+| kitchen | 27B progressive cap64 | cluster | 96 | all | 0.89 | 0.94 | 0.36 | 0.007 | 0.83 | 36 | 7 | 1 | 6 | 31 |
+| kitchen | 27B progressive cap64 | cluster | 96 | objects | 0.90 | 0.96 | 0.29 | 0.013 | 0.82 | 28 | 6 | 1 |  |  |
+| office | top100 | cluster | 100 | all | 0.73 | 0.83 | 0.48 | 0.049 | 0.76 | 51 | 14 | 5 | 10 | 22 |
+| office | top100 | cluster | 100 | objects | 0.73 | 0.84 | 0.42 | 0.054 | 0.74 | 43 | 13 | 4 |  |  |
+| office | 2B union (E16) | cluster | 60 | all | 0.72 | 0.84 | 0.40 | 0.051 | 0.73 | 48 | 15 | 5 | 11 | 21 |
+| office | 2B union (E16) | cluster | 60 | objects | 0.71 | 0.86 | 0.35 | 0.058 | 0.70 | 40 | 14 | 4 |  |  |
+| office | 2B progressive (E25) | cluster | 22 | all | 0.64 | 0.82 | 0.60 | 0.050 | 0.78 | 41 | 10 | 4 | 10 | 12 |
+| office | 2B progressive (E25) | cluster | 22 | objects | 0.62 | 0.83 | 0.54 | 0.056 | 0.76 | 33 | 9 | 3 |  |  |
+| office | 27B union | cluster | 506 | all | 0.74 | 0.88 | 0.24 | 0.063 | 0.73 | 49 | 16 | 6 | 11 | 51 |
+| office | 27B union | cluster | 506 | objects | 0.75 | 0.86 | 0.20 | 0.060 | 0.74 | 42 | 14 | 5 |  |  |
+| office | 27B progressive | cluster | 371 | all | 0.77 | 0.90 | 0.26 | 0.047 | 0.71 | 51 | 17 | 5 | 14 | 48 |
+| office | 27B progressive | cluster | 371 | objects | 0.76 | 0.86 | 0.22 | 0.066 | 0.70 | 43 | 15 | 4 |  |  |
+| office | 27B union rp1.1 | cluster | 476 | all | 0.73 | 0.88 | 0.23 | 0.066 | 0.74 | 47 | 12 | 6 | 11 | 48 |
+| office | 27B union rp1.1 | cluster | 476 | objects | 0.74 | 0.86 | 0.19 | 0.065 | 0.73 | 41 | 11 | 5 |  |  |
+| office | 27B progressive rp1.1 | cluster | 236 | all | 0.73 | 0.88 | 0.28 | 0.060 | 0.70 | 47 | 15 | 6 | 11 | 39 |
+| office | 27B progressive rp1.1 | cluster | 236 | objects | 0.74 | 0.85 | 0.24 | 0.067 | 0.70 | 40 | 13 | 5 |  |  |
+| office | 27B union cap64 | cluster | 79 | all | 0.75 | 0.89 | 0.33 | 0.048 | 0.76 | 49 | 12 | 5 | 11 | 37 |
+| office | 27B union cap64 | cluster | 79 | objects | 0.73 | 0.85 | 0.28 | 0.057 | 0.76 | 41 | 10 | 4 |  |  |
+| office | 27B progressive cap64 | cluster | 91 | all | 0.75 | 0.89 | 0.30 | 0.048 | 0.73 | 49 | 14 | 5 | 11 | 34 |
+| office | 27B progressive cap64 | cluster | 91 | objects | 0.73 | 0.84 | 0.25 | 0.057 | 0.73 | 41 | 12 | 4 |  |  |
+
+Masks and merges (cluster runs):
+
+kitchen / top100: 920 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 2B union (E16): 1056 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 2B progressive (E25): 545 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 27B union: 3469 per-view masks
+  merge: box -> box 10, box 9
+  merge: room -> wall 29, wall 32
+  merge: wall -> wall 24, wall 31
+
+kitchen / 27B progressive: 2511 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 27B union rp1.1: 2021 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 27B progressive rp1.1: 1938 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 27B union cap64: 1761 per-view masks
+  merge: box -> box 10, box 9
+
+kitchen / 27B progressive cap64: 1380 per-view masks
+  merge: box -> box 10, box 9
+
+office / top100: 1092 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: cabinet -> storage cabinet 34, storage cabinet 35
+  merge: table -> table 55, table 79, table 93
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: window -> window 13, window 2
+  merge: wall -> wall 15, wall 17
+  merge: table -> table 79, table 93
+
+office / 2B union (E16): 1514 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: window frame -> windowframe 18, windowsill 40
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: cabinet -> storage cabinet 34, storage cabinet 35
+  merge: fan -> object 59, pedestal fan 1
+
+office / 2B progressive (E25): 697 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: cabinet -> storage cabinet 34, storage cabinet 35
+
+office / 27B union: 2895 per-view masks
+  merge: window -> window 16, window 2
+  merge: room -> wall 15, wall 17
+  merge: fan -> object 59, pedestal fan 1
+  merge: box -> box 3, box 61
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+
+office / 27B progressive: 2578 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: window frame -> windowframe 18, windowsill 40
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: window -> window 13, window 2
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: fan -> object 59, pedestal fan 1
+
+office / 27B union rp1.1: 2482 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: window -> window 16, window 2
+  merge: room -> wall 15, wall 17
+  merge: cardboard box -> box 3, box 61
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: fan -> object 59, pedestal fan 1
+
+office / 27B progressive rp1.1: 2374 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: room -> wall 15, wall 17
+  merge: wood -> object 59, pedestal fan 1
+  merge: window -> window 13, window 2
+  merge: cardboard box -> box 3, box 61
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+
+office / 27B union cap64: 1755 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: window -> window 16, window 2
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: fan -> object 59, pedestal fan 1
+
+office / 27B progressive cap64: 2058 per-view masks
+  merge: door -> door 65, doorframe 66
+  merge: ceiling -> SPLIT 25, ceiling 42
+  merge: window -> window 13, window 2
+  merge: wall -> wall 15, wall 17
+  merge: desk -> table 55, table 79, table 93
+  merge: desk -> table 79, table 93
+  merge: fan -> object 59, pedestal fan 1
+
+Vocabularies:
+
+kitchen / 2B union (E16): 46 names, truncated answers 18/20
+  wall, floor, table, microwave, box, paper, door, surface, ceiling, desk, cabinet, book, notebook, window, scissors, tape, light, switch, calendar, latch, handle, magnet, refrigerator, mat, wire, printer, monitor, shelf, electrical outlet, board, screen, copier, trash can, crate, cable, picture, bottle, power strip, power cord, nail, ladder, blackboard, laser, plastic, toy, hat
+
+kitchen / 2B progressive (E25): 12 names, truncated answers 8/20, VLM 60s
+  new names per view: [8, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+  wall, floor, table, microwave, box, paper, door, surface, cabinet, window, printer, ceiling
+
+kitchen / 27B union: 389 names, truncated answers 5/20, VLM 75s
+  new names per view: [15, 6, 79, 1, 7, 2, 2, 2, 1, 88, 61, 62, 1, 58, 0, 1, 0, 3, 0, 0]
+  wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, cable, mat, drawer, handle, card, box, desk, printer, notebook, pen, sticker, tape, note, envelope, switch, board, shelf, book, clipboard, label, panel, edge, corner, surface, top, side, front, back, left, right, center, middle, bottom, top edge, bottom edge, left edge, right edge, inner, outer, upper, lower, front face, back face, side face, top surface, bottom surface, left surface, right surface, front surface, back surface, inner surface, outer surface, upper surface, lower surface, flat surface, curved surface, smooth surface, rough surface, glossy surface, matte surface, textured surface, patterned surface, plain surface, solid surface, hollow surface, open surface, closed surface, visible surface, hidden surface, exposed surface, covered surface, clean surface, dirty surface, dry surface, wet surface, warm surface, cold surface, hard surface, soft surface, rigid surface, flexible surface, smooth edge, rough edge, sharp edge, blunt edge, curved edge, straight edge, angled edge, rounded edge, pointed edge, flat edge, object, closet, towel, hinge, calendar, light fixture, pipe, cardboard tube, light, doorframe, laptop, outlet, copier, ladder, trash can, chair, bin, monitor, keyboard, mouse, stapler, basket, wire, rug, frame, stand, base, line, point, area, space, room, office, equipment, furniture, storage, container, holder, support, structure, material, texture, shape, form, size, scale, dimension, position, location, direction, orientation, angle, slope, curve, straight, flat, smooth, rough, hard, soft, solid, liquid, gas, state, phase, type, kind, class, category, group, set, collection, assembly, arrangement, configuration, layout, design, pattern, style, appearance, look, view, sight, scene, image, picture, photo, snapshot, shot, capture, record, document, file, data, information, content, message, text, word, letter, symbol, sign, mark, sticky note, storage bin, metal stand, wooden crate, plastic crate, electronic device, office supplies, filing cabinet, lamp, tag, folder, pencil, ruler, scissors, paperclip, binder, magazine, newspaper, clock, thermometer, fan, heater, air conditioner, vent, window, lock, key, poster, mirror, curtain, blind, carpet, tile, wood, concrete, metal, plastic, glass, ceramic, fabric, leather, rubber, foam, cardboard, chip, plug, socket, button, screen, display, camera, speaker, microphone, headset, phone, tablet, desktop, server, router, modem, scanner, bottle, ink, cartridge, rack, tray, port, connector, element, part, piece, component, unit, module, section, zone, region, field, plane, level, layer, tier, rank, order, sequence, series, plan, scheme, system, network, framework, architecture, infrastructure, foundation, platform, stage, ground, peak, summit, apex, vertex, tip, end, border, boundary, limit, range, scope, extent, reach, span, width, length, height, depth, measure, proportion, ratio, percentage, fraction, portion, share, slice, crate, organizer, clip, sheet, page, chart, graph, diagram, map, icon, logo, brand, name, title, heading, caption, annotation, comment, remark, observation, finding, result, outcome, conclusion, summary, overview, introduction, background, context, setting, environment, fragment, feature, aspect, detail, item, thing, entity, device, machine, tool, instrument, apparatus, gadget, widget, gizmo, contraption, mechanism, interface, pointer, cursor, lever, dial, knob, control, case, cover, lid, cap, cloth, placemat, bag, appliance
+
+kitchen / 27B progressive: 249 names, truncated answers 5/20, VLM 66s
+  new names per view: [15, 0, 0, 0, 0, 95, 7, 0, 0, 58, 0, 0, 0, 0, 0, 68, 0, 6, 0, 0]
+  wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, cable, mat, drawer, handle, card, box, light, switch, hinge, vent, panel, latch, sticker, frame, edge, joint, seam, corner, surface, fixture, plate, button, label, tag, strip, bar, rod, pipe, duct, grille, cover, lid, cap, plug, socket, outlet, connector, seal, gasket, clamp, bracket, support, mount, base, stand, leg, foot, post, column, beam, joist, stud, sill, lintel, header, mullion, transom, fanlight, casing, trim, molding, crown, baseboard, skirting, plinth, pedestal, dado, wainscot, paneling, beadboard, shiplap, clapboard, siding, stucco, plaster, drywall, gypsum, concrete, brick, stone, tile, marble, granite, slate, wood, metal, glass, plastic, rubber, leather, fabric, textile, wool, cotton, linen, silk, nylon, polyester, spandex, elastane, viscose, printer, shelf, ladder, monitor, keyboard, mouse, desk, basket, bin, trash can, organizer, rack, tray, display, holder, container, storage, unit, machine, device, appliance, equipment, instrument, tool, gadget, apparatus, system, module, component, part, piece, element, item, object, thing, matter, substance, material, medium, form, shape, structure, configuration, arrangement, layout, design, pattern, texture, finish, coating, layer, film, sheet, membrane, skin, shell, hull, body, chassis, enclosure, housing, case, vessel, receptacle, pillar, copier, scissors, towel, trash bin, counter, top, scanner, paper feeder, output tray, control panel, display screen, buttons, paper tray, paper feed, paper path, paper stack, paper roll, paper cutter, paper guide, paper stop, paper sensor, paper jam, paper feed roller, paper pickup roller, paper separation pad, paper registration roller, paper transport roller, paper exit roller, paper exit guide, paper exit stop, paper exit sensor, paper exit path, paper exit tray, paper exit bin, paper exit container, paper exit holder, paper exit rack, paper exit stand, paper exit base, paper exit support, paper exit mount, paper exit bracket, paper exit clamp, paper exit gasket, paper exit seal, paper exit connector, paper exit plug, paper exit cap, paper exit lid, paper exit cover, paper exit grille, paper exit duct, paper exit pipe, paper exit rod, paper exit bar, paper exit strip, paper exit tag, paper exit label, paper exit button, paper exit plate, paper exit fixture, paper exit surface, paper exit corner, paper exit seam, paper exit joint, paper exit edge, paper exit frame, paper exit sticker, tissue, napkin, tape, roll, trash, can
+
+kitchen / 27B union rp1.1: 265 names, truncated answers 3/20, VLM 60s
+  new names per view: [109, 5, 4, 2, 4, 1, 2, 3, 1, 69, 52, 5, 2, 1, 0, 2, 0, 3, 0, 0]
+  wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, magnet, wire, mat, drawer, handle, shelf, box, poster, switch plate, light switch, rug, counter, stove top, burner, control panel, ventilation grille, power cord, label, tape, lid, base, edge, corner, joint, seam, panel, frame, trim, molding, plaster, paint, tile, carpet, wood, metal, glass, plastic, rubber, fabric, leather, stone, concrete, brick, mortar, grout, adhesive, fastener, screw, bolt, nut, washer, hinge, latch, lock, key, knob, dial, button, lever, pull, push, slide, rotate, twist, press, tap, click, touch, swipe, drag, drop, lift, carry, move, shift, turn, flip, fold, unfold, open, close, start, stop, pause, resume, reset, cancel, confirm, accept, reject, approve, deny, allow, block, enable, disable, activate, deactivate, initiate, terminate, desk, printer, book, cord, note, notebook, door handle, sticky note, calendar, switch, object, closet, towel, light fixture, pipe, light, laptop, outlet, copier, ladder, cable, trash can, chair, bin, door frame, stapler, envelope, clipboard, storage bin, power strip, monitor stand, wooden crate, metal tray, plastic container, electronic device, filing cabinet, workstation, office equipment, supplies holder, document organizer, cable management box, desktop accessory, printing station, data storage unit, network switch, usb hub, label maker, tape dispenser, scissors, glue stick, marker pen, highlighter, clock, thermometer, humidity gauge, air purifier, fan, heater, lamp, ceiling tile, ventilation duct, fire alarm, smoke detector, security camera, keycard reader, badge scanner, intercom system, phone, headset, microphone, speaker, webcam, projector, whiteboard, dry-erase marker, eraser, chart, map, signage, banner, flag, emblem, logo, branding material, marketing collateral, brochure, flyer, leaflet, pamphlet, manual, guide, basket, document, metal stand, office supplies, room corner, fluorescent light, desk lamp, monitor, keyboard, mouse pad, pen holder, ruler, calculator, router, modem, extension cord, battery pack, charger cable, usb drive, memory card, external hard drive, ssd, hdd, ram stick, cpu cooler, gpu card, motherboard, psu unit, case fan, thermal paste, screwdriver set, wrench pliers, tape measure, level tool, drill bit, sandpaper sheet, paint brush, roller cover, drop cloth, masking tape, primer coat, topcoat layer, clear sealant, matte finish, glossy sheen, textured surface, smooth plane, rough edge, rounded corner, sharp angle, flat top, curved side, bottle, scanner, ink cartridge, container, rack, crate, tray, magazine, cloth, cardboard, placemat, bag, appliance
+
+kitchen / 27B progressive rp1.1: 323 names, truncated answers 5/20, VLM 67s
+  new names per view: [109, 0, 111, 0, 0, 0, 93, 5, 0, 4, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+  wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, magnet, wire, mat, drawer, handle, shelf, box, poster, switch plate, light switch, rug, counter, stove top, burner, control panel, ventilation grille, power cord, label, tape, lid, base, edge, corner, joint, seam, panel, frame, trim, molding, plaster, paint, tile, carpet, wood, metal, glass, plastic, rubber, fabric, leather, stone, concrete, brick, mortar, grout, adhesive, fastener, screw, bolt, nut, washer, hinge, latch, lock, key, knob, dial, button, lever, pull, push, slide, rotate, twist, press, tap, click, touch, swipe, drag, drop, lift, carry, move, shift, turn, flip, fold, unfold, open, close, start, stop, pause, resume, reset, cancel, confirm, accept, reject, approve, deny, allow, block, enable, disable, activate, deactivate, initiate, terminate, notebook, stapler, envelope, clipboard, marker, pen, pencil, ruler, calculator, phone, charger, adapter, socket, outlet, cord, plug, cable, connector, terminal, port, interface, display, screen, monitor, keyboard, mouse, trackpad, touchscreen, joystick, controller, remote, speaker, microphone, headset, earbuds, camera, lens, flash, sensor, chip, processor, memory, storage, drive, disk, card, token, badge, tag, barcode, qr code, symbol, icon, logo, brand, name, title, heading, text, font, size, color, style, format, layout, design, pattern, texture, shape, form, structure, system, network, server, cloud, database, file, folder, directory, path, link, reference, citation, source, document, report, summary, abstract, introduction, conclusion, section, chapter, page, line, paragraph, sentence, word, letter, digit, number, figure, chart, graph, list, index, appendix, glossary, bibliography, acknowledgment, dedication, preface, printer, scanner, ladder, electrical box, vent, duct, beam, column, post, bracket, clip, staple, pin, hook, loop, ring, chain, rope, string, thread, yarn, tube, pipe, hose, valve, pump, filter, gauge, meter, actuator, motor, gear, pulley, belt, shaft, axle, wheel, tire, rim, spoke, hub, cap, cover, guard, shield, armor, plate, sheet, film, foil, wrap, bag, sack, pack, bundle, roll, coil, spring, damper, shock absorber, bearing, seal, gasket, rivet, weld, fitting, coupling, flange, collar, boss, lug, tab, slot, hole, opening, lead, trace, via, pad, land, foot, leg, stand, support, mount, clamp, holder, rack, tray, bin, basket, case, container, copier, paper feeder, output tray, input tray, display screen, trash can, cable management box, storage crate, utility cart, light fixture
+
+kitchen / 27B union cap64: 90 names, truncated answers 5/20, VLM 511s
+  new names per view: [15, 6, 16, 1, 7, 2, 2, 2, 1, 9, 8, 10, 1, 5, 0, 2, 0, 3, 0, 0]
+  wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, cable, mat, drawer, handle, card, box, desk, printer, notebook, pen, sticker, tape, note, envelope, switch, board, shelf, book, clipboard, label, panel, edge, corner, surface, top, side, front, back, object, closet, towel, hinge, calendar, light fixture, pipe, cardboard tube, light, doorframe, laptop, outlet, copier, ladder, trash can, chair, bin, monitor, keyboard, mouse, stapler, basket, wire, rug, sticky note, document, storage bin, metal stand, wooden crate, plastic crate, electronic device, office supplies, bottle, scanner, ink, cartridge, rack, container, tray, screen, button, port, crate, cardboard, poster, organizer, binder, tag, cloth, scissors, placemat, bag, appliance
+
+kitchen / 27B progressive cap64: 96 names, truncated answers 3/20, VLM 468s
+  new names per view: [15, 0, 0, 0, 0, 29, 24, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  wall, floor, ceiling, microwave, table, cardboard box, door, cabinet, paper, cable, mat, drawer, handle, card, box, light, switch, hinge, vent, panel, latch, sticker, frame, edge, joint, seam, corner, surface, fixture, plate, button, label, tag, strip, bar, rod, pipe, duct, grille, cover, lid, cap, plug, socket, printer, monitor, shelf, rack, ladder, board, screen, keyboard, mouse, desk, unit, machine, device, console, display, interface, control, lever, dial, knob, key, pad, trackpad, touchscreen, basket, trash can, carpet, copier, scanner, tray, bin, container, holder, stand, base, body, front, back, side, top, bottom, left, right, center, middle, inner, outer, upper, lower, frontal, rear, lateral
+
+office / 2B union (E16): 60 names, truncated answers 16/20
+  wall, floor, ceiling, cabinet, chair, fan, desk, whiteboard, door, power outlet, socket, window, light switch, trash can, box, book, monitor, computer, keyboard, power strip, cable, phone, laptop, computer mouse, light, wall outlet, shelf, cord, blackboard, text, drawer, mouse, cup, can, latch, door handle, window frame, light fixture, coat rack, curtain, hook, towel, mirror, paper, card, bin, bookshelf, cog, lamp, pen, marker, notepad, lightbulb, switch, pencil, caddy, hanger, staircase, pipe, electrical outlet
+
+office / 2B progressive (E25): 22 names, truncated answers 3/20, VLM 11s
+  new names per view: [15, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+  wall, floor, ceiling, cabinet, chair, fan, whiteboard, trash can, desk, door, window, socket, power outlet, light switch, office chair, monitor, computer mouse, telephone, book, shelf, coat rack, keyboard
+
+office / 27B union: 506 names, truncated answers 8/20, VLM 79s
+  new names per view: [14, 106, 2, 45, 2, 2, 71, 1, 2, 65, 54, 0, 2, 0, 1, 40, 54, 31, 14, 0]
+  door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet, light switch, handle, paper, cardboard, monitor, keyboard, mouse, desk, window, trash can, cable, cup, phone, laptop, stand, tray, pen, ceiling, light, rack, shelf, container, bottle, headset, speaker, base, armrest, seat, backrest, leg, frame, glass, panel, tile, carpet, mat, pad, stick, clip, holder, bin, bag, book, notebook, folder, document, sheet, label, tag, badge, card, ticket, coupon, voucher, receipt, invoice, bill, check, form, application, request, order, list, chart, graph, diagram, map, plan, blueprint, sketch, drawing, painting, photo, picture, image, icon, symbol, logo, brand, name, title, heading, caption, footnote, reference, citation, source, link, button, menu, tab, bar, cursor, pointer, arrow, hand, eye, ear, nose, mouth, face, head, body, arm, foot, finger, toe, hair, skin, bone, closet, coat rack, switch, outlet, screen, joint, vent, grille, screw, bolt, wire, plug, socket, display, bezel, edge, corner, surface, top, side, front, back, left, right, center, middle, bottom, upper, lower, inner, outer, main, primary, secondary, tertiary, quaternary, quinary, senary, septenary, octonary, nonary, decimal, undecimal, duodecimal, tridecimal, tetradecimal, pentadecim, marker, pipe, drawer, headphones, lock, angle, line, dot, mark, stain, shadow, reflection, glare, texture, pattern, shape, size, scale, proportion, balance, symmetry, asymmetry, contrast, harmony, rhythm, movement, direction, flow, path, route, way, road, street, lane, alley, passage, corridor, hallway, room, space, area, zone, region, section, part, piece, fragment, bit, chunk, block, cube, square, rectangle, circle, oval, ellipse, triangle, polygon, curve, arc, spiral, wave, zigzag, dash, point, pin, nail, nut, washer, spring, gear, wheel, axle, shaft, rod, light fixture, curtain, hook, lamp, metal, plastic, wood, fabric, rubber, concrete, paint, grout, seam, design, structure, element, component, item, object, thing, material, substance, medium, foundation, support, shell, coat, layer, film, plate, board, slab, brick, stone, rock, pebble, gravel, sand, dust, powder, ash, smoke, steam, vapor, gas, liquid, solid, state, phase, matter, energy, force, field, particle, atom, molecule, cell, tissue, organ, system, organism, species, population, community, ecosystem, biome, biosphere, planet, mirror, person, pole, blade, hub, guard, pedestal, column, beam, gap, outline, layout, arrangement, position, orientation, perspective, view, scene, snapshot, capture, shot, record, documentation, evidence, proof, example, instance, case, situation, condition, status, stage, level, degree, extent, amount, quantity, number, count, total, sum, aggregate, collection, group, set, batch, lot, series, sequence, chain, row, grid, matrix, schematic, remote, stool, basket, projector, unit, console, spot, feature, detail, aspect, attribute, property, characteristic, quality, scenario, context, environment, setting, location, place, territory, domain, realm, sphere, world, universe, void, vacuum, emptiness, nothingness, absence, lack, deficiency, shortage, scarcity, paucity, insufficiency, inadequacy, imperfection, flaw, fault, defect, blemish, port, adapter, jar, can, tape, eraser, pen holder, stapler, scissors, ruler, calculator, file, envelope, stamp, seal, key, keychain, wallet, purse, backpack, suitcase, luggage, umbrella, hat, glove, scarf, belt, shoe, sock, pant, shirt, jacket, dress, skirt, short, underwear, bra, panty, stocking, tights, legging, sweater, hoodie, cardigan, blazer, vest, tie, bowtie, cufflink, watch, ring, necklace, bracelet, earring, latch, post, pillar, arch, lintel, sill, ledge, bracket, brace, scratch, dent, crack, hole, sliver, shard, remnant, trace, vestige, echo, shine, gloss, sheen, luster, polish, finish, grain, motif, ornament, decoration, embellishment, trait, stair, step, rest, module, facet, portion, segment, slice, fastener, peg, stud, girder, truss, building
+
+office / 27B progressive: 371 names, truncated answers 4/20, VLM 47s
+  new names per view: [14, 117, 0, 91, 1, 0, 0, 81, 66, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+  door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet, light switch, handle, paper, cardboard, monitor, keyboard, mouse, cable, cup, pen, stand, window, blinds, desk, armrest, base, screen, controller, remote, tray, bottle, container, shelf, frame, panel, vent, rack, socket, plug, wire, holder, arm, seat, backrest, leg, post, pole, rod, bar, rail, edge, corner, joint, seam, line, mark, dot, spot, area, zone, section, part, piece, unit, item, thing, object, surface, material, substance, element, component, feature, detail, aspect, attribute, property, characteristic, quality, state, condition, form, shape, size, dimension, scale, proportion, ratio, measure, amount, quantity, number, figure, digit, value, rate, speed, velocity, acceleration, force, energy, power, work, heat, temperature, pressure, volume, density, mass, weight, gravity, inertia, momentum, impulse, torque, stress, strain, deformation, displacement, motion, movement, action, reaction, interaction, connection, link, bond, attachment, junction, interface, boundary, book, phone, headset, laptop, notebook, sticker, label, tag, clip, tape, glue, marker, pencil, ruler, compass, protractor, calculator, paperclip, stapler, scissors, tape dispenser, hole punch, shredder, printer, scanner, fax, modem, router, switch, hub, connector, adapter, charger, battery, power strip, outlet, breaker, fuse, transformer, generator, inverter, ups, surge protector, extension cord, power cable, data cable, audio cable, video cable, hdmi, usb, ethernet, rj, bnc, vga, dvi, displayport, thunderbolt, firewire, esata, sata, ide, scsi, fiber optic, coaxial, antenna, bridge, gateway, firewall, proxy, dns, dhcp, nat, vpn, ssl, tls, http, https, ftp, smtp, pop, imap, ldap, snmp, ssh, telnet, rdp, vnc, smb, nfs, cifs, afp, ceiling, hook, coat rack, locker, sign, peephole, key, lock, door frame, ceiling light, pipe, duct, ventilation duct, storage unit, metal shelf, wooden shelf, plastic hook, metal hook, wall panel, door panel, handle bar, door handle, keyhole, door lock, security camera, motion sensor, temperature sensor, humidity sensor, air quality sensor, smoke detector, fire alarm, emergency light, exit sign, safety sign, warning sign, information sign, directional sign, room number, name plate, badge holder, id card, access card, key card, fob, token, ticket, pass, permit, license, certificate, diploma, award, trophy, medal, ribbon, rosette, laurel, crown, tiara, diadem, circlet, halo, nimbus, aura, glow, shine, sparkle, twinkle, glitter, glimmer, gleam, sheen, luster, polish, buff, scuff, scratch, dent, crack, chip, flake, peel, curtain, eraser, marker tray, coat stand, shelf unit, light fixture, fluorescent light, whiteboard marker, board, wall socket, electrical outlet, storage shelf, metal rack, coat hanger, hook stand, light panel, ceiling panel, wall corner, room corner, window frame, curtain rod, curtain track, curtain rail, curtain panel, curtain drape, curtain fabric, curtain material, curtain texture, curtain pattern, curtain design, curtain style, curtain type, curtain kind, curtain class, curtain category, curtain group, curtain set, curtain collection, curtain assortment, curtain variety, curtain selection, curtain option, curtain choice, curtain preference, curtain taste, curtain liking, curtain fondness, curtain affection, curtain love, curtain passion, curtain desire, curtain wish, curtain hope, curtain dream, curtain goal, curtain aim, curtain target, curtain objective, curtain purpose, curtain intention, curtain plan, curtain strategy, curtain tactic, curtain method, curtain approach, curtain technique, stool
+
+office / 27B union rp1.1: 476 names, truncated answers 7/20, VLM 70s
+  new names per view: [15, 98, 4, 76, 2, 2, 1, 0, 1, 49, 2, 0, 1, 0, 1, 43, 64, 56, 61, 0]
+  door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet, light switch, handle, paper, cardboard box, carpet, monitor, keyboard, mouse, desk, window, trash can, cable, cup, phone, laptop, stand, tray, pen holder, door frame, glass partition, ceiling light, outlet, power strip, notebook, stapler, binder clip, tissue box, remote control, headset, webcam, speaker, rack, shelf, tile, baseboard, lock, vent, sign, poster, clock, calendar, plant pot, lamp shade, bulb, switch, plug, adapter, battery, charger, cable tie, label, tag, badge, card, folder, file, document, sheet, page, ink, marker, highlighter, eraser, ruler, pencil, pen, scissors, tape, glue, sticker, seal, stamp, envelope, letter, mail, package, bag, sack, wrap, cover, lid, cap, top, bottom, side, edge, corner, center, middle, front, back, left, right, up, down, in, out, on, off, open, closed, locked, unlocked, ceiling, closet, coat rack, light fixture, book, glass, frame, panel, mat, pad, screen, base, arm, joint, clip, holder, grille, screw, bolt, wire, socket, button, display, bezel, surface, upper, lower, inner, outer, main, primary, secondary, tertiary, quaternary, fifth, sixth, seventh, eighth, ninth, tenth, eleventh, twelfth, thirteenth, fourteenth, fifteenth, sixteenth, seventeenth, eighteenth, nineteenth, twentieth, first, second, third, fourth, last, next, previous, current, past, future, present, now, then, here, there, where, when, why, how, what, which, who, whom, whose, this, that, these, those, it, they, light, pipe, drawer, headphones, curtain, hook, doorframe, armrest, backrest, seat, leg, rug, key, dial, gauge, meter, sensor, camera, microphone, earbuds, cord, tube, valve, pump, filter, hose, nozzle, spray, brush, cloth, sponge, mop, bin, recycling bin, waste basket, dumpster, container, jar, bottle, can, mug, plate, bowl, dish, platter, saucer, fork, knife, spoon, chopsticks, ladle, tongs, peeler, grater, whisk, mirror, person, stool, basket, projector, plant, port, connector, hub, dock, scanner, printer, fax, modem, router, server, case, note, memo, pin, sharpenener, calculator, notepad, journal, diary, log, chart, graph, map, globe, compass, scale, balance, thermometer, barometer, hygrometer, anemometer, rain gauge, sun compass, astrolabe, theodolite, level, plumb bob, square, triangle, protractor, divider, binder, nut, washer, spring, rod, bar, cell, chip, drive, disk, film, photo, image, video, audio, signal, data, code, text, font, icon, symbol, mark, line, dot, circle, shape, form, pattern, texture, angle, curve, arc, spiral, wave, pulse, beat, rhythm, flow, stream, field, zone, area, space, room, hall, corridor, staircase, elevator, lift, bridge, tunnel, dome, vault, chamber, pod, module, unit, block, cube, prism, pyramid, cone, sphere, stick, latch, device, controller, remote, strip, sill, ledge, seam, spot, section, part, piece, item, object, thing, plane, face, end, tip, point, peak, ridge, valley, slope, ring, loop, coil, helix, design, style, size, dimension, measure, length, width, height, depth, volume, mass, weight, density, gravity, force, energy, power, motion, speed, velocity, acceleration, momentum, inertia, friction, drag, thrust, pressure, doorway, tool, instrument, equipment, apparatus, machine, gadget, widget, gizmo, contraption, mechanism, system, setup, arrangement, configuration, layout, structure, outline, silhouette, profile, view, perspective, vantage point, look, appearance, aspect, feature, characteristic, trait, quality, property, attribute, element, component, ingredient, factor, variable, parameter, extent, range, scope, region, segment, portion, fraction, share, slice, chunk, rectangle, oval, ellipse, polygon, ray, beam, streak, trail, path, route, track, course, direction
+
+office / 27B progressive rp1.1: 236 names, truncated answers 4/20, VLM 38s
+  new names per view: [15, 102, 0, 111, 0, 3, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet, light switch, handle, paper, cardboard box, carpet, monitor, keyboard, mouse, cable, cup, pen holder, desk lamp, window, curtain, shelf, laptop, headset, stapler, notebook, binder clip, tape dispenser, scissors, ruler, glue stick, highlighter, marker, eraser, pencil sharpener, paperclip, rubber band, sticky note, folder, file, envelope, stamp, postcard, letter, document, report, chart, graph, diagram, map, photo, picture, poster, sign, label, tag, badge, pin, magnet, hook, rack, stand, tripod, pole, rod, bar, beam, column, pillar, arch, dome, vault, chamber, room, hall, corridor, passage, aisle, lane, road, street, avenue, boulevard, drive, court, square, plaza, park, garden, yard, field, meadow, forest, wood, grove, orchard, vineyard, farm, ranch, estate, property, land, ground, soil, earth, stone, rock, pebble, gravel, sand, dust, ash, smoke, steam, phone, book, mouse pad, desk mat, monitor arm, screen, base, power strip, outlet, switch, panel, frame, sill, ledge, tray, holder, bracket, mount, clamp, grip, lever, knob, dial, button, keypad, display, indicator, light, lamp, bulb, socket, plug, wire, cord, line, tube, pipe, duct, vent, grille, mesh, net, grid, lattice, pattern, texture, surface, edge, corner, angle, slope, curve, arc, circle, ring, loop, coil, spiral, helix, twist, fold, crease, wrinkle, dent, scratch, mark, stain, spot, dot, point, tip, end, top, bottom, side, front, back, left, right, center, middle, core, heart, essence, nature, form, shape, size, scale, dimension, measure, length, width, height, depth, volume, mass, weight, density, gravity, force, energy, motion, speed, velocity, acceleration, momentum, inertia, friction, resistance, drag, telephone, drawer, desk, ceiling, coat rack, light fixture, shelf unit, blinds
+
+office / 27B union cap64: 79 names, truncated answers 9/20, VLM 30s
+  new names per view: [14, 20, 2, 12, 2, 2, 5, 2, 2, 2, 6, 0, 2, 0, 1, 2, 0, 2, 3, 0]
+  door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet, light switch, handle, paper, cardboard, monitor, keyboard, mouse, desk, window, trash can, cable, cup, phone, laptop, stand, tray, pen, ceiling, light, rack, shelf, container, bottle, headset, closet, coat rack, book, notebook, switch, outlet, glass, frame, panel, tile, mat, pad, screen, base, marker, pipe, drawer, headphones, socket, lock, edge, surface, arm, light fixture, vent, curtain, hook, lamp, bag, mirror, person, bin, carpet, armrest, backrest, remote, stool, basket, projector, board, stick, latch, speaker, stair, step
+
+office / 27B progressive cap64: 91 names, truncated answers 3/20, VLM 11s
+  new names per view: [14, 27, 0, 0, 0, 27, 0, 0, 23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  door, wall, floor, whiteboard, chair, fan, bucket, box, table, cabinet, light switch, handle, paper, cardboard, monitor, keyboard, mouse, cable, cup, pen, stand, window, blinds, desk, armrest, base, screen, controller, remote, tray, bottle, container, shelf, frame, panel, vent, rack, socket, plug, wire, holder, headset, telephone, drawer, carpet, stool, laptop, headphones, headrest, backrest, seat, wheels, legs, top, surface, edge, corner, joint, seam, gap, shadow, reflection, texture, pattern, design, logo, label, tag, curtain, hook, coat rack, marker, eraser, ceiling, light, fixture, pipe, conduit, outlet, board, marker tray, marker holder, marker cap, marker body, marker tip, marker ink, marker label, marker brand, marker model, marker size, marker shape
+
+figure: experiments\figures\e28_vlm_cap.jpg

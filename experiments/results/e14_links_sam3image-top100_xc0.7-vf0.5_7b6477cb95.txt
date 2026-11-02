@@ -1,0 +1,133 @@
+7b6477cb95 sam3image-top100_views_n20_uniform_504 cross-class 0.7 vf0.5-: links that joined masks
+      9 chair             9016 office chair     0.99  right     GT office chair / office chair
+      9 chair            18012 office chair     0.92  right     GT office chair / office chair
+     10 chair             2018 office chair     0.91  right     GT office chair / office chair
+     10 chair             5011 office chair     0.95  right     GT office chair / office chair
+     10 chair            15027 office chair     0.73  right     GT office chair / office chair
+     12 storage cabinet   2010 cabinet          0.77  right     GT storage cabinet / storage cabinet
+     12 storage cabinet   4009 cabinet          0.72  unlabeled mask mostly on unlabeled GT
+     12 storage cabinet   5003 wall             0.92  right     GT storage cabinet / storage cabinet
+     12 storage cabinet   6009 cabinet          0.85  right     GT storage cabinet / storage cabinet
+     12 storage cabinet  19014 cabinet          0.91  right     GT storage cabinet / storage cabinet
+     16 box              11025 crate            0.94  right     GT trash can / trash can
+     20 trash can        14046 bucket           0.91  right     GT buket / buket
+     20 trash can        15055 bucket           0.79  right     GT buket / buket
+   1006 chair             3013 office chair     0.96  right     GT office chair / office chair
+   1007 chair             9016 office chair     0.97  right     GT office chair / office chair
+   1007 chair            18012 office chair     0.98  right     GT office chair / office chair
+   1022 trash can        14046 bucket           0.81  right     GT buket / buket
+   1022 trash can        15055 bucket           0.71  right     GT buket / buket
+   1025 tv               15034 monitor          0.82  right     GT monitor / monitor
+   1027 tv                4022 monitor          0.98  right     GT monitor / monitor
+   1027 tv               12028 monitor          0.88  right     GT monitor / monitor
+   1029 crate            10033 trash can        0.80  right     GT trash can / trash can
+   2010 cabinet           5003 wall             0.92  right     GT storage cabinet / storage cabinet
+   2010 cabinet          14017 storage cabinet  0.98  WRONG     GT storage cabinet / storage cabinet
+   2010 cabinet          15021 storage cabinet  0.98  WRONG     GT storage cabinet / storage cabinet
+   2014 chair             9016 office chair     0.99  right     GT office chair / office chair
+   2014 chair            18012 office chair     0.92  right     GT office chair / office chair
+   2018 office chair      6014 chair            0.94  right     GT office chair / office chair
+   2018 office chair     11010 chair            0.89  right     GT office chair / office chair
+   2018 office chair     13005 chair            0.96  right     GT office chair / office chair
+   2018 office chair     19015 chair            0.90  right     GT office chair / office chair
+   2030 trash can        14046 bucket           0.88  right     GT buket / buket
+   2031 tv               10027 monitor          0.97  right     GT monitor / monitor
+   2032 rack              5025 table lamp       0.88  right     GT coat rack / coat rack
+   2032 rack              6019 office chair     0.91  right     GT coat rack / coat rack
+   3008 cabinet           5003 wall             0.83  WRONG     GT storage cabinet / storage cabinet
+   3008 cabinet          14017 storage cabinet  0.96  right     GT storage cabinet / storage cabinet
+   3008 cabinet          15021 storage cabinet  0.97  right     GT storage cabinet / storage cabinet
+   3011 chair             9016 office chair     0.95  right     GT office chair / office chair
+   3011 chair            18012 office chair     0.97  right     GT office chair / office chair
+   3025 tv                4022 monitor          0.98  right     GT monitor / monitor
+   3025 tv               12028 monitor          0.94  right     GT monitor / monitor
+   3029 tv                9028 monitor          0.84  right     GT monitor / monitor
+   4009 cabinet           5003 wall             0.91  unlabeled mask mostly on unlabeled GT
+   4009 cabinet          14017 storage cabinet  0.98  unlabeled mask mostly on unlabeled GT
+   4009 cabinet          15021 storage cabinet  0.98  unlabeled mask mostly on unlabeled GT
+   4014 chair             9016 office chair     0.88  right     GT office chair / office chair
+   4014 chair            11017 office chair     0.73  right     GT office chair / office chair
+   4014 chair            18012 office chair     0.94  right     GT office chair / office chair
+   4022 monitor           5019 tv               0.97  right     GT monitor / monitor
+   4022 monitor           6032 tv               0.99  right     GT monitor / monitor
+   4022 monitor          18031 tv               0.98  right     GT monitor / monitor
+   4032 tv               10027 monitor          0.99  right     GT monitor / monitor
+   4032 tv               15032 monitor          0.95  right     GT monitor / monitor
+   5003 wall              6009 cabinet          0.92  right     GT storage cabinet / storage cabinet
+   5003 wall             14017 storage cabinet  0.89  WRONG     GT storage cabinet / storage cabinet
+   5003 wall             15021 storage cabinet  0.91  WRONG     GT storage cabinet / storage cabinet
+   5003 wall             16009 cabinet          0.73  right     GT storage cabinet / storage cabinet
+   5003 wall             19014 cabinet          0.83  right     GT storage cabinet / storage cabinet
+   5009 chair             9016 office chair     0.90  right     GT office chair / office chair
+   5009 chair            18012 office chair     0.93  right     GT office chair / office chair
+   5011 office chair     11010 chair            0.92  right     GT office chair / office chair
+   5011 office chair     13005 chair            0.99  right     GT office chair / office chair
+   5011 office chair     14013 chair            0.77  right     GT office chair / office chair
+   5011 office chair     19015 chair            0.95  right     GT office chair / office chair
+   5019 tv               12028 monitor          0.85  right     GT monitor / monitor
+   5025 table lamp        6019 office chair     0.84  right     GT coat rack / coat rack
+   5025 table lamp       18038 rack             0.79  right     GT coat rack / coat rack
+   6009 cabinet          14017 storage cabinet  0.88  WRONG     GT storage cabinet / storage cabinet
+   6009 cabinet          15021 storage cabinet  0.90  WRONG     GT storage cabinet / storage cabinet
+   6013 chair             9016 office chair     0.97  right     GT office chair / office chair
+   6013 chair            18012 office chair     0.94  right     GT office chair / office chair
+   6014 chair            15027 office chair     0.85  right     GT office chair / office chair
+   6019 office chair     18038 rack             0.88  right     GT coat rack / coat rack
+   6030 tv               10027 monitor          0.95  right     GT monitor / monitor
+   6030 tv               15032 monitor          0.89  right     GT monitor / monitor
+   6032 tv               12028 monitor          0.91  right     GT monitor / monitor
+   6033 tv                9028 monitor          0.92  right     GT monitor / monitor
+   7001 wall             14017 storage cabinet  0.95  WRONG     GT storage cabinet / storage cabinet
+   7001 wall             15021 storage cabinet  0.86  WRONG     GT storage cabinet / storage cabinet
+   7001 wall             16009 cabinet          0.88  right     GT storage cabinet / storage cabinet
+   8010 curtain          10026 window frame     0.93  right     GT blinds / blinds
+   9011 curtain          10026 window frame     0.97  right     GT blinds / blinds
+   9016 office chair     10014 chair            0.98  right     GT office chair / office chair
+   9016 office chair     12013 chair            0.97  right     GT office chair / office chair
+   9016 office chair     14014 chair            0.99  right     GT office chair / office chair
+   9028 monitor          10036 tv               0.79  right     GT monitor / monitor
+   9034 tv               10027 monitor          0.98  right     GT monitor / monitor
+   9034 tv               15032 monitor          0.99  right     GT monitor / monitor
+  10014 chair            11017 office chair     0.95  right     GT office chair / office chair
+  10014 chair            18012 office chair     0.99  right     GT office chair / office chair
+  10026 window frame     12011 curtain          0.95  right     GT blinds / blinds
+  10026 window frame     18008 curtain          0.93  right     GT blinds / blinds
+  10027 monitor          12037 tv               0.96  right     GT monitor / monitor
+  10027 monitor          14040 tv               0.80  right     GT monitor / monitor
+  10027 monitor          16033 tv               0.97  right     GT monitor / monitor
+  10027 monitor          17034 tv               0.99  right     GT monitor / monitor
+  10027 monitor          18035 tv               0.99  right     GT monitor / monitor
+  10033 trash can        14051 container        0.72  right     GT trash can / trash can
+  11003 door             13004 cabinet          0.97  right     GT storage cabinet / storage cabinet
+  11008 cabinet          13002 door             0.85  right     GT storage cabinet / storage cabinet
+  11010 chair            15027 office chair     0.72  right     GT office chair / office chair
+  11017 office chair     12013 chair            0.98  right     GT office chair / office chair
+  11017 office chair     14014 chair            0.95  right     GT office chair / office chair
+  11023 trash can        14046 bucket           0.91  right     GT buket / buket
+  11023 trash can        15055 bucket           0.78  right     GT buket / buket
+  11024 crate            14051 container        0.76  right     GT trash can / trash can
+  12013 chair            18012 office chair     0.96  right     GT office chair / office chair
+  12028 monitor          18031 tv               0.94  right     GT monitor / monitor
+  13005 chair            15027 office chair     0.77  right     GT office chair / office chair
+  14013 chair            15027 office chair     0.78  right     GT office chair / office chair
+  14014 chair            18012 office chair     0.98  right     GT office chair / office chair
+  14038 tv               15034 monitor          0.97  right     GT monitor / monitor
+  14039 tv               15035 monitor          0.90  right     GT monitor / monitor
+  14039 tv               17026 monitor          0.94  right     GT monitor / monitor
+  14040 tv               15032 monitor          0.79  right     GT monitor / monitor
+  14046 bucket           19034 trash can        0.83  right     GT buket / buket
+  14051 container        15041 trash can        0.82  right     GT trash can / trash can
+  15014 cabinet          17012 storage cabinet  0.70  right     GT cabinet / cabinet
+  15031 monitor          16034 tv               0.96  right     GT monitor / monitor
+  15031 monitor          17035 tv               0.97  right     GT monitor / monitor
+  15031 monitor          18034 tv               0.95  right     GT monitor / monitor
+  15032 monitor          16033 tv               0.92  right     GT monitor / monitor
+  15032 monitor          17034 tv               0.91  right     GT monitor / monitor
+  15032 monitor          18035 tv               0.90  right     GT monitor / monitor
+  15034 monitor          16035 tv               0.96  right     GT monitor / monitor
+  15034 monitor          17037 tv               0.97  right     GT monitor / monitor
+  15035 monitor          16036 tv               0.96  right     GT monitor / monitor
+  15055 bucket           19034 trash can        0.91  right     GT buket / buket
+  16010 cabinet          17012 storage cabinet  0.76  right     GT cabinet / cabinet
+  16036 tv               17026 monitor          0.88  right     GT monitor / monitor
+  total 131: right 118, WRONG 9, unlabeled 4

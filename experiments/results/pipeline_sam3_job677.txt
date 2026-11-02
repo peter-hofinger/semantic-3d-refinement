@@ -1,0 +1,13 @@
+node VC18 | NVIDIA GeForce RTX 5090, 595.99.02
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+5ee7c22ba0: 3386880 points, 297 instances -> outputs/pipeline/5ee7c22ba0/cloud.ply
+=== 5ee7c22ba0 pipeline took 43 s
+5ee7c22ba0 all     recall 0.92  pixel recall 0.95  precision 0.51  leakage 0.010 (cross-class 0.007)  consistent 0.82 (38 GT in >=2 views)  id switches 8  merges 1
+5ee7c22ba0 objects recall 0.94  pixel recall 0.97  precision 0.43  leakage 0.017 (cross-class 0.015)  consistent 0.80 (30 GT in >=2 views)  id switches 7  merges 1
+figures -> outputs/instances
+[transformers] `memory_attention_rope_theta` is deprecated and will be removed in v5.0. Use `rope_parameters['rope_theta']` instead.
+7b6477cb95: 3386880 points, 419 instances -> outputs/pipeline/7b6477cb95/cloud.ply
+=== 7b6477cb95 pipeline took 41 s
+7b6477cb95 all     recall 0.73  pixel recall 0.83  precision 0.48  leakage 0.082 (cross-class 0.048)  consistent 0.76 (51 GT in >=2 views)  id switches 13  merges 5
+7b6477cb95 objects recall 0.73  pixel recall 0.84  precision 0.42  leakage 0.104 (cross-class 0.054)  consistent 0.74 (43 GT in >=2 views)  id switches 12  merges 4
+figures -> outputs/instances

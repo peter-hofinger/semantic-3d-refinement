@@ -1,0 +1,69 @@
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from src.backbone import CachedBackbone, ConstantDepthBackbone
+from src.geometry import Geometry
+from src.loaders import Views
+from src.pipeline import Pipeline
+from src.refinement import IdentityRefiner
+from src.segmentation import Segmentation
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE
+from src.segmentation.linked import LinkedSegmenter
+
+
+def make_views(num: int = 2, height: int = 20, width: int = 30) -> Views:
+    k = np.array([[20.0, 0, width / 2], [0, 20.0, height / 2], [0, 0, 1]])
+    return Views(
+        scene_id="toy",
+        names=[f"{i}.jpg" for i in range(num)],
+        images=np.zeros((num, height, width, 3), dtype=np.uint8),
+        intrinsics=np.repeat(k[None], num, axis=0).astype(np.float32),
+        cam_to_world=np.repeat(np.eye(4)[None], num, axis=0).astype(np.float32),
+    )
+
+
+class HalvesSegmenter:
+    """Stand-in for SAM 3: per-view ids for the left and right image halves."""
+
+    def __init__(self, classes: tuple[str, str] = ("table", "chair")) -> None:
+        self.classes = classes
+
+    def segment(self, views: Views, geometry: Geometry | None = None) -> Segmentation:  # noqa: ARG002
+        num, height, width = views.images.shape[:3]
+        ids = np.full((num, height, width), NO_INSTANCE, dtype=np.int32)
+        classes, scores = {}, {}
+        for i in range(num):
+            left, right = i * ID_STRIDE, i * ID_STRIDE + 1
+            ids[i, :, : width // 2] = left
+            ids[i, :, width // 2 :] = right
+            classes |= {left: self.classes[0], right: self.classes[1]}
+            scores |= {left: 0.9, right: 0.9}
+        return Segmentation(ids, classes, scores)
+
+
+def test_linked_segmenter_shares_ids_across_views() -> None:
+    # two identical cameras looking at a flat wall: each half is one object
+    views = make_views()
+    geometry = ConstantDepthBackbone().predict(views)
+    seg = LinkedSegmenter(HalvesSegmenter()).segment(views, geometry)
+    assert len(seg.classes) == 2
+    np.testing.assert_array_equal(seg.instance_ids[0], seg.instance_ids[1])
+    assert seg.instance_ids[0, 0, 0] != seg.instance_ids[0, 0, -1]
+    assert sorted(seg.classes.values()) == ["chair", "table"]
+
+
+def test_linked_segmenter_runs_in_the_pipeline() -> None:
+    views = make_views()
+    segmenter = LinkedSegmenter(HalvesSegmenter())
+    result = Pipeline(ConstantDepthBackbone(), segmenter, IdentityRefiner()).run(views)
+    assert len(np.unique(result.cloud.instance_ids)) == 2
+
+
+def test_cached_backbone_rejects_other_resolution(tmp_path: Path) -> None:
+    path = tmp_path / "geometry.npz"
+    ConstantDepthBackbone().predict(make_views()).save(path)
+    assert CachedBackbone(path).predict(make_views()).depth.shape == (2, 20, 30)
+    with pytest.raises(ValueError, match="does not match"):
+        CachedBackbone(path).predict(make_views(height=10))

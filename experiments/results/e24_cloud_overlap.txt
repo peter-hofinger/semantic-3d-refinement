@@ -1,0 +1,207 @@
+| scene | overlap | subset | recall | pixel recall | precision | cross-class leakage | consistent | GT in >=2 views | id switches | merges | wrong links |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| kitchen | reproject + vf0.25 | all | 0.91 | 0.95 | 0.50 | 0.007 | 0.82 | 38 | 8 | 1 | 5 |
+| kitchen | reproject + vf0.25 | objects | 0.94 | 0.97 | 0.42 | 0.015 | 0.80 | 30 | 7 | 1 |  |
+| kitchen | reproject | all | 0.91 | 0.95 | 0.50 | 0.007 | 0.84 | 38 | 6 | 1 | 5 |
+| kitchen | reproject | objects | 0.94 | 0.97 | 0.42 | 0.015 | 0.83 | 30 | 5 | 1 |  |
+| kitchen | cloud | all | 0.90 | 0.94 | 0.50 | 0.007 | 0.27 | 37 | 100 | 0 | 3 |
+| kitchen | cloud | objects | 0.92 | 0.97 | 0.42 | 0.015 | 0.30 | 30 | 59 | 0 |  |
+| kitchen | cloud, either direction | all | 0.91 | 0.95 | 0.48 | 0.007 | 0.34 | 38 | 50 | 4 | 14 |
+| kitchen | cloud, either direction | objects | 0.93 | 0.97 | 0.39 | 0.015 | 0.33 | 30 | 39 | 3 |  |
+| kitchen | reproject + vf0.25, GT geometry | all | 0.91 | 0.95 | 0.50 | 0.007 | 0.95 | 38 | 2 | 1 | 5 |
+| kitchen | reproject + vf0.25, GT geometry | objects | 0.94 | 0.97 | 0.41 | 0.015 | 0.97 | 30 | 1 | 1 |  |
+| kitchen | cloud, GT geometry | all | 0.90 | 0.94 | 0.50 | 0.007 | 0.47 | 38 | 57 | 0 | 3 |
+| kitchen | cloud, GT geometry | objects | 0.93 | 0.97 | 0.41 | 0.015 | 0.53 | 30 | 28 | 0 |  |
+| office | reproject + vf0.25 | all | 0.73 | 0.83 | 0.48 | 0.048 | 0.75 | 51 | 16 | 4 | 10 |
+| office | reproject + vf0.25 | objects | 0.72 | 0.84 | 0.43 | 0.054 | 0.72 | 43 | 15 | 3 |  |
+| office | reproject | all | 0.73 | 0.83 | 0.48 | 0.048 | 0.76 | 51 | 15 | 6 | 12 |
+| office | reproject | objects | 0.72 | 0.84 | 0.43 | 0.054 | 0.72 | 43 | 15 | 4 |  |
+| office | cloud | all | 0.69 | 0.82 | 0.47 | 0.047 | 0.18 | 49 | 112 | 1 | 6 |
+| office | cloud | objects | 0.70 | 0.83 | 0.42 | 0.053 | 0.19 | 42 | 84 | 1 |  |
+| office | cloud, either direction | all | 0.71 | 0.83 | 0.45 | 0.048 | 0.45 | 51 | 42 | 5 | 27 |
+| office | cloud, either direction | objects | 0.71 | 0.84 | 0.39 | 0.054 | 0.51 | 43 | 32 | 3 |  |
+| office | reproject + vf0.25, GT geometry | all | 0.73 | 0.83 | 0.48 | 0.048 | 0.80 | 51 | 12 | 5 | 12 |
+| office | reproject + vf0.25, GT geometry | objects | 0.73 | 0.84 | 0.43 | 0.054 | 0.79 | 43 | 11 | 3 |  |
+| office | cloud, GT geometry | all | 0.71 | 0.82 | 0.47 | 0.047 | 0.34 | 50 | 69 | 1 | 7 |
+| office | cloud, GT geometry | objects | 0.71 | 0.84 | 0.42 | 0.053 | 0.37 | 43 | 45 | 1 |  |
+
+Runs, merges (by IoU match) and wrong links (masks on different GT objects):
+
+kitchen / reproject + vf0.25: 305 objects, 13s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504.npz)
+  merge: box 43 -> box 10, box 9
+  wrong link: obj 12 (floor): floor 30, table 36
+  wrong link: obj 19 (mouse): box 7, wall 21
+  wrong link: obj 43 (box): box 10, box 9
+  wrong link: obj 65 (cabinet): wall 29, wall 31
+  wrong link: obj 72 (box): bottle crate 19, bottle crate 22
+
+kitchen / reproject: 303 objects, 13s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-dejaview_k16_views_n20_uniform_504.npz)
+  merge: box 42 -> box 10, box 9
+  wrong link: obj 11 (floor): floor 30, table 36
+  wrong link: obj 17 (mouse): box 7, wall 21
+  wrong link: obj 42 (box): box 10, box 9
+  wrong link: obj 64 (cabinet): wall 29, wall 31
+  wrong link: obj 71 (box): bottle crate 19, bottle crate 22
+
+kitchen / cloud: 412 objects, 101s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-pc-dejaview_k16_views_n20_uniform_504.npz)
+  wrong link: obj 27 (mouse): box 7, wall 21
+  wrong link: obj 88 (cabinet): wall 29, wall 31
+  wrong link: obj 102 (box): bottle crate 19, bottle crate 22
+
+kitchen / cloud, either direction: 310 objects, 107s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-pc-or-dejaview_k16_views_n20_uniform_504.npz)
+  merge: box 6 -> box 10, box 9
+  merge: door 63 -> door 37, doorframe 42, wall 29
+  merge: wall 99 -> power socket 15, wall 32
+  merge: wall 131 -> wall 24, wall 32
+  merge: printer 199 -> bottle crate 19, copy machine 13
+  wrong link: obj 6 (box): box 10, box 9
+  wrong link: obj 21 (mouse): box 7, wall 21
+  wrong link: obj 63 (door): door 37, doorframe 42, wall 29
+  wrong link: obj 65 (door): door 37, doorframe 42
+  wrong link: obj 69 (cabinet): wall 29, wall 31
+  wrong link: obj 80 (crate): bottle crate 16, bottle crate 17
+  wrong link: obj 88 (box): bottle crate 19, bottle crate 22
+  wrong link: obj 91 (wall): electric box 26, wall 29
+  wrong link: obj 99 (wall): power socket 15, wall 32
+  wrong link: obj 127 (crate): bottle crate 19, bottle crate 22
+  wrong link: obj 131 (wall): wall 24, wall 32
+  wrong link: obj 165 (crate): bottle crate 16, bottle crate 17
+  wrong link: obj 199 (printer): bottle crate 19, copy machine 13
+  wrong link: obj 280 (wall): doorframe 42, wall 29
+
+kitchen / reproject + vf0.25, GT geometry: 300 objects, 24s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-gt.npz)
+  merge: box 6 -> box 10, box 9
+  wrong link: obj 6 (box): box 10, box 9
+  wrong link: obj 12 (floor): floor 30, table 36
+  wrong link: obj 19 (mouse): box 7, wall 21
+  wrong link: obj 60 (cabinet): wall 29, wall 31
+  wrong link: obj 85 (box): bottle crate 19, bottle crate 22
+
+kitchen / cloud, GT geometry: 357 objects, 86s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-pc-gt.npz)
+  wrong link: obj 27 (mouse): box 7, wall 21
+  wrong link: obj 83 (cabinet): wall 29, wall 31
+  wrong link: obj 118 (box): bottle crate 19, bottle crate 22
+
+office / reproject + vf0.25: 414 objects, 14s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-dejaview_k16_views_n20_uniform_504.npz)
+  merge: storage cabinet 5 -> storage cabinet 34, storage cabinet 35
+  merge: table 19 -> table 55, table 79, table 93
+  merge: ceiling 59 -> SPLIT 25, ceiling 42
+  merge: wall 123 -> wall 15, wall 17
+  merge: door 126 -> door 65, doorframe 66
+  merge: table 185 -> table 79, table 93
+  wrong link: obj 5 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 19 (table): table 55, table 79, table 93
+  wrong link: obj 59 (ceiling): SPLIT 25, ceiling 42
+  wrong link: obj 64 (cabinet): bookshelf 69, wall 43
+  wrong link: obj 90 (window): window 13, window 2, windowframe 18
+  wrong link: obj 120 (socket): power socket 62, wall 43
+  wrong link: obj 123 (wall): wall 15, wall 17
+  wrong link: obj 126 (door): door 65, doorframe 66
+  wrong link: obj 185 (table): table 79, table 93
+  wrong link: obj 316 (doorframe): doorframe 66, wall 83
+
+office / reproject: 406 objects, 13s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-dejaview_k16_views_n20_uniform_504.npz)
+  merge: tv 5 -> monitor 52, office chair 58
+  merge: storage cabinet 6 -> storage cabinet 34, storage cabinet 35
+  merge: wall 18 -> heater 33, wall 39
+  merge: wall 19 -> wall 15, wall 17
+  merge: table 21 -> table 55, table 79, table 93
+  merge: ceiling 60 -> SPLIT 25, ceiling 42
+  merge: door 124 -> door 65, doorframe 66
+  merge: table 182 -> table 79, table 93
+  wrong link: obj 5 (tv): monitor 52, office chair 58
+  wrong link: obj 6 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 18 (wall): heater 33, wall 39
+  wrong link: obj 19 (wall): wall 15, wall 17
+  wrong link: obj 21 (table): table 55, table 79, table 93
+  wrong link: obj 60 (ceiling): SPLIT 25, ceiling 42
+  wrong link: obj 65 (cabinet): bookshelf 69, wall 43
+  wrong link: obj 90 (window): window 13, window 2, windowframe 18
+  wrong link: obj 121 (socket): power socket 62, wall 43
+  wrong link: obj 124 (door): door 65, doorframe 66
+  wrong link: obj 182 (table): table 79, table 93
+  wrong link: obj 310 (doorframe): doorframe 66, wall 83
+
+office / cloud: 547 objects, 216s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-pc-dejaview_k16_views_n20_uniform_504.npz)
+  merge: storage cabinet 10 -> storage cabinet 34, storage cabinet 35
+  wrong link: obj 10 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 18 (board): wall 12, whiteboard 48
+  wrong link: obj 90 (doorframe): doorframe 66, wall 83
+  wrong link: obj 152 (socket): power socket 62, wall 43
+  wrong link: obj 251 (table): table 79, table 93
+  wrong link: obj 462 (rack): bookshelf 69, coat rack 64
+
+office / cloud, either direction: 407 objects, 212s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-pc-or-dejaview_k16_views_n20_uniform_504.npz)
+  merge: table 1 -> table 55, table 79
+  merge: doorframe 9 -> door 65, doorframe 66
+  merge: wall 18 -> wall 15, window 16
+  merge: power strip 96 -> power socket 29, power socket 31, wall 39
+  merge: table 216 -> bottle 73, table 79
+  merge: cabinet 270 -> storage cabinet 34, storage cabinet 35
+  merge: whiteboard 285 -> whiteboard 10, whiteboard eraser 9
+  merge: whiteboard 323 -> whiteboard 10, whiteboard eraser 9
+  merge: door 327 -> door 65, doorframe 66
+  wrong link: obj 1 (table): table 55, table 79
+  wrong link: obj 5 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 9 (doorframe): door 65, doorframe 66
+  wrong link: obj 18 (wall): wall 15, window 16
+  wrong link: obj 25 (whiteboard): wall 12, whiteboard 48
+  wrong link: obj 36 (windowsill): wall 39, windowsill 40
+  wrong link: obj 44 (socket): power socket 29, telephone 47
+  wrong link: obj 70 (shelf): wall 43, wall 83
+  wrong link: obj 96 (power strip): power socket 29, power socket 31, wall 39
+  wrong link: obj 116 (cabinet): bookshelf 69, wall 43
+  wrong link: obj 119 (socket): power socket 62, wall 43
+  wrong link: obj 149 (box): object 59, wall 12
+  wrong link: obj 186 (window frame): window 13, window 2, windowframe 18
+  wrong link: obj 194 (keyboard): keyboard 72, table 93
+  wrong link: obj 196 (window): monitor 11, window 13, windowframe 18
+  wrong link: obj 203 (window): window 13, windowframe 18
+  wrong link: obj 216 (table): bottle 73, container 24, table 79
+  wrong link: obj 219 (headphones): monitor 52, table 55
+  wrong link: obj 240 (cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 264 (cabinet): bookshelf 69, coat rack 64, wall 83
+  wrong link: obj 270 (cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 274 (table): table 55, table 93
+  wrong link: obj 281 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 285 (whiteboard): whiteboard 10, whiteboard eraser 9
+  wrong link: obj 323 (whiteboard): wall 43, whiteboard 10, whiteboard eraser 9
+  wrong link: obj 327 (door): door 65, doorframe 66, wall 83
+  wrong link: obj 350 (window): window 13, windowsill 40
+
+office / reproject + vf0.25, GT geometry: 397 objects, 14s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-vf0.25-kl0.5-gt.npz)
+  merge: wall 14 -> heater 33, wall 39
+  merge: ceiling 95 -> SPLIT 25, ceiling 42
+  merge: wall 115 -> wall 15, wall 17
+  merge: door 163 -> door 65, doorframe 66
+  merge: table 179 -> table 79, table 93
+  merge: storage cabinet 221 -> storage cabinet 34, storage cabinet 35
+  merge: table 293 -> table 55, table 79, table 93
+  wrong link: obj 14 (wall): heater 33, wall 39
+  wrong link: obj 19 (window): window 13, window 2, windowframe 18
+  wrong link: obj 95 (ceiling): SPLIT 25, ceiling 42
+  wrong link: obj 110 (socket): power socket 62, wall 43
+  wrong link: obj 115 (wall): wall 15, wall 17
+  wrong link: obj 163 (door): door 65, doorframe 66
+  wrong link: obj 165 (cabinet): bookshelf 69, wall 43
+  wrong link: obj 170 (window frame): window 13, window 2
+  wrong link: obj 179 (table): table 79, table 93
+  wrong link: obj 221 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 278 (doorframe): doorframe 66, wall 83
+  wrong link: obj 293 (table): table 55, table 79, table 93
+
+office / cloud, GT geometry: 480 objects, 225s, same as cache (sam3image-top100-t0.3_views_n20_uniform_504_assoc-xc0.7-kl0.5-pc-gt.npz)
+  merge: storage cabinet 397 -> storage cabinet 34, storage cabinet 35
+  wrong link: obj 16 (board): wall 12, whiteboard 48
+  wrong link: obj 71 (cabinet): bookshelf 69, wall 43
+  wrong link: obj 135 (socket): power socket 62, wall 43
+  wrong link: obj 224 (table): table 79, table 93
+  wrong link: obj 397 (storage cabinet): storage cabinet 34, storage cabinet 35
+  wrong link: obj 425 (window): window 13, windowframe 18
+  wrong link: obj 431 (doorframe): doorframe 66, wall 83
+
+Cloud rule: tau = 3 x mean nearest-neighbour distance inside the mask's cloud
+  kitchen: 542 masks, tau median 0.0208 (10-90%: 0.0112-0.0374) scene units, tau / median mask depth 0.0214 (90%: 0.0293)
+  office: 654 masks, tau median 0.0168 (10-90%: 0.0081-0.0336) scene units, tau / median mask depth 0.0176 (90%: 0.0289)
+
+figure: experiments\figures\e24_cloud_overlap.jpg

@@ -1,0 +1,191 @@
+/var/lib/slurm/slurmd/job00658/slurm_script: line 15: git: command not found
+node VC15 | NVIDIA GeForce RTX 5090, 595.99.02 |  + local vocabulary.py
+=== vlm progressive
+DSC08832.JPG: 127 names, 8 total, 43.4s
+DSC08844.JPG: 5 names, 8 total, 0.1s
+DSC08856.JPG: 126 names, 10 total, 2.3s
+DSC08868.JPG: 5 names, 10 total, 0.1s
+DSC08880.JPG: 3 names, 10 total, 0.1s
+DSC08892.JPG: 4 names, 10 total, 0.1s
+DSC08904.JPG: 115 names, 10 total, 2.3s
+DSC08916.JPG: 117 names, 11 total, 2.3s
+DSC08928.JPG: 4 names, 11 total, 0.1s
+DSC08941.JPG: 109 names, 11 total, 2.3s
+DSC08952.JPG: 114 names, 11 total, 2.3s
+DSC08964.JPG: 3 names, 11 total, 0.1s
+DSC08976.JPG: 3 names, 11 total, 0.1s
+DSC08988.JPG: 113 names, 11 total, 2.3s
+DSC09002.JPG: 3 names, 12 total, 0.1s
+DSC09015.JPG: 111 names, 12 total, 2.3s
+DSC09027.JPG: 10 names, 12 total, 0.2s
+DSC09039.JPG: 3 names, 12 total, 0.1s
+DSC09054.JPG: 7 names, 12 total, 0.2s
+DSC09073.JPG: 3 names, 12 total, 0.1s
+5ee7c22ba0: 12 names, 61s, peak GPU 1.77 GB -> data/processed/scannetpp/5ee7c22ba0/vlmprog-qwen3vl2binstruct_views_n20_uniform_504.txt
+DSC03468.JPG: 87 names, 15 total, 2.3s
+DSC03492.JPG: 13 names, 15 total, 0.3s
+DSC03514.JPG: 10 names, 15 total, 0.2s
+DSC03535.JPG: 13 names, 19 total, 0.3s
+DSC03552.JPG: 104 names, 19 total, 2.2s
+DSC03572.JPG: 17 names, 19 total, 0.4s
+DSC03594.JPG: 14 names, 19 total, 0.3s
+DSC03611.JPG: 5 names, 21 total, 0.1s
+DSC03628.JPG: 10 names, 21 total, 0.2s
+DSC03648.JPG: 19 names, 21 total, 0.4s
+DSC03665.JPG: 18 names, 21 total, 0.4s
+DSC03686.JPG: 12 names, 21 total, 0.3s
+DSC03710.JPG: 5 names, 21 total, 0.1s
+DSC03734.JPG: 5 names, 21 total, 0.1s
+DSC03756.JPG: 13 names, 21 total, 0.3s
+DSC03776.JPG: 23 names, 22 total, 0.5s
+DSC03803.JPG: 107 names, 22 total, 2.2s
+DSC03820.JPG: 16 names, 22 total, 0.3s
+DSC03840.JPG: 6 names, 22 total, 0.1s
+DSC03862.JPG: 11 names, 22 total, 0.3s
+7b6477cb95: 22 names, 11s, peak GPU 1.77 GB -> data/processed/scannetpp/7b6477cb95/vlmprog-qwen3vl2binstruct_views_n20_uniform_504.txt
+=== took 87363 ms
+=== 5ee7c22ba0 sam3 top100.txt
+5ee7c22ba0: 20 views, 100 prompts, 100 classes
+  view  0:  33 masks
+  view  1:  33 masks
+  view  2:  55 masks
+  view  3:  43 masks
+  view  4:  26 masks
+  view  5:  27 masks
+  view  6:  37 masks
+  view  7:  30 masks
+  view  8:  42 masks
+  view  9:  66 masks
+  view 10:  79 masks
+  view 11:  74 masks
+  view 12:  64 masks
+  view 13:  88 masks
+  view 14:  23 masks
+  view 15:  52 masks
+  view 16:  28 masks
+  view 17:  54 masks
+  view 18:  28 masks
+  view 19:  38 masks
+5ee7c22ba0: 920 instances in 20 views, 58s, peak GPU 2.15 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-top100-t0.3_views_n20_uniform_504.npz
+=== took 62228 ms
+=== 5ee7c22ba0 sam3 vlm-qwen3vl2binstruct_views_n20_uniform_504.txt
+5ee7c22ba0: 20 views, 46 prompts, 46 classes
+  view  0:  45 masks
+  view  1:  40 masks
+  view  2:  55 masks
+  view  3:  51 masks
+  view  4:  34 masks
+  view  5:  28 masks
+  view  6:  45 masks
+  view  7:  40 masks
+  view  8:  50 masks
+  view  9:  84 masks
+  view 10:  74 masks
+  view 11:  83 masks
+  view 12:  72 masks
+  view 13: 101 masks
+  view 14:  20 masks
+  view 15:  65 masks
+  view 16:  39 masks
+  view 17:  64 masks
+  view 18:  27 masks
+  view 19:  39 masks
+5ee7c22ba0: 1056 instances in 20 views, 14s, peak GPU 2.15 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 18822 ms
+=== 5ee7c22ba0 sam3 vlmprog-qwen3vl2binstruct_views_n20_uniform_504.txt
+5ee7c22ba0: 20 views, 12 prompts, 12 classes
+  view  0:  31 masks
+  view  1:  28 masks
+  view  2:  41 masks
+  view  3:  39 masks
+  view  4:  26 masks
+  view  5:  23 masks
+  view  6:  21 masks
+  view  7:  28 masks
+  view  8:  33 masks
+  view  9:  36 masks
+  view 10:  31 masks
+  view 11:  24 masks
+  view 12:  14 masks
+  view 13:  36 masks
+  view 14:  19 masks
+  view 15:  33 masks
+  view 16:  13 masks
+  view 17:  30 masks
+  view 18:  19 masks
+  view 19:  20 masks
+5ee7c22ba0: 545 instances in 20 views, 5s, peak GPU 2.11 GB -> data/processed/scannetpp/5ee7c22ba0/sam3image-vlmprog-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 9561 ms
+=== 7b6477cb95 sam3 top100.txt
+7b6477cb95: 20 views, 100 prompts, 100 classes
+  view  0:  36 masks
+  view  1:  85 masks
+  view  2:  41 masks
+  view  3:  66 masks
+  view  4:  48 masks
+  view  5:  47 masks
+  view  6:  58 masks
+  view  7:  39 masks
+  view  8:  43 masks
+  view  9:  59 masks
+  view 10:  68 masks
+  view 11:  41 masks
+  view 12:  51 masks
+  view 13:  15 masks
+  view 14:  76 masks
+  view 15:  70 masks
+  view 16:  66 masks
+  view 17:  60 masks
+  view 18:  69 masks
+  view 19:  54 masks
+7b6477cb95: 1092 instances in 20 views, 29s, peak GPU 2.11 GB -> data/processed/scannetpp/7b6477cb95/sam3image-top100-t0.3_views_n20_uniform_504.npz
+=== took 32790 ms
+=== 7b6477cb95 sam3 vlm-qwen3vl2binstruct_views_n20_uniform_504.txt
+7b6477cb95: 20 views, 60 prompts, 60 classes
+  view  0:  43 masks
+  view  1: 116 masks
+  view  2:  54 masks
+  view  3: 112 masks
+  view  4:  50 masks
+  view  5:  85 masks
+  view  6:  74 masks
+  view  7:  40 masks
+  view  8:  54 masks
+  view  9:  72 masks
+  view 10:  88 masks
+  view 11:  38 masks
+  view 12:  52 masks
+  view 13:  11 masks
+  view 14:  95 masks
+  view 15: 114 masks
+  view 16: 109 masks
+  view 17: 137 masks
+  view 18: 114 masks
+  view 19:  56 masks
+7b6477cb95: 1514 instances in 20 views, 18s, peak GPU 2.13 GB -> data/processed/scannetpp/7b6477cb95/sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 22525 ms
+=== 7b6477cb95 sam3 vlmprog-qwen3vl2binstruct_views_n20_uniform_504.txt
+7b6477cb95: 20 views, 22 prompts, 22 classes
+  view  0:  26 masks
+  view  1:  48 masks
+  view  2:  35 masks
+  view  3:  46 masks
+  view  4:  33 masks
+  view  5:  33 masks
+  view  6:  42 masks
+  view  7:  18 masks
+  view  8:  27 masks
+  view  9:  34 masks
+  view 10:  40 masks
+  view 11:  20 masks
+  view 12:  35 masks
+  view 13:  10 masks
+  view 14:  46 masks
+  view 15:  47 masks
+  view 16:  47 masks
+  view 17:  42 masks
+  view 18:  39 masks
+  view 19:  29 masks
+7b6477cb95: 697 instances in 20 views, 8s, peak GPU 2.10 GB -> data/processed/scannetpp/7b6477cb95/sam3image-vlmprog-qwen3vl2binstruct_views_n20_uniform_504-t0.3_views_n20_uniform_504.npz
+=== took 12037 ms
+peak GPU memory used (nvidia-smi):  2804 MiB

@@ -9,20 +9,28 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "bitsandbytes>=0.50.2 ; sys_platform != 'darwin'",
     "dvlt",
     "numpy>=2.4.6",
     "pillow>=13.0.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
+    "scipy>=1.16",
     "torch>=2.14.1",
+    "torchvision>=0.29.1",
+    "transformers>=5.20.2",
 ]
 
 [project.scripts]
 semantic-3d-refinement = "src:main"
 scannetpp-download = "src.loaders.scannetpp.download:main"
 scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
+scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
+sam3-segment = "src.segmentation.sam3:main"
+vlm-vocabulary = "src.segmentation.vocabulary:main"
+eval-instances = "src.evaluation.instances:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
@@ -35,6 +43,14 @@ module-root = ""
 
 [tool.uv.sources]
 dvlt = { git = "https://github.com/nv-tlabs/dvlt", rev = "f59bb18" }
+# CUDA builds on Linux/Windows, default PyPI wheels on macOS
+torch = { index = "pytorch-cu126", marker = "sys_platform != 'darwin'" }
+torchvision = { index = "pytorch-cu126", marker = "sys_platform != 'darwin'" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 # dvlt pins exact old versions; use ours instead
 [tool.uv]
@@ -45,6 +61,8 @@ override-dependencies = [
     "pillow>=13.0.0",
     "matplotlib>=3.11.2",
     "tqdm>=4.70.1",
+    "safetensors>=0.8.0",
+    "huggingface-hub>=1.31.0",
 ]
 
 [dependency-groups]
@@ -76,6 +94,14 @@ ignore = [
     "PLR2004",  # literal values in tests
     "INP001",   # tests is not a package
     "D",        # no docstrings needed in tests
+]
+"experiments/**/*.py" = [
+    "T201",     # experiment scripts report with print
+    "INP001",   # scripts, not a package
+    "E402",     # matplotlib backend is set before pyplot is imported
+    "S101",     # asserts are fine in one-off checks
+    "PLR2004",  # literal values in one-off checks
+    "E501",     # long report lines
 ]
 "notebooks/**/*.ipynb" = [
     "T201",     # print is fine in notebooks

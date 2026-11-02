@@ -1,0 +1,22 @@
+== 5ee7c22ba0
+ scorer: GT vs GT (expect all 1, leakage 0)
+    recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 1.000  id_switches 0  merges 0  num_gt 39
+ scorer: GT relabeled per view (expect recall 1, consistent 0)
+    recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 0.000  id_switches 265  merges 0  num_gt 39
+ scorer: GT id pairs 2k, 2k+1 merged (expect leakage > 0)
+    recall 0.780  pixel_recall 0.906  precision 1.000  leakage 0.096  cross_leakage 0.083  consistent 1.000  id_switches 0  merges 15  num_gt 34
+ association: GT masks per view + GT geometry: 402 masks -> 62 objects
+   all      recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 1.000  id_switches 0  merges 0  num_gt 39
+   objects  recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 1.000  id_switches 0  merges 0  num_gt 30
+ Deja View: depth (20, 336, 504), finite True, conf 1.13-72.81; per-view scale-aligned median abs rel error mean 0.008, worst 0.014 (view 11)
+== 7b6477cb95
+ scorer: GT vs GT (expect all 1, leakage 0)
+    recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 1.000  id_switches 0  merges 0  num_gt 59
+ scorer: GT relabeled per view (expect recall 1, consistent 0)
+    recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 0.000  id_switches 384  merges 0  num_gt 59
+ scorer: GT id pairs 2k, 2k+1 merged (expect leakage > 0)
+    recall 0.781  pixel_recall 0.912  precision 1.000  leakage 0.090  cross_leakage 0.065  consistent 1.000  id_switches 0  merges 18  num_gt 48
+ association: GT masks per view + GT geometry: 790 masks -> 235 objects
+   all      recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 0.932  id_switches 4  merges 0  num_gt 59
+   objects  recall 1.000  pixel_recall 1.000  precision 1.000  leakage 0.000  cross_leakage 0.000  consistent 0.922  id_switches 4  merges 0  num_gt 51
+ Deja View: depth (20, 336, 504), finite True, conf 1.05-93.28; per-view scale-aligned median abs rel error mean 0.007, worst 0.015 (view 4)

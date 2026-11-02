@@ -1,0 +1,22 @@
+7b6477cb95 sam3image_views_n20_uniform_504 cross-class 0.7 vf0.5-: links that joined masks
+     10 cabinet           5003 wall             0.89  right     GT storage cabinet / storage cabinet
+   2012 cabinet           5003 wall             0.92  right     GT storage cabinet / storage cabinet
+   3018 cabinet           5003 wall             0.83  WRONG     GT storage cabinet / storage cabinet
+   4013 cabinet           5003 wall             0.91  unlabeled mask mostly on unlabeled GT
+   5003 wall              6018 cabinet          0.91  right     GT storage cabinet / storage cabinet
+   5003 wall             14014 cabinet          0.89  WRONG     GT storage cabinet / storage cabinet
+   5003 wall             16017 cabinet          0.73  right     GT storage cabinet / storage cabinet
+   5003 wall             19013 cabinet          0.82  right     GT storage cabinet / storage cabinet
+   5013 lamp              6009 chair            0.84  right     GT coat rack / coat rack
+   7001 wall             14014 cabinet          0.95  WRONG     GT storage cabinet / storage cabinet
+   7001 wall             15020 cabinet          0.81  right     GT storage cabinet / storage cabinet
+   7001 wall             16017 cabinet          0.88  right     GT storage cabinet / storage cabinet
+   8005 window           16002 wall             0.72  right     GT window / window
+   9006 window           16002 wall             0.86  unlabeled mask mostly on unlabeled GT
+  11002 door             13005 cabinet          0.97  right     GT storage cabinet / storage cabinet
+  11010 cabinet          13002 door             0.85  right     GT storage cabinet / storage cabinet
+  12003 window           16002 wall             0.82  right     GT window / window
+  13002 door             15019 cabinet          0.80  right     GT storage cabinet / storage cabinet
+  15023 cabinet          16005 door             0.96  right     GT storage cabinet / storage cabinet
+  16002 wall             18003 window           0.80  right     GT window / window
+  total 20: right 15, WRONG 3, unlabeled 2

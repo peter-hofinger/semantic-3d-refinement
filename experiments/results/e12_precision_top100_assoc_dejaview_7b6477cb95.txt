@@ -1,0 +1,33 @@
+347 of 647 counted masks unmatched (precision 0.46)
+unmatched masks by predicted class:
+  shelf              31
+  storage cabinet    29
+  door               28
+  socket             25
+  cabinet            24
+  office chair       24
+  monitor            15
+  marker             15
+  tv                 14
+  container          12
+  chair              12
+  pipe               12
+  rack               11
+  board               8
+  table               8
+top (predicted class -> dominant GT class, >90% inside it or spanning):
+  door             -> storage cabinet    inside   19
+  shelf            -> bookshelf          inside   16
+  storage cabinet  -> storage cabinet    inside   14
+  socket           -> wall               inside   13
+  pipe             -> coat rack          spans    12
+  cabinet          -> storage cabinet    inside   11
+  office chair     -> office chair       spans    10
+  tv               -> monitor            spans    10
+  cabinet          -> storage cabinet    spans     8
+  door             -> storage cabinet    spans     7
+  monitor          -> monitor            inside    7
+  shelf            -> bookshelf          spans     7
+  table            -> table              spans     7
+  office chair     -> storage cabinet    spans     6
+  office chair     -> office chair       inside    6
