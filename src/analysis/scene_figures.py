@@ -20,31 +20,24 @@ import yaml
 from matplotlib.colors import Normalize
 from scipy.spatial import cKDTree
 
-from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs, variant_scene
+from src.analysis import scene_eval
+from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
 from src.analysis.visualize import DIVERGING, SEQUENTIAL
 from src.evaluation.depth import lift
 from src.evaluation.labeled import NONE, predicted_cloud
 from src.refinement.monocular import points_from_rays
 
 LABELS = {
-    "abs_rel": "AbsRel (per pixel) ↓",
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
     "fscore_2cm": "F-score at 2 cm ↑",
     "miou": "mIoU ↑",
+    "ap": "AP ↑",
     "ap50": "AP50 ↑",
     "precision_2cm": "precision at 2 cm ↑",
     "recall_2cm": "recall at 2 cm ↑",
     "disagreement_pct": "disagreement between views (%)",
 }
-TUNING = (
-    "abs_rel",
-    "precision_2cm",
-    "recall_2cm",
-    "fscore_2cm",
-    "disagreement_pct",
-    "miou",
-)
 SCENE_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#8a5cc2")
 ERROR_MAX_CM = 30.0
 SHOWN_VIEWS = (0, 5, 10, 15)
@@ -61,19 +54,21 @@ def instance_colors(ids: np.ndarray) -> np.ndarray:
     return lut[inverse.reshape(ids.shape)]
 
 
-def pixel_points(inputs: SceneInputs, depth: np.ndarray, variant: dict) -> np.ndarray:
-    """Per-pixel points (V, H, W, 3) of a variant's depth, in the ground truth's frame."""
+def pixel_points(
+    inputs: SceneInputs, depth: np.ndarray, variant: dict, align: np.ndarray
+) -> np.ndarray:
+    """Per-pixel points (V, H, W, 3) of a variant, registered into the truth's frame."""
     if variant.get("geometry") == "gt":
-        return ground_truth_points(inputs)
-    scene, (s, rotation, t) = variant_scene(inputs, variant)
-    points = points_from_rays(
-        torch.from_numpy(depth).double(), scene.rays.cpu().double()
-    ).numpy()
-    return s * points @ rotation.T + t
+        points = scene_eval.ground_truth_points(inputs)
+    else:
+        points = points_from_rays(
+            torch.from_numpy(depth).double(), inputs.scene.rays.cpu().double()
+        ).numpy()
+    return points @ align[:3, :3].T + align[:3, 3]
 
 
 def ground_truth_points(inputs: SceneInputs) -> np.ndarray:
-    """Per-pixel ground-truth points (V, H, W, 3)."""
+    """Per-pixel ground-truth points (V, H, W, 3) in the ground truth's frame."""
     return np.stack(
         [
             lift(d.astype(np.float64), k.astype(np.float64), c.astype(np.float64))
@@ -119,8 +114,7 @@ def summary_figure(
 
 def views_figure(
     inputs: SceneInputs,
-    depths: dict[str, np.ndarray],
-    variants: dict[str, dict],
+    points: dict[str, np.ndarray],
     name: str,
     out: Path,
 ) -> dict[str, float]:
@@ -130,10 +124,10 @@ def views_figure(
     errors = {
         k: np.where(
             seen,
-            100 * np.linalg.norm(pixel_points(inputs, d, variants[k]) - truth, axis=-1),
+            100 * np.linalg.norm(d - truth, axis=-1),
             np.nan,
         )
-        for k, d in depths.items()
+        for k, d in points.items()
     }
     first, *_, last = errors
     titles = ["image", "ground-truth objects", "SAM 3 objects (linked)"]
@@ -189,8 +183,7 @@ def views_figure(
 
 def topdown_figure(
     inputs: SceneInputs,
-    depths: dict[str, np.ndarray],
-    variants: dict[str, dict],
+    points: dict[str, np.ndarray],
     name: str,
     out: Path,
 ) -> None:
@@ -208,10 +201,10 @@ def topdown_figure(
     keep = slab(truth.points)
     columns = [("ground truth", truth.points[keep], truth.instance[keep], None)]
     tree = cKDTree(truth.points)
-    for k, d in depths.items():
+    for k, d in points.items():
         labels = inputs.labels
         cloud = predicted_cloud(
-            pixel_points(inputs, d, variants[k]), labels.instance_ids, labels.classes, {},
+            d, labels.instance_ids, labels.classes, {},
             (1.0, np.eye(3), np.zeros(3)),
         )  # fmt: skip
         keep = slab(cloud.points)
@@ -222,9 +215,9 @@ def topdown_figure(
     fig, axes = plt.subplots(
         2, len(columns), figsize=(4.2 * len(columns), 8.6), layout="constrained"
     )
-    for col, (title, points, ids, dist) in zip(axes.T, columns, strict=True):
-        pick = rng.choice(len(points), min(TOP_POINTS, len(points)), replace=False)
-        p = points[pick]
+    for col, (title, shown, ids, dist) in zip(axes.T, columns, strict=True):
+        pick = rng.choice(len(shown), min(TOP_POINTS, len(shown)), replace=False)
+        p = shown[pick]
         col[0].scatter(p[:, 0], p[:, 1], s=1.0, c=instance_colors(ids[pick]), lw=0)
         col[0].set_title(f"{title}: objects", fontsize=9)
         if dist is not None:
@@ -302,8 +295,7 @@ def point_normals(points: np.ndarray) -> np.ndarray:
 
 def normals_figure(
     inputs: SceneInputs,
-    depths: dict[str, np.ndarray],
-    variants: dict[str, dict],
+    points: dict[str, np.ndarray],
     name: str,
     out: Path,
 ) -> None:
@@ -316,10 +308,7 @@ def normals_figure(
     overlay = inputs.views.images[v].astype(float) / 255
     overlay[edges] = (1.0, 0.2, 0.2)
     panels = {"image + SAM 3 boundaries": overlay}
-    panels |= {
-        k: point_normals(pixel_points(inputs, d, variants[k])[v])
-        for k, d in depths.items()
-    }
+    panels |= {k: point_normals(d[v]) for k, d in points.items()}
     panels["ground truth"] = point_normals(ground_truth_points(inputs)[v])
     h, w = ids.shape
     zoom = (slice(h // 4, 3 * h // 4), slice(w // 4, 3 * w // 4))
@@ -379,40 +368,39 @@ def main() -> None:
         default=["Déjà View", "E_d + E_mv", "all three"],
         help="variants in the per-scene figures (first is the reference)",
     )
-    parser.add_argument(
-        "--tuning", action="store_true", help="a weight grid: only the score panels"
-    )
     args = parser.parse_args()
     run = yaml.safe_load((args.run / "run.yaml").read_text())
     out = Path("figures") / args.run.name
     out.mkdir(parents=True, exist_ok=True)
-    if args.tuning:
-        summary_figure(run, out, TUNING, "grid")
-        print(f"wrote {out}")  # noqa: T201
-        return
     summary_figure(run, out)
     precision_recall_figure(run, args.show, out)
     arrays = np.load(args.run / "results.npz")
-    names = [v["name"] for v in run["config"]["variants"]]
+    variants = run["config"]["variants"]
+    names = [v["name"] for v in variants]
     device = torch.device("cpu")
     medians = {}
     for scene in run["scenes"]:
         inputs = load_inputs(run["config"], scene, device)
         assert inputs is not None, scene
         assert np.array_equal(arrays[f"{scene}/labels"], inputs.labels.instance_ids)
-        depths = {n: arrays[f"{scene}/{names.index(n)}"] for n in args.show}
-        variants = {v["name"]: v for v in run["config"]["variants"]}
-        medians[scene] = views_figure(inputs, depths, variants, scene, out)
-        topdown_figure(inputs, depths, variants, scene, out)
+
+        def registered(
+            n: str, scene: str = scene, inputs: SceneInputs = inputs
+        ) -> np.ndarray:
+            i = names.index(n)
+            return pixel_points(
+                inputs,
+                arrays[f"{scene}/{i}"],
+                variants[i],
+                arrays[f"{scene}/{i}/align"],
+            )
+
+        points = {n: registered(n) for n in args.show}
+        medians[scene] = views_figure(inputs, points, scene, out)
+        topdown_figure(inputs, points, scene, out)
         smoothing = ["Déjà View", "+ E_bd", "+ E_bd cut at masks"]
         if all(n in names for n in smoothing):
-            normals_figure(
-                inputs,
-                {n: arrays[f"{scene}/{names.index(n)}"] for n in smoothing},
-                variants,
-                scene,
-                out,
-            )
+            normals_figure(inputs, {n: registered(n) for n in smoothing}, scene, out)
         class_figure(
             run["scenes"][scene]["variants"], [*args.show, "GT geometry"], scene, out
         )

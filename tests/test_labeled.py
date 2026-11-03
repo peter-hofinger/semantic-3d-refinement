@@ -5,11 +5,11 @@ import numpy as np
 from src.evaluation.labeled import (
     NONE,
     LabeledCloud,
-    align_points,
     average_precision,
     ground_truth_cloud,
     label_metrics,
     predicted_cloud,
+    register,
     surface_metrics,
     voxelize,
 )
@@ -94,14 +94,30 @@ def test_an_object_split_across_views_loses_its_match() -> None:
     assert scores["ap50"] == 0.5  # one of two chairs found, at full precision
 
 
-def test_alignment_recovers_a_similarity_despite_outliers() -> None:
+def rotation_z(angle: float) -> np.ndarray:
+    """Rotation by angle (rad) about z."""
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def test_registration_recovers_a_similarity_from_the_clouds_alone() -> None:
     rng = np.random.default_rng(0)
-    truth = rng.uniform(-2, 2, size=(40, 50, 3))
-    c, s = np.cos(0.4), np.sin(0.4)
-    rotation = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
-    pred = (truth - [1, 0, 2]) @ rotation / 3.0  # truth = 3 R pred + t
-    pred[0, 0] += 50.0  # one point far off, as behind glass
-    scale, r, t = align_points(pred, truth, np.ones((40, 50), dtype=bool))
-    assert np.isclose(scale, 3.0)
-    np.testing.assert_allclose(r, rotation, atol=1e-9)
-    np.testing.assert_allclose(t, [1, 0, 2], atol=1e-9)
+    n = 15_000
+    walls = [  # an open room, 4 x 5 x 2.5 m, and a table: no symmetry ICP could slip
+        np.c_[rng.uniform(0, 4, n), rng.uniform(0, 5, n), np.zeros(n)],
+        np.c_[np.zeros(n), rng.uniform(0, 5, n), rng.uniform(0, 2.5, n)],
+        np.c_[rng.uniform(0, 4, n), np.full(n, 5.0), rng.uniform(0, 2.5, n)],
+        np.c_[rng.uniform(1, 2, n), rng.uniform(1, 1.6, n), np.full(n, 0.75)],
+    ]
+    truth = np.concatenate(walls)
+    first = np.eye(4)
+    first[:3, :3] = rotation_z(0.7) @ rotation_z(0.3)[[2, 0, 1]]  # camera looking in
+    first[:3, 3] = [3.0, 1.0, 1.5]
+    # The output, in the first view's frame at a third of the scale, with a pose error
+    # of 2 degrees and 5 cm in that view, which registration must absorb.
+    pose_error = rotation_z(np.radians(2.0))
+    pred = ((truth - first[:3, 3] - [0.05, 0, 0]) @ first[:3, :3] @ pose_error) / 3.0
+    scale, r, t = register(pred, truth, first)
+    mapped = scale * pred @ r.T + t
+    assert np.isclose(scale, 3.0, rtol=1e-3)
+    assert np.abs(mapped - truth).max() < 1e-3

@@ -3,18 +3,25 @@
 Both clouds are reduced to one point per 1 cm voxel, the majority instance label of
 its points, so point density and view overlap do not weigh in. Ground truth is every
 pixel of the views with ground-truth depth, lifted through the ground-truth cameras
-(Hypersim's per-pixel maps, ScanNet++'s rendered mesh). A prediction comes in its own
-frame (Déjà View's, up to scale) and is mapped into the ground truth's by one
-similarity (Umeyama 1991) fitted on per-pixel correspondences, the usual protocol for
-point maps (VGGT, CUT3R): `align_points`. Camera centers alone do not fix it: Hypersim's
-trajectories are close to a line, so the rotation about it is left free.
+(Hypersim's per-pixel maps, ScanNet++'s rendered mesh).
+
+The method is a black box: unposed images in, one labeled cloud out, in the first
+view's camera frame at its own scale (Déjà View's convention). Nothing but that cloud
+is used: `register` maps it into the ground truth's frame by one similarity found from
+the two clouds alone, the usual protocol of point-map evaluations (Umeyama, then ICP:
+π³, VGGT on DTU / ETH3D / 7-Scenes / NRGBD). The start is the frame convention: the
+ground truth's first camera, and the ratio of the clouds' median distances from it as
+scale. Point-to-point ICP that also fits the scale (Umeyama in each step) then refines
+it from coarse to fine. Global registration without that start (FPFH features, RANSAC)
+failed on Hypersim rooms: features are not scale invariant, and Déjà View's scale is
+off by a factor of 3 to 4.
 
 Surface (Knapitsch et al. 2017, Tanks and Temples): accuracy is the distance of each
 predicted point to the nearest ground-truth point, completeness the other way round;
 precision and recall are the fractions of either within a tolerance τ, and the F-score
-their harmonic mean. Distances are capped at `CAP` (1 m), as DTU's evaluation caps
-outliers: a nearest-neighbor query for a point far from the other cloud costs
-milliseconds, and a mean should not hinge on a few points outside a window.
+their harmonic mean. Distances are capped at `CAP` (20 cm), as DTU's evaluation caps
+outliers: the means should not hinge on points outside a window, and a nearest-neighbor
+query costs more the farther the point is from the other cloud (1 m: 19 s per cloud).
 
 Labels are transferred to the ground truth: every ground-truth point takes the
 instance of the nearest predicted point within `TRANSFER`, none if there is no such
@@ -37,24 +44,26 @@ refinement that moves surfaces into place shows in the label scores too.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 
 import numpy as np
+import open3d as o3d
 from scipy.spatial import cKDTree
 
 from src.evaluation.depth import lift
-from src.evaluation.geometry import similarity
 
 VOXEL = 0.01  # m, grid both clouds are reduced to
 TOLERANCES = (0.01, 0.02, 0.05)  # m, precision / recall / F-score thresholds
 TRANSFER = 0.05  # m, a ground-truth point takes the label of a prediction this close
-CAP = 1.0  # m, distances above count as this
+CAP = 0.2  # m, distances above count as this
 MIN_POINTS = 100  # voxels; smaller instances are not scored (ScanNet: 100 vertices)
 IOU_THRESHOLDS = np.round(np.arange(0.5, 0.951, 0.05), 2)
 STRUCTURE = ("wall", "floor", "ceiling")  # no instances (ScanNet's AP leaves them out)
 NONE = -1
-ALIGN_SAMPLES = 200_000  # pixels the similarity is fitted on
-ALIGN_TRIM = 3.0  # refit on pixels within this many median residuals of the first fit
+ICP_STAGES = ((0.05, 0.5), (0.05, 0.2), (0.02, 0.05), (0.01, 0.02))  # voxel, radius (m)
+ICP_ITERATIONS = 50  # per stage
+ICP_POINTS = 30_000  # voxels of the output per ICP stage, at most
 
 
 @dataclass
@@ -75,28 +84,57 @@ class LabeledCloud:
     def class_of(self, ids: np.ndarray) -> np.ndarray:
         """Class name of each id, '' for NONE and ids without a class."""
         lut = {NONE: ""} | self.classes
-        return np.array([lut.get(int(i), "") for i in ids], dtype=object)
+        unique, inverse = np.unique(ids, return_inverse=True)
+        names = np.array([lut.get(int(i), "") for i in unique], dtype=object)
+        return names[inverse.reshape(ids.shape)]
 
 
-def align_points(
-    pred: np.ndarray, truth: np.ndarray, valid: np.ndarray
+def as_cloud(points: np.ndarray) -> o3d.geometry.PointCloud:
+    """Open3D cloud of (N, 3) points."""
+    cloud = o3d.geometry.PointCloud()
+    cloud.points = o3d.utility.Vector3dVector(points.astype(np.float64))
+    return cloud
+
+
+def register(
+    points: np.ndarray, truth: np.ndarray, first_camera: np.ndarray
 ) -> tuple[float, np.ndarray, np.ndarray]:
-    """Similarity mapping per-pixel points onto ground truth, robust to outliers.
+    """Similarity (s, R, t) mapping a cloud in the first view's frame onto the truth.
 
-    Fitted on up to `ALIGN_SAMPLES` valid pixels (fixed seed), then refitted on those
-    within `ALIGN_TRIM` times the median residual, so a few points far off (glass,
-    sky) do not tilt it.
+    Start: the ground truth's first camera-to-world (4, 4) and the ratio of median
+    distances from that camera. Then scaled point-to-point ICP over `ICP_STAGES`: both
+    clouds on the stage's voxel grid, at most `ICP_POINTS` of the output's voxels
+    (fixed seed).
     """
-    assert pred.shape == truth.shape and pred.shape[:-1] == valid.shape, pred.shape
-    index = np.flatnonzero(valid)
+    assert points.ndim == 2 and points.shape[1] == 3, points.shape  # noqa: PLR2004
+    local = (truth - first_camera[:3, 3]) @ first_camera[:3, :3]
+    scale = np.median(np.linalg.norm(local, axis=1)) / np.median(
+        np.linalg.norm(points, axis=1)
+    )
+    transform = first_camera.astype(np.float64).copy()
+    transform[:3, :3] *= scale
+    # once on a 2 cm grid (at the start's scale): pixels of near surfaces do not weigh
+    # more, and the stages below downsample a few hundred thousand points, not millions
+    source = as_cloud(points).voxel_down_sample(0.02 / scale)
+    target = as_cloud(truth)
     rng = np.random.default_rng(0)
-    index = rng.choice(index, min(ALIGN_SAMPLES, len(index)), replace=False)
-    a = pred.reshape(-1, 3)[index].astype(np.float64)
-    b = truth.reshape(-1, 3)[index].astype(np.float64)
-    s, rotation, t = similarity(a, b)
-    residual = np.linalg.norm(s * a @ rotation.T + t - b, axis=1)
-    keep = residual <= ALIGN_TRIM * np.median(residual)
-    return similarity(a[keep], b[keep])
+    icp = o3d.pipelines.registration
+    for voxel, radius in ICP_STAGES:
+        grid = np.asarray(
+            copy.deepcopy(source).transform(transform).voxel_down_sample(voxel).points
+        )
+        grid = grid[rng.choice(len(grid), min(ICP_POINTS, len(grid)), replace=False)]
+        result = icp.registration_icp(
+            as_cloud(grid),
+            target.voxel_down_sample(voxel),
+            radius,
+            np.eye(4),
+            icp.TransformationEstimationPointToPoint(with_scaling=True),
+            icp.ICPConvergenceCriteria(max_iteration=ICP_ITERATIONS),
+        )
+        transform = result.transformation @ transform
+    scale = float(np.cbrt(np.linalg.det(transform[:3, :3])))
+    return scale, transform[:3, :3] / scale, transform[:3, 3]
 
 
 def voxelize(
@@ -105,15 +143,20 @@ def voxelize(
     """One point per occupied voxel (the mean) and its most frequent label."""
     assert points.shape == (len(labels), 3), (points.shape, labels.shape)
     keys = np.floor(points / size).astype(np.int64)
-    _, voxel, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
-    voxel = voxel.ravel()
+    keys -= keys.min(0)
+    extent = keys.max(0) + 1
+    flat = (keys[:, 0] * extent[1] + keys[:, 1]) * extent[2] + keys[:, 2]
+    _, voxel, counts = np.unique(flat, return_inverse=True, return_counts=True)
     centers = np.zeros((len(counts), 3))
     np.add.at(centers, voxel, points)
-    pairs, votes = np.unique(np.stack([voxel, labels]), axis=1, return_counts=True)
-    order = np.lexsort((-votes, pairs[0]))  # by voxel, most votes first
-    first = np.r_[True, np.diff(pairs[0, order]) > 0]
+    offset = labels.min()
+    span = int(labels.max() - offset) + 1
+    pairs, votes = np.unique(voxel * span + (labels - offset), return_counts=True)
+    pair_voxel, pair_label = pairs // span, pairs % span + offset
+    order = np.lexsort((-votes, pair_voxel))  # by voxel, most votes first
+    first = np.r_[True, np.diff(pair_voxel[order]) > 0]
     majority = np.empty(len(counts), dtype=np.int64)
-    majority[pairs[0, order][first]] = pairs[1, order][first]
+    majority[pair_voxel[order][first]] = pair_label[order][first]
     return centers / counts[:, None], majority
 
 
@@ -144,7 +187,7 @@ def predicted_cloud(
     scores: dict[int, float],
     align: tuple[float, np.ndarray, np.ndarray],
 ) -> LabeledCloud:
-    """Per-pixel points (V, H, W, 3) mapped by the similarity, voxelized."""
+    """Points (..., 3) with ids (...), mapped by the similarity and voxelized."""
     assert points.shape == (*instance_ids.shape, 3), (points.shape, instance_ids.shape)
     s, rotation, t = align
     mapped = s * points.reshape(-1, 3).astype(np.float64) @ rotation.T + t

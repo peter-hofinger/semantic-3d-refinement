@@ -2,25 +2,23 @@
 
 Per scene the inputs are cached: views, ground truth, backbone geometry and per-view
 SAM 3 masks, linked across views on the backbone geometry exactly as `run-pipeline`
-does. Every variant then refines the same backbone geometry (or keeps it) and is scored
-as a labeled cloud (`evaluation.labeled`): surface F-score, mIoU and instance AP
-against the ground truth, plus the disagreement between views, which needs none, and
-each pixel's depth error (AbsRel: mean |s D - D_gt| / D_gt, s the alignment's scale).
-The cloud scores and AbsRel can disagree: a cloud of views that disagree is thick, and
-its layers can straddle the true surface, which nearest-neighbor completeness rewards. The
-labels on the cloud are always the linked SAM 3 masks, so label scores change only
-through geometry; `masks` picks what the refiner sees:
+does. Every variant then refines the same backbone geometry (or keeps it), and its
+output, one labeled cloud in the first view's frame, is scored as a black box
+(`evaluation.labeled`): registered onto the ground truth from the cloud alone, then
+surface F-score, mIoU and instance AP. Each variant is registered on its own.
+Disagreement between overlapping views is logged as a diagnostic of the refinement; it
+needs no ground truth and is not a score of the output. The labels on the cloud are
+always the linked SAM 3 masks, so label scores change only through geometry; `masks`
+picks what the refiner sees:
 
 - sam3: the linked SAM 3 masks (the pipeline),
 - gt: the ground-truth instances (the oracle: refinement without segmentation errors),
 - shuffled: each view gets the next view's SAM 3 masks (same statistics, unrelated
   positions; if this scores like sam3, the masks are not what helps).
 
-`geometry: gt` scores ground-truth depth and cameras with the SAM 3 labels, the
-ceiling of the label scores under perfect geometry. `cameras: gt` puts the backbone's
-depth, scaled by the alignment, on the ground-truth cameras before refining: it
-separates errors of the depth from errors of the predicted cameras, which the
-refinement keeps fixed.
+`geometry: gt` scores the ground-truth depth with the SAM 3 labels, put through the
+same registration: the ceiling of the label scores under perfect geometry, and a check
+that registration recovers the identity.
 
 `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml` writes
 `runs/<cfg>-<time>/{run.yaml, results.npz}`; `scene_figures --run` draws it.
@@ -28,7 +26,9 @@ refinement keeps fixed.
 
 import argparse
 import dataclasses
+import multiprocessing
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -39,10 +39,10 @@ from src.evaluation.depth import lift
 from src.evaluation.geometry import disagreement_pct
 from src.evaluation.labeled import (
     LabeledCloud,
-    align_points,
     ground_truth_cloud,
     label_metrics,
     predicted_cloud,
+    register,
     surface_metrics,
 )
 from src.geometry import Geometry
@@ -62,7 +62,8 @@ from src.segmentation.base import Segmentation
 from src.segmentation.linked import working_associator
 from src.segmentation.sam3 import load_prompts
 
-HEADLINE = ("abs_rel", "accuracy_cm", "completeness_cm", "fscore_2cm", "miou", "ap50")
+HEADLINE = ("accuracy_cm", "completeness_cm", "fscore_2cm", "miou", "ap", "ap50")
+WORKERS = 6  # scoring processes; each also uses several threads
 
 
 @dataclasses.dataclass(frozen=True)
@@ -75,16 +76,10 @@ class SceneInputs:
     scene: Scene
     labels: Segmentation
     truth: LabeledCloud
-    align: tuple[float, np.ndarray, np.ndarray]
 
 
 def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs | None:
-    """Load one scene's cached inputs (None if any is missing), link the SAM 3 masks.
-
-    The similarity into the ground truth's frame is fitted once, on the backbone's
-    points, and shared by every variant: refinement keeps the cameras, so its points
-    stay in the backbone's frame.
-    """
+    """Load one scene's cached inputs (None if any is missing), link the SAM 3 masks."""
     folder = Path(raw["root"]) / name
     paths = {
         "views": folder / f"{raw['views']}.npz",
@@ -103,46 +98,22 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs | Non
     truth = ground_truth_cloud(
         gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
     )
-    gt_points = np.stack(
+    return SceneInputs(views, gt, geometry, scene, labels, truth)
+
+
+def ground_truth_points(inputs: SceneInputs) -> np.ndarray:
+    """Per-pixel ground-truth points (V, H, W, 3) in the first view's camera frame."""
+    views, first = inputs.views, inputs.views.cam_to_world[0].astype(np.float64)
+    points = np.stack(
         [
             lift(d.astype(np.float64), k.astype(np.float64), c.astype(np.float64))
             for d, k, c in zip(
-                gt.depth, views.intrinsics, views.cam_to_world, strict=True
+                inputs.gt.depth, views.intrinsics, views.cam_to_world, strict=True
             )
         ]
     )
-    points = points_from_rays(scene.depth.double(), scene.rays.double()).cpu().numpy()
-    align = align_points(points, gt_points, gt.depth > 0)
-    return SceneInputs(views, gt, geometry, scene, labels, truth, align)
-
-
-def gt_camera_scene(inputs: SceneInputs) -> Scene:
-    """Backbone depth in meters (alignment scale) on the ground-truth pinholes."""
-    views, scene = inputs.views, inputs.scene
-    k = views.intrinsics.astype(np.float64).copy()
-    k[:, :2, 2] -= 0.5  # Scene's pixel centers are at integers
-    h, w = scene.depth.shape[1:]
-    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
-    pixels = np.stack([u, v, np.ones_like(u)], -1)
-    c2w = views.cam_to_world.astype(np.float64)
-    directions = np.einsum("nij,hwj->nhwi", c2w[:, :3, :3] @ np.linalg.inv(k), pixels)
-    origins = np.broadcast_to(c2w[:, None, None, :3, 3], directions.shape)
-    device = scene.depth.device
-    return Scene(
-        inputs.align[0] * scene.depth,
-        torch.from_numpy(np.concatenate([origins, directions], -1)).float().to(device),
-        scene.conf,
-        torch.from_numpy(k).float().to(device),
-        torch.from_numpy(c2w[:, :3, :3]).float().to(device),
-        torch.from_numpy(c2w[:, :3, 3]).float().to(device),
-    )
-
-
-def variant_scene(inputs: SceneInputs, variant: dict) -> tuple[Scene, tuple]:
-    """Return the scene a variant refines and its similarity into the GT frame."""
-    if variant.get("cameras") == "gt":
-        return gt_camera_scene(inputs), (1.0, np.eye(3), np.zeros(3))
-    return inputs.scene, inputs.align
+    points = (points - first[:3, 3]) @ first[:3, :3]
+    return np.where((inputs.gt.depth > 0)[..., None], points, np.nan)
 
 
 def refiner_masks(inputs: SceneInputs, kind: str) -> np.ndarray:
@@ -155,41 +126,45 @@ def refiner_masks(inputs: SceneInputs, kind: str) -> np.ndarray:
     return inputs.labels.instance_ids
 
 
-def score(
-    inputs: SceneInputs, points: np.ndarray, align: tuple, evaluated: list[str]
-) -> dict:
-    """Surface and label scores of per-pixel points (V, H, W, 3) with SAM 3 labels."""
-    labels = inputs.labels
+@dataclasses.dataclass(frozen=True)
+class Scoring:
+    """What scoring one scene's outputs needs; sent to the worker processes."""
+
+    truth: LabeledCloud
+    labels: Segmentation
+    first_camera: np.ndarray  # (4, 4) the ground truth's first camera-to-world
+    evaluated: list[str]
+
+
+def score(scoring: Scoring, points: np.ndarray) -> dict:
+    """Register per-pixel points (V, H, W, 3) with SAM 3 labels, score them as a cloud.
+
+    The registration is returned under `align` as a (4, 4) matrix, s R | t.
+    """
+    labels, truth = scoring.labels, scoring.truth
+    finite = np.isfinite(points).all(-1)
+    s, rotation, t = register(points[finite], truth.points, scoring.first_camera)
     cloud = predicted_cloud(
-        points, labels.instance_ids, labels.classes, labels.scores, align
-    )
+        points[finite], labels.instance_ids[finite], labels.classes, labels.scores,
+        (s, rotation, t),
+    )  # fmt: skip
+    align = np.eye(4)
+    align[:3, :3], align[:3, 3] = s * rotation, t
     return {
-        **surface_metrics(cloud.points, inputs.truth.points),
-        **label_metrics(inputs.truth, cloud, evaluated),
+        "scale": s,
+        "align": align,
+        **surface_metrics(cloud.points, truth.points),
+        **label_metrics(truth, cloud, scoring.evaluated),
     }
 
 
-def run_variant(
-    inputs: SceneInputs,
-    variant: dict,
-    base: tuple[RefineConfig, MultiviewConfig],
-    evaluated: list[str],
-) -> tuple[dict, np.ndarray]:
-    """Refine (or not) as the variant says and score; return the record and depth."""
-    scene, align = variant_scene(inputs, variant)
+def refine_variant(
+    inputs: SceneInputs, variant: dict, base: tuple[RefineConfig, MultiviewConfig]
+) -> tuple[dict, np.ndarray, np.ndarray]:
+    """Refine (or not) as the variant says: its record, depth and per-pixel points."""
     if variant.get("geometry") == "gt":
-        gt = Geometry(
-            inputs.gt.depth,
-            np.ones_like(inputs.gt.depth),
-            inputs.views.intrinsics,
-            inputs.views.cam_to_world,
-        )
-        identity = (1.0, np.eye(3), np.zeros(3))
-        return {
-            "seconds": 0.0,
-            "abs_rel": 0.0,
-            **score(inputs, gt.world_points(), identity, evaluated),
-        }, inputs.gt.depth
+        return {"seconds": 0.0}, inputs.gt.depth, ground_truth_points(inputs)
+    scene = inputs.scene
     record: dict = {"seconds": 0.0}
     depth = scene.depth
     if variant.get("refiner", "joint") == "joint":
@@ -215,17 +190,16 @@ def run_variant(
     scale = scene.depth.median()
     matches = find_matches(scene, scale / scene.depth, scale, 0.05, 4)
     record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
-    gt_depth = inputs.gt.depth
-    seen = gt_depth > 0
-    scaled = align[0] * depth.cpu().numpy()[seen]
-    record["abs_rel"] = float(np.mean(np.abs(scaled - gt_depth[seen]) / gt_depth[seen]))
     points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
-    record |= score(inputs, points, align, evaluated)
-    return record, depth.cpu().numpy()
+    return record, depth.cpu().numpy(), points
 
 
 def main() -> None:
-    """Score every variant on every scene of a config; see the module docstring."""
+    """Score every variant on every scene of a config; see the module docstring.
+
+    Refinement runs here, on the GPU, one variant after another; the outputs are
+    scored meanwhile by `WORKERS` processes on the CPU.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
     cfg_path: Path = parser.parse_args().cfg
@@ -242,35 +216,44 @@ def main() -> None:
 
     out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True)
-    scenes, arrays = {}, {}
-    for name in raw["scenes"]:
-        inputs = load_inputs(raw, name, device)
-        if inputs is None:
-            continue
-        refine_scene(  # warm-up, so the first variant's time is not the CUDA start
-            inputs.scene, base[0], dataclasses.replace(base[1], gn_iters=1, cg_iters=1)
-        )
-        s, rotation, t = inputs.align
-        centers = s * inputs.scene.center.cpu().numpy() @ rotation.T + t
-        residual = np.linalg.norm(centers - inputs.views.cam_to_world[:, :3, 3], axis=1)
-        scenes[name] = {
-            "align_scale": s,
-            "center_residual_cm": float(100 * np.median(residual)),
-            "truth_points": len(inputs.truth.points),
-            "objects": len(inputs.labels.classes),
-            "variants": {},
-        }
-        for i, variant in enumerate(raw["variants"]):
-            record, depth = run_variant(inputs, variant, base, evaluated)
-            scenes[name]["variants"][variant["name"]] = record
-            arrays[f"{name}/{i}"] = depth.astype(np.float32)
+    scenes, arrays, jobs = {}, {}, {}
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(WORKERS, mp_context=context) as pool:
+        for name in raw["scenes"]:
+            inputs = load_inputs(raw, name, device)
+            if inputs is None:
+                continue
+            refine_scene(  # warm-up, so the first variant's time is not the CUDA start
+                inputs.scene,
+                base[0],
+                dataclasses.replace(base[1], gn_iters=1, cg_iters=1),
+            )
+            scoring = Scoring(
+                inputs.truth, inputs.labels, inputs.views.cam_to_world[0], evaluated
+            )
+            scenes[name] = {
+                "truth_points": len(inputs.truth.points),
+                "objects": len(inputs.labels.classes),
+                "variants": {},
+            }
+            arrays[f"{name}/labels"] = inputs.labels.instance_ids
+            for i, variant in enumerate(raw["variants"]):
+                record, depth, points = refine_variant(inputs, variant, base)
+                scenes[name]["variants"][variant["name"]] = record
+                arrays[f"{name}/{i}"] = depth.astype(np.float32)
+                jobs[name, i] = pool.submit(score, scoring, points)
+        for (name, i), job in jobs.items():
+            scores = job.result()
+            arrays[f"{name}/{i}/align"] = scores.pop("align")
+            variant = raw["variants"][i]["name"]
+            record = scenes[name]["variants"][variant]
+            record |= scores
             print(  # noqa: T201
-                f"{name} | {variant['name']} | "
+                f"{name} | {variant} | "
                 + " | ".join(f"{k} {record[k]:.3f}" for k in HEADLINE)
                 + f" | {record['seconds']:.1f} s",
                 flush=True,
             )
-        arrays[f"{name}/labels"] = inputs.labels.instance_ids
 
     summary = {
         "config": raw,

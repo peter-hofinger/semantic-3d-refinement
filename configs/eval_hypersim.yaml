@@ -2,7 +2,8 @@
 # Hypersim validation scenes (configs/hypersim.yaml; the test split is never used),
 # 20 views each at 504 px, Déjà View K = 16, SAM 3 image mode with one prompt per
 # NYU40 class at threshold 0.3, linked with the working association. Scored as labeled
-# clouds on a 1 cm grid: surface F-score, mIoU, instance AP (src/evaluation/labeled.py).
+# clouds on a 1 cm grid, each output registered onto the ground truth from the cloud
+# alone: surface F-score, mIoU, instance AP (src/evaluation/labeled.py).
 output_dir: runs
 root: data/processed/hypersim
 scenes: [ai_015_001_cam_00, ai_047_009_cam_00, ai_052_001_cam_00]
@@ -11,40 +12,35 @@ backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3
 classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
 refine: configs/refine.yaml          # base weights and solver budget of every variant
-# Weights from the coarse grid on the conference room only (eval_hypersim_tuning.yaml):
-# no setting beat Déjà View there; within each kind the one closest to it was taken
-# (lambda_bd 100 with cuts, lambda_delta 10). Kitchen and restaurant are held out.
+# Every term that is on has weight 1 (lambda_d = lambda_mv = 1 in refine.yaml), none
+# tuned: lambda_bd = 1 where E_bd is on, lambda_delta = 1 where the per-pixel change is
+# penalized.
 variants:
   - name: Déjà View
     refiner: none
   - name: E_d + E_mv
   - name: + E_bd
-    refine: {lambda_bd: 100.0}
+    refine: {lambda_bd: 1.0}
   - name: + E_bd cut at masks
-    refine: {lambda_bd: 100.0}
+    refine: {lambda_bd: 1.0}
     semantic: {cut_boundaries: true}
   - name: + λ_δ (no a, b)
-    refine: {lambda_delta: 10.0}
+    refine: {lambda_delta: 1.0}
   - name: + λ_δ + a, b
-    refine: {lambda_delta: 10.0}
+    refine: {lambda_delta: 1.0}
     semantic: {affine: true}
   - name: + E_mv same segment
     semantic: {same_segment: true}
   - name: all three
-    refine: {lambda_bd: 100.0, lambda_delta: 10.0}
+    refine: {lambda_bd: 1.0, lambda_delta: 1.0}
     semantic: {cut_boundaries: true, affine: true, same_segment: true}
   - name: all three, shuffled masks
-    refine: {lambda_bd: 100.0, lambda_delta: 10.0}
+    refine: {lambda_bd: 1.0, lambda_delta: 1.0}
     semantic: {cut_boundaries: true, affine: true, same_segment: true}
     masks: shuffled
   - name: all three, GT masks
-    refine: {lambda_bd: 100.0, lambda_delta: 10.0}
+    refine: {lambda_bd: 1.0, lambda_delta: 1.0}
     semantic: {cut_boundaries: true, affine: true, same_segment: true}
     masks: gt
-  - name: Déjà View, GT cameras
-    refiner: none
-    cameras: gt
-  - name: E_d + E_mv, GT cameras
-    cameras: gt
   - name: GT geometry
     geometry: gt

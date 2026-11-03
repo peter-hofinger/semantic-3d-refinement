@@ -139,14 +139,16 @@ about 1.5 min.
 ## Evaluation (Hypersim)
 
 One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
-- **Scenes:** Hypersim validation scenes, 20 views each. The test split is never used, and
-  weights are tuned on the conference room only.
+- **Scenes:** Hypersim validation scenes, 20 views each. The test split is never used, and no
+  weight is tuned: every energy term that is on has weight 1.
 - **Inputs:** cached Déjà View geometry and linked SAM 3 masks, with one prompt per NYU40
   class.
-- **Scores** (`src/evaluation/labeled.py`): the output scored as a labeled cloud against
-  Hypersim's per-pixel ground truth, on a 1 cm grid, after one similarity fitted on pixel
-  correspondences:
-  - AbsRel per pixel;
+- **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
+  It is registered onto the ground truth from the two clouds alone: a start from the first
+  camera and the ratio of median distances to it, then ICP that also fits the scale
+  (as π³ and VGGT are evaluated). Each variant is registered on its own.
+- **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth on a
+  1 cm grid:
   - accuracy, completeness and F-score at 1 / 2 / 5 cm (Tanks and Temples);
   - mIoU and instance AP / AP50 / AP25 (ScanNet's protocol), on labels transferred to the
     ground-truth points.
@@ -157,30 +159,23 @@ uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # in
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Kitchen, conference room (tuning scene) and restaurant, 20 views each
-(`figures/eval_hypersim-20261102-235032`):
-
-| AbsRel (per pixel) | kitchen | conference | restaurant |
-|---|---|---|---|
-| Déjà View | 0.0279 | 0.0758 | 0.0518 |
-| + agreement (E_d + E_mv) | 0.0274 | 0.0757 | 0.0516 |
-| + cut E_bd, a, b, same-segment E_mv, shuffled masks (control) | 0.0283 | 0.0772 | 0.0511 |
-| same, SAM 3 masks (`configs/refine_semantic.yaml`) | 0.0272 | 0.0754 | 0.0514 |
-| same, ground-truth masks | 0.0260 | 0.0740 | 0.0500 |
+Kitchen, conference room and restaurant, 20 views each, every energy term at weight 1
+(`figures/eval_hypersim-20261103-093957`; 3 min for all 11 variants):
 
 | F-score at 2 cm (fused cloud) | kitchen | conference | restaurant |
 |---|---|---|---|
-| Déjà View | 0.573 | 0.216 | 0.464 |
-| + agreement (E_d + E_mv) | 0.521 | 0.170 | 0.423 |
-| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks | 0.572 | 0.211 | 0.464 |
+| Déjà View | 0.633 | 0.381 | 0.519 |
+| + agreement (E_d + E_mv) | 0.622 | 0.381 | 0.486 |
+| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks (`configs/refine_semantic.yaml`) | 0.647 | 0.372 | 0.520 |
+| same, shuffled masks (control) | 0.601 | 0.377 | 0.517 |
+| same, ground-truth masks | 0.643 | 0.367 | 0.509 |
 
-- **Agreement:** the views become consistent (disagreement 0.5–1 % → 0.05 %) but not closer to
-  the truth. The fused cloud loses recall: one surface no longer straddles the truth the way the
-  input's layers did.
-- **Smoothing:** cut at SAM 3's mask boundaries, it no longer melts objects together.
-- **Masks:** per-pixel error follows mask quality on every scene (ground truth < SAM 3 < none),
-  and shuffled masks are worse than none on two of three. The gains are small: 0.5–2.5 % with
-  SAM 3, 2.4–6.8 % with ground-truth masks.
+- **Agreement:** the views become consistent (disagreement 0.5–1 % → 0.05 %); precision rises
+  (+0.03 to +0.06), recall falls (−0.14 to −0.16), and the F-score does not improve.
+- **Smoothing:** cut at SAM 3's mask boundaries, it no longer melts objects together (kitchen
+  F-score 0.546 uncut, 0.629 cut).
+- **Masks:** a, b and same-segment agreement change nothing measurable; shuffled masks score
+  like real ones on two of three scenes, and ground-truth masks no better than SAM 3's.
 
 ## Layout
 

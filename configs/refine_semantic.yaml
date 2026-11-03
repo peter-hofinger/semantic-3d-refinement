@@ -1,15 +1,15 @@
-# The joint refiner with all three semantic terms (multiview.SemanticConfig), weights as
-# in the "all three" variant of configs/eval_hypersim.yaml (chosen on Hypersim ai_047_009
-# only). run-pipeline ... --refiner joint --refine-config configs/refine_semantic.yaml
+# The joint refiner with all three semantic terms (multiview.SemanticConfig), as the
+# "all three" variant of configs/eval_hypersim.yaml: every term at weight 1, not tuned.
+# run-pipeline ... --refiner joint --refine-config configs/refine_semantic.yaml
 refine:
   lambda_d: 1.0
   huber: 0.05
-  lambda_bd: 100.0
+  lambda_bd: 1.0
   # E_n (BiNI's normal term on DSINE normals) gains 0.2 mm on the kitchen, costs on
   # ETH3D, and needs DSINE (non-commercial licence, kept outside git): off by default.
   # To enable: lambda_n: 0.005, edge_tol: 0.02 and dsine_repo below.
   lambda_n: 0.0
-  lambda_delta: 10.0
+  lambda_delta: 1.0
   edge_tol: 0.02
   device: cuda   # falls back to the CPU without a GPU
 multiview:

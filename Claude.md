@@ -33,7 +33,9 @@ Scope: monocular refinement of one view (`src/refinement/monocular.py`), and joi
 scene with E_mv (`src/refinement/multiview.py`, solved by Gauss-Newton and CG). Segments enter the joint energy
 through `SemanticConfig` (E_bd cut at masks, per-segment a and b, same-segment E_mv; all off by default); E_pr is
 not implemented. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim validation scenes
-(`configs/eval_hypersim.yaml`, tuned on ai_047_009 only), scored by `src/evaluation/labeled.py`. The joint
+(`configs/eval_hypersim.yaml`, every term at weight 1, nothing tuned), scored by `src/evaluation/labeled.py`. The method is
+a black box for the evaluation: only its output cloud is scored, registered onto the ground truth from the clouds
+alone (first-camera start, scaled ICP); no per-pixel correspondences, cameras or depth maps of the method. The joint
 refinement is the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
 Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end.
 
