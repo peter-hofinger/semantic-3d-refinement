@@ -66,6 +66,19 @@ Energy at the start and after 10 steps (means over all pixels; λ = 1):
 
 *Every score of every variant; dashed: Déjà View per scene.*
 
+![restaurant render](ai_052_001_cam_00_render.png)
+
+*Restaurant: each cloud (all 20 views' pixels) rendered from the same two cameras, both fixed
+by the ground truth: a dollhouse view from above without the ceiling, and the view that sees
+deepest into the room, pulled back. Each point covers its source pixel's patch of surface
+(`src/analysis/render.py`); shaded is gray under a light at the camera, which shows geometry
+the image colors hide. Refined walls, floor and ceiling are smooth where Déjà View's are
+bumpy, and fewer stray points float in the room; ghosts that several views agree on stay
+(the kitchen's arch in front of the wall).*
+
+![kitchen render](ai_015_001_cam_00_render.png)
+![conference render](ai_047_009_cam_00_render.png)
+
 ![kitchen section](ai_015_001_cam_00_section.png)
 
 *Kitchen: a 2 cm slice 75 cm above the floor, gray ground truth, one color per view; bottom:

@@ -184,7 +184,7 @@ src/                the code, imported as `src`
   pipeline.py       chains the stages
   evaluation/       metrics against ground truth: instances (instances.py), labeled
                     cloud (labeled.py: F-score, mIoU, instance AP50)
-  analysis/         the Hypersim protocol (scene_eval.py) and its figures
+  analysis/         the Hypersim protocol (scene_eval.py), its figures and point renders
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README
 tests/

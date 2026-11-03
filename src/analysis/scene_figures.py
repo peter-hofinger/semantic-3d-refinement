@@ -5,7 +5,8 @@
 each energy term per pixel before and after refinement, a horizontal cross section of
 the fused clouds with a 1 m close-up, the views with ground-truth and SAM 3 objects next
 to each pixel's distance to the nearest ground-truth point, the fused clouds from
-above, surface normals, and the F-score and IoU of every class.
+above, surface normals, the F-score and IoU of every class, and renders of every cloud
+from the same two cameras (`render_figure`).
 """
 
 import argparse
@@ -22,6 +23,7 @@ import yaml
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from scipy.spatial import cKDTree
 
+from src.analysis.render import Camera, headlight, intrinsics, look_at, splat
 from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
 from src.evaluation.labeled import NONE, lift, predicted_cloud
 from src.refinement.multiview import (
@@ -54,6 +56,12 @@ SLAB = (0.05, 1.5)  # m above the floor shown from above: furniture, no floor or
 SECTION = (0.75, 0.77)  # m above the floor: the cross section, table height
 ZOOM = 1.0  # m, side of the cross section's close-up
 TERMS = ("E_d", "E_bd", "E_n", "E_mv")
+RENDER_SIZE = (480, 640)  # pixels, height x width
+RENDER_FOV = 70.0  # degrees, horizontal
+PULL_BACK = (0.5, 0.2)  # m back along the camera axis and up: the interior camera
+CEILING_CUT = (
+    0.3  # m below the ceiling: higher points are left out of the dollhouse view
+)
 
 
 def instance_colors(ids: np.ndarray) -> np.ndarray:
@@ -259,15 +267,19 @@ def topdown_figure(
     plt.close(fig)
 
 
-def point_normals(points: np.ndarray) -> np.ndarray:
-    """Return a point map's normals (central differences) as RGB (H, W, 3) in [0, 1]."""
+def unit_normals(points: np.ndarray) -> np.ndarray:
+    """Return a point map's unit normals (..., H, W, 3) by central differences."""
     du = np.zeros_like(points)
     dv = np.zeros_like(points)
-    du[:, 1:-1] = points[:, 2:] - points[:, :-2]
-    dv[1:-1] = points[2:] - points[:-2]
+    du[..., :, 1:-1, :] = points[..., :, 2:, :] - points[..., :, :-2, :]
+    dv[..., 1:-1, :, :] = points[..., 2:, :, :] - points[..., :-2, :, :]
     n = np.cross(du, dv)
-    n /= np.linalg.norm(n, axis=-1, keepdims=True).clip(1e-12)
-    return 0.5 * (1 - n)
+    return n / np.linalg.norm(n, axis=-1, keepdims=True).clip(1e-12)
+
+
+def point_normals(points: np.ndarray) -> np.ndarray:
+    """Return a point map's normals (central differences) as RGB (H, W, 3) in [0, 1]."""
+    return 0.5 * (1 - unit_normals(points))
 
 
 def normals_figure(
@@ -309,6 +321,104 @@ def normals_figure(
         fontsize=9,
     )
     fig.savefig(out / f"{name}_normals.png", dpi=120)
+    plt.close(fig)
+
+
+def render_cameras(inputs: SceneInputs) -> dict[str, tuple[Camera, np.ndarray]]:
+    """Return the two cameras every cloud is rendered from: name -> (camera, eye).
+
+    Both are fixed by the ground truth alone (z up). Dollhouse: from above at 60°
+    elevation, on the side the input cameras stand, far enough to see the whole room.
+    Interior: the camera of the view that sees deepest into the room (median ground-truth
+    depth), moved back and up by `PULL_BACK`, at most half the free space behind it, so
+    depth errors show as parallax and the view stays one a person took.
+    """
+    truth = inputs.truth.points
+    centers = inputs.views.cam_to_world[:, :3, 3].astype(np.float64)
+    forward = inputs.views.cam_to_world[:, :3, 2].astype(np.float64).mean(0)
+    floor = np.percentile(truth[:, 2], 2)
+    middle = np.append(np.median(truth[:, :2], 0), floor + 1.0)
+    side = centers.mean(0)[:2] - middle[:2]
+    if np.linalg.norm(side) < 0.1:  # noqa: PLR2004
+        side = -forward[:2]
+    side /= np.linalg.norm(side)
+    reach = np.percentile(np.linalg.norm(truth[:, :2] - middle[:2], axis=1), 95)
+    distance = reach / np.tan(np.radians(RENDER_FOV) / 2)
+    elevation = np.radians(60)
+    above = middle + distance * np.append(np.cos(elevation) * side, np.sin(elevation))
+    up = np.array([0.0, 0, 1])
+    depth = np.where(inputs.gt.depth > 0, inputs.gt.depth, np.nan)
+    v = int(np.nanargmax(np.nanmedian(depth.reshape(len(depth), -1), axis=1)))
+    pose = inputs.views.cam_to_world[v].astype(np.float64)
+    origin, axis = pose[:3, 3], pose[:3, 2]
+    back = (origin - truth) @ axis  # distance behind the camera along its axis
+    aside = np.linalg.norm(origin - truth + back[:, None] * axis, axis=1)
+    blocked = back[(back > 0) & (aside < 0.3)]  # noqa: PLR2004
+    free = blocked.min() if len(blocked) else np.inf
+    shift = min(PULL_BACK[0], 0.5 * free) * -axis + PULL_BACK[1] * up
+    eye = origin + shift
+    k = intrinsics(RENDER_SIZE[1], RENDER_SIZE[0], RENDER_FOV)
+    return {
+        "dollhouse": (Camera(look_at(above, middle, up), k, RENDER_SIZE), above),
+        f"view {v}, pulled back": (
+            Camera(look_at(eye, origin + axis, up), k, RENDER_SIZE),
+            eye,
+        ),
+    }
+
+
+def render_figure(
+    inputs: SceneInputs,
+    points: dict[str, np.ndarray],
+    name: str,
+    out: Path,
+) -> None:
+    """Render every cloud from the same two cameras, in image colors and shaded.
+
+    All pixels of all views, the ground truth's from its own depth; each point covers
+    its source pixel's patch of surface (`render.splat`). The dollhouse view leaves out
+    the ceiling.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    truth = ground_truth_points(inputs)
+    clouds = {"ground truth": (truth, inputs.gt.depth > 0)}
+    clouds |= {k: (p, np.isfinite(p).all(-1)) for k, p in points.items()}
+    centers = inputs.views.cam_to_world[:, None, None, :3, 3]
+    focal = inputs.views.intrinsics[:, None, None, 0, 0]
+    ceiling = np.percentile(inputs.truth.points[:, 2], 98) - CEILING_CUT
+    cameras = render_cameras(inputs)
+    fig, axes = plt.subplots(
+        2 * len(cameras),
+        len(clouds),
+        figsize=(5.3 * len(clouds), 4.1 * 2 * len(cameras)),
+        layout="constrained",
+    )
+    for col, (title, (p, valid)) in zip(axes.T, clouds.items(), strict=True):
+        radii = 0.5 * np.linalg.norm(p - centers, axis=-1) / focal
+        normals = unit_normals(p)
+
+        def tensor(a: np.ndarray, keep: np.ndarray) -> torch.Tensor:
+            return torch.from_numpy(np.ascontiguousarray(a[keep])).float().to(device)
+
+        for row, (view, (camera, eye)) in enumerate(cameras.items()):
+            keep = valid & ((p[..., 2] < ceiling) | (view != "dollhouse"))
+            xyz = tensor(p, keep)
+            colors = tensor(inputs.views.images / 255, keep)
+            shade = headlight(tensor(normals, keep), xyz, eye)
+            for i, (mode, c) in enumerate((("colors", colors), ("shaded", shade))):
+                ax = col[2 * row + i]
+                ax.imshow(splat(xyz, c, tensor(radii, keep), camera))
+                ax.set_title(f"{title}: {view}, {mode}", fontsize=9)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.grid(visible=False)
+    fig.suptitle(
+        f"{name}: every cloud rendered from the same two cameras (all 20 views' pixels; "
+        "shaded: gray, lit from the camera)",
+        x=0.01,
+        ha="left",
+    )
+    fig.savefig(out / f"{name}_render.png", dpi=100)
     plt.close(fig)
 
 
@@ -500,6 +610,7 @@ def main() -> None:
         views_figure(inputs, points, scene, out)
         topdown_figure(inputs, points, scene, out)
         normals_figure(inputs, points, scene, out)
+        render_figure(inputs, points, scene, out)
         class_figure(run["scenes"][scene]["variants"], args.show, scene, out)
         print(scene, flush=True)  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
