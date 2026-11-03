@@ -21,7 +21,6 @@ import yaml
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from scipy.spatial import cKDTree
 
-from src.analysis import scene_eval
 from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
 from src.evaluation.labeled import NONE, lift, predicted_cloud
 from src.refinement.multiview import points_from_rays
@@ -57,15 +56,12 @@ def instance_colors(ids: np.ndarray) -> np.ndarray:
 
 
 def pixel_points(
-    inputs: SceneInputs, depth: np.ndarray, variant: dict, align: np.ndarray
+    inputs: SceneInputs, depth: np.ndarray, align: np.ndarray
 ) -> np.ndarray:
     """Per-pixel points (V, H, W, 3) of a variant, registered into the truth's frame."""
-    if variant.get("geometry") == "gt":
-        points = scene_eval.ground_truth_points(inputs)
-    else:
-        points = points_from_rays(
-            torch.from_numpy(depth).double(), inputs.scene.rays.cpu().double()
-        ).numpy()
+    points = points_from_rays(
+        torch.from_numpy(depth).double(), inputs.scene.rays.cpu().double()
+    ).numpy()
     return points @ align[:3, :3].T + align[:3, 3]
 
 
@@ -336,7 +332,7 @@ def main() -> None:
     parser.add_argument(
         "--show",
         nargs="+",
-        default=["Déjà View", "E_d + E_mv", "all three"],
+        default=["Déjà View", "Refined"],
         help="variants in the per-scene figures (first is the reference)",
     )
     args = parser.parse_args()
@@ -358,21 +354,14 @@ def main() -> None:
         ) -> np.ndarray:
             i = names.index(n)
             return pixel_points(
-                inputs,
-                arrays[f"{scene}/{i}"],
-                variants[i],
-                arrays[f"{scene}/{i}/align"],
+                inputs, arrays[f"{scene}/{i}"], arrays[f"{scene}/{i}/align"]
             )
 
         points = {n: registered(n) for n in args.show}
         views_figure(inputs, points, scene, out)
         topdown_figure(inputs, points, scene, out)
-        smoothing = ["Déjà View", "+ E_bd", "+ E_bd cut at masks"]
-        if all(n in names for n in smoothing):
-            normals_figure(inputs, {n: registered(n) for n in smoothing}, scene, out)
-        class_figure(
-            run["scenes"][scene]["variants"], [*args.show, "GT geometry"], scene, out
-        )
+        normals_figure(inputs, points, scene, out)
+        class_figure(run["scenes"][scene]["variants"], args.show, scene, out)
         print(scene, flush=True)  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
 

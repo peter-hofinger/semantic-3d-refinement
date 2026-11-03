@@ -8,13 +8,12 @@ import torch
 from src.loaders.views import Views
 from src.refinement.multiview import (
     JointRefiner,
-    MultiviewConfig,
     Problem,
     RefineConfig,
     Scene,
-    SemanticConfig,
     bilinear,
     build_problem,
+    consistency,
     find_matches,
     fit_pinhole,
     geometry_from_scene,
@@ -24,6 +23,7 @@ from src.refinement.multiview import (
     points_from_rays,
     refine_scene,
     residuals,
+    robust,
     same_id_stencils,
     same_segment_matches,
     scene_from_geometry,
@@ -101,18 +101,18 @@ def test_consistent_views_have_zero_residual_and_a_bump_does_not() -> None:
 
 def test_zero_iterations_and_zero_weight_return_the_input() -> None:
     scene, _ = two_views(bump=0.03)
-    for cfg, mv in [
-        (RefineConfig(device="cpu"), MultiviewConfig(gn_iters=0)),
-        (RefineConfig(lambda_bd=0.0, device="cpu"), MultiviewConfig(lambda_mv=0.0)),
+    for cfg in [
+        RefineConfig(lambda_n=0.0, gn_iters=0, device="cpu"),
+        RefineConfig(lambda_n=0.0, lambda_mv=0.0, device="cpu"),
     ]:
-        depth, _, _ = refine_scene(scene, cfg, mv)
+        depth, _, _ = refine_scene(scene, cfg)
         assert (depth - scene.depth).abs().max() < 1e-6
 
 
 def test_agreement_meets_halfway_between_two_views() -> None:
     scene, truth = two_views(bump=0.03)
-    cfg = RefineConfig(lambda_bd=0.0, device="cpu")
-    depth, _, _ = refine_scene(scene, cfg, MultiviewConfig(lambda_mv=100.0))
+    cfg = RefineConfig(lambda_mv=100.0, lambda_n=0.0, lambda_delta=0.0, device="cpu")
+    depth, _, _ = refine_scene(scene, cfg)
     scale = scene.depth.median()
     m = find_matches(scene, scale / scene.depth, scale, 0.05, 4)
     before = residuals(scale / scene.depth, scale, scene, m).abs().max()
@@ -150,13 +150,10 @@ def test_joint_refiner_is_refine_scene_on_the_pipeline_types() -> None:
         geometry.intrinsics,
         geometry.cam_to_world,
     )
-    cfg, mv = (
-        RefineConfig(lambda_bd=0.0, device="cpu"),
-        MultiviewConfig(lambda_mv=100.0),
-    )
-    refiner = JointRefiner(cfg, mv)
+    cfg = RefineConfig(lambda_mv=100.0, lambda_n=0.0, device="cpu")
+    refiner = JointRefiner(cfg)
     refined = refiner.refine(views, geometry, Segmentation.empty(2, H, W))
-    expected, _, _ = refine_scene(scene_from_geometry(geometry), cfg, mv)
+    expected, _, _ = refine_scene(scene_from_geometry(geometry), cfg)
     np.testing.assert_allclose(refined.depth, expected.numpy(), rtol=1e-5)
     np.testing.assert_array_equal(refined.cam_to_world, geometry.cam_to_world)
     assert (np.abs(refined.depth / geometry.depth - 1) > 1e-3).any()
@@ -211,10 +208,25 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         )
         + 0.5
     )
-    p = Problem(scene, scale, d0, w, stacked, find_matches(scene, d0, scale, 0.05, 4))
-    cfg, mv = (
-        RefineConfig(lambda_bd=3.0, lambda_n=0.5, lambda_delta=0.1, device="cpu"),
-        MultiviewConfig(lambda_mv=2.0),
+    one = torch.zeros(d0.shape, dtype=torch.long)  # every pixel in one segment
+    p = Problem(
+        scene,
+        scale,
+        d0,
+        w,
+        stacked,
+        find_matches(scene, d0, scale, 0.05, 4),
+        same_id_stencils(one),
+        torch.full((d0.numel(),), -1),
+        0,
+    )
+    cfg = RefineConfig(
+        lambda_mv=2.0,
+        lambda_bd=3.0,
+        lambda_n=0.5,
+        lambda_delta=0.1,
+        huber=0.01,  # half the pixels of delta lie on Huber's linear branch
+        device="cpu",
     )
     delta = 0.01 * torch.randn(
         d0.shape, generator=torch.Generator().manual_seed(1), dtype=torch.float64
@@ -224,7 +236,7 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
     )
 
     def grid_part(x: torch.Tensor) -> torch.Tensor:
-        parts = scene_residuals(x, cfg, mv, p)
+        parts = scene_residuals(x, cfg, p)
         parts.pop("E_mv")
         parts.pop("E_delta")
         return torch.cat(list(parts.values()))
@@ -269,15 +281,44 @@ def test_stencils_across_a_segment_boundary_are_cut() -> None:
     assert count == 0
 
 
+def test_unmasked_pixels_are_not_smoothed() -> None:
+    ids = halves()
+    ids[:, :, :10] = -1
+    xx, yy, _ = same_id_stencils(ids)
+    assert not xx[..., :10].any() and not yy[..., :10].any() and yy[..., 10:].all()
+
+
+def test_robust_residual_squares_to_huber_and_its_slope_is_exact() -> None:
+    u = torch.linspace(-0.2, 0.2, 401, dtype=torch.float64)
+    r, slope = robust(u, 0.05)
+    huber = torch.where(u.abs() <= 0.05, u.square() / 2, 0.05 * u.abs() - 0.05**2 / 2)
+    torch.testing.assert_close(r.square() / 2, huber)
+    _, exact = torch.func.jvp(lambda x: robust(x, 0.05)[0], (u,), (torch.ones_like(u),))
+    torch.testing.assert_close(slope, exact)
+
+
+def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    same = torch.zeros(2, H, W, dtype=torch.long)
+    u = consistency(scene, d0, scale, same)
+    assert (u == 1).all()  # agrees where seen, 1 where unseen
+    split = same.clone()
+    split[1] = 7  # view 1 calls everything another object
+    u = consistency(scene, d0, scale, split)
+    seen = u[0] < 1
+    assert seen.sum() > 0.5 * H * W and (u[0][seen] == 0).all() and (u[1] == 0).any()
+    unmasked = torch.full((2, H, W), -1, dtype=torch.long)
+    assert (consistency(scene, d0, scale, unmasked) == 1).all()
+
+
 def test_semantic_solve_with_no_steps_returns_the_input() -> None:
     scene, _ = two_views(bump=0.03)
-    semantic = SemanticConfig(cut_boundaries=True, affine=True)
     depth, _, counts = refine_scene(
         scene,
-        RefineConfig(lambda_bd=1.0, lambda_delta=1.0, device="cpu"),
-        MultiviewConfig(gn_iters=0),
+        RefineConfig(lambda_n=0.0, gn_iters=0, device="cpu"),
         segments=halves(),
-        semantic=semantic,
     )
     assert counts["segments"] == 4
     assert (depth - scene.depth).abs().max() < 1e-6
@@ -286,19 +327,19 @@ def test_semantic_solve_with_no_steps_returns_the_input() -> None:
 def test_normal_equations_with_segments_match_autograd() -> None:
     scene, _ = two_views(bump=0.03)
     scene = Scene(*(getattr(scene, f).double() for f in scene.__dataclass_fields__))
-    cfg = RefineConfig(lambda_bd=3.0, lambda_delta=0.5, device="cpu")
-    mv = MultiviewConfig(lambda_mv=2.0)
-    semantic = SemanticConfig(cut_boundaries=True, affine=True)
-    p = build_problem(scene, cfg, mv, segments=halves(), semantic=semantic)
+    cfg = RefineConfig(
+        lambda_mv=2.0, lambda_bd=3.0, lambda_n=0.0, lambda_delta=0.5, device="cpu"
+    )
+    p = build_problem(scene, cfg, segments=halves())
     g = torch.Generator().manual_seed(0)
     n = p.d0.numel() + 2 * p.num_segments
     x = 0.01 * torch.randn(n, generator=g, dtype=torch.float64)
     v = torch.randn(n, generator=g, dtype=torch.float64)
 
     def r(y: torch.Tensor) -> torch.Tensor:
-        return torch.cat(list(scene_residuals(y, cfg, mv, p).values()))
+        return torch.cat(list(scene_residuals(y, cfg, p).values()))
 
-    gradient, hv, _ = normal_equations(x, cfg, mv, p)
+    gradient, hv, _ = normal_equations(x, cfg, p)
     exact = torch.func.grad(lambda y: 0.5 * r(y).square().sum())(x)
     torch.testing.assert_close(gradient, exact)
     _, jv = torch.func.jvp(r, (x,), (v,))
@@ -317,18 +358,25 @@ def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
     seen[m.src] = True
     unseen = ~seen.view(2, H, W)[1]
     assert unseen.sum() > 50
-    cfg = RefineConfig(lambda_bd=0.0, lambda_delta=10.0, device="cpu")
-    mv = MultiviewConfig(lambda_mv=100.0, gn_iters=20, cg_iters=100)
+    cfg = RefineConfig(
+        lambda_mv=100.0,
+        lambda_bd=0.0,
+        lambda_n=0.0,
+        lambda_delta=10.0,
+        gn_iters=20,
+        cg_iters=100,
+        device="cpu",
+    )
     whole = torch.zeros(2, H, W, dtype=torch.long)
     moved = []
-    for semantic in (SemanticConfig(), SemanticConfig(affine=True)):
-        out, _, _ = refine_scene(scene, cfg, mv, segments=whole, semantic=semantic)
+    for segments in (None, whole):
+        out, _, _ = refine_scene(scene, cfg, segments=segments)
         error = (out[1] / truth[1].float()).log()
         moved.append((error[unseen].median().item(), error[~unseen].median().item()))
     # agreement meets halfway: matched pixels end ~1.5 % off, as both views move
     (unseen_d, seen_d), (unseen_ab, seen_ab) = moved
     assert 0.01 < seen_d < 0.02 and 0.01 < seen_ab < 0.02
-    assert unseen_d > 0.028  # δ alone: pixels without a match keep the 3 %
+    assert unseen_d > 0.028  # no segment, δ alone: pixels without a match keep 3 %
     assert abs(unseen_ab - seen_ab) < 0.002  # with a, b they move with the segment
 
 
@@ -342,6 +390,8 @@ def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
     split = same.clone()
     split[1] = 7  # view 1 is one other object: nothing may match across
     assert len(same_segment_matches(m, scene, d0, scale, split).src) == 0
+    unmasked = torch.full((2, H, W), -1, dtype=torch.long)  # nothing to gate on
+    assert len(same_segment_matches(m, scene, d0, scale, unmasked).src) == len(m.src)
     shifted = halves()
     shifted[1] = torch.roll(shifted[1], 20, dims=1)  # view 1's boundary elsewhere
     kept = same_segment_matches(m, scene, d0, scale, shifted)

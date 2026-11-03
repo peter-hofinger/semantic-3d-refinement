@@ -8,11 +8,12 @@ which re-weights the sides during its solve, the weights are fixed on the input:
 the input's occlusion contours (`cut_weights`), 1/2 elsewhere, so E_n stays one smooth
 sum of squares for Gauss-Newton.
 
-The normals come from DSINE (Bae and Davison 2024), run on the image and the backbone's
-intrinsics. DSINE is non-commercial; its code and weights stay outside git, under
-`data/third_party/`.
+The normals come from DSINE (Bae and Davison 2024), run once per view on the image and
+the backbone's intrinsics and cached next to the views (`dsine-predict`). DSINE is
+non-commercial; its code and weights stay outside git, under `data/third_party/`.
 """
 
+import argparse
 import heapq
 import importlib.util
 import sys
@@ -22,6 +23,11 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import Tensor
+
+from src.geometry import Geometry
+from src.loaders.views import Views
+
+DSINE_REPO = Path("data/third_party/dsine_hub")  # hugoycj/DSINE-hub @ a6b7d25
 
 
 def normals_from_depth(depth: Tensor, rays: Tensor) -> Tensor:
@@ -257,20 +263,25 @@ DSINE_SIGNS = {
 }
 
 
-def run_dsine(image: np.ndarray, intrinsics: np.ndarray, repo: Path) -> np.ndarray:
-    """DSINE normals of one image, (H, W, 3), in the camera frame as DSINE returns."""
+def dsine_normals(images: np.ndarray, intrinsics: np.ndarray, repo: Path) -> np.ndarray:
+    """DSINE's camera-frame normals (V, H, W, 3) of uint8 images, run on CUDA."""
+    assert images.dtype == np.uint8 and images.shape[-1] == 3, images.shape  # noqa: PLR2004
+    assert intrinsics.shape == (len(images), 3, 3), intrinsics.shape
     sys.path.insert(0, str(repo))
     spec = importlib.util.spec_from_file_location("dsine_hubconf", repo / "hubconf.py")
     assert spec is not None and spec.loader is not None
     hub = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hub)
     predictor = hub.DSINE()
+    out = []
     with torch.no_grad():
-        x = torch.from_numpy(image).float().permute(2, 0, 1)[None] / 255
-        n = predictor.infer_tensor(
-            x, torch.from_numpy(intrinsics).float()[None].cuda()
-        )[0]
-    return n.permute(1, 2, 0).cpu().numpy().astype(np.float32)
+        for image, k in zip(images, intrinsics, strict=True):
+            x = torch.from_numpy(image).float().permute(2, 0, 1)[None] / 255
+            n = predictor.infer_tensor(x, torch.from_numpy(k).float()[None].cuda())[0]
+            out.append(n.permute(1, 2, 0).cpu().numpy().astype(np.float32))
+    normals = np.stack(out)
+    assert normals.shape == images.shape and np.isfinite(normals).all()
+    return normals
 
 
 def to_world(
@@ -291,3 +302,24 @@ def to_world(
     assert agree[best] > 0.5, agree  # noqa: PLR2004
     world = worlds[best]
     return world / world.norm(dim=-1, keepdim=True), best
+
+
+def main() -> None:
+    """Run DSINE on prepared views with the backbone's intrinsics; cache the normals."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("views", type=Path, nargs="+", help="prepared views (.npz)")
+    parser.add_argument(
+        "--backbone", default="dejaview_k16", help="geometry next to the views"
+    )
+    parser.add_argument("--repo", type=Path, default=DSINE_REPO)
+    args = parser.parse_args()
+    for path in args.views:
+        geometry = Geometry.load(path.with_name(f"{args.backbone}_{path.stem}.npz"))
+        normals = dsine_normals(Views.load(path).images, geometry.intrinsics, args.repo)
+        out = path.with_name(f"dsine_{path.stem}.npz")
+        np.savez_compressed(out, normals=normals)
+        print(f"{path.parent.name}: {len(normals)} views -> {out}")  # noqa: T201
+
+
+if __name__ == "__main__":
+    main()

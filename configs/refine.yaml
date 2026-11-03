@@ -1,33 +1,22 @@
 # The pipeline's joint refiner (run-pipeline --refiner joint, src/refinement/multiview.py):
-# all views at once, E_d + E_mv, by Gauss-Newton + CG. Settings of the "agreement
-# alone" variant in eval_multiview.yaml, set before any run there, not tuned; on the
-# ScanNet++ kitchen it brings the fused cloud from 11.1 to 10.3 mm median distance to
-# the scan and its surfaces from 3.5 to 0.7 mm thickness (eval_multiview_scannetpp).
+# E_d + E_mv + E_bd + E_n + λ_δ‖δ‖² over all views by Gauss-Newton + CG. The linked
+# SAM 3 instances gate E_d (consistency u), confine E_bd and E_mv to one segment and
+# carry a per-(view, segment) scale and shift of inverse depth. Every weight is 1: none
+# is tuned yet.
 refine:
   lambda_d: 1.0
-  huber: 0.05
-  lambda_bd: 0.0
-  # E_n (BiNI's normal term on DSINE normals) gains 0.2 mm on the kitchen, costs on
-  # ETH3D, and needs DSINE (non-commercial licence, kept outside git): off by default.
-  # To enable: lambda_n: 0.005, edge_tol: 0.02 and dsine_repo below.
-  lambda_n: 0.0
-  lambda_delta: 0.0
-  edge_tol: 0.02
-  device: cuda   # falls back to the CPU without a GPU
-multiview:
   lambda_mv: 1.0
+  lambda_bd: 1.0
+  lambda_n: 1.0
+  lambda_delta: 1.0
+  huber: 0.05      # E_d's Huber threshold on the change of inverse depth (relative)
+  edge_tol: 0.02   # E_n's occlusion cut on the input's log depth
   mv_tol: 0.05     # log-depth gap above which overlapping pixels count as occluded
   neighbors: 4     # views each view is matched with, the ones it overlaps most
-  gn_iters: 10     # Gauss-Newton steps of 20 CG iterations: 2.8 s for 20 views (RTX 3080)
+  min_pixels: 100  # smaller segments of a view get no a, b
+  gn_iters: 10     # Gauss-Newton steps of 20 CG iterations
   cg_iters: 20
   cg_tol: 0.001
-# dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25
-# Semantics in the energy (multiview.SemanticConfig), off by default. cut_boundaries:
-# E_bd only within one instance id (needs lambda_bd > 0); affine: per-segment a, b on
-# inverse depth (matters with lambda_delta > 0); same_segment: E_mv only between pixels
-# of one instance id. Studied in configs/eval_hypersim.yaml.
-semantic:
-  cut_boundaries: false
-  affine: false
-  same_segment: false
-  min_pixels: 100
+  device: cuda     # falls back to the CPU without a GPU
+# DSINE for E_n: non-commercial licence, so code and weights stay outside git.
+dsine_repo: data/third_party/dsine_hub   # hugoycj/DSINE-hub @ a6b7d25

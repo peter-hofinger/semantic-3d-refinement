@@ -99,14 +99,19 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 
 ## Refinement (joint, all views)
 
-`--refiner joint` (`src/refinement/multiview.py`) refines the depth of all views at
-once: each view stays near Déjà View's depth (E_d) and overlapping views must agree
-(E_mv, log depth ratio of each pixel and its projection), cameras fixed, solved by
-Gauss-Newton with conjugate gradients. Settings in `configs/refine.yaml`; E_n on DSINE
-normals is opt-in (DSINE is non-commercial and stays outside git). The segmentation
-enters through `semantic:` in the config, off by default: E_bd cut at mask boundaries,
-per-segment scale and shift of inverse depth (a, b), and E_mv only between pixels of one
-object.
+`--refiner joint` (`src/refinement/multiview.py`) refines the inverse depth of all views
+at once, per linked SAM 3 instance s of view i as d = a_{i,s} d⁰ + b_{i,s} + δ, cameras
+fixed, by Gauss-Newton with matrix-free conjugate gradients:
+
+E = E_d + E_mv + E_bd + E_n + ‖δ‖², every weight 1 for now (`configs/refine.yaml`).
+
+- **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
+  of other views that agree on the pixel's instance, so it lets go where views disagree.
+- **E_mv**: overlapping views must agree on depth, only between pixels of one instance.
+- **E_bd**: thin-plate smoothing of inverse depth, only within one instance.
+- **E_n**: BiNI's normal term on DSINE normals (`src/refinement/normals.py`), cut on the
+  input's occlusion contours. DSINE is non-commercial and stays outside git
+  (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
 
 ```bash
 D=data/processed/scannetpp/5ee7c22ba0

@@ -1,25 +1,15 @@
 """Score pipeline variants on a fixed set of scenes, all in the same way.
 
-Per scene the inputs are cached: views, ground truth, backbone geometry and per-view
-SAM 3 masks, linked across views on the backbone geometry exactly as `run-pipeline`
-does. Every variant then refines the same backbone geometry (or keeps it), and its
-output, one labeled cloud in the first view's frame, is scored as a black box
-(`evaluation.labeled`): registered onto the ground truth from the cloud alone, then
-accuracy, completeness, F-score at 2 cm, mIoU and AP50. Each variant is registered on
-its own.
+Per scene the inputs are cached: views, ground truth, backbone geometry, DSINE normals
+(`dsine-predict`) and per-view SAM 3 masks, linked across views on the backbone
+geometry exactly as `run-pipeline` does. Every variant then refines the same backbone
+geometry (`refiner: joint`, with the variant's overrides of `configs/refine.yaml`) or
+keeps it (`refiner: none`), and its output, one labeled cloud in the first view's frame,
+is scored as a black box (`evaluation.labeled`): registered onto the ground truth from
+the cloud alone, then surface and label scores, per scene and per class. The labels on
+the cloud are the linked SAM 3 masks, so label scores change only through geometry.
 Disagreement between overlapping views is logged as a diagnostic of the refinement; it
-needs no ground truth and is not a score of the output. The labels on the cloud are
-always the linked SAM 3 masks, so label scores change only through geometry; `masks`
-picks what the refiner sees:
-
-- sam3: the linked SAM 3 masks (the pipeline),
-- gt: the ground-truth instances (the oracle: refinement without segmentation errors),
-- shuffled: each view gets the next view's SAM 3 masks (same statistics, unrelated
-  positions; if this scores like sam3, the masks are not what helps).
-
-`geometry: gt` scores the ground-truth depth with the SAM 3 labels, put through the
-same registration: the ceiling of the label scores under perfect geometry, and a check
-that registration recovers the identity.
+needs no ground truth and is not a score of the output.
 
 `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml` writes
 `runs/<cfg>-<time>/{run.yaml, results.npz}`; `scene_figures --run` draws it.
@@ -41,7 +31,6 @@ from src.evaluation.labeled import (
     LabeledCloud,
     ground_truth_cloud,
     label_metrics,
-    lift,
     predicted_cloud,
     register,
     surface_metrics,
@@ -50,15 +39,14 @@ from src.geometry import Geometry
 from src.loaders.scannetpp.gt import GroundTruth
 from src.loaders.views import Views
 from src.refinement.multiview import (
-    MultiviewConfig,
     RefineConfig,
     Scene,
-    SemanticConfig,
     disagreement_pct,
     find_matches,
     points_from_rays,
     refine_scene,
     scene_from_geometry,
+    scene_normals,
 )
 from src.segmentation.base import Segmentation
 from src.segmentation.linked import working_associator
@@ -93,6 +81,7 @@ class SceneInputs:
     gt: GroundTruth
     geometry: Geometry
     scene: Scene
+    normals: torch.Tensor  # (V, H, W, 3) DSINE's, in the frame of the scene's rays
     labels: Segmentation
     truth: LabeledCloud
 
@@ -105,6 +94,7 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs | Non
         "gt": folder / f"gt_{raw['views']}.npz",
         "geometry": folder / f"{raw['backbone']}_{raw['views']}.npz",
         "masks": folder / f"{raw['segmentation']}_{raw['views']}.npz",
+        "normals": folder / f"dsine_{raw['views']}.npz",
     }
     missing = [str(p) for p in paths.values() if not p.is_file()]
     if missing:
@@ -114,35 +104,11 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs | Non
     geometry = Geometry.load(paths["geometry"])
     labels = working_associator().associate(Segmentation.load(paths["masks"]), geometry)
     scene = scene_from_geometry(geometry).to(device)
+    normals = scene_normals(np.load(paths["normals"])["normals"], geometry, scene)
     truth = ground_truth_cloud(
         gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
     )
-    return SceneInputs(views, gt, geometry, scene, labels, truth)
-
-
-def ground_truth_points(inputs: SceneInputs) -> np.ndarray:
-    """Per-pixel ground-truth points (V, H, W, 3) in the first view's camera frame."""
-    views, first = inputs.views, inputs.views.cam_to_world[0].astype(np.float64)
-    points = np.stack(
-        [
-            lift(d.astype(np.float64), k.astype(np.float64), c.astype(np.float64))
-            for d, k, c in zip(
-                inputs.gt.depth, views.intrinsics, views.cam_to_world, strict=True
-            )
-        ]
-    )
-    points = (points - first[:3, 3]) @ first[:3, :3]
-    return np.where((inputs.gt.depth > 0)[..., None], points, np.nan)
-
-
-def refiner_masks(inputs: SceneInputs, kind: str) -> np.ndarray:
-    """Instance ids (V, H, W) the refiner sees: sam3, gt or shuffled (see module)."""
-    if kind == "gt":
-        return np.where(inputs.gt.instance_ids >= 0, inputs.gt.instance_ids, -1)
-    if kind == "shuffled":
-        return np.roll(inputs.labels.instance_ids, 1, axis=0)
-    assert kind == "sam3", kind
-    return inputs.labels.instance_ids
+    return SceneInputs(views, gt, geometry, scene, normals, labels, truth)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -178,25 +144,17 @@ def score(scoring: Scoring, points: np.ndarray) -> dict:
 
 
 def refine_variant(
-    inputs: SceneInputs, variant: dict, base: tuple[RefineConfig, MultiviewConfig]
+    inputs: SceneInputs, variant: dict, base: RefineConfig
 ) -> tuple[dict, np.ndarray, np.ndarray]:
     """Refine (or not) as the variant says: its record, depth and per-pixel points."""
-    if variant.get("geometry") == "gt":
-        return {"seconds": 0.0}, inputs.gt.depth, ground_truth_points(inputs)
     scene = inputs.scene
     record: dict = {"seconds": 0.0}
     depth = scene.depth
-    if variant.get("refiner", "joint") == "joint":
-        cfg = dataclasses.replace(base[0], **variant.get("refine", {}))
-        mv = dataclasses.replace(base[1], **variant.get("multiview", {}))
-        semantic = SemanticConfig(**variant.get("semantic", {}))
-        masks = torch.from_numpy(
-            refiner_masks(inputs, variant.get("masks", "sam3")).astype(np.int64)
-        )
+    if variant["refiner"] == "joint":
+        cfg = dataclasses.replace(base, **variant.get("refine", {}))
+        segments = torch.from_numpy(inputs.labels.instance_ids.astype(np.int64))
         t0 = time.perf_counter()
-        depth, log, counts = refine_scene(
-            scene, cfg, mv, segments=masks, semantic=semantic
-        )
+        depth, log, counts = refine_scene(scene, cfg, inputs.normals, segments)
         if depth.is_cuda:
             torch.cuda.synchronize()
         record = {
@@ -206,6 +164,8 @@ def refine_variant(
             "energy_initial": log[0],
             "energy_final": log[-1],
         }
+    else:
+        assert variant["refiner"] == "none", variant
     scale = scene.depth.median()
     matches = find_matches(scene, scale / scene.depth, scale, 0.05, 4)
     record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
@@ -224,13 +184,10 @@ def main() -> None:
     cfg_path: Path = parser.parse_args().cfg
     raw = yaml.safe_load(cfg_path.read_text())
     refine_raw = yaml.safe_load(Path(raw["refine"]).read_text())
-    base_cfg = RefineConfig(**refine_raw["refine"])
-    cuda = base_cfg.device == "cuda" and torch.cuda.is_available()
+    base = RefineConfig(**refine_raw["refine"])
+    cuda = base.device == "cuda" and torch.cuda.is_available()
     device = torch.device("cuda" if cuda else "cpu")
-    base = (
-        dataclasses.replace(base_cfg, device=device.type),
-        MultiviewConfig(**refine_raw["multiview"]),
-    )
+    base = dataclasses.replace(base, device=device.type)
     evaluated = sorted(set(load_prompts([Path(raw["classes"])]).values()))
 
     out = Path(raw["output_dir"]) / f"{cfg_path.stem}-{time.strftime('%Y%m%d-%H%M%S')}"
@@ -244,8 +201,8 @@ def main() -> None:
                 continue
             refine_scene(  # warm-up, so the first variant's time is not the CUDA start
                 inputs.scene,
-                base[0],
-                dataclasses.replace(base[1], gn_iters=1, cg_iters=1),
+                dataclasses.replace(base, gn_iters=1, cg_iters=1),
+                inputs.normals,
             )
             scoring = Scoring(
                 inputs.truth, inputs.labels, inputs.views.cam_to_world[0], evaluated
