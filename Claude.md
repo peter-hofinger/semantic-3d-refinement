@@ -20,7 +20,7 @@ They skim the README, open two files and scroll the history; every one of those 
 
 ## Method
 Per view i: depth D_i, confidence C_i, ray map (origin o, direction d); points x = o + D·d. Cameras stay fixed.
-Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ_i(p), minimizing by Gauss-Newton + CG
+Refine inverse depth per pixel: d̂_i(p) = d⁰_i(p) + δ_i(p), minimizing by Gauss-Newton + CG
 
   E = E_d + λ_mv·E_mv + λ_n·E_n + λ_pr·E_pr + λ_δ·‖δ‖²
 
@@ -28,7 +28,7 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_mv: cross-view depth agreement, only where the projection lands in the same segment.
 - E_n: BiNI's normal term on DSINE normals (log depth), within one instance and cut on the input's occlusion
   contours. The proposal's E_bd (smoothing within segments) is dropped: next to E_n it changed the depth by a median
-  0.006-0.016 % and nothing visible.
+  0.006-0.016 % and nothing visible. The proposal's per-segment a, b are dropped too: equal or better without them.
 - E_pr: planarity for structural classes (wall, floor, table).
 
 Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned

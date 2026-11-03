@@ -100,10 +100,11 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 ## Refinement (joint, all views)
 
 `--refiner joint` (`src/refinement/multiview.py`) refines the inverse depth of all views
-at once, per linked SAM 3 instance s of view i as d = a_{i,s} d⁰ + b_{i,s} + δ, cameras
-fixed, by Gauss-Newton with matrix-free conjugate gradients:
+at once, per pixel as d = d⁰ + δ, cameras fixed, by Gauss-Newton with matrix-free
+conjugate gradients:
 
-E = E_d + E_mv + E_n + ‖δ‖², every weight 1 for now (`configs/refine.yaml`).
+E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 for now and λ_n = 1e-4 for E_n's units
+(`configs/refine.yaml`).
 
 - **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
   of other views that agree on the pixel's instance, so it lets go where views disagree.
@@ -112,8 +113,7 @@ E = E_d + E_mv + E_n + ‖δ‖², every weight 1 for now (`configs/refine.yaml`
   threshold on the scene's gaps (about 4 % on Hypersim), so there is no tolerance to set.
 - **E_n**: BiNI's normal term on DSINE normals (`src/refinement/normals.py`), the only
   shape term: only between pixels of one instance and cut on the input's occlusion
-  contours, times 1e-4 to put it in the other terms' units. DSINE is
-  non-commercial and stays outside git
+  contours. DSINE is non-commercial and stays outside git
   (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
 
 ```bash
@@ -152,17 +152,20 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
 Kitchen, conference room and restaurant, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-144206`; 1.5 min):
+(`figures/eval_hypersim-20261103-150543`; 1.5 min):
 
 | F-score at 5 cm | kitchen | conference | restaurant |
 |---|---|---|---|
 | Déjà View | 0.910 | 0.626 | 0.777 |
-| Refined (`configs/refine.yaml`) | 0.884 | 0.558 | 0.715 |
+| Refined (`configs/refine.yaml`) | 0.889 | 0.596 | 0.730 |
 
-- **The views fuse:** disagreement between overlapping views falls 6–12×, and their walls
+- **The views fuse:** disagreement between overlapping views falls 5–8×, and their walls
   merge into one thin surface.
 - **The cloud still scores lower than Déjà View's**, mostly through completeness. Setting the
   weights is the next step.
+- **Noise:** the conference room's F-score moves by up to 0.04 between runs of the same code
+  (GPU sums are not bitwise reproducible, and its registration amplifies that); the other
+  two by about 0.005.
 
 ## Layout
 

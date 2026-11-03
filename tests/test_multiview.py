@@ -13,7 +13,6 @@ from src.refinement.multiview import (
     Scene,
     bilinear,
     build_problem,
-    change,
     consistency,
     energy_maps,
     find_matches,
@@ -32,7 +31,6 @@ from src.refinement.multiview import (
     scene_energy,
     scene_from_geometry,
     scene_residuals,
-    segment_index,
 )
 from src.refinement.normals import NormalTerm, normal_term, normals_from_depth
 from src.segmentation.base import Segmentation
@@ -237,8 +235,6 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         w,
         stacked,
         find_matches(scene, d0, scale, 4, 0.05),
-        torch.full((d0.numel(),), -1),
-        0,
     )
     cfg = RefineConfig(
         lambda_mv=2.0,
@@ -297,10 +293,6 @@ def test_edges_across_an_instance_boundary_are_cut() -> None:
     assert not x[..., W // 2 - 1].any() and not x[..., 9].any()
     assert x[..., :9].all()  # pixels without an instance count as one
     assert x.sum() == 2 * H * (W - 3)
-    index, count = segment_index(halves(), 10)
-    assert count == 4 and set(index.unique().tolist()) == {0, 1, 2, 3}
-    _, count = segment_index(halves(), H * W)
-    assert count == 0
 
 
 def test_normals_do_not_join_two_instances() -> None:
@@ -351,49 +343,47 @@ def test_energy_maps_add_up_to_the_energy() -> None:
     cfg = RefineConfig(lambda_delta=0.0, huber=0.01, device="cpu")
     p = build_problem(scene, cfg, normals, halves())
     x = 0.02 * torch.randn(
-        p.d0.numel() + 2 * p.num_segments,
-        generator=torch.Generator().manual_seed(0),
-        dtype=torch.float64,
+        p.d0.shape, generator=torch.Generator().manual_seed(0), dtype=torch.float64
     )
     terms = scene_energy(x, cfg, p)
-    maps = energy_maps(p.d0 + change(x, p), cfg, p)
+    maps = energy_maps(p.d0 + x, cfg, p)
     for key, cost in maps.items():
         torch.testing.assert_close(cost.mean().item(), terms[key], rtol=1e-9, atol=0)
 
 
 def test_semantic_solve_with_no_steps_returns_the_input() -> None:
     scene, _ = two_views(bump=0.03)
-    depth, _, counts = refine_scene(
+    depth, _, _ = refine_scene(
         scene,
         RefineConfig(lambda_n=0.0, gn_iters=0, device="cpu"),
         segments=halves(),
     )
-    assert counts["segments"] == 4
     assert (depth - scene.depth).abs().max() < 1e-6
 
 
-def test_normal_equations_with_segments_match_autograd() -> None:
+def test_normal_equations_with_instances_match_autograd() -> None:
     scene, _ = two_views(bump=0.03)
     scene = Scene(*(getattr(scene, f).double() for f in scene.__dataclass_fields__))
     cfg = RefineConfig(lambda_mv=2.0, lambda_n=0.0, lambda_delta=0.5, device="cpu")
     p = build_problem(scene, cfg, segments=halves())
     g = torch.Generator().manual_seed(0)
-    n = p.d0.numel() + 2 * p.num_segments
-    x = 0.01 * torch.randn(n, generator=g, dtype=torch.float64)
-    v = torch.randn(n, generator=g, dtype=torch.float64)
+    x = 0.01 * torch.randn(p.d0.shape, generator=g, dtype=torch.float64)
+    v = torch.randn(p.d0.shape, generator=g, dtype=torch.float64)
 
     def r(y: torch.Tensor) -> torch.Tensor:
         return torch.cat(list(scene_residuals(y, cfg, p).values()))
 
     gradient, hv, _ = normal_equations(x, cfg, p)
     exact = torch.func.grad(lambda y: 0.5 * r(y).square().sum())(x)
-    torch.testing.assert_close(gradient, exact)
+    torch.testing.assert_close(gradient, exact.flatten())
     _, jv = torch.func.jvp(r, (x,), (v,))
     _, vjp = torch.func.vjp(r, x)
-    torch.testing.assert_close(hv(v), vjp(jv)[0], rtol=1e-6, atol=1e-8)
+    torch.testing.assert_close(
+        hv(v.flatten()), vjp(jv)[0].flatten(), rtol=1e-6, atol=1e-8
+    )
 
 
-def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
+def test_normals_carry_a_correction_a_few_pixels_beyond_the_matches() -> None:
     scene, truth = two_views(noise=0.01)
     depth = scene.depth.clone()
     depth[1] *= 1.03  # view 1 too far everywhere: one wrong scale
@@ -402,27 +392,27 @@ def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
     m = find_matches(scene, scale / depth, scale, 4)  # as refine_scene matches
     seen = torch.zeros(2 * H * W, dtype=torch.bool)
     seen[m.src] = True
-    unseen = ~seen.view(2, H, W)[1]
-    assert unseen.sum() > 50
-    cfg = RefineConfig(
-        lambda_mv=100.0,
-        lambda_n=0.0,
-        lambda_delta=10.0,
-        gn_iters=20,
-        cg_iters=100,
-        device="cpu",
+    seen = seen.view(2, H, W)[1]
+    near = torch.nn.functional.max_pool2d(seen[None, None].float(), 5, 1, 2)[0, 0] > 0
+    near &= ~seen  # unmatched, at most 2 px from a matched pixel
+    assert near.sum() > 50
+    normals = torch.stack(
+        [normals_from_depth(truth[i].float(), scene.rays[i]) for i in range(2)]
     )
-    whole = torch.zeros(2, H, W, dtype=torch.long)
-    moved = []
-    for segments in (None, whole):
-        out, _, _ = refine_scene(scene, cfg, segments=segments)
+    errors = []
+    # λ_n 1e-4 at Hypersim's focal of ~400 px is 64 times it at this toy's 50 px
+    for lambda_n, given in ((0.0, None), (6.4e-3, normals)):
+        cfg = RefineConfig(
+            lambda_mv=100.0, lambda_n=lambda_n, gn_iters=20, cg_iters=100, device="cpu"
+        )
+        ids = torch.zeros(2, H, W, dtype=torch.long)
+        out, _, _ = refine_scene(scene, cfg, given, ids)
         error = (out[1] / truth[1].float()).log()
-        moved.append((error[unseen].median().item(), error[~unseen].median().item()))
-    # agreement meets halfway: matched pixels end ~1.5 % off, as both views move
-    (unseen_d, seen_d), (unseen_ab, seen_ab) = moved
-    assert 0.01 < seen_d < 0.02 and 0.01 < seen_ab < 0.02
-    assert unseen_d > 0.025  # no segment, δ alone: pixels without a match keep ~3 %
-    assert abs(unseen_ab - seen_ab) < 0.002  # with a, b they move with the segment
+        errors.append((error[seen].median().item(), error[near].median().item()))
+    (seen_alone, near_alone), (seen_n, near_n) = errors
+    assert seen_alone < 0.02 and seen_n < 0.02  # matched pixels meet the other view
+    assert near_alone > 0.025  # δ alone: unmatched pixels keep most of the 3 %
+    assert near_n < near_alone - 0.004  # E_n carries the correction a few pixels
 
 
 def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:

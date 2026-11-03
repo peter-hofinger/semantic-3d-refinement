@@ -6,10 +6,8 @@ depth z, dz = log|n_p.d_p| - log|n_p.d_q|. Each edge carries two residuals, p's 
 and q's backward one, a (dz - log|n.d_p| + log|n.d_q|), weighted w+ and w-. Unlike BiNI,
 which re-weights the sides during its solve, the weights are fixed on the input: 0 on
 the input's occlusion contours (`cut_weights`), 1/2 elsewhere, so E_n stays one smooth
-sum of squares for Gauss-Newton. The weights carry `SCALE` too: BiNI's residuals are
-log-depth steps times the focal length (`neighbor_terms`), so on Hypersim E_n starts at
-40-110 where every other term starts below 0.004; times 1e-4 it starts on their order
-and λ_n = 1 weighs it alike.
+sum of squares for Gauss-Newton. The residuals are log-depth steps times the focal
+length (`neighbor_terms`), which is why λ_n is 1e-4 (`RefineConfig`).
 
 The normals come from DSINE (Bae and Davison 2024), run once per view on the image and
 the backbone's intrinsics and cached next to the views (`dsine-predict`). DSINE is
@@ -31,7 +29,6 @@ from src.geometry import Geometry
 from src.loaders.views import Views
 
 DSINE_REPO = Path("data/third_party/dsine_hub")  # hugoycj/DSINE-hub @ a6b7d25
-SCALE = 1e-4  # E_n's unit against the other terms' (module docstring)
 
 
 def normals_from_depth(depth: Tensor, rays: Tensor) -> Tensor:
@@ -247,10 +244,7 @@ class NormalTerm:
 def normal_term(
     normals: Tensor, rays: Tensor, d0: Tensor, edge_tol: float
 ) -> NormalTerm:
-    """BiNI's residuals for the normals, cut on d0's occlusion contours (tol: log).
-
-    The weights are `cut_weights` times `SCALE`.
-    """
+    """BiNI's residuals for the normals, cut on d0's occlusion contours (tol: log)."""
     h, w = d0.shape
     assert normals.shape == (h, w, 3) and normals.isfinite().all(), normals.shape
     assert ((normals.norm(dim=-1) - 1).abs() < 1e-3).all()  # noqa: PLR2004
@@ -258,7 +252,7 @@ def normal_term(
     weights = cut_weights(-d0.double().log(), terms, edge_tol)
     return NormalTerm(
         [tuple(t.to(d0.dtype) for t in axis) for axis in terms],
-        [tuple((SCALE * t).to(d0.dtype) for t in axis) for axis in weights],
+        [tuple(t.to(d0.dtype) for t in axis) for axis in weights],
     )
 
 
