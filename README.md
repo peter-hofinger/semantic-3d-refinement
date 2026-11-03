@@ -23,13 +23,16 @@ OpenCV camera, same world frame as the laser-scan mesh). Load it with
 
 ## Data (Hypersim)
 
-Scenes (scene -> camera trajectory) and settings live in `configs/hypersim.yaml`; the
-six default scenes are from the official v1 validation split, three with tilt-shift and
-three with plain cameras.
+Scenes and settings live in `configs/hypersim.yaml`, split into four sets of one camera
+trajectory per scene, none filtered by hand: **dev** (3 val scenes; choices are made
+here), **val** (the other 11 val scenes with a centred camera; checks that a choice holds),
+**test** (all 26 test scenes with a centred camera; reported numbers only) and **stress**
+(3 tilt-shift val scenes, see below). The loaders check each set against Hypersim's
+official v1 split, so no scene used for choices or reports is from its training split.
 
 ```bash
-uv run hypersim-download   # metadata CSVs + only the needed files (~45 MB per trajectory)
-uv run hypersim-prepare    # -> data/processed/hypersim/<scene>_<cam>/views_*.npz + gt_views_*.npz
+uv run hypersim-download --splits dev   # metadata CSVs + only the needed files (~45 MB per trajectory)
+uv run hypersim-prepare --splits dev    # -> data/processed/hypersim/<scene>_<cam>/views_*.npz + gt_views_*.npz
 ```
 
 The download reads Apple's per-scene ZIPs with HTTP range requests, so it fetches only

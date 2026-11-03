@@ -15,7 +15,7 @@ from pathlib import Path
 
 import requests
 
-from src.loaders.hypersim.config import load_config
+from src.loaders.hypersim.config import check_splits, load_config
 from src.loaders.hypersim.scene import HypersimScene
 
 log = logging.getLogger(__name__)
@@ -134,16 +134,20 @@ def download_metadata(metadata_root: Path, session: requests.Session) -> None:
 
 
 def main() -> None:
-    """Download the metadata and every trajectory listed in the config."""
+    """Download the metadata and the trajectories of the chosen splits."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/hypersim.yaml"))
+    parser.add_argument(
+        "--splits", nargs="+", default=["dev"], help="dev val test stress"
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     cfg = load_config(args.config)
     with requests.Session() as session:
         download_metadata(cfg.metadata_root, session)
-        for scene, camera in cfg.scenes.items():
+        check_splits(cfg)
+        for scene, camera in cfg.scenes(args.splits).items():
             hs = HypersimScene(cfg.data_root, cfg.metadata_root, scene, camera)
             download_scene(hs, cfg.data_root, session)
 
