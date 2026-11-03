@@ -58,6 +58,7 @@ Metrics:
 | E28 | Qwen3.8-27B as E26 with answers capped at 64 new tokens (greedy), both schemes | best 27B variant so far: lists 90 / 79 (union) and 96 / 91 (progressive) instead of 389 / 506 and 249 / 371; union answers are exactly the first 64 tokens of E26's (20/20). Union cap64: pixel recall 0.94 / 0.89 (top100 0.95 / 0.83), recall 0.91 / 0.75, consistent 0.84 / 0.76, merges 1 / 5, cross-class leakage 0.008 / 0.048 (all ~top100 or better), but precision 0.29 / 0.33 (top100 0.51 / 0.48) from abstract names at loop starts ("edge, corner, surface, front, back"). Progressive: same picture, its few loops dump ~25 junk names each |
 | E29 | Hypersim loader: views + GT from Hypersim's per-pixel maps, three val scenes (kitchen, conference room, restaurant) | correct to float16 precision (lifted points vs Hypersim's position map: median 1.2 mm); most Hypersim cameras are tilt-shift (254 + 31 of 482 scenes), handled exactly as K + camera rotation, skewed ones rejected; walls / floors / ceilings have no instances -> one per class; conference room 23% unlabeled (behind glass). Per-view GT re-associated with GT geometry: consistent 1.00 / 1.00 / 0.98, 0 merges (working setting 0.94 / 0.91 / 0.94) |
 | E30 | First Hypersim run of the segmenter: six val scenes (3 tilt-shift, 3 plain cameras), top100 vs Qwen3.8-27B union cap64, Déjà View vs GT geometry | Déjà View always predicts a centred principal point: on plain cameras depth 0.45-0.87%, Rel. L2 0.010-0.026 and association consistency ~ GT geometry (0.82 / 0.70 / 0.81 vs 0.82 / 0.76 / 0.81); on tilt-shift scenes consistency drops 0.12-0.31 (conference room Rel. L2 0.116). VLM list not better than top100 outside ScanNet++: precision lower everywhere (0.10-0.43 vs 0.23-0.49), part names split chairs (conference consistent 0.55 -> 0.36), the name "lobby" merges wall and floor (cross-class leakage 0.188). Protocol: plain-camera scenes; top100 stays default |
+| E31 | Rank the 20 bedroom views (Hypersim ai_006_007) by Déjà View's bleeding at GT depth edges, to choose the shared visual views | bleeding pixels 0.7-6.4% of the image; top views 18, 19, 0, 12; median error near edges 1.8-3.0% vs 0.3-0.9% far (as E18 / ETH3D). Bleeding sits on thin structures in front of distant surfaces (ornate bed frame, vanity mirror frame, chair and stool legs); planes stay below 1%. Visual views: frames 94, 0, 62 + 31 (overview) |
 
 ## Reference table (current scorer, E11)
 
@@ -1552,3 +1553,26 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   scenes); tilt-shift scenes measure Déjà View's camera model, not the method. Segmenter default stays top100; the
   VLM vocabulary needs a filter for abstract / part names before it can replace it (not tuned here: these are now
   seen scenes).
+
+## E31: which bedroom views show Déjà View's edge errors best (03.11.2026)
+- **Goal:** choose the views of the shared visual scene (Hypersim `ai_006_007` bedroom, plain camera, E30) that show
+  bleeding most clearly. A selection aid, not a method result.
+- **Definitions as E18** (copied into the script, same thresholds): GT depth edge = relative GT depth jump > 5% to a
+  4-neighbour; error = relative depth error after a per-view median scale; near-edge = within 3 px of a GT depth edge,
+  far = more than 10 px; a near-edge pixel bleeds if its error is > 5%. Ranked by bleeding pixels as a share of the
+  image (what a viewer sees). Déjà View K=16 cache from E30, 20 views at 504x378.
+- **Command:** `PYTHONIOENCODING=utf-8 uv run python experiments/scripts/e31_bedroom_edges.py >
+  experiments/results/e31_bedroom_edges.txt` (CPU, seconds).
+- **Results:** bleeding pixels range from 6.4% of the image (view 18, frame 94) to 0.7% (view 8, frame 41, a near-empty
+  wall and door view). Top four: views 18, 19, 0, 12 (6.4 / 5.8 / 5.3 / 4.7%); median error near edges 1.8-3.0% vs
+  0.3-0.9% far from edges, the same contrast as on ScanNet++ (E18) and ETH3D (Peter). A quarter to a third of all
+  near-edge pixels bleed in every view (0.19-0.34).
+- **Where:** almost all bleeding sits on thin structures in front of distant surfaces: the ornate metal bed frame
+  (views 18, 19, 12) and the vanity's mirror frame, chair and stool legs (view 0). Large planes (walls, door,
+  wardrobe front) stay below 1%. View 0's far error (0.9%) is raised by the mirror: GT depth is the mirror surface,
+  the error map suggests Déjà View partly predicts the reflected room (not measured).
+- **Figure:** `figures/e31_bedroom_edges.jpg` (the four chosen views 18, 0, 12, 6 with their rank: image, error map on a shared 0-10% scale, GT depth edges
+  with bleeding pixels in red).
+- **Conclusion:** visual views for the bedroom = frames 94, 0, 62 (ranks 1, 3, 4; rank 2 = frame 99 is nearly the same
+  viewpoint as 94) plus frame 31 (rank 9) as the room overview. The bed frame is the clearest test of whether a refiner
+  sharpens thin structures without smoothing across them.
