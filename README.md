@@ -152,19 +152,19 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
 Kitchen, conference room and restaurant, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-124707`; 1.5 min):
+(`figures/eval_hypersim-20261103-131714`; 1.5 min):
 
 | F-score at 5 cm | kitchen | conference | restaurant |
 |---|---|---|---|
 | Déjà View | 0.910 | 0.626 | 0.777 |
-| Refined (`configs/refine.yaml`) | 0.815 | 0.572 | 0.556 |
+| Refined (`configs/refine.yaml`) | 0.881 | 0.558 | 0.698 |
 
-- **At equal weights E_n dominates** (43–108 against at most 0.004 for every other term at the
-  start): each view follows DSINE's normals and drifts on its own, disagreement between views
-  rises (0.5–1.0 % → 0.7–1.6 %), and the F-score falls on every scene. The surface normals,
-  though, become smooth and close to the ground truth's. Setting the weights is the next step.
-- **The solve runs to the end:** all 10 Gauss-Newton steps on every scene, since smoothing
-  stays within one segment.
+- **The views fuse:** disagreement between overlapping views falls about tenfold
+  (0.48 → 0.05 %, 0.96 → 0.15 %, 0.60 → 0.09 %), and in cross sections the 20 views' walls
+  become one thin wall.
+- **The cloud still scores lower:** the fused surface sits a few centimetres off the ground
+  truth, and completeness grows from 1.4–3.2 to 2.0–5.4 cm. Setting the weights is the next
+  step.
 
 ## Layout
 
