@@ -73,7 +73,7 @@ def test_ground_truth_against_itself_is_perfect() -> None:
     assert set(surface["surface_per_class"]) == {"floor", "chair"}
     scores = labels(truth, truth.instance, truth.classes, {1: 0.9, 2: 0.8})
     assert scores["miou"] == scores["pq"] == scores["ap"] == 1.0
-    assert scores["miou_th"] == scores["pq_th"] == scores["pq_st"] == 1.0
+    assert scores["pq_th"] == scores["pq_st"] == 1.0
 
 
 def test_an_outlier_counts_with_its_full_distance() -> None:
@@ -170,6 +170,6 @@ def test_background_counts_in_the_all_class_means_only() -> None:
     ids = truth.instance.copy()
     ids[truth.instance == 0] = NONE  # the floor is never found
     scores = labels(truth, ids, truth.classes, {1: 0.9, 2: 0.8})
-    assert scores["miou_th"] == scores["pq_th"] == 1.0
+    assert scores["pq_th"] == 1.0
     assert scores["miou"] == scores["pq"] == 0.5  # floor 0, chair 1
     assert scores["pq_st"] == 0.0

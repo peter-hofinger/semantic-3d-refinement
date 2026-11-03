@@ -28,10 +28,10 @@ split into two ids across views is two segments (the scene-level metrics of Pano
 Lifting, PanSt3R). The background classes (walls, floor, ceiling) have no instances in
 Hypersim's ground truth; there, and in the output, all pixels of such a class form one
 segment. Per class, every evaluated class is scored. mIoU and PQ are averaged over all
-classes, as reported elsewhere, and over the object classes alone (`_th`, PanSt3R's
-PQ_th; PQ_st is the background's); AP is over object classes only, as the instance
-benchmarks report it. The scene's surface scores cover every pixel, background
-included, as the geometry protocols do.
+classes, as semantic and panoptic benchmarks report them; PQ also over the object
+classes (PQ_th) and the background ones (PQ_st), as PanSt3R. AP is over object classes
+only, as the instance benchmarks report it. The scene's surface scores cover every
+pixel, background included, as the geometry protocols do.
 
 - mIoU: IoU per class over non-void points, mean over the classes in either.
 - PQ, SQ, RQ (Kirillov et al. 2019, scene-level as in Panoptic Lifting): a predicted
@@ -378,7 +378,6 @@ def label_metrics(
     background = [c for c in evaluated if c in BACKGROUND]
     return {
         "miou": mean(list(ious.values())),
-        "miou_th": mean([ious[c] for c in objects if c in ious]),
         **{k: mean([v[k] for v in pq.values()]) for k in ("pq", "sq", "rq")},
         **{
             f"{k}_th": mean([pq[c][k] for c in objects if c in pq])

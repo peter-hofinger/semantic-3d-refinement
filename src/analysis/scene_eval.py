@@ -50,7 +50,6 @@ HEADLINE = (
     "accuracy_cm",
     "completeness_cm",
     "miou",
-    "miou_th",
     "pq",
     "pq_th",
     "pq_st",
