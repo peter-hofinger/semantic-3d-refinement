@@ -18,14 +18,14 @@ within `mv_tol`, and so do j's four interpolated pixels. This drops what j does 
 
   E = 1/V Σ_i E_i + λ_mv E_mv,
 
-E_i the monocular energy of view i (`monocular.energy_maps`), δ_i its residual.
+E_i the per-view energy of view i (E_d, E_bd, E_n, λ_δ‖δ‖²), δ_i its residual.
 
 E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI minimizes
 its normal term by CG (Cao et al. 2022): each step solves the normal equations J^T J s =
 -J^T r by Jacobi-preconditioned CG. J is never formed for the per-view terms, which are
 stencils on the pixel grid and linear in δ (E_d, E_bd) or in log depth (E_n); E_mv's J
 has five entries per match, the source pixel and j's four interpolated pixels. On 20
-views of 504 x 336 this takes 2-3 s where L-BFGS took a minute.
+views of 504 x 336 this takes 2-3 s.
 
 Semantics (`SemanticConfig`, the method in `Claude.md`) enter in three ways, each off
 by default:
@@ -62,12 +62,80 @@ from torch import Tensor
 
 from src.geometry import Geometry
 from src.loaders.views import Views
-from src.refinement.inputs import check_inputs, fit_pinhole
-from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
-from src.refinement.normals import run_dsine, to_world
+from src.refinement.normals import NormalTerm, normal_term, run_dsine, to_world
 from src.segmentation.base import Segmentation
 
 log_info = logging.getLogger(__name__).info
+
+
+@dataclass(frozen=True)
+class RefineConfig:
+    """Weights of the per-view energy terms; inverse depth normalized by its median."""
+
+    huber: float = 0.05
+    lambda_d: float = 1.0
+    lambda_bd: float = 10.0
+    lambda_n: float = 0.0
+    lambda_delta: float = 0.0
+    edge_tol: float = 0.02
+    device: str = "cuda"
+
+    def __post_init__(self) -> None:
+        """Check ranges."""
+        assert self.huber > 0
+        assert (
+            self.lambda_d >= 0
+            and self.lambda_bd >= 0
+            and self.lambda_n >= 0
+            and self.lambda_delta >= 0
+        )
+        assert self.edge_tol > 0
+
+
+def points_from_rays(depth: Tensor, rays: Tensor) -> Tensor:
+    """Lift depth along rays: x = origin + depth * direction."""
+    return rays[..., :3] + depth[..., None] * rays[..., 3:]
+
+
+def check_inputs(depth: Tensor, rays: Tensor, conf: Tensor) -> None:
+    """Assert shapes, dtypes and ranges of a single view."""
+    assert depth.ndim == 2, depth.shape  # noqa: PLR2004
+    h, w = depth.shape
+    assert h >= 3 and w >= 3, depth.shape  # noqa: PLR2004
+    assert rays.shape == (h, w, 6), rays.shape
+    assert conf.shape == (h, w), conf.shape
+    assert depth.dtype == rays.dtype == conf.dtype and depth.dtype.is_floating_point
+    assert depth.isfinite().all() and (depth > 0).all()
+    assert rays.isfinite().all()
+    assert conf.isfinite().all() and (conf >= 0).all() and (conf > 0).any()
+
+
+def fit_pinhole(
+    rays: np.ndarray, rotation: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replace a ray map by its best-fitting pinhole, same camera center and rotation.
+
+    Least squares for fx, cx and fy, cy on the camera-frame directions; the directions
+    keep unit z in the camera. Returns the rays and K, which maps camera coordinates to
+    pixel indices (pixel centers at integers). Déjà View's rays deviate from it by
+    0.6-0.9 px (median) on ScanNet++, in patch-sized steps that show as a 14 px grid in
+    every normal map lifted through them, and by up to 2.7 px on ETH3D office (1.8 px
+    even with a free rotation, so the rays themselves are less pinhole-like there).
+    """
+    h, w = rays.shape[:2]
+    d = rays[..., 3:] @ rotation
+    x, y = d[..., 0] / d[..., 2], d[..., 1] / d[..., 2]
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    fx, cx = np.polyfit(x.ravel(), u.ravel(), 1)
+    fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
+    residual = np.hypot(fx * x + cx - u, fy * y + cy - v)
+    assert np.median(residual) < 3, np.median(residual)  # noqa: PLR2004
+    dirs = (
+        np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
+    )
+    origin = np.broadcast_to(rays[..., :3].reshape(-1, 3).mean(0), dirs.shape)
+    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    return np.concatenate([origin, dirs], axis=-1), k
 
 
 @dataclass(frozen=True)
@@ -111,11 +179,6 @@ def scene_from_geometry(geometry: Geometry) -> Scene:
     for v in range(len(scene.depth)):
         check_inputs(scene.depth[v], scene.rays[v], scene.conf[v])
     return scene
-
-
-def load_scene(path: Path) -> Scene:
-    """Every view of a saved backbone geometry (`dejaview-predict`), pinhole rays."""
-    return scene_from_geometry(Geometry.load(path))
 
 
 def geometry_from_scene(scene: Scene, depth: Tensor, confidence: Tensor) -> Geometry:
@@ -266,6 +329,12 @@ def find_matches(
         and m.direction.isfinite().all()
     )
     return m
+
+
+def disagreement_pct(depth: Tensor, scene: Scene, matches: Matches) -> float:
+    """Median |log depth gap| between overlapping views, in percent."""
+    scale = scene.depth.median()
+    return 100 * residuals(scale / depth, scale, scene, matches).abs().median().item()
 
 
 @dataclass(frozen=True)
@@ -439,9 +508,8 @@ def scene_residuals(
     N is the number of pixels over all views; x holds δ and, with segments, a - 1 and b
     (`unknowns`).
 
-    The same terms as `monocular.energy_maps`, except that E_d is quadratic, w u²/2 on
-    the change u = d - d0: Huber's quadratic branch, which holds for |u| < `huber`
-    (0.05; the input's views disagree by about 1 %).
+    E_d is quadratic, w u²/2 on the change u = d - d0: Huber's quadratic branch, which
+    holds for |u| < `huber` (0.05; the input's views disagree by about 1 %).
     """
     u = change(x, p)
     d = p.d0 + u
@@ -669,7 +737,7 @@ def refine_scene(  # noqa: PLR0913
     E decreases and no depth grows tenfold (the logs clamp d at 1e-6, so E alone would
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
     rays, enable E_n and cut E_bd on the input's occlusion contours, as in
-    `monocular.refine`. Segments (V, H, W), instance ids with -1 for none, enter as
+    BiNI. Segments (V, H, W), instance ids with -1 for none, enter as
     `semantic` says.
     """
     p = build_problem(scene, cfg, mv, normals, segments=segments, semantic=semantic)

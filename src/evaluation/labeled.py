@@ -51,8 +51,6 @@ import numpy as np
 import open3d as o3d
 from scipy.spatial import cKDTree
 
-from src.evaluation.depth import lift
-
 VOXEL = 0.01  # m, grid both clouds are reduced to
 TOLERANCE = 0.02  # m, precision / recall / F-score threshold
 TRANSFER = 0.05  # m, a ground-truth point takes the label of a prediction this close
@@ -87,6 +85,14 @@ class LabeledCloud:
         unique, inverse = np.unique(ids, return_inverse=True)
         names = np.array([lut.get(int(i), "") for i in unique], dtype=object)
         return names[inverse.reshape(ids.shape)]
+
+
+def lift(depth: np.ndarray, k: np.ndarray, cam_to_world: np.ndarray) -> np.ndarray:
+    """World points (H, W, 3) of a z-depth map through a pinhole; pixel centers +0.5."""
+    h, w = depth.shape
+    v, u = np.mgrid[0:h, 0:w] + 0.5
+    rays = np.stack([u, v, np.ones_like(u)], axis=-1) @ np.linalg.inv(k).T
+    return (depth[..., None] * rays) @ cam_to_world[:3, :3].T + cam_to_world[:3, 3]
 
 
 def as_cloud(points: np.ndarray) -> o3d.geometry.PointCloud:

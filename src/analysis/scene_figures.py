@@ -18,15 +18,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import yaml
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from scipy.spatial import cKDTree
 
 from src.analysis import scene_eval
 from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
-from src.analysis.visualize import DIVERGING, SEQUENTIAL
-from src.evaluation.depth import lift
-from src.evaluation.labeled import NONE, predicted_cloud
-from src.refinement.monocular import points_from_rays
+from src.evaluation.labeled import NONE, lift, predicted_cloud
+from src.refinement.multiview import points_from_rays
 
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
@@ -35,6 +33,13 @@ LABELS = {
     "miou": "mIoU ↑",
     "ap50": "AP50 ↑",
 }
+SEQUENTIAL = LinearSegmentedColormap.from_list(
+    "seq_blue",
+    ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
+)
+DIVERGING = LinearSegmentedColormap.from_list(
+    "div", ["#104281", "#6da7ec", "#f0efec", "#ec8a89", "#b42d2d"]
+)
 SCENE_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#8a5cc2")
 ERROR_MAX_CM = 30.0
 SHOWN_VIEWS = (0, 5, 10, 15)

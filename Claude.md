@@ -20,7 +20,7 @@ They skim the README, open two files and scroll the history; every one of those 
 
 ## Method
 Per view i: depth D_i, confidence C_i, ray map (origin o, direction d); points x = o + D·d. Cameras stay fixed.
-Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ_i(p), minimizing with L-BFGS
+Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ_i(p), minimizing by Gauss-Newton + CG
 
   E = E_d + λ_mv·E_mv + λ_bd·E_bd + λ_pr·E_pr + λ_δ·‖δ‖²
 
@@ -29,27 +29,15 @@ Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ
 - E_bd: smoothing within segments only, so boundaries stay sharp.
 - E_pr: planarity for structural classes (wall, floor, table).
 
-Scope: monocular refinement of one view (`src/refinement/monocular.py`), and joint refinement of all views of a
-scene with E_mv (`src/refinement/multiview.py`, solved by Gauss-Newton and CG). Segments enter the joint energy
-through `SemanticConfig` (E_bd cut at masks, per-segment a and b, same-segment E_mv; all off by default); E_pr is
-not implemented. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim validation scenes
-(`configs/eval_hypersim.yaml`, every term at weight 1, nothing tuned), scored by `src/evaluation/labeled.py`. The method is
-a black box for the evaluation: only its output cloud is scored, registered onto the ground truth from the clouds
-alone (first-camera start, scaled ICP); no per-pixel correspondences, cameras or depth maps of the method. The joint
-refinement is the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
-Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end.
-
-Status: δ only (`monocular.py`), no segments, no a or b; verified on a synthetic room with GT. `monocular.py` also
-takes BiNI's normal term E_n (log depth, cut on the prior's occlusion contours) under the same L-BFGS. On real data,
-Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0 view
-13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the normals of
-the result (patch grid, edges) and their angle to DSINE's. Ground truth comes from ETH3D office and kicker
-(`loaders/eth3d.py`, data CC BY-NC-SA, never committed): `depth.py` scores three views per scene by accuracy against
-the laser scan; `evaluation/geometry.py` scores the fused cloud of all 20 views (accuracy on 200k fixed pixels,
-thickness and normal angle on a 5 mm voxel grid), now also on the ScanNet++ kitchen through Mircea's rendered GT.
-`analysis/artifacts.py` checks the proposal's named artifacts on the same data: bleeding, wavy planes and drift
-confirmed; textureless not confirmed; reflective not measurable with a laser scan; confidence only partly locates
-errors.
+Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned
+CG, matrix-free), the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
+Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end. E_n is
+BiNI's normal term on DSINE normals (`src/refinement/normals.py`). Segments enter the joint energy through
+`SemanticConfig` (E_bd cut at masks, per-segment a and b, same-segment E_mv); E_pr is not implemented. Evaluation
+protocol: `src/analysis/scene_eval.py` on Hypersim validation scenes (`configs/eval_hypersim.yaml`, every term at
+weight 1, nothing tuned), scored by `src/evaluation/labeled.py`. The method is a black box for the evaluation: only its
+output cloud is scored, registered onto the ground truth from the clouds alone (first-camera start, scaled ICP); no
+per-pixel correspondences, cameras or depth maps of the method.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
@@ -63,8 +51,8 @@ errors.
 
 ## Commands
 - `uv sync --all-groups` · `uv add <pkg>` · `uv run <cmd>`. Never pip, never bare `python`.
-- `uv run python -m src.<package>.<entry> --cfg configs/<name>.yaml` (refinement studies; see each module's docstring)
-- `uv run run-pipeline <views> --geometry <dejaview npz> --segmenter sam3 --refiner joint`; `uv run eval-geometry`
+- `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml` (the evaluation protocol)
+- `uv run run-pipeline <views> --geometry <dejaview npz> --segmenter sam3 --refiner joint`
 - `uv run pytest -q` · `uv run ruff check --fix && uv run ruff format`
 
 ## Code
@@ -113,7 +101,7 @@ Fixed scenes, metrics, alignment and seeds; never tune on test scenes, and say s
 ## Visuals
 Robin: show visuals, tables and graphs every week; time belongs to ideation and direction, not implementation.
 - Everything that can be visualized is visualized, as PNG.
-  `uv run python -m src.analysis.visualize --run runs/<run>` writes `figures/<run>/` with a README table.
+  `uv run python -m src.analysis.scene_figures --run runs/<run>` writes `figures/<run>/` with a README table.
 - Before and after side by side, on shared scales, with units and a caption that says what to look at.
 - Each figure README ends with findings that stand on their own, without this conversation.
 - Commit and push `figures/`; `runs/` and `data/` stay local.

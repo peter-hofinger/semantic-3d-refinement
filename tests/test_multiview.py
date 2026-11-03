@@ -4,29 +4,24 @@ import dataclasses
 
 import numpy as np
 import torch
-from scipy.spatial import cKDTree
 
-from src.evaluation.geometry import local_planes, similarity, voxel_downsample
 from src.loaders.views import Views
-from src.refinement.monocular import (
-    NormalTerm,
-    RefineConfig,
-    normal_term,
-    points_from_rays,
-)
 from src.refinement.multiview import (
     JointRefiner,
     MultiviewConfig,
     Problem,
+    RefineConfig,
     Scene,
     SemanticConfig,
     bilinear,
     build_problem,
     find_matches,
+    fit_pinhole,
     geometry_from_scene,
     grid_operator,
     match_jacobian,
     normal_equations,
+    points_from_rays,
     refine_scene,
     residuals,
     same_id_stencils,
@@ -35,7 +30,7 @@ from src.refinement.multiview import (
     scene_residuals,
     segment_index,
 )
-from src.refinement.normals import normals_from_depth
+from src.refinement.normals import NormalTerm, normal_term, normals_from_depth
 from src.segmentation.base import Segmentation
 
 H, W = 48, 64
@@ -167,28 +162,23 @@ def test_joint_refiner_is_refine_scene_on_the_pipeline_types() -> None:
     assert (np.abs(refined.depth / geometry.depth - 1) > 1e-3).any()
 
 
-def test_similarity_recovers_a_known_transform() -> None:
-    a = np.random.default_rng(0).normal(size=(20, 3))
-    r = rotation(0.7).numpy() @ rotation(-0.2).numpy().T[[1, 2, 0]][:, [1, 2, 0]]
-    s, rot, t = similarity(a, 2.5 * a @ r.T + [1, -2, 3])
-    assert np.isclose(s, 2.5) and np.allclose(rot, r) and np.allclose(t, [1, -2, 3])
-
-
-def test_planes_are_flat_and_layers_are_thick() -> None:
-    g = np.random.default_rng(0).uniform(-0.1, 0.1, size=(20000, 2))
-    plane = np.c_[g, 0.01 * g[:, 0]]
-    grid = voxel_downsample(plane, 0.005)
-    assert len(grid) < len(plane) and len(
-        np.unique(np.floor(grid / 0.005), axis=0)
-    ) <= len(grid)
-    normals, thickness = local_planes(cKDTree(grid), grid[:100], 24)
+def test_pinhole_fit_recovers_a_pinhole_and_removes_per_patch_ray_noise() -> None:
+    h, w = 98, 126  # 7 x 9 patches of 14 px, as Déjà View's
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    k = np.array([[80.0, 0, 62.3], [0, 81.0, 48.7], [0, 0, 1]])
+    rot = rotation(0.3).numpy()
+    cam = np.stack([u, v, np.ones_like(u)], -1) @ np.linalg.inv(k).T
+    exact = np.concatenate([np.full_like(cam, 0.5), cam @ rot.T], -1)
+    fitted, k_fit = fit_pinhole(exact, rot)
+    np.testing.assert_allclose(fitted, exact, atol=1e-9)
+    np.testing.assert_allclose(k_fit, k, atol=1e-9)
+    jitter = 2e-3 * np.random.default_rng(0).standard_normal((7, 9, 2))
+    noisy = exact.copy()
+    noisy[..., 3:5] += jitter.repeat(14, 0).repeat(14, 1) @ rot[:2, :2].T
     assert (
-        thickness.max() < 1e-4
-        and (np.abs(normals @ [-0.01, 0, 1] / np.hypot(0.01, 1)) > 0.999).all()
+        np.abs(fit_pinhole(noisy, rot)[0][..., 3:] - exact[..., 3:]).max()
+        < 0.2 * np.abs(jitter).max()
     )
-    layered = voxel_downsample(np.r_[plane, plane + np.array([0, 0, 0.01])], 0.005)
-    _, thick = local_planes(cKDTree(layered), layered[:100], 24)
-    assert np.median(thick) > 0.003
 
 
 def test_linear_operators_match_the_exact_jacobian() -> None:

@@ -28,6 +28,7 @@ that registration recovers the identity.
 import argparse
 import dataclasses
 import multiprocessing
+import subprocess
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -36,12 +37,11 @@ import numpy as np
 import torch
 import yaml
 
-from src.evaluation.depth import lift
-from src.evaluation.geometry import disagreement_pct
 from src.evaluation.labeled import (
     LabeledCloud,
     ground_truth_cloud,
     label_metrics,
+    lift,
     predicted_cloud,
     register,
     surface_metrics,
@@ -49,13 +49,14 @@ from src.evaluation.labeled import (
 from src.geometry import Geometry
 from src.loaders.scannetpp.gt import GroundTruth
 from src.loaders.views import Views
-from src.refinement.inputs import git_hash
-from src.refinement.monocular import RefineConfig, points_from_rays
 from src.refinement.multiview import (
     MultiviewConfig,
+    RefineConfig,
     Scene,
     SemanticConfig,
+    disagreement_pct,
     find_matches,
+    points_from_rays,
     refine_scene,
     scene_from_geometry,
 )
@@ -65,6 +66,23 @@ from src.segmentation.sam3 import load_prompts
 
 HEADLINE = ("accuracy_cm", "completeness_cm", "fscore", "miou", "ap50")
 WORKERS = 6  # scoring processes; each also uses several threads
+
+
+def git_hash() -> str:
+    """Return HEAD, marked dirty if the tree has uncommitted changes."""
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return head + ("-dirty" if dirty else "")
 
 
 @dataclasses.dataclass(frozen=True)

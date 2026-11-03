@@ -112,29 +112,12 @@ object.
 D=data/processed/scannetpp/5ee7c22ba0
 uv run run-pipeline $D/views_n20_uniform_504.npz --geometry $D/dejaview_k16_views_n20_uniform_504.npz \
     --segmenter sam3 --refiner joint --out outputs/5ee7c22ba0/cloud.ply
-uv run eval-geometry $D/views_n20_uniform_504.npz outputs/5ee7c22ba0/cloud_{backbone,geometry}.npz \
-    --gt $D/gt_views_n20_uniform_504.npz   # needs scannetpp-render-gt
 ```
 
 `cloud.ply` holds per point xyz, rgb, `instance` (same id = same object in every view,
 -1 = none) and `semantic` (index into the class names listed as `comment class <i>
 <name>` in the header). Next to it: `cloud_backbone.npz` (Déjà View), `cloud_geometry.npz`
 (refined) and `cloud_segmentation.npz`.
-
-ScanNet++ kitchen (5ee7c22ba0), 20 views of 504 x 336, against the laser-scan mesh
-(fused cloud of all views mapped by one similarity on the camera centers; thickness: RMS
-distance to local planes on a 5 mm grid; disagreement: median depth gap between
-overlapping views):
-
-| | mean (mm) | median (mm) | thickness (mm) | disagreement (%) |
-|---|---|---|---|---|
-| Déjà View (K = 16) | 13.8 | 11.1 | 3.5 | 0.69 |
-| + joint refinement (E_d + E_mv) | 12.8 | 10.3 | 0.7 | 0.04 |
-
-Agreement removes the layering of overlapping views (5x thinner surfaces) but moves the
-surface only 7 % closer to the scan: it fixes what the views disagree on, not the error
-they share. Refinement takes 2.1 s for the 20 views on an RTX 3080; SAM 3 and the linking
-about 1.5 min.
 
 ## Evaluation (Hypersim)
 
@@ -190,13 +173,13 @@ src/                the code, imported as `src`
   geometry.py       Geometry (depth + cameras), lifting to 3D
   backbone/         Backbone interface; Déjà View goes here
   segmentation/     Segmentation, Segmenter interface, SAM 3 + association
-  refinement/       Refiner interface; joint (multiview.py) and single-view
-                    (monocular.py) refinement, BiNI + DSINE normals (normals.py)
+  refinement/       Refiner interface; joint refinement by Gauss-Newton (multiview.py),
+                    the normal term on DSINE normals (normals.py)
   output.py         PointCloud, PLY export
   pipeline.py       chains the stages
-  evaluation/       metrics against ground truth: instances, depth, fused cloud,
-                    labeled cloud (labeled.py: F-score, mIoU, instance AP50)
-  analysis/         refinement studies, the Hypersim protocol (scene_eval.py) and figures
+  evaluation/       metrics against ground truth: instances (instances.py), labeled
+                    cloud (labeled.py: F-score, mIoU, instance AP50)
+  analysis/         the Hypersim protocol (scene_eval.py) and its figures
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README
 tests/
