@@ -73,7 +73,7 @@ def test_ground_truth_against_itself_is_perfect() -> None:
     assert set(surface["surface_per_class"]) == {"floor", "chair"}
     scores = labels(truth, truth.instance, truth.classes, {1: 0.9, 2: 0.8})
     assert scores["miou"] == scores["pq"] == scores["ap"] == 1.0
-    assert scores["pq_per_class"]["floor"]["pq"] == 1.0  # background: per class only
+    assert scores["miou_th"] == scores["pq_th"] == scores["pq_st"] == 1.0
 
 
 def test_an_outlier_counts_with_its_full_distance() -> None:
@@ -129,7 +129,7 @@ def test_background_pieces_form_one_segment() -> None:
     floor = ids == 0
     ids[floor & (truth.points[:, 0] < 0.5)] = 7  # the floor found as two masks
     scores = labels(truth, ids, truth.classes | {7: "floor"}, {1: 0.9, 2: 0.8})
-    assert scores["pq_per_class"]["floor"]["pq"] == 1.0
+    assert scores["pq_per_class"]["floor"]["pq"] == scores["pq_st"] == 1.0
 
 
 def test_a_prediction_on_void_is_no_false_positive() -> None:
@@ -163,3 +163,13 @@ def test_score_output_aligns_the_pixels_first() -> None:
     np.testing.assert_allclose(scores["scale"], 3.0)
     assert scores["accuracy_cm"] < 1e-9 and scores["completeness_cm"] < 1e-9
     assert scores["pq"] == 1.0
+
+
+def test_background_counts_in_the_all_class_means_only() -> None:
+    truth = room()
+    ids = truth.instance.copy()
+    ids[truth.instance == 0] = NONE  # the floor is never found
+    scores = labels(truth, ids, truth.classes, {1: 0.9, 2: 0.8})
+    assert scores["miou_th"] == scores["pq_th"] == 1.0
+    assert scores["miou"] == scores["pq"] == 0.5  # floor 0, chair 1
+    assert scores["pq_st"] == 0.0

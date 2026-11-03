@@ -162,9 +162,10 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
     (3D instance AP as SegVGGT, IGGT and PanSt3R report it), on the output's label
     of each ground-truth pixel. An object is one segment over all views, so an object
     split across views counts as two.
-  - Walls, floor and ceiling are background: one segment per class, scored per class but
-    left out of the label aggregates. The scene's surface scores cover every pixel, as in
-    the geometry protocols above.
+  - Walls, floor and ceiling are background: one segment per class. mIoU and PQ are
+    averaged over all classes (as reported elsewhere) and over object classes alone
+    (`_th`, with PQ_st for the background, as PanSt3R); AP is over object classes. The
+    surface scores cover every pixel, as in the geometry protocols above.
 
 ```bash
 uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
@@ -173,7 +174,7 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
 Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-171317`; 1.5 min):
+(`figures/eval_hypersim-20261103-180820`; 1.5 min):
 
 | cm, ↓ | living room | bedroom | lobby |
 |---|---|---|---|
@@ -182,8 +183,8 @@ Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none
 
 | labels (both variants) | living room | bedroom | lobby |
 |---|---|---|---|
-| mIoU | 0.252 | 0.353 | 0.419 |
-| PQ | 0.167 | 0.187 | 0.204 |
+| mIoU, all / objects | 0.393 / 0.252 | 0.434 / 0.353 | 0.528 / 0.419 |
+| PQ, all / objects / background | 0.325 / 0.167 / 0.956 | 0.297 / 0.187 / 0.916 | 0.375 / 0.204 / 0.889 |
 | AP / AP50 / AP25 | 0.285 / 0.370 / 0.443 | 0.297 / 0.382 / 0.480 | 0.193 / 0.278 / 0.419 |
 
 - **Accuracy improves on every scene**, and the views fuse: disagreement between

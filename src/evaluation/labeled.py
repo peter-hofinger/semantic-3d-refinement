@@ -27,9 +27,11 @@ Segments: an instance of an object class is one segment over all views, so an ob
 split into two ids across views is two segments (the scene-level metrics of Panoptic
 Lifting, PanSt3R). The background classes (walls, floor, ceiling) have no instances in
 Hypersim's ground truth; there, and in the output, all pixels of such a class form one
-segment. Per class, every evaluated class is scored; the label aggregates, over the
-object classes only. The scene's surface scores cover every pixel, background included,
-as the geometry protocols do.
+segment. Per class, every evaluated class is scored. mIoU and PQ are averaged over all
+classes, as reported elsewhere, and over the object classes alone (`_th`, PanSt3R's
+PQ_th; PQ_st is the background's); AP is over object classes only, as the instance
+benchmarks report it. The scene's surface scores cover every pixel, background
+included, as the geometry protocols do.
 
 - mIoU: IoU per class over non-void points, mean over the classes in either.
 - PQ, SQ, RQ (Kirillov et al. 2019, scene-level as in Panoptic Lifting): a predicted
@@ -348,7 +350,7 @@ def label_metrics(
     pred_scores: dict[int, float],
     evaluated: list[str],
 ) -> dict[str, float | dict]:
-    """MIoU, PQ / SQ / RQ and AP / AP50 / AP25, per class and over object classes.
+    """MIoU, PQ / SQ / RQ and AP / AP50 / AP25, per class and averaged (see module).
 
     pred_ids: (N,) the output's instance at each ground-truth point's pixel.
     """
@@ -373,9 +375,16 @@ def label_metrics(
         values = [v for v in values if not np.isnan(v)]
         return float(np.mean(values)) if values else float("nan")
 
+    background = [c for c in evaluated if c in BACKGROUND]
     return {
-        "miou": mean([ious[c] for c in objects if c in ious]),
-        **{k: mean([pq[c][k] for c in objects if c in pq]) for k in ("pq", "sq", "rq")},
+        "miou": mean(list(ious.values())),
+        "miou_th": mean([ious[c] for c in objects if c in ious]),
+        **{k: mean([v[k] for v in pq.values()]) for k in ("pq", "sq", "rq")},
+        **{
+            f"{k}_th": mean([pq[c][k] for c in objects if c in pq])
+            for k in ("pq", "sq", "rq")
+        },
+        "pq_st": mean([pq[c]["pq"] for c in background if c in pq]),
         "ap": mean([v for c in objects for v in ap[c][:-1]]),
         "ap50": mean([ap[c][0] for c in objects]),
         "ap25": mean([ap[c][-1] for c in objects]),

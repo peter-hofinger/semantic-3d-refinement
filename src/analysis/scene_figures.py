@@ -38,7 +38,10 @@ LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
     "miou": "mIoU ↑",
+    "miou_th": "mIoU, objects ↑",
     "pq": "PQ ↑",
+    "pq_th": "PQ, objects ↑",
+    "pq_st": "PQ, background ↑",
     "ap": "AP ↑",
 }
 SEQUENTIAL = LinearSegmentedColormap.from_list(

@@ -46,7 +46,16 @@ from src.segmentation.base import Segmentation
 from src.segmentation.linked import working_associator
 from src.segmentation.sam3 import load_prompts
 
-HEADLINE = ("accuracy_cm", "completeness_cm", "miou", "pq", "ap")
+HEADLINE = (
+    "accuracy_cm",
+    "completeness_cm",
+    "miou",
+    "miou_th",
+    "pq",
+    "pq_th",
+    "pq_st",
+    "ap",
+)
 WORKERS = 6  # scoring processes; each also uses several threads
 
 
