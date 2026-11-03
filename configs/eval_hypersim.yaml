@@ -1,5 +1,5 @@
 # Evaluation protocol (src/analysis/scene_eval.py): every variant on the same Hypersim
-# validation scenes (the stress split of configs/hypersim.yaml; the test split is
+# validation scenes (the dev split of configs/hypersim.yaml; the test split is
 # never used), 20 views each at 504 px, Déjà View K = 16, SAM 3 image mode with one
 # prompt per NYU40 class at threshold 0.3, linked with the working association, DSINE
 # normals on Déjà View's intrinsics (dsine-predict). Scored as labeled clouds on a
@@ -8,7 +8,7 @@
 # (src/evaluation/labeled.py).
 output_dir: runs
 root: data/processed/hypersim
-scenes: [ai_015_001_cam_00, ai_047_009_cam_00, ai_052_001_cam_00]
+scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # living room, bedroom, lobby
 views: views_n20_uniform_504
 backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3
