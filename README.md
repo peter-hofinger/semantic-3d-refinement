@@ -107,10 +107,13 @@ E = E_d + E_mv + E_bd + E_n + ‖δ‖², every weight 1 for now (`configs/refin
 
 - **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
   of other views that agree on the pixel's instance, so it lets go where views disagree.
-- **E_mv**: overlapping views must agree on depth, only between pixels of one instance.
+- **E_mv**: overlapping views must agree on depth, only between pixels of one instance and
+  not where one view's surface hides the other's: a gap counts as occluded above Otsu's
+  threshold on the scene's gaps (about 4 % on Hypersim), so there is no tolerance to set.
 - **E_bd**: thin-plate smoothing of inverse depth, only within one instance.
 - **E_n**: BiNI's normal term on DSINE normals (`src/refinement/normals.py`), cut on the
-  input's occlusion contours. DSINE is non-commercial and stays outside git
+  input's occlusion contours, times 1e-4 to put it in the other terms' units. DSINE is
+  non-commercial and stays outside git
   (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
 
 ```bash

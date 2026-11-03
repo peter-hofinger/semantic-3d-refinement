@@ -20,10 +20,11 @@ a = 1 and b = 0 for pixels without a segment, minimizing
   each neighboring view j (the `neighbors` views it overlaps most); the residual is
   log z_j(x) + log d_j(π_j(x)) - log s, the log ratio of the two depths, d_j bilinear
   at the projection. The matches are fixed on the input, as BiNI's cut edges are, so E
-  stays smooth: x lands in j at least a pixel inside the border, the two depths agree
-  within `mv_tol` (a fixed threshold; anything farther counts as occluded and is
-  dropped), so do j's four interpolated pixels, and j's nearest pixel lies in p's
-  segment (`same_segment_matches`; pixels without one are not gated).
+  stays smooth: x lands in j at least a pixel inside the border, the two depths agree,
+  so do j's four interpolated pixels, and j's nearest pixel lies in p's segment
+  (`same_segment_matches`; pixels without one are not gated). Agree means a gap below
+  Otsu's threshold on the scene's gaps (`occlusion_threshold`): they fall into a mode of
+  same-surface noise and one of occlusions, and the threshold splits them, per scene.
 - E_bd = d_xx² + d_yy² + 2 d_xy²: thin-plate bending of inverse depth, zero on every
   plane, on the stencils that lie within one segment (`same_id_stencils`): no
   smoothing across an object boundary, none on pixels without a segment. With normals
@@ -68,7 +69,7 @@ class RefineConfig:
     """Energy weights, the robust and gating constants, the Gauss-Newton / CG budget.
 
     Inverse depth is normalized by the scene's median depth, so huber and the tolerances
-    are relative: huber 0.05 is a 5 % change of inverse depth, mv_tol a 5 % depth gap.
+    are relative: huber 0.05 is a 5 % change of inverse depth.
     """
 
     lambda_d: float = 1.0
@@ -78,7 +79,6 @@ class RefineConfig:
     lambda_delta: float = 1.0
     huber: float = 0.05  # E_d's Huber threshold on d - d0
     edge_tol: float = 0.02  # E_n's occlusion cut (log depth, `normals.cut_weights`)
-    mv_tol: float = 0.05  # log depth gap above which a match counts as occluded
     neighbors: int = 4  # views each view is matched with, the ones it overlaps most
     min_pixels: int = 100  # smaller segments of a view get no a, b
     gn_iters: int = 10
@@ -98,7 +98,7 @@ class RefineConfig:
             )
             >= 0
         )
-        assert self.huber > 0 and self.edge_tol > 0 and 0 < self.mv_tol < 1
+        assert self.huber > 0 and self.edge_tol > 0
         assert self.neighbors >= 1 and self.min_pixels >= 1
         assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
 
@@ -264,6 +264,13 @@ def bilinear(d: Tensor, view: Tensor, u: Tensor, v: Tensor) -> tuple[Tensor, Ten
     return (weights * c).sum(0), c.amax(0) / c.amin(0)
 
 
+def ray_in(scene: Scene, i: int, j: int, pixels: Tensor) -> tuple[Tensor, Tensor]:
+    """Rays of view i's (flat) pixels in camera j's coordinates: offset, direction."""
+    world_to_j = scene.rotation[j].T
+    rays = scene.rays[i].reshape(-1, 6)[pixels]
+    return (rays[:, :3] - scene.center[j]) @ world_to_j.T, rays[:, 3:] @ world_to_j.T
+
+
 def residuals(d: Tensor, scale: Tensor, scene: Scene, m: Matches) -> Tensor:
     """Return log z_j(x) + log d_j(π_j(x)) - log s per match, d (V, H, W)."""
     depth = scale / d.reshape(-1)[m.src]
@@ -290,49 +297,74 @@ def match_jacobian(
     return torch.cat([m.src[None], index]), torch.cat([g_src[None], g_corners])
 
 
+def occlusion_threshold(gaps: Tensor) -> float:
+    """Otsu's threshold on log |gap|: the split of least within-class variance.
+
+    The depth gaps between overlapping views fall into two modes: the same surface seen
+    twice (about 1 % on Hypersim) and a surface hidden behind another (about 50 %).
+    Otsu (1979) splits them where the two classes' log gaps vary least, exactly over the
+    sorted gaps, with no bins. It assumes both modes are there, as they are in every
+    scene with an occlusion.
+    """
+    x = gaps.abs().clamp_min(1e-6).log().double().sort().values
+    n = len(x)
+    assert n >= 2, n  # noqa: PLR2004
+    below = torch.arange(1, n, device=x.device, dtype=x.dtype)
+    total = x.cumsum(0)
+    mean_below = total[:-1] / below
+    mean_above = (total[-1] - total[:-1]) / (n - below)
+    k = int((below * (n - below) * (mean_below - mean_above).square()).argmax())
+    return math.exp(0.5 * (x[k] + x[k + 1]).item())
+
+
 @torch.no_grad()
 def find_matches(
-    scene: Scene, d0: Tensor, scale: Tensor, tol: float, neighbors: int
+    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
 ) -> Matches:
     """Match each view with its neighbors where the input agrees within tol (log).
 
-    A view's neighbors are the `neighbors` views it shares the most matches with; a pair
+    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
+    Both the gap and the spread of j's four interpolated pixels must stay below it. A
+    view's neighbors are the `neighbors` views it shares the most matches with; a pair
     counts if either side picks the other, and is matched both ways.
     """
     n, h, w = d0.shape
-    pairs: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
     flat = torch.arange(h * w, device=d0.device)
+    candidates: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
     for i in range(n):
         for j in range(n):
             if i == j:
                 continue
-            world_to_j = scene.rotation[j].T
-            offset = (
-                scene.rays[i, ..., :3].reshape(-1, 3) - scene.center[j]
-            ) @ world_to_j.T
-            direction = scene.rays[i, ..., 3:].reshape(-1, 3) @ world_to_j.T
+            offset, direction = ray_in(scene, i, j, flat)
             u, v, z = project(
                 offset + (scale / d0[i].reshape(-1))[:, None] * direction,
                 scene.k[j].expand(h * w, 3, 3),
             )
             dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
-            log_ratio = (z.clamp_min(1e-6) * dj / scale).log().abs()
-            keep = (z > 0) & (u >= 1) & (u <= w - 2) & (v >= 1) & (v <= h - 2)
-            keep &= (log_ratio < tol) & (spread.log() < tol)
-            pairs[i, j] = (flat[keep], offset[keep], direction[keep])
+            inside = (z > 0) & (u >= 1) & (u <= w - 2) & (v >= 1) & (v <= h - 2)
+            gap = (z.clamp_min(1e-6) * dj / scale).log()  # > 0: behind j's surface
+            candidates[i, j] = (flat[inside], gap[inside], spread[inside].log())
+    if tol is None:
+        tol = occlusion_threshold(torch.cat([g for _, g, _ in candidates.values()]))
+        log_info("occlusion threshold: %.4f (log depth)", tol)
+    pairs = {
+        ij: pix[(gap.abs() < tol) & (spread < tol)]
+        for ij, (pix, gap, spread) in candidates.items()
+    }
     counts = torch.zeros(n, n)
-    for (i, j), (pix, _, _) in pairs.items():
+    for (i, j), pix in pairs.items():
         counts[i, j] = len(pix)
     top = torch.zeros(n, n, dtype=torch.bool)
     top[torch.arange(n)[:, None], counts.topk(min(neighbors, n - 1), dim=1).indices] = (
         True
     )
     chosen = [(i, j) for (i, j) in pairs if top[i, j] or top[j, i]]
+    rays = [ray_in(scene, i, j, pairs[i, j]) for i, j in chosen]
     m = Matches(
-        torch.cat([i * h * w + pairs[i, j][0] for i, j in chosen]),
-        torch.cat([torch.full_like(pairs[i, j][0], j) for i, j in chosen]),
-        torch.cat([pairs[i, j][1] for i, j in chosen]),
-        torch.cat([pairs[i, j][2] for i, j in chosen]),
+        torch.cat([i * h * w + pairs[i, j] for i, j in chosen]),
+        torch.cat([torch.full_like(pairs[i, j], j) for i, j in chosen]),
+        torch.cat([offset for offset, _ in rays]),
+        torch.cat([direction for _, direction in rays]),
     )
     assert (
         (m.src // (h * w) != m.dst).all()
@@ -847,7 +879,7 @@ def build_problem(
                 for a in range(2)
             ],
         )
-    matches = find_matches(scene, d0, scale, cfg.mv_tol, cfg.neighbors)
+    matches = find_matches(scene, d0, scale, cfg.neighbors)
     matches = same_segment_matches(matches, scene, d0, scale, ids)
     return Problem(
         scene, scale, d0, w, terms, matches, same_id_stencils(ids), index, count

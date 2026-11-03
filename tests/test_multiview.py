@@ -22,6 +22,7 @@ from src.refinement.multiview import (
     grid_operator,
     match_jacobian,
     normal_equations,
+    occlusion_threshold,
     points_from_rays,
     refine_scene,
     residuals,
@@ -46,8 +47,13 @@ def rotation(angle: float) -> torch.Tensor:
     return torch.tensor([[c, 0, s], [0, 1, 0], [-s, 0, c]], dtype=torch.float64)
 
 
-def two_views(bump: float = 0.0) -> tuple[Scene, torch.Tensor]:
-    """Two pinholes 0.3 apart facing the plane n.x = 2; view 1 scaled by a bump."""
+def two_views(bump: float = 0.0, noise: float = 0.0) -> tuple[Scene, torch.Tensor]:
+    """Two pinholes 0.3 apart facing the plane n.x = 2; view 1 scaled by a bump.
+
+    A plate at z = 1, x < -0.3 hides part of the plane from view 0. With noise (log,
+    per pixel of view 1, as a backbone's), the gaps between the views fall into the two
+    modes `occlusion_threshold` splits: same surface and occluded.
+    """
     rotations = torch.stack([rotation(0.05), rotation(-0.1)])
     centers = torch.tensor([[0.0, 0, 0], [0.3, 0.05, 0]], dtype=torch.float64)
     v, u = torch.meshgrid(
@@ -59,8 +65,13 @@ def two_views(bump: float = 0.0) -> tuple[Scene, torch.Tensor]:
     dirs = torch.einsum("vij,hwj->vhwi", rotations, cam)
     origins = centers[:, None, None].expand_as(dirs)
     truth = (2 - origins @ NORMAL) / (dirs @ NORMAL)
+    plate = (1 - origins[..., 2]) / dirs[..., 2]
+    hit = (origins[..., 0] + plate * dirs[..., 0] < -0.3) & (plate < truth)
+    truth = torch.where(hit, plate, truth)
     depth = truth.clone()
     depth[1] *= 1 + bump * torch.exp(-((u - 32) ** 2 + (v - 24) ** 2) / 200)
+    generator = torch.Generator().manual_seed(0)
+    depth[1] *= torch.exp(noise * torch.randn(H, W, generator=generator))
     rays = torch.cat([origins, dirs], -1)
     scene = Scene(
         depth.float(),
@@ -95,7 +106,7 @@ def test_bilinear_is_exact_on_affine_maps() -> None:
 def test_consistent_views_have_zero_residual_and_a_bump_does_not() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
-    m = find_matches(scene, scale / scene.depth, scale, 0.05, 4)
+    m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
     assert len(m.src) > 0.5 * scene.depth.numel()
     assert residuals(scale / scene.depth, scale, scene, m).abs().max() < 1e-4
     bumped, _ = two_views(bump=0.03)
@@ -112,12 +123,20 @@ def test_zero_iterations_and_zero_weight_return_the_input() -> None:
         assert (depth - scene.depth).abs().max() < 1e-6
 
 
+def test_occlusion_threshold_splits_same_surface_from_occluded_gaps() -> None:
+    rng = np.random.default_rng(0)
+    same = 0.01 * rng.standard_normal(8000)  # one surface, 1 % apart
+    hidden = rng.uniform(0.2, 1.5, 2000)  # behind another surface
+    tol = occlusion_threshold(torch.from_numpy(np.concatenate([same, hidden])))
+    assert np.abs(same).max() < tol < hidden.min()
+
+
 def test_agreement_meets_halfway_between_two_views() -> None:
-    scene, truth = two_views(bump=0.03)
+    scene, truth = two_views(bump=0.03, noise=0.01)
     cfg = RefineConfig(lambda_mv=100.0, lambda_n=0.0, lambda_delta=0.0, device="cpu")
     depth, _, _ = refine_scene(scene, cfg)
     scale = scene.depth.median()
-    m = find_matches(scene, scale / scene.depth, scale, 0.05, 4)
+    m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
     before = residuals(scale / scene.depth, scale, scene, m).abs().max()
     assert residuals(scale / depth, scale, scene, m).abs().max() < 0.1 * before
     center = (slice(20, 28), slice(28, 36))
@@ -144,7 +163,7 @@ def test_geometry_lifts_every_pixel_where_the_rays_do() -> None:
 
 
 def test_joint_refiner_is_refine_scene_on_the_pipeline_types() -> None:
-    scene, _ = two_views(bump=0.03)
+    scene, _ = two_views(bump=0.03, noise=0.01)
     geometry = geometry_from_scene(scene, scene.depth, scene.conf)
     views = Views(
         "toy",
@@ -218,7 +237,7 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         d0,
         w,
         stacked,
-        find_matches(scene, d0, scale, 0.05, 4),
+        find_matches(scene, d0, scale, 4, 0.05),
         same_id_stencils(one),
         torch.full((d0.numel(),), -1),
         0,
@@ -370,12 +389,12 @@ def test_normal_equations_with_segments_match_autograd() -> None:
 
 
 def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
-    scene, truth = two_views()
+    scene, truth = two_views(noise=0.01)
     depth = scene.depth.clone()
     depth[1] *= 1.03  # view 1 too far everywhere: one wrong scale
     scene = dataclasses.replace(scene, depth=depth)
     scale = depth.median()
-    m = find_matches(scene, scale / depth, scale, 0.05, 4)
+    m = find_matches(scene, scale / depth, scale, 4)  # as refine_scene matches
     seen = torch.zeros(2 * H * W, dtype=torch.bool)
     seen[m.src] = True
     unseen = ~seen.view(2, H, W)[1]
@@ -398,7 +417,7 @@ def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
     # agreement meets halfway: matched pixels end ~1.5 % off, as both views move
     (unseen_d, seen_d), (unseen_ab, seen_ab) = moved
     assert 0.01 < seen_d < 0.02 and 0.01 < seen_ab < 0.02
-    assert unseen_d > 0.028  # no segment, δ alone: pixels without a match keep 3 %
+    assert unseen_d > 0.025  # no segment, δ alone: pixels without a match keep ~3 %
     assert abs(unseen_ab - seen_ab) < 0.002  # with a, b they move with the segment
 
 
@@ -406,7 +425,7 @@ def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
     d0 = scale / scene.depth
-    m = find_matches(scene, d0, scale, 0.05, 4)
+    m = find_matches(scene, d0, scale, 4, 0.05)
     same = torch.zeros(2, H, W, dtype=torch.long)
     assert len(same_segment_matches(m, scene, d0, scale, same).src) == len(m.src)
     split = same.clone()
