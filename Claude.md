@@ -34,13 +34,13 @@ Refine inverse depth per pixel: d̂_i(p) = d⁰_i(p) + δ_i(p), minimizing by Ga
 Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned
 CG, matrix-free), the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
 Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end. The
-energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the other views
-that agree on the pixel's instance id); E_mv and E_n only within one instance; E_n is BiNI's normal term on DSINE
-normals (`src/refinement/normals.py`, part of the method). Every weight is 1; weights are set later, on validation
-scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim validation scenes (`configs/eval_hypersim.yaml`),
-scored by `src/evaluation/labeled.py`. The method is a black box for the evaluation: only its output cloud is scored,
-registered onto the ground truth from the clouds alone (first-camera start, scaled ICP); no per-pixel correspondences,
-cameras or depth maps of the method.
+energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the other
+views that agree on the pixel's instance id); E_mv and E_n only within one instance; E_n is BiNI's normal term on
+DSINE normals (`src/refinement/normals.py`, part of the method). Every weight is 1; weights are set later, on
+validation scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim's three tilt-shift validation scenes
+(`stress`, `configs/eval_hypersim.yaml`), scored by `src/evaluation/labeled.py`. The method is a black box for the
+evaluation: only its output cloud is scored, registered onto the ground truth from the clouds alone (first-camera
+start, scaled ICP); no per-pixel correspondences, cameras or depth maps of the method.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.

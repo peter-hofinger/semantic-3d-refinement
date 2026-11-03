@@ -142,8 +142,9 @@ uv run run-pipeline $D/views_n20_uniform_504.npz --geometry $D/dejaview_k16_view
 ## Evaluation (Hypersim)
 
 One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
-- **Scenes:** Hypersim validation scenes, 20 views each. The test split is never used, and no
-  weight is tuned: every energy term has weight 1.
+- **Scenes:** the three tilt-shift validation scenes (`stress` in `configs/hypersim.yaml`),
+  20 views each. The test split is never used, and no weight is tuned: every energy term has
+  weight 1.
 - **Inputs:** cached Déjà View geometry, DSINE normals and linked SAM 3 masks, with one prompt
   per NYU40 class.
 - **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
@@ -158,7 +159,7 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
     points.
 
 ```bash
-uv run hypersim-download && uv run hypersim-prepare
+uv run hypersim-download --splits stress && uv run hypersim-prepare --splits stress
 uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, dsine-predict, sam3-segment
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
