@@ -76,7 +76,7 @@ def main() -> None:
         choices=["identity", "joint"],
         default="identity",
         help="identity: unchanged depth (placeholder); joint: all views by "
-        "Gauss-Newton, E_d + E_mv (src/refinement/multiview.py)",
+        "Gauss-Newton, E_d + E_mv + E_n (src/refinement/multiview.py)",
     )
     parser.add_argument(
         "--refine-config",
