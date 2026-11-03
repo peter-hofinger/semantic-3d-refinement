@@ -1,10 +1,11 @@
-"""Figures and a README for a `scene_eval` run: scores, views, clouds from above.
+"""Figures for a `scene_eval` run: scores, energy terms, cross sections, views, classes.
 
 `uv run python -m src.analysis.scene_figures --run runs/<run>` writes
 `figures/<run>/`: the headline scores of every variant on every scene, and per scene
-the views with ground-truth and SAM 3 objects next to each pixel's distance to the
-nearest ground-truth point (accuracy, per pixel), the fused clouds from above, surface
-normals at mask boundaries and the IoU of every class.
+each energy term per pixel before and after refinement, a horizontal cross section of
+the fused clouds with a 1 m close-up, the views with ground-truth and SAM 3 objects next
+to each pixel's distance to the nearest ground-truth point, the fused clouds from
+above, surface normals, and the F-score and IoU of every class.
 """
 
 import argparse
@@ -23,7 +24,13 @@ from scipy.spatial import cKDTree
 
 from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
 from src.evaluation.labeled import NONE, lift, predicted_cloud
-from src.refinement.multiview import points_from_rays
+from src.refinement.multiview import (
+    RefineConfig,
+    build_problem,
+    consistency,
+    energy_maps,
+    points_from_rays,
+)
 
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
@@ -44,6 +51,9 @@ ERROR_MAX_CM = 30.0
 SHOWN_VIEWS = (0, 5, 10, 15)
 TOP_POINTS = 150_000  # per panel of the clouds from above
 SLAB = (0.05, 1.5)  # m above the floor shown from above: furniture, no floor or ceiling
+SECTION = (0.75, 0.77)  # m above the floor: the cross section, table height
+ZOOM = 1.0  # m, side of the cross section's close-up
+TERMS = ("E_d", "E_bd", "E_n", "E_mv")
 
 
 def instance_colors(ids: np.ndarray) -> np.ndarray:
@@ -293,8 +303,7 @@ def normals_figure(
     axes[1, 0].set_ylabel("center, 2x")
     fig.suptitle(
         f"{name}, view {v}: surface normals of each variant's points (central "
-        "differences; color = direction). Smoothing across an object edge shows as a "
-        "blurred color change where the red boundary runs.",
+        "differences; color = direction); red: SAM 3 boundaries",
         x=0.01,
         ha="left",
         fontsize=9,
@@ -303,23 +312,149 @@ def normals_figure(
     plt.close(fig)
 
 
-def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
-    """IoU of every evaluated class present in the scene, per shown variant."""
-    classes = sorted(
-        {c for n in names for c in record[n]["iou_per_class"]},
-        key=lambda c: -record[names[0]]["iou_per_class"].get(c, 0),
+def energy_figure(
+    inputs: SceneInputs, depth: np.ndarray, cfg: RefineConfig, name: str, out: Path
+) -> None:
+    """Each energy term per pixel of one view, on the input and on the refined depth."""
+    v = SHOWN_VIEWS[1]
+    segments = torch.from_numpy(inputs.labels.instance_ids.astype(np.int64))
+    p = build_problem(inputs.scene, cfg, inputs.normals, segments)
+    rows = {
+        "Déjà View": energy_maps(p.d0, cfg, p),
+        "Refined": energy_maps(p.scale / torch.from_numpy(depth), cfg, p),
+    }
+    gate = consistency(inputs.scene, p.d0, p.scale, segments)
+    ids = inputs.labels.instance_ids[v]
+    edges = np.zeros(ids.shape, dtype=bool)
+    edges[:, 1:] |= ids[:, 1:] != ids[:, :-1]
+    edges[1:] |= ids[1:] != ids[:-1]
+    overlay = inputs.views.images[v].astype(float) / 255
+    overlay[edges] = (1.0, 0.2, 0.2)
+    fig, axes = plt.subplots(
+        2, 2 + len(TERMS), figsize=(2.9 * (2 + len(TERMS)), 5.4), layout="constrained"
     )
-    fig, ax = plt.subplots(figsize=(max(6.0, 1 + 0.45 * len(classes)), 3.6))
+    for row, (title, maps) in zip(axes, rows.items(), strict=True):
+        row[0].imshow(overlay)
+        row[0].set_ylabel(title)
+        u = row[1].imshow(
+            gate[v],
+            cmap=SEQUENTIAL,
+            vmin=0,
+            vmax=1,
+        )
+        for ax, key in zip(row[2:], TERMS, strict=True):
+            cost = maps[key][v].numpy()
+            high = max(
+                float(np.percentile(m[key].numpy(), 99.5)) for m in rows.values()
+            )
+            im = ax.imshow(
+                np.log10(cost + 1e-12), cmap=SEQUENTIAL, vmin=np.log10(high) - 4,
+                vmax=np.log10(high),
+            )  # fmt: skip
+            ax.set_title(f"{key}, mean {maps[key].mean().item():.3g}", fontsize=8)
+        for ax in row:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(visible=False)
+    axes[0, 0].set_title("image + SAM 3 boundaries", fontsize=8)
+    axes[0, 1].set_title("consistency u (E_d's gate)", fontsize=8)
+    fig.colorbar(u, ax=axes[:, 1], location="bottom", shrink=0.8)
+    fig.colorbar(
+        im, ax=axes[:, 2:], location="bottom", shrink=0.5,
+        label="log10 weighted cost per pixel, 4 decades below each term's 99.5th "
+        "percentile",
+    )  # fmt: skip
+    fig.suptitle(
+        f"{name}, view {v}: where each energy term sits, on Déjà View's depth (top) "
+        "and the refined depth (bottom); means over all views",
+        x=0.01,
+        ha="left",
+        fontsize=9,
+    )
+    fig.savefig(out / f"{name}_energy.png", dpi=110)
+    plt.close(fig)
+
+
+def section_figure(
+    inputs: SceneInputs, points: dict[str, np.ndarray], name: str, out: Path
+) -> None:
+    """Fused clouds in a 2 cm slice at table height, colored by view, and a close-up."""
+    truth = ground_truth_points(inputs)[inputs.gt.depth > 0]
+    floor = np.percentile(truth[:, 2], 2)
+
+    def band(x: np.ndarray) -> np.ndarray:
+        height = x[:, 2] - floor
+        return (height > SECTION[0]) & (height < SECTION[1])
+
+    gt = truth[band(truth)]
+    wall = gt[gt[:, 0] > np.percentile(gt[:, 0], 90)]
+    center = np.median(wall[:, :2], axis=0)  # on the wall with the largest x
+    lo, hi = np.percentile(truth[:, :2], [1, 99], axis=0)
+    view = np.broadcast_to(
+        np.arange(len(inputs.gt.depth))[:, None, None], inputs.gt.depth.shape
+    )
+    colors = plt.get_cmap("tab20")(np.arange(20))
+    columns = {"ground truth": None, **points}
+    fig, axes = plt.subplots(
+        2, len(columns), figsize=(4.6 * len(columns), 8.4), layout="constrained"
+    )
+    for col, (title, pts) in zip(axes.T, columns.items(), strict=True):
+        for ax, (a, b), size in zip(
+            col, ((lo, hi), (center - ZOOM / 2, center + ZOOM / 2)), (0.3, 2.0),
+            strict=True,
+        ):  # fmt: skip
+            ax.scatter(*gt[:, :2].T, s=size, c="0.5", lw=0)
+            if pts is not None:
+                seen = np.isfinite(pts).all(-1)
+                flat, ids = pts[seen], view[seen]
+                keep = band(flat)
+                ax.scatter(*flat[keep, :2].T, s=size, c=colors[ids[keep] % 20], lw=0)
+            ax.set_xlim(a[0], b[0])
+            ax.set_ylim(a[1], b[1])
+            ax.set_aspect("equal")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(visible=False)
+        col[0].set_title(title, fontsize=9)
+        col[1].set_title(f"{title}: {ZOOM:g} m close-up", fontsize=9)
+    fig.suptitle(
+        f"{name}: {100 * (SECTION[1] - SECTION[0]):g} cm slice "
+        f"{100 * SECTION[0]:g} cm above the floor; gray ground truth, colors = view",
+        x=0.01,
+        ha="left",
+        fontsize=9,
+    )
+    fig.savefig(out / f"{name}_section.png", dpi=110)
+    plt.close(fig)
+
+
+def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
+    """F-score at 5 cm and IoU of every evaluated class in the scene, per variant."""
+    classes = sorted(
+        record[names[0]]["surface_per_class"],
+        key=lambda c: -record[names[0]]["surface_per_class"][c]["fscore"],
+    )
+    fig, axes = plt.subplots(
+        2, 1, figsize=(max(6.0, 1 + 0.45 * len(classes)), 6.4), sharex=True
+    )
     width = 0.8 / len(names)
-    for j, n in enumerate(names):
-        values = [record[n]["iou_per_class"].get(c, 0) for c in classes]
-        x = np.arange(len(classes)) + (j - (len(names) - 1) / 2) * width
-        ax.bar(x, values, width, color=SCENE_COLORS[j], label=n)
-    ax.set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
-    ax.set_ylabel("IoU on ground-truth points")
-    ax.set_ylim(0, 1)
-    ax.legend(loc="upper right")
-    ax.set_title(f"{name}: IoU per class (≥ 100 ground-truth voxels)", fontsize=9)
+    for ax, (label, value) in zip(
+        axes,
+        (
+            ("F-score at 5 cm", lambda r, c: r["surface_per_class"][c]["fscore"]),
+            ("IoU on ground-truth points", lambda r, c: r["iou_per_class"].get(c, 0)),
+        ),
+        strict=True,
+    ):
+        for j, n in enumerate(names):
+            x = np.arange(len(classes)) + (j - (len(names) - 1) / 2) * width
+            ax.bar(x, [value(record[n], c) for c in classes], width,
+                   color=SCENE_COLORS[j], label=n)  # fmt: skip
+        ax.set_ylabel(label)
+        ax.set_ylim(0, 1)
+    axes[1].set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
+    axes[0].legend(loc="upper right")
+    axes[0].set_title(f"{name}: per class (≥ 100 ground-truth voxels)", fontsize=9)
     fig.tight_layout()
     fig.savefig(out / f"{name}_classes.png", dpi=120)
     plt.close(fig)
@@ -344,6 +479,8 @@ def main() -> None:
     variants = run["config"]["variants"]
     names = [v["name"] for v in variants]
     device = torch.device("cpu")
+    cfg = RefineConfig(**run["refine"]["refine"] | {"device": "cpu"})
+    refined = names.index("Refined")
     for scene in run["scenes"]:
         inputs = load_inputs(run["config"], scene, device)
         assert inputs is not None, scene
@@ -358,6 +495,8 @@ def main() -> None:
             )
 
         points = {n: registered(n) for n in args.show}
+        energy_figure(inputs, arrays[f"{scene}/{refined}"], cfg, scene, out)
+        section_figure(inputs, points, scene, out)
         views_figure(inputs, points, scene, out)
         topdown_figure(inputs, points, scene, out)
         normals_figure(inputs, points, scene, out)

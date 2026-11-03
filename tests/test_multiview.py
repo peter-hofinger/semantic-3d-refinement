@@ -13,7 +13,9 @@ from src.refinement.multiview import (
     Scene,
     bilinear,
     build_problem,
+    change,
     consistency,
+    energy_maps,
     find_matches,
     fit_pinhole,
     geometry_from_scene,
@@ -26,6 +28,7 @@ from src.refinement.multiview import (
     robust,
     same_id_stencils,
     same_segment_matches,
+    scene_energy,
     scene_from_geometry,
     scene_residuals,
     segment_index,
@@ -311,6 +314,25 @@ def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
     assert seen.sum() > 0.5 * H * W and (u[0][seen] == 0).all() and (u[1] == 0).any()
     unmasked = torch.full((2, H, W), -1, dtype=torch.long)
     assert (consistency(scene, d0, scale, unmasked) == 1).all()
+
+
+def test_energy_maps_add_up_to_the_energy() -> None:
+    scene, _ = two_views(bump=0.03)
+    scene = Scene(*(getattr(scene, f).double() for f in scene.__dataclass_fields__))
+    normals = torch.stack(
+        [normals_from_depth(scene.depth[i] * 1.01, scene.rays[i]) for i in range(2)]
+    )
+    cfg = RefineConfig(lambda_delta=0.0, huber=0.01, device="cpu")
+    p = build_problem(scene, cfg, normals, halves())
+    x = 0.02 * torch.randn(
+        p.d0.numel() + 2 * p.num_segments,
+        generator=torch.Generator().manual_seed(0),
+        dtype=torch.float64,
+    )
+    terms = scene_energy(x, cfg, p)
+    maps = energy_maps(p.d0 + change(x, p), cfg, p)
+    for key, cost in maps.items():
+        torch.testing.assert_close(cost.mean().item(), terms[key], rtol=1e-9, atol=0)
 
 
 def test_semantic_solve_with_no_steps_returns_the_input() -> None:

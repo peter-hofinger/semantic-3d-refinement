@@ -547,6 +547,39 @@ def scene_energy(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, float]:
     return {"E": e} | terms
 
 
+def energy_maps(d: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
+    """Weighted cost of E_d, E_bd, E_n and E_mv per pixel (V, H, W) at inverse depth d.
+
+    Their means are the terms of E (λ_δ ‖δ‖² aside, which needs δ, not d). A stencil's
+    or an edge's cost sits on its first pixel, a match's on its source pixel.
+    """
+    pad = torch.nn.functional.pad
+    maps = {"E_d": 0.5 * cfg.lambda_d * p.w * robust(d - p.d0, cfg.huber)[0].square()}
+    dxx, dyy, dxy = second_differences(d)
+    masks = smoothing_masks(p)
+    maps["E_bd"] = cfg.lambda_bd * (
+        pad((dxx * masks[0]).square(), (1, 1))
+        + pad((dyy * masks[1]).square(), (0, 0, 1, 1))
+        + 2 * pad((dxy * masks[2]).square(), (0, 1, 0, 1))
+    )
+    if p.normals is not None:
+        z = -d.clamp_min(1e-6).log()
+        dzs = (z[..., 1:] - z[..., :-1], z[..., 1:, :] - z[..., :-1, :])
+        cost = torch.zeros_like(d)
+        for (af, gf, ab, gb), (wf, wb), dz, side in zip(
+            p.normals.terms, p.normals.weights, dzs, ((0, 1), (0, 0, 0, 1)), strict=True
+        ):
+            cost = cost + pad(
+                wf * (af * dz + gf).square() + wb * (ab * dz + gb).square(), side
+            )
+        maps["E_n"] = cfg.lambda_n * cost
+    r = residuals(d, p.scale, p.scene, p.matches)
+    maps["E_mv"] = cfg.lambda_mv * torch.zeros(
+        d.numel(), dtype=d.dtype, device=d.device
+    ).index_add(0, p.matches.src, r.square()).view_as(d)
+    return maps
+
+
 def grid_operator(
     d: Tensor, cfg: RefineConfig, p: Problem, *, squared: bool = False
 ) -> Callable[[Tensor], Tensor]:

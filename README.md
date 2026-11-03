@@ -128,9 +128,9 @@ uv run run-pipeline $D/views_n20_uniform_504.npz --geometry $D/dejaview_k16_view
 
 One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
 - **Scenes:** Hypersim validation scenes, 20 views each. The test split is never used, and no
-  weight is tuned: every energy term that is on has weight 1.
-- **Inputs:** cached Déjà View geometry and linked SAM 3 masks, with one prompt per NYU40
-  class.
+  weight is tuned: every energy term has weight 1.
+- **Inputs:** cached Déjà View geometry, DSINE normals and linked SAM 3 masks, with one prompt
+  per NYU40 class.
 - **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
   It is registered onto the ground truth from the two clouds alone: a start from the first
   camera and the ratio of median distances to it, then ICP that also fits the scale
@@ -144,28 +144,24 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
 
 ```bash
 uv run hypersim-download && uv run hypersim-prepare
-uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, sam3-segment
+uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, dsine-predict, sam3-segment
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Kitchen, conference room and restaurant, 20 views each, every energy term at weight 1
-(`figures/eval_hypersim-20261103-111445`; 2.4 min for all 8 variants):
+Kitchen, conference room and restaurant, 20 views each, every energy weight 1, none tuned
+(`figures/eval_hypersim-20261103-124707`; 1.5 min):
 
-| F-score at 2 cm (fused cloud) | kitchen | conference | restaurant |
+| F-score at 5 cm | kitchen | conference | restaurant |
 |---|---|---|---|
-| Déjà View | 0.633 | 0.381 | 0.519 |
-| + agreement (E_d + E_mv) | 0.621 | 0.382 | 0.486 |
-| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks (`configs/refine_semantic.yaml`) | 0.644 | 0.377 | 0.517 |
-| same, shuffled masks (control) | 0.600 | 0.368 | 0.516 |
-| same, ground-truth masks | 0.641 | 0.375 | 0.505 |
+| Déjà View | 0.910 | 0.626 | 0.777 |
+| Refined (`configs/refine.yaml`) | 0.815 | 0.572 | 0.556 |
 
-- **Agreement:** the views become consistent (disagreement 0.5–1 % → 0.05 %); precision rises
-  (+0.03 to +0.06), recall falls (−0.14 to −0.16), and the F-score does not improve.
-- **Smoothing:** cut at SAM 3's mask boundaries, it no longer melts objects together (kitchen
-  F-score 0.518 uncut, 0.629 cut).
-- **Masks:** shuffled masks score like real ones on two of three scenes, and ground-truth
-  masks no better than SAM 3's. Reruns move F-scores by up to 0.006 and, on the conference
-  room, label scores by up to 0.1 (see the report).
+- **At equal weights E_n dominates** (43–108 against at most 0.004 for every other term at the
+  start): each view follows DSINE's normals and drifts on its own, disagreement between views
+  rises (0.5–1.0 % → 0.7–1.6 %), and the F-score falls on every scene. The surface normals,
+  though, become smooth and close to the ground truth's. Setting the weights is the next step.
+- **The solve runs to the end:** all 10 Gauss-Newton steps on every scene, since smoothing
+  stays within one segment.
 
 ## Layout
 
