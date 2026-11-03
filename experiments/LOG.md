@@ -59,6 +59,7 @@ Metrics:
 | E29 | Hypersim loader: views + GT from Hypersim's per-pixel maps, three val scenes (kitchen, conference room, restaurant) | correct to float16 precision (lifted points vs Hypersim's position map: median 1.2 mm); most Hypersim cameras are tilt-shift (254 + 31 of 482 scenes), handled exactly as K + camera rotation, skewed ones rejected; walls / floors / ceilings have no instances -> one per class; conference room 23% unlabeled (behind glass). Per-view GT re-associated with GT geometry: consistent 1.00 / 1.00 / 0.98, 0 merges (working setting 0.94 / 0.91 / 0.94) |
 | E30 | First Hypersim run of the segmenter: six val scenes (3 tilt-shift, 3 plain cameras), top100 vs Qwen3.8-27B union cap64, Déjà View vs GT geometry | Déjà View always predicts a centred principal point: on plain cameras depth 0.45-0.87%, Rel. L2 0.010-0.026 and association consistency ~ GT geometry (0.82 / 0.70 / 0.81 vs 0.82 / 0.76 / 0.81); on tilt-shift scenes consistency drops 0.12-0.31 (conference room Rel. L2 0.116). VLM list not better than top100 outside ScanNet++: precision lower everywhere (0.10-0.43 vs 0.23-0.49), part names split chairs (conference consistent 0.55 -> 0.36), the name "lobby" merges wall and floor (cross-class leakage 0.188). Protocol: plain-camera scenes; top100 stays default |
 | E31 | Rank the 20 bedroom views (Hypersim ai_006_007) by Déjà View's bleeding at GT depth edges, to choose the shared visual views | bleeding pixels 0.7-6.4% of the image; top views 18, 19, 0, 12; median error near edges 1.8-3.0% vs 0.3-0.9% far (as E18 / ETH3D). Bleeding sits on thin structures in front of distant surfaces (ornate bed frame, vanity mirror frame, chair and stool legs); planes stay below 1%. Visual views: frames 94, 0, 62 + 31 (overview) |
+| E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
 
 ## Reference table (current scorer, E11)
 
@@ -1576,3 +1577,35 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Conclusion:** visual views for the bedroom = frames 94, 0, 62 (ranks 1, 3, 4; rank 2 = frame 99 is nearly the same
   viewpoint as 94) plus frame 31 (rank 9) as the room overview. The bed frame is the clearest test of whether a refiner
   sharpens thin structures without smoothing across them.
+
+## E32: how the four shared bedroom views segment (03.11.2026)
+- **Goal:** a visual of the segmenter on the shared views (E31: views 18, 0, 12, 6 of Hypersim `ai_006_007`), in a form
+  that shows identity without id numbers (old TODO: better segmentation visuals than id overlays).
+- **Setting:** E30's cache, SAM 3 image mode top100 t0.3 + 3D linking xc0.7 vf0.25 kl0.5 with Déjà View geometry.
+  Colours: each linked object takes the colour of the GT object it covers most over all 20 views (one linked object
+  per GT object, largest overlap wins); further linked objects on the same GT object get other colours. Same colour
+  in the GT and SAM 3 columns = same object; a colour change of one object between views = id switch. Error map per
+  labeled GT pixel: right object / other object / no mask.
+- **Command:** `PYTHONIOENCODING=utf-8 uv run python experiments/scripts/e32_bedroom_segmentation.py >
+  experiments/results/e32_bedroom_segmentation.txt` (CPU, seconds).
+- **Results** (share of labeled GT pixels): right object 0.83-0.92, other object 0.01-0.03, no mask 0.06-0.16. Over the
+  scene 263 linked objects touch labeled pixels; 52 carry their GT object's colour, 211 are extra (part masks,
+  single-view masks, splits; precision 0.49 in E30).
+- **Where it goes wrong** (pixel counts per view from a breakdown of the same data):
+  1. Other object, mostly at the bed frame: the "bed" mask fills the gaps between the ornate bars, so wall, floor and
+     pillow pixels seen through the frame get the bed's id (view 18: 2.3k px). These are the pixels where Déjà View
+     bleeds most (E31), so here the mask would tie the background to the frame.
+  2. Other object by GT granularity: Hypersim labels the clothes inside the wardrobe separately; SAM 3's "cabinet" mask
+     covers them (2.0k / 1.2k px in views 18 / 12). Not a real error for geometry.
+  3. No mask: the mirror (view 0: 17k px, the largest single gap) and the floor mat (rug) in views 12 / 6 (12.5k /
+     18.2k px) are never masked, although top100 contains mirror and rug.
+  4. Walls: GT has one wall instance for the whole room; SAM 3 masks wall planes separately (the magenta wall is an
+     extra object). Counted right (it lies on the wall), only a granularity difference.
+  Cross-view identity of the shared objects holds in these views: door, wardrobe, vanity, pink chair and stool keep
+  one colour.
+- **Figure:** `figures/e32_bedroom_segmentation.jpg` (per view: image, GT instances, SAM 3 + linking in matched colours,
+  error map).
+- **Conclusion:** on the bedroom the harmful error is concentrated in one place: masks of thin objects with holes
+  (the bed frame) cover what is behind them, exactly where depth bleeds. A refiner that smooths within segments would
+  pull the wall seen through the frame towards the frame; such masks need trimming (e.g. by Déjà View depth jumps)
+  before they can cut or tie geometry.

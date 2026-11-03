@@ -1,0 +1,12 @@
+## E32: bedroom ai_006_007, SAM 3 top100 t0.3 + 3D linking (Déjà View geometry), views (18, 0, 12, 6)
+
+linked objects on labeled pixels: 263; with the colour of their GT object: 52; extra (split / second id on a GT object already owned): 211
+
+| view | frame | right object | other object | no mask | unlabeled GT (% of image) |
+|---|---|---|---|---|---|
+| 18 | 0094 | 0.92 | 0.03 | 0.06 | 0.1 |
+| 0 | 0000 | 0.83 | 0.01 | 0.16 | 7.8 |
+| 12 | 0062 | 0.84 | 0.02 | 0.13 | 0.0 |
+| 6 | 0031 | 0.83 | 0.01 | 0.16 | 0.0 |
+
+figure: experiments\figures\e32_bedroom_segmentation.jpg
