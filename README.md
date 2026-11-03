@@ -111,19 +111,27 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 
 ## Refinement (joint, all views)
 
-`--refiner joint` (`src/refinement/multiview.py`) refines the depth of all views at
-once: each view stays near Déjà View's depth (E_d) and overlapping views must agree
-(E_mv, log depth ratio of each pixel and its projection), cameras fixed, solved by
-Gauss-Newton with conjugate gradients. Settings in `configs/refine.yaml`; E_n on DSINE
-normals is opt-in (DSINE is non-commercial and stays outside git). The segmentation is
-not used by the energy yet.
+`--refiner joint` (`src/refinement/multiview.py`) refines the inverse depth of all views
+at once, per pixel as d = d⁰ + δ, cameras fixed, by Gauss-Newton with matrix-free
+conjugate gradients:
+
+E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 for now and λ_n = 1e-4 for E_n's units
+(`configs/refine.yaml`).
+
+- **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
+  of other views that agree on the pixel's instance, so it lets go where views disagree.
+- **E_mv**: overlapping views must agree on depth, only between pixels of one instance and
+  not where one view's surface hides the other's: a gap counts as occluded above Otsu's
+  threshold on the scene's gaps (about 4 % on Hypersim), so there is no tolerance to set.
+- **E_n**: BiNI's normal term on DSINE normals (`src/refinement/normals.py`), the only
+  shape term: only between pixels of one instance and cut on the input's occlusion
+  contours. DSINE is non-commercial and stays outside git
+  (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
 
 ```bash
 D=data/processed/scannetpp/5ee7c22ba0
 uv run run-pipeline $D/views_n20_uniform_504.npz --geometry $D/dejaview_k16_views_n20_uniform_504.npz \
     --segmenter sam3 --refiner joint --out outputs/5ee7c22ba0/cloud.ply
-uv run eval-geometry $D/views_n20_uniform_504.npz outputs/5ee7c22ba0/cloud_{backbone,geometry}.npz \
-    --gt $D/gt_views_n20_uniform_504.npz   # needs scannetpp-render-gt
 ```
 
 `cloud.ply` holds per point xyz, rgb, `instance` (same id = same object in every view,
@@ -131,20 +139,46 @@ uv run eval-geometry $D/views_n20_uniform_504.npz outputs/5ee7c22ba0/cloud_{back
 <name>` in the header). Next to it: `cloud_backbone.npz` (Déjà View), `cloud_geometry.npz`
 (refined) and `cloud_segmentation.npz`.
 
-ScanNet++ kitchen (5ee7c22ba0), 20 views of 504 x 336, against the laser-scan mesh
-(fused cloud of all views mapped by one similarity on the camera centers; thickness: RMS
-distance to local planes on a 5 mm grid; disagreement: median depth gap between
-overlapping views):
+## Evaluation (Hypersim)
 
-| | mean (mm) | median (mm) | thickness (mm) | disagreement (%) |
-|---|---|---|---|---|
-| Déjà View (K = 16) | 13.8 | 11.1 | 3.5 | 0.69 |
-| + joint refinement (E_d + E_mv) | 12.8 | 10.3 | 0.7 | 0.04 |
+One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
+- **Scenes:** the `dev` split of `configs/hypersim.yaml`, three validation scenes with
+  centred cameras, 20 views each. The test split is never used, and no weight is tuned: every
+  energy term has weight 1.
+- **Inputs:** cached Déjà View geometry, DSINE normals and linked SAM 3 masks, with one prompt
+  per NYU40 class.
+- **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
+  It is registered onto the ground truth from the two clouds alone: a start from the first
+  camera and the ratio of median distances to it, then ICP that also fits the scale
+  (as π³ and VGGT are evaluated). Each variant is registered on its own.
+- **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth on a
+  1 cm grid:
+  - accuracy, completeness and F-score at 5 cm (Tanks and Temples), for the scene and per
+    class;
+  - mIoU and instance AP50 (ScanNet's protocol), on labels transferred to the ground-truth
+    points.
 
-Agreement removes the layering of overlapping views (5x thinner surfaces) but moves the
-surface only 7 % closer to the scan: it fixes what the views disagree on, not the error
-they share. Refinement takes 2.1 s for the 20 views on an RTX 3080; SAM 3 and the linking
-about 1.5 min.
+```bash
+uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
+uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, dsine-predict, sam3-segment
+uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
+```
+
+Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none tuned
+(`figures/eval_hypersim-20261103-155403`; 1.7 min):
+
+| F-score at 5 cm | living room | bedroom | lobby |
+|---|---|---|---|
+| Déjà View | 0.941 | 0.913 | 0.677 |
+| Refined (`configs/refine.yaml`) | 0.950 | 0.910 | 0.644 |
+
+- **Accuracy improves on every scene** (2.24 → 1.81, 2.71 → 2.46, 6.13 → 5.89 cm), and the
+  views fuse: disagreement between overlapping views falls 6–8×.
+- **Completeness drops.** The refined surfaces are thinner than Déjà View's scatter, which
+  costs most in the large lobby. Setting the weights is the next step.
+- **Noise:** the same energy scores within about 0.006 between runs (GPU sums are not
+  bitwise reproducible).
+- The tilt-shift scenes of the `stress` split are in `figures/eval_hypersim-20261103-150543`.
 
 ## Layout
 
@@ -158,12 +192,13 @@ src/                the code, imported as `src`
   geometry.py       Geometry (depth + cameras), lifting to 3D
   backbone/         Backbone interface; Déjà View goes here
   segmentation/     Segmentation, Segmenter interface, SAM 3 + association
-  refinement/       Refiner interface; joint (multiview.py) and single-view
-                    (monocular.py) refinement, BiNI + DSINE normals (normals.py)
+  refinement/       Refiner interface; joint refinement by Gauss-Newton (multiview.py),
+                    the normal term on DSINE normals (normals.py)
   output.py         PointCloud, PLY export
   pipeline.py       chains the stages
-  evaluation/       metrics against ground truth: instances, depth, fused cloud
-  analysis/         refinement studies: artifacts, solver benchmark, figures
+  evaluation/       metrics against ground truth: instances (instances.py), labeled
+                    cloud (labeled.py: F-score, mIoU, instance AP50)
+  analysis/         the Hypersim protocol (scene_eval.py), its figures and point renders
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README
 tests/

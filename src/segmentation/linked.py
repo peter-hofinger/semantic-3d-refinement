@@ -12,20 +12,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol, runtime_checkable
 
+from src.geometry import Geometry
+from src.loaders import Views
 from src.segmentation.associate import Associator
+from src.segmentation.base import Segmentation
 from src.segmentation.sam3 import Sam3ImageSegmenter, load_prompts
-
-if TYPE_CHECKING:
-    from src.geometry import Geometry
-    from src.loaders import Views
-    from src.segmentation.base import Segmentation
 
 # ScanNet++'s 100 most frequent semantic classes (not in git: dataset metadata)
 TOP100 = Path("data/scannetpp/metadata/semantic_benchmark/top100.txt")
 
 
+@runtime_checkable
 class PerViewSegmenter(Protocol):
     """Segments every view independently (ids view-local, see `ID_STRIDE`)."""
 

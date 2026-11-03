@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 import open3d as o3d
@@ -16,9 +16,6 @@ from src.loaders.scannetpp.config import load_config
 from src.loaders.scannetpp.scene import ScannetppScene
 from src.loaders.views import Views
 from src.segmentation.base import NO_INSTANCE
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 log = logging.getLogger(__name__)
 

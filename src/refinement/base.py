@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    from src.geometry import Geometry
-    from src.loaders import Views
-    from src.segmentation import Segmentation
+from src.geometry import Geometry
+from src.loaders import Views
+from src.segmentation import Segmentation
 
 
+@runtime_checkable
 class Refiner(Protocol):
     """Improves the backbone geometry using the segmentation."""
 

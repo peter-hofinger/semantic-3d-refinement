@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from src.geometry import Geometry
-    from src.loaders import Views
+from src.geometry import Geometry
+from src.loaders import Views
 
 NO_INSTANCE = -1
 ID_STRIDE = 1000  # per-view ids: view index * ID_STRIDE + k (before association)
@@ -64,6 +62,7 @@ class Segmentation:
             return cls(f["instance_ids"], classes, scores)
 
 
+@runtime_checkable
 class Segmenter(Protocol):
     """Finds objects in every view and links them across views."""
 

@@ -16,6 +16,7 @@ dependencies = [
     "h5py>=3.16",
     "matplotlib>=3.11.2",
     "numpy>=2.4.6",
+    "open3d>=0.19",
     "pillow>=13.0.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
@@ -35,10 +36,10 @@ hypersim-download = "src.loaders.hypersim.download:main"
 hypersim-prepare = "src.loaders.hypersim.prepare:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
+dsine-predict = "src.refinement.normals:main"
 sam3-segment = "src.segmentation.sam3:main"
 vlm-vocabulary = "src.segmentation.vocabulary:main"
 eval-instances = "src.evaluation.instances:main"
-eval-geometry = "src.evaluation.geometry:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
@@ -96,6 +97,9 @@ ignore = [
     "D213",    # multi line summary second line
     "COM812",  # conflicts with the formatter
     "CPY001",  # no copyright header per file (LICENSE covers it)
+    "TC001",   # annotation imports stay at runtime: beartype resolves them
+    "TC002",
+    "TC003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -123,14 +127,14 @@ ignore = [
 ]
 # Peter's refinement code: design by contract, asserts state shapes, ranges and
 # finiteness on entry and exit
-"src/{analysis/*,refinement/{monocular,multiview,normals,inputs},evaluation/{depth,geometry},loaders/{eth3d,synthetic}}.py" = [
+"src/{analysis/*,refinement/{multiview,normals},evaluation/labeled}.py" = [
     "S101",     # contract asserts
     "PT018",    # composite contract asserts
 ]
 "src/analysis/*.py" = [
     "E501",     # figure captions, slide text and README tables as long f-strings
 ]
-"tests/test_{artifacts,evaluate,multiview,refine}.py" = [
+"tests/test_{labeled,multiview,normals}.py" = [
     "PT018",    # composite contract asserts
 ]
 "notebooks/**/*.ipynb" = [

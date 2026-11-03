@@ -1,23 +1,8 @@
 """Semantic-guided refinement of feed-forward 3D reconstruction."""
 
-from beartype.claw import beartype_packages
+from beartype.claw import beartype_this_package
 
-# Runtime type checks for the refinement code, which annotates with real imports.
-# The other stages import their annotation types under TYPE_CHECKING only, which
-# beartype cannot resolve, so they are left out.
-beartype_packages(
-    (
-        "src.analysis",
-        "src.refinement.monocular",
-        "src.refinement.multiview",
-        "src.refinement.normals",
-        "src.refinement.inputs",
-        "src.evaluation.depth",
-        "src.evaluation.geometry",
-        "src.loaders.eth3d",
-        "src.loaders.synthetic",
-    )
-)
+beartype_this_package()  # runtime type checks on every annotated function in src
 
 
 def main() -> None:

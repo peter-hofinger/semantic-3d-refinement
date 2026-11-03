@@ -1,0 +1,39 @@
+# NYU40 classes (Hypersim's semantic labels), one SAM 3 prompt each. Left out:
+# otherstructure, otherfurniture and otherprop, which name no object a prompt could find.
+wall
+floor
+cabinet
+bed
+chair
+sofa
+table
+door
+window
+bookshelf
+picture
+counter
+blinds
+desk
+shelves
+curtain
+dresser
+pillow
+mirror
+floor mat
+clothes
+ceiling
+books
+refrigerator
+television
+paper
+towel
+shower curtain
+box
+whiteboard
+person
+night stand
+toilet
+sink
+lamp
+bathtub
+bag

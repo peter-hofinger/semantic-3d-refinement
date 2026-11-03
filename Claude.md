@@ -20,31 +20,28 @@ They skim the README, open two files and scroll the history; every one of those 
 
 ## Method
 Per view i: depth D_i, confidence C_i, ray map (origin o, direction d); points x = o + D·d. Cameras stay fixed.
-Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ_i(p), minimizing with L-BFGS
+Refine inverse depth per pixel: d̂_i(p) = d⁰_i(p) + δ_i(p), minimizing by Gauss-Newton + CG
 
-  E = E_d + λ_mv·E_mv + λ_bd·E_bd + λ_pr·E_pr + λ_δ·‖δ‖²
+  E = E_d + λ_mv·E_mv + λ_n·E_n + λ_pr·E_pr + λ_δ·‖δ‖²
 
-- E_d: Huber anchor to the prediction, weighted by confidence × fraction of views that agree on the segment.
+- E_d: Huber anchor to the prediction, weighted by confidence × fraction of views that agree on the instance.
 - E_mv: cross-view depth agreement, only where the projection lands in the same segment.
-- E_bd: smoothing within segments only, so boundaries stay sharp.
+- E_n: BiNI's normal term on DSINE normals (log depth), within one instance and cut on the input's occlusion
+  contours. The proposal's E_bd (smoothing within segments) is dropped: next to E_n it changed the F-score at 5 cm by
+  at most 0.002 on the dev scenes and nothing visible. The proposal's per-segment a, b are dropped too: equal or better
+  without them.
 - E_pr: planarity for structural classes (wall, floor, table).
 
-Scope: monocular refinement of one view (`src/refinement/monocular.py`), and joint refinement of all views of a
-scene with E_mv (`src/refinement/multiview.py`, no segments yet, solved by Gauss-Newton and CG). The joint
-refinement is the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
-Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end.
-
-Status: δ only (`monocular.py`), no segments, no a or b; verified on a synthetic room with GT. `monocular.py` also
-takes BiNI's normal term E_n (log depth, cut on the prior's occlusion contours) under the same L-BFGS. On real data,
-Déjà View outputs for one view of each of two ScanNet++ scenes (office 7b6477cb95 view 6, kitchen 5ee7c22ba0 view
-13). Study (`normals.py`): DSINE normals integrated with BiNI against the Déjà View depth, judged by the normals of
-the result (patch grid, edges) and their angle to DSINE's. Ground truth comes from ETH3D office and kicker
-(`loaders/eth3d.py`, data CC BY-NC-SA, never committed): `depth.py` scores three views per scene by accuracy against
-the laser scan; `evaluation/geometry.py` scores the fused cloud of all 20 views (accuracy on 200k fixed pixels,
-thickness and normal angle on a 5 mm voxel grid), now also on the ScanNet++ kitchen through Mircea's rendered GT.
-`analysis/artifacts.py` checks the proposal's named artifacts on the same data: bleeding, wavy planes and drift
-confirmed; textureless not confirmed; reflective not measurable with a laser scan; confidence only partly locates
-errors.
+Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned
+CG, matrix-free), the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
+Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end. The
+energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the other
+views that agree on the pixel's instance id); E_mv and E_n only within one instance; E_n is BiNI's normal term on
+DSINE normals (`src/refinement/normals.py`, part of the method). Every weight is 1; weights are set later, on
+validation scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim's `dev` scenes (three validation
+scenes with centred cameras, `configs/eval_hypersim.yaml`), scored by `src/evaluation/labeled.py`. The method is a
+black box for the evaluation: only its output cloud is scored, registered onto the ground truth from the clouds alone
+(first-camera start, scaled ICP); no per-pixel correspondences, cameras or depth maps of the method.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
@@ -58,15 +55,17 @@ errors.
 
 ## Commands
 - `uv sync --all-groups` · `uv add <pkg>` · `uv run <cmd>`. Never pip, never bare `python`.
-- `uv run python -m src.<package>.<entry> --cfg configs/<name>.yaml` (refinement studies; see each module's docstring)
-- `uv run run-pipeline <views> --geometry <dejaview npz> --segmenter sam3 --refiner joint`; `uv run eval-geometry`
+- `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml` (the evaluation protocol)
+- `uv run run-pipeline <views> --geometry <dejaview npz> --segmenter sam3 --refiner joint`
 - `uv run pytest -q` · `uv run ruff check --fix && uv run ruff format`
 
 ## Code
 - Minimal and dense, from first principles. Fewer files, fewer abstractions; delete before adding.
 - Design by contract: assert shapes, dtypes, ranges and finiteness on entry and before return.
-- Type hints everywhere, enforced at runtime for the refinement modules by `beartype_packages` in `src/__init__.py`
-  (the teammates' stages import annotation types under TYPE_CHECKING, which beartype cannot resolve).
+- Type hints everywhere, enforced at runtime for all of `src` by `beartype_this_package` in `src/__init__.py`.
+  Annotation imports stay at runtime (no `TYPE_CHECKING`; ruff's TC001-3 are off), interfaces are
+  `@runtime_checkable` protocols, and hot helpers live at module level: beartype decorates a nested function anew
+  on every call of its parent.
 - Module docstrings state the idea, the equation and the paper it comes from; function docstrings state the
   contract in one line. No other comments except ones that structure code; names carry meaning.
 - No dead code, no commented-out code, no TODOs, no debug prints. Ruff `ALL` stays clean; every `noqa` names
@@ -106,7 +105,7 @@ Fixed scenes, metrics, alignment and seeds; never tune on test scenes, and say s
 ## Visuals
 Robin: show visuals, tables and graphs every week; time belongs to ideation and direction, not implementation.
 - Everything that can be visualized is visualized, as PNG.
-  `uv run python -m src.analysis.visualize --run runs/<run>` writes `figures/<run>/` with a README table.
+  `uv run python -m src.analysis.scene_figures --run runs/<run>` writes `figures/<run>/` with a README table.
 - Before and after side by side, on shared scales, with units and a caption that says what to look at.
 - Each figure README ends with findings that stand on their own, without this conversation.
 - Commit and push `figures/`; `runs/` and `data/` stay local.

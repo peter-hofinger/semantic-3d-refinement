@@ -55,6 +55,18 @@ def test_linked_segmenter_shares_ids_across_views() -> None:
     assert sorted(seg.classes.values()) == ["chair", "table"]
 
 
+def test_linked_objects_score_the_area_weighted_mean_of_their_masks() -> None:
+    views = make_views()
+    per_view = HalvesSegmenter().segment(views)
+    per_view.scores[ID_STRIDE] = 0.5  # view 1's left half; view 0's is 0.9
+    seg = LinkedSegmenter(HalvesSegmenter()).associator.associate(
+        per_view, ConstantDepthBackbone().predict(views)
+    )
+    left, right = seg.instance_ids[0, 0, 0], seg.instance_ids[0, 0, -1]
+    assert seg.scores[left] == pytest.approx(0.7)
+    assert seg.scores[right] == pytest.approx(0.9)
+
+
 def test_linked_segmenter_runs_in_the_pipeline() -> None:
     views = make_views()
     segmenter = LinkedSegmenter(HalvesSegmenter())

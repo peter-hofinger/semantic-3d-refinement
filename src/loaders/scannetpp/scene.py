@@ -5,13 +5,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # The nerfstudio poses use a world frame with x and y swapped and z flipped
 # relative to the laser scan, and OpenGL camera axes. These undo both, giving

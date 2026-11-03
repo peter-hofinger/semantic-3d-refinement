@@ -15,14 +15,11 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import h5py
 import numpy as np
 from PIL import Image
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 OPENGL_TO_OPENCV = np.diag([1.0, -1.0, -1.0, 1.0])
 SKEW_TOL = 1e-3  # pixels; larger K[0, 1] = skewed tilt-shift camera, rejected

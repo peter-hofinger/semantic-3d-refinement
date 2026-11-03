@@ -1,1 +1,1 @@
-"""Studies of the refinement: artifacts, solver benchmark, figures and talk slides."""
+"""The evaluation protocol on Hypersim and its figures."""

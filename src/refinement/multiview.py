@@ -1,37 +1,49 @@
-"""Joint refinement of all views: each view's energy plus cross-view agreement E_mv.
+"""Joint refinement of all views by Gauss-Newton: the method in `Claude.md`.
 
 Cameras stay fixed: Déjà View's, each with the pinhole fitted to its rays
-(`inputs.fit_pinhole`). All views share one normalization, d_i = s / D_i with s the
-scene's median depth, so a residual means the same in every view. Each pixel p of view i
-is lifted, x = o_i + D_i(p) r_i(p), and projected into each neighboring view j (the
-views it overlaps most, `neighbors`):
+(`fit_pinhole`). All views share one normalization, d_i = s / D_i with s the scene's
+median depth, so a residual means the same in every view. Inverse depth is refined per
+pixel, d_i(p) = d0_i(p) + δ_i(p), minimizing
 
-  E_mv = 1/N Σ_{i≠j} Σ_{p ∈ M_ij} ( log z_j(x) + log d_j(π_j(x)) - log s )²
+  E = λ_d E_d + λ_mv E_mv + λ_n E_n + λ_δ ‖δ‖²,   per-pixel terms as means.
 
-z_j(x) is x's depth in camera j and d_j(π_j(x)) is j's inverse depth, bilinear at the
-projection, so the residual is the log ratio of the two depths: zero where both views
-put the surface in the same place. N is the number of pixels over all views, as for the
-per-view terms. The matches M_ij are fixed on the input, as BiNI's cut edges are, so E
-stays smooth: x lands in j at least a pixel inside the border, the two depths agree
-within `mv_tol`, and so do j's four interpolated pixels. This drops what j does not see
-(occluded or out of view) and interpolation across j's occlusion edges.
-
-  E = 1/V Σ_i E_i + λ_mv E_mv,
-
-E_i the monocular energy of view i (`monocular.energy_maps`), δ_i its residual.
+- E_d = w h(d - d0): Huber's cost h (`robust`) anchors to the prediction, weighted by
+  w = confidence (mean one per view) times the consistency u: the share of the other
+  views a pixel lands in whose pixel there carries the same instance id
+  (`consistency`). Where views disagree on the object, at bleeding edges and flying
+  pixels, the anchor lets go.
+- E_mv: each pixel p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into
+  each neighboring view j (the `neighbors` views it overlaps most); the residual is
+  log z_j(x) + log d_j(π_j(x)) - log s, the log ratio of the two depths, d_j bilinear
+  at the projection. The matches are fixed on the input, as BiNI's cut edges are, so E
+  stays smooth: x lands in j at least a pixel inside the border, the two depths agree,
+  so do j's four interpolated pixels, and j's nearest pixel lies in p's segment
+  (`same_segment_matches`; pixels without one are not gated). Agree means a gap below
+  Otsu's threshold on the scene's gaps (`occlusion_threshold`): they fall into a mode of
+  same-surface noise and one of occlusions, and the threshold splits them, per scene.
+- E_n: BiNI's normal term on DSINE's normals (`normals.py`), in log depth, on the
+  edges between two pixels of one linked instance (`same_instance_edges`; pixels without
+  one count as one), and cut on the input's occlusion contours: a wall's pixels
+  do not shape the table in front of it. E_n is the only shape term; a smoothness
+  term on top of it changed the F-score at 5 cm by at most 0.002 on Hypersim.
+- λ_δ ‖δ‖² anchors every pixel to the prediction, also where E_d lets go: about 8-10 %
+  of the pixels on Hypersim's tilt-shift scenes have E_d's weight 0 (no other view
+  agrees on their instance), and 1,300-2,700 of them per scene have no normal edge or
+  match either, so without it the normal equations are singular there and the solve
+  stalls. It also limits how far E_n carries a correction from matched pixels into
+  unmatched ones: a few pixels
+  (`test_normals_carry_a_correction_a_few_pixels_beyond_the_matches`). The proposal's
+  per-segment scale and shift of inverse depth (a, b) would carry it across the
+  instance, but on Hypersim the F-score at 5 cm is equal or better without them.
 
 E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI minimizes
 its normal term by CG (Cao et al. 2022): each step solves the normal equations J^T J s =
 -J^T r by Jacobi-preconditioned CG. J is never formed for the per-view terms, which are
-stencils on the pixel grid and linear in δ (E_d, E_bd) or in log depth (E_n); E_mv's J
-has five entries per match, the source pixel and j's four interpolated pixels. On 20
-views of 504 x 336 this takes 2-3 s where L-BFGS took a minute.
-
-This is the E_mv of the method in `Claude.md` without segments: agreement is required
-wherever the input already roughly agrees, not only within a segment.
+stencils on the pixel grid, robust in δ (E_d) or linear in log depth (E_n); E_mv's J has
+five entries per match, the source pixel and j's four interpolated pixels. On 20 views
+of 504 x 378 a solve takes about 4 s on an RTX 3080.
 """
 
-import dataclasses
 import logging
 import math
 import time
@@ -46,12 +58,85 @@ from torch import Tensor
 
 from src.geometry import Geometry
 from src.loaders.views import Views
-from src.refinement.inputs import check_inputs, fit_pinhole
-from src.refinement.monocular import NormalTerm, RefineConfig, normal_term
-from src.refinement.normals import run_dsine, to_world
+from src.refinement.normals import NormalTerm, dsine_normals, normal_term, to_world
 from src.segmentation.base import Segmentation
 
 log_info = logging.getLogger(__name__).info
+
+
+@dataclass(frozen=True)
+class RefineConfig:
+    """Energy weights, the robust and gating constants, the Gauss-Newton / CG budget.
+
+    Inverse depth is normalized by the scene's median depth, so huber and the tolerances
+    are relative: huber 0.05 is a 5 % change of inverse depth.
+    """
+
+    lambda_d: float = 1.0
+    lambda_mv: float = 1.0
+    # BiNI's residuals are log-depth steps times the focal length
+    lambda_n: float = 1e-4
+    lambda_delta: float = 1.0
+    huber: float = 0.05  # E_d's Huber threshold on d - d0
+    edge_tol: float = 0.02  # E_n's occlusion cut (log depth, `normals.cut_weights`)
+    neighbors: int = 4  # views each view is matched with, the ones it overlaps most
+    gn_iters: int = 10
+    cg_iters: int = 20
+    cg_tol: float = 1e-3
+    device: str = "cuda"
+
+    def __post_init__(self) -> None:
+        """Check ranges."""
+        assert min(self.lambda_d, self.lambda_mv, self.lambda_n, self.lambda_delta) >= 0
+        assert self.huber > 0 and self.edge_tol > 0
+        assert self.neighbors >= 1
+        assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
+
+
+def points_from_rays(depth: Tensor, rays: Tensor) -> Tensor:
+    """Lift depth along rays: x = origin + depth * direction."""
+    return rays[..., :3] + depth[..., None] * rays[..., 3:]
+
+
+def check_inputs(depth: Tensor, rays: Tensor, conf: Tensor) -> None:
+    """Assert shapes, dtypes and ranges of a single view."""
+    assert depth.ndim == 2, depth.shape  # noqa: PLR2004
+    h, w = depth.shape
+    assert h >= 3 and w >= 3, depth.shape  # noqa: PLR2004
+    assert rays.shape == (h, w, 6), rays.shape
+    assert conf.shape == (h, w), conf.shape
+    assert depth.dtype == rays.dtype == conf.dtype and depth.dtype.is_floating_point
+    assert depth.isfinite().all() and (depth > 0).all()
+    assert rays.isfinite().all()
+    assert conf.isfinite().all() and (conf >= 0).all() and (conf > 0).any()
+
+
+def fit_pinhole(
+    rays: np.ndarray, rotation: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replace a ray map by its best-fitting pinhole, same camera center and rotation.
+
+    Least squares for fx, cx and fy, cy on the camera-frame directions; the directions
+    keep unit z in the camera. Returns the rays and K, which maps camera coordinates to
+    pixel indices (pixel centers at integers). Déjà View's rays deviate from it by
+    0.6-0.9 px (median) on ScanNet++, in patch-sized steps that show as a 14 px grid in
+    every normal map lifted through them, and by up to 2.7 px on ETH3D office (1.8 px
+    even with a free rotation, so the rays themselves are less pinhole-like there).
+    """
+    h, w = rays.shape[:2]
+    d = rays[..., 3:] @ rotation
+    x, y = d[..., 0] / d[..., 2], d[..., 1] / d[..., 2]
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    fx, cx = np.polyfit(x.ravel(), u.ravel(), 1)
+    fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
+    residual = np.hypot(fx * x + cx - u, fy * y + cy - v)
+    assert np.median(residual) < 3, np.median(residual)  # noqa: PLR2004
+    dirs = (
+        np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
+    )
+    origin = np.broadcast_to(rays[..., :3].reshape(-1, 3).mean(0), dirs.shape)
+    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    return np.concatenate([origin, dirs], axis=-1), k
 
 
 @dataclass(frozen=True)
@@ -95,11 +180,6 @@ def scene_from_geometry(geometry: Geometry) -> Scene:
     for v in range(len(scene.depth)):
         check_inputs(scene.depth[v], scene.rays[v], scene.conf[v])
     return scene
-
-
-def load_scene(path: Path) -> Scene:
-    """Every view of a saved backbone geometry (`dejaview-predict`), pinhole rays."""
-    return scene_from_geometry(Geometry.load(path))
 
 
 def geometry_from_scene(scene: Scene, depth: Tensor, confidence: Tensor) -> Geometry:
@@ -174,6 +254,13 @@ def bilinear(d: Tensor, view: Tensor, u: Tensor, v: Tensor) -> tuple[Tensor, Ten
     return (weights * c).sum(0), c.amax(0) / c.amin(0)
 
 
+def ray_in(scene: Scene, i: int, j: int, pixels: Tensor) -> tuple[Tensor, Tensor]:
+    """Rays of view i's (flat) pixels in camera j's coordinates: offset, direction."""
+    world_to_j = scene.rotation[j].T
+    rays = scene.rays[i].reshape(-1, 6)[pixels]
+    return (rays[:, :3] - scene.center[j]) @ world_to_j.T, rays[:, 3:] @ world_to_j.T
+
+
 def residuals(d: Tensor, scale: Tensor, scene: Scene, m: Matches) -> Tensor:
     """Return log z_j(x) + log d_j(π_j(x)) - log s per match, d (V, H, W)."""
     depth = scale / d.reshape(-1)[m.src]
@@ -200,49 +287,73 @@ def match_jacobian(
     return torch.cat([m.src[None], index]), torch.cat([g_src[None], g_corners])
 
 
+def occlusion_threshold(gaps: Tensor) -> float:
+    """Otsu's threshold on log |gap|: the split of least within-class variance.
+
+    The depth gaps between overlapping views fall into two modes: the same surface seen
+    twice (about 1 % on Hypersim) and a surface hidden behind another (about 50 %).
+    Otsu (1979) splits them where the two classes' log gaps vary least, exactly over the
+    sorted gaps, with no bins. It assumes both modes are there, as they are in every
+    scene with an occlusion.
+    """
+    x = gaps.abs().clamp_min(1e-6).log().double().sort().values
+    n = len(x)
+    assert n >= 2, n  # noqa: PLR2004
+    below = torch.arange(1, n, device=x.device, dtype=x.dtype)
+    total = x.cumsum(0)
+    mean_below = total[:-1] / below
+    mean_above = (total[-1] - total[:-1]) / (n - below)
+    k = int((below * (n - below) * (mean_below - mean_above).square()).argmax())
+    return math.exp(0.5 * (x[k] + x[k + 1]).item())
+
+
 @torch.no_grad()
 def find_matches(
-    scene: Scene, d0: Tensor, scale: Tensor, tol: float, neighbors: int
+    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
 ) -> Matches:
     """Match each view with its neighbors where the input agrees within tol (log).
 
-    A view's neighbors are the `neighbors` views it shares the most matches with; a pair
+    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
+    Both the gap and the spread of j's four interpolated pixels must stay below it. A
+    view's neighbors are the `neighbors` views it shares the most matches with; a pair
     counts if either side picks the other, and is matched both ways.
     """
     n, h, w = d0.shape
-    pairs: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
     flat = torch.arange(h * w, device=d0.device)
+    candidates: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
     for i in range(n):
         for j in range(n):
             if i == j:
                 continue
-            world_to_j = scene.rotation[j].T
-            offset = (
-                scene.rays[i, ..., :3].reshape(-1, 3) - scene.center[j]
-            ) @ world_to_j.T
-            direction = scene.rays[i, ..., 3:].reshape(-1, 3) @ world_to_j.T
+            offset, direction = ray_in(scene, i, j, flat)
             u, v, z = project(
                 offset + (scale / d0[i].reshape(-1))[:, None] * direction,
                 scene.k[j].expand(h * w, 3, 3),
             )
             dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
-            log_ratio = (z.clamp_min(1e-6) * dj / scale).log().abs()
-            keep = (z > 0) & (u >= 1) & (u <= w - 2) & (v >= 1) & (v <= h - 2)
-            keep &= (log_ratio < tol) & (spread.log() < tol)
-            pairs[i, j] = (flat[keep], offset[keep], direction[keep])
+            inside = (z > 0) & (u >= 1) & (u <= w - 2) & (v >= 1) & (v <= h - 2)
+            gap = (z.clamp_min(1e-6) * dj / scale).log()  # > 0: behind j's surface
+            candidates[i, j] = (flat[inside], gap[inside], spread[inside].log())
+    if tol is None:
+        tol = occlusion_threshold(torch.cat([g for _, g, _ in candidates.values()]))
+        log_info("occlusion threshold: %.4f (log depth)", tol)
+    pairs = {
+        ij: pix[(gap.abs() < tol) & (spread < tol)]
+        for ij, (pix, gap, spread) in candidates.items()
+    }
     counts = torch.zeros(n, n)
-    for (i, j), (pix, _, _) in pairs.items():
+    for (i, j), pix in pairs.items():
         counts[i, j] = len(pix)
     top = torch.zeros(n, n, dtype=torch.bool)
-    top[torch.arange(n)[:, None], counts.topk(min(neighbors, n - 1), dim=1).indices] = (
-        True
-    )
+    picked = counts.topk(min(neighbors, n - 1), dim=1).indices
+    top[torch.arange(n)[:, None], picked] = True
     chosen = [(i, j) for (i, j) in pairs if top[i, j] or top[j, i]]
+    rays = [ray_in(scene, i, j, pairs[i, j]) for i, j in chosen]
     m = Matches(
-        torch.cat([i * h * w + pairs[i, j][0] for i, j in chosen]),
-        torch.cat([torch.full_like(pairs[i, j][0], j) for i, j in chosen]),
-        torch.cat([pairs[i, j][1] for i, j in chosen]),
-        torch.cat([pairs[i, j][2] for i, j in chosen]),
+        torch.cat([i * h * w + pairs[i, j] for i, j in chosen]),
+        torch.cat([torch.full_like(pairs[i, j], j) for i, j in chosen]),
+        torch.cat([offset for offset, _ in rays]),
+        torch.cat([direction for _, direction in rays]),
     )
     assert (
         (m.src // (h * w) != m.dst).all()
@@ -252,32 +363,19 @@ def find_matches(
     return m
 
 
-@dataclass(frozen=True)
-class MultiviewConfig:
-    """Weight of E_mv, match tolerance and neighbors, Gauss-Newton / CG budget."""
-
-    lambda_mv: float = 1.0
-    mv_tol: float = 0.05
-    neighbors: int = 4
-    gn_iters: int = 3
-    cg_iters: int = 200
-    cg_tol: float = 1e-3
-
-    def __post_init__(self) -> None:
-        """Check ranges."""
-        assert self.lambda_mv >= 0 and 0 < self.mv_tol < 1 and self.neighbors >= 1
-        assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
-
-
-MV_KEYS = {f.name for f in dataclasses.fields(MultiviewConfig)}
+def disagreement_pct(depth: Tensor, scene: Scene, matches: Matches) -> float:
+    """Median |log depth gap| between overlapping views, in percent."""
+    scale = scene.depth.median()
+    return 100 * residuals(scale / depth, scale, scene, matches).abs().median().item()
 
 
 @dataclass(frozen=True)
 class Problem:
     """What stays fixed in the solve: scene, scale s, d0, weights, normals, matches.
 
-    Normal terms are stacked over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+,
-    w-) as in `refine.NormalTerm`.
+    w is E_d's weight per pixel, confidence times consistency. Normal terms are stacked
+    over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+, w-) as in
+    `normals.NormalTerm`, the weights 0 between instances.
     """
 
     scene: Scene
@@ -288,46 +386,58 @@ class Problem:
     matches: Matches
 
 
-def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Return d_xx, d_yy, d_xy over the last two axes, batched over views."""
-    dxx = d[..., 2:] - 2 * d[..., 1:-1] + d[..., :-2]
-    dyy = d[..., 2:, :] - 2 * d[..., 1:-1, :] + d[..., :-2, :]
-    dxy = d[..., 1:, 1:] - d[..., 1:, :-1] - d[..., :-1, 1:] + d[..., :-1, :-1]
-    return dxx, dyy, dxy
+def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
+    """Masks (V, H, W-1), (V, H-1, W) of the x and y edges within one instance.
+
+    Pixels without an instance (-1) count as one, so E_n still shapes them.
+    """
+    return ids[..., 1:] == ids[..., :-1], ids[..., 1:, :] == ids[..., :-1, :]
 
 
-def scene_residuals(
-    delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
-) -> dict[str, Tensor]:
+def same_segment_matches(
+    m: Matches, scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor
+) -> Matches:
+    """Keep the matches that land on their source's segment (nearest pixel in j).
+
+    A pixel without a segment has nothing to gate on and keeps its matches.
+    """
+    _, h, w = d0.shape
+    depth = scale / d0.reshape(-1)[m.src]
+    u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
+    col = u.round().long().clamp(0, w - 1)
+    row = v.round().long().clamp(0, h - 1)
+    flat = ids.reshape(-1)
+    source = flat[m.src]
+    keep = (source < 0) | (source == flat[(m.dst * h + row) * w + col])
+    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
+
+
+def robust(u: Tensor, k: float) -> tuple[Tensor, Tensor]:
+    """Huber's cost as one squared residual: r with r² = 2 h(u), and dr/du.
+
+    h(u) = u²/2 for |u| ≤ k and k|u| - k²/2 beyond, so r = u inside and sign(u)
+    √(2k|u| - k²) beyond, with dr/du = 1 and k / |r|. E stays a sum of squares, and
+    Gauss-Newton on r minimizes the robust cost itself: a large change of a pixel costs
+    linearly, and its weight in the normal equations falls as k / |r|.
+    """
+    outside = u.abs() > k
+    r = torch.where(
+        outside, u.sign() * (2 * k * u.abs() - k * k).clamp_min(0).sqrt(), u
+    )
+    return r, torch.where(outside, k / r.abs().clamp_min(k), 1.0)
+
+
+def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
     """Weighted residuals of each term, flat: E = Σ of their squares / N.
 
-    N is the number of pixels over all views.
+    N is the number of pixels over all views; x is δ = d - d0.
 
-    The same terms as `monocular.energy_maps`, except that E_d is quadratic, w δ²/2:
-    Huber's quadratic branch, which holds for |δ| < `huber` (0.05; the input's views
-    disagree by about 1 %).
+    E_d is w h(δ), h Huber's cost (`robust`).
     """
-    d = p.d0 + delta
-    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * delta}
+    d = p.d0 + x
+    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * robust(x, cfg.huber)[0]}
     if cfg.lambda_delta > 0:
-        out["E_delta"] = math.sqrt(cfg.lambda_delta) * delta
-    if cfg.lambda_bd > 0:
-        dxx, dyy, dxy = second_differences(d)
-        if p.normals is not None:
-            (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
-            dxx, dyy = (
-                dxx * (kx[..., :-1] & kx[..., 1:]),
-                dyy * (ky[..., :-1, :] & ky[..., 1:, :]),
-            )
-            dxy = dxy * (kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:])
-        root = math.sqrt(cfg.lambda_bd)
-        out["E_bd"] = torch.cat(
-            [
-                root * dxx.flatten(),
-                root * dyy.flatten(),
-                math.sqrt(2) * root * dxy.flatten(),
-            ]
-        )
+        out["E_delta"] = math.sqrt(cfg.lambda_delta) * x
     if cfg.lambda_n > 0:
         assert p.normals is not None, "E_n needs normals"
         z = -d.clamp_min(1e-6).log()
@@ -340,69 +450,70 @@ def scene_residuals(
                 (cfg.lambda_n * wf).sqrt() * (af * dz + gf),
                 (cfg.lambda_n * wb).sqrt() * (ab * dz + gb),
             ]
-        out["E_n"] = torch.cat([x.flatten() for x in parts])
-    if mv.lambda_mv > 0:
-        out["E_mv"] = math.sqrt(mv.lambda_mv) * residuals(
+        out["E_n"] = torch.cat([r.flatten() for r in parts])
+    if cfg.lambda_mv > 0:
+        out["E_mv"] = math.sqrt(cfg.lambda_mv) * residuals(
             d, p.scale, p.scene, p.matches
         )
     return {k: v.flatten() for k, v in out.items()}
 
 
-def scene_energy(
-    delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
-) -> dict[str, float]:
+def scene_energy(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, float]:
     """E and each weighted term's share of it."""
     terms = {
         k: (v.square().sum() / p.d0.numel()).item()
-        for k, v in scene_residuals(delta, cfg, mv, p).items()
+        for k, v in scene_residuals(x, cfg, p).items()
     }
     e = sum(terms.values())
     assert math.isfinite(e), terms
     return {"E": e} | terms
 
 
+def energy_maps(d: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
+    """Weighted cost of E_d, E_n and E_mv per pixel (V, H, W) at inverse depth d.
+
+    Their means are the terms of E (λ_δ ‖δ‖² aside, which needs δ, not d). An edge's
+    cost sits on its first pixel, a match's on its source pixel.
+    """
+    pad = torch.nn.functional.pad
+    maps = {"E_d": 0.5 * cfg.lambda_d * p.w * robust(d - p.d0, cfg.huber)[0].square()}
+    if p.normals is not None:
+        z = -d.clamp_min(1e-6).log()
+        dzs = (z[..., 1:] - z[..., :-1], z[..., 1:, :] - z[..., :-1, :])
+        cost = torch.zeros_like(d)
+        for (af, gf, ab, gb), (wf, wb), dz, side in zip(
+            p.normals.terms, p.normals.weights, dzs, ((0, 1), (0, 0, 0, 1)), strict=True
+        ):
+            cost = cost + pad(
+                wf * (af * dz + gf).square() + wb * (ab * dz + gb).square(), side
+            )
+        maps["E_n"] = cfg.lambda_n * cost
+    r = residuals(d, p.scale, p.scene, p.matches)
+    maps["E_mv"] = cfg.lambda_mv * torch.zeros(
+        d.numel(), dtype=d.dtype, device=d.device
+    ).index_add(0, p.matches.src, r.square()).view_as(d)
+    return maps
+
+
 def grid_operator(
     d: Tensor, cfg: RefineConfig, p: Problem, *, squared: bool = False
 ) -> Callable[[Tensor], Tensor]:
-    """J v of the per-view residuals (all but E_mv) at d, in `scene_residuals` order.
+    """J v of the residuals on the pixel grid at d: E_d, then E_n.
 
-    With squared, J's entries are squared.
+    v is a change of d; E_mv and E_delta (a function of δ alone) are added by
+    `normal_equations`. With squared, J's entries are squared.
 
-    E_d and E_bd are linear in δ; E_n is linear in z = -log d, so dz moves by -(v_q/d_q
-    - v_p/d_p). With squared entries, J∘J applied to v and transposed onto the
-    residuals' ones gives the diagonal of J^T J.
+    E_d's Jacobian is its weight times dr/du of `robust`; E_n is linear in z = -log d,
+    so dz moves by -(v_q/d_q - v_p/d_p). With squared entries, J∘J applied to v and
+    transposed onto the residuals' ones gives the diagonal of J^T J.
     """
     power = 2 if squared else 1
-    a_d = (0.5 * cfg.lambda_d * p.w).sqrt() ** power
-    root_bd = math.sqrt(cfg.lambda_bd) ** power
-    masks = None
-    if p.normals is not None:
-        (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
-        masks = (
-            kx[..., :-1] & kx[..., 1:],
-            ky[..., :-1, :] & ky[..., 1:, :],
-            kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:],
-        )
+    a_d = ((0.5 * cfg.lambda_d * p.w).sqrt() * robust(d - p.d0, cfg.huber)[1]) ** power
     inv_d = (1 / d) ** power
     sign = 1 if squared else -1
 
     def apply(v: Tensor) -> Tensor:
         out = [a_d * v]
-        if cfg.lambda_delta > 0:
-            out.append(cfg.lambda_delta ** (power / 2) * v)
-        if cfg.lambda_bd > 0:
-            c = 4 if squared else -2
-            dxx = v[..., 2:] + c * v[..., 1:-1] + v[..., :-2]
-            dyy = v[..., 2:, :] + c * v[..., 1:-1, :] + v[..., :-2, :]
-            dxy = (
-                v[..., 1:, 1:]
-                + sign * v[..., 1:, :-1]
-                + sign * v[..., :-1, 1:]
-                + v[..., :-1, :-1]
-            )
-            if masks is not None:
-                dxx, dyy, dxy = dxx * masks[0], dyy * masks[1], dxy * masks[2]
-            out += [root_bd * dxx, root_bd * dyy, 2 ** (power / 2) * root_bd * dxy]
         if cfg.lambda_n > 0:
             assert p.normals is not None
             q = v * inv_d
@@ -455,13 +566,17 @@ def conjugate_gradient(
     return x, iters
 
 
-def gauss_newton_step(
-    delta: Tensor, cfg: RefineConfig, mv: MultiviewConfig, p: Problem
-) -> tuple[Tensor, int]:
-    """Solve J^T J s = -J^T r at δ by preconditioned CG; return s and CG iterations."""
-    d = p.d0 + delta
-    parts = scene_residuals(delta, cfg, mv, p)
+def normal_equations(
+    x: Tensor, cfg: RefineConfig, p: Problem
+) -> tuple[Tensor, Callable[[Tensor], Tensor], Tensor]:
+    """Gradient J^T r, the product v -> J^T J v and diag(J^T J) at x, all flat.
+
+    J stacks the grid terms' (`grid_operator`), E_mv's and E_delta's √λ_δ.
+    """
+    d = p.d0 + x
+    parts = scene_residuals(x, cfg, p)
     r_mv = parts.pop("E_mv", None)
+    r_delta = parts.pop("E_delta", None)
     r_grid = torch.cat(list(parts.values()))
     grid = grid_operator(d, cfg, p)
     _, grid_t = torch.func.vjp(grid, torch.zeros_like(d))
@@ -473,55 +588,122 @@ def gauss_newton_step(
     cols = vals = None
     if r_mv is not None:
         cols, vals = match_jacobian(d, p.scale, p.scene, p.matches)
-        vals = math.sqrt(mv.lambda_mv) * vals
+        vals = math.sqrt(cfg.lambda_mv) * vals
         diag = diag.index_add(0, cols.flatten(), vals.square().flatten())
         gradient = gradient.index_add(0, cols.flatten(), (vals * r_mv).flatten())
+    if r_delta is not None:
+        gradient = gradient + math.sqrt(cfg.lambda_delta) * r_delta
+        diag = diag + cfg.lambda_delta
 
     def hv(v: Tensor) -> Tensor:
         out = grid_t(grid(v.view_as(d)))[0].flatten()
         if cols is not None and vals is not None:
             jv = (vals * v[cols]).sum(0)
             out = out.index_add(0, cols.flatten(), (vals * jv).flatten())
+        if r_delta is not None:
+            out = out + cfg.lambda_delta * v
         return out
 
+    return gradient, hv, diag
+
+
+def gauss_newton_step(x: Tensor, cfg: RefineConfig, p: Problem) -> tuple[Tensor, int]:
+    """Solve J^T J s = -J^T r at x by preconditioned CG; return s and CG iterations."""
+    gradient, hv, diag = normal_equations(x, cfg, p)
     step, used = conjugate_gradient(
-        hv, -gradient, 1 / diag.clamp_min(1e-12), mv.cg_iters, mv.cg_tol
+        hv, -gradient, 1 / diag.clamp_min(1e-12), cfg.cg_iters, cfg.cg_tol
     )
-    return step.view_as(d), used
+    return step.view_as(x), used
 
 
 def refine_scene(
-    scene: Scene, cfg: RefineConfig, mv: MultiviewConfig, normals: Tensor | None = None
+    scene: Scene,
+    cfg: RefineConfig,
+    normals: Tensor | None = None,
+    segments: Tensor | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], dict[str, int]]:
     """Gauss-Newton on all views at once; return depth (V, H, W), energy log, counts.
 
-    Each step linearizes every residual at the current δ and solves the normal equations
+    Each step linearizes every residual at the current x and solves the normal equations
     J^T J s = -J^T r by Jacobi-preconditioned CG (`gauss_newton_step`), halving s until
     E decreases and no depth grows tenfold (the logs clamp d at 1e-6, so E alone would
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
-    rays, enable E_n and cut E_bd on the input's occlusion contours, as in
-    `monocular.refine`.
+    rays, enable E_n. Segments (V, H, W) are linked instance ids, -1 for none (default:
+    no pixel has one).
     """
-    p = build_problem(scene, cfg, mv, normals)
-    delta, log, cg_total = gauss_newton(p, cfg, mv)
-    depth_hat = p.scale / (p.d0 + delta)
+    p = build_problem(scene, cfg, normals, segments)
+    x, log, cg_total = gauss_newton(p, cfg)
+    depth_hat = p.scale / (p.d0 + x)
     assert (
         depth_hat.shape == scene.depth.shape
         and depth_hat.isfinite().all()
         and (depth_hat > 0).all()
     )
     assert log[-1]["E"] <= log[0]["E"] + 1e-9, (log[0], log[-1])
-    return depth_hat, log, {"matches": len(p.matches.src), "cg_iterations": cg_total}
+    return (
+        depth_hat,
+        log,
+        {"matches": len(p.matches.src), "cg_iterations": cg_total},
+    )
+
+
+@torch.no_grad()
+def consistency(scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor) -> Tensor:
+    """Consistency u (V, H, W): of the other views a pixel lands in, the share agreeing.
+
+    Each pixel is lifted on the input depth and projected into every other view; a view
+    agrees if its nearest pixel there carries the pixel's linked instance id (the class
+    does not matter). Pixels without an id, or that land in no other view, keep u = 1.
+    """
+    n, h, w = d0.shape
+    seen, agree = torch.zeros_like(d0), torch.zeros_like(d0)
+    for i in range(n):
+        depth = (scale / d0[i]).reshape(-1)
+        own = ids[i].reshape(-1)
+        for j in range(n):
+            if j == i:
+                continue
+            world_to_j = scene.rotation[j].T
+            x = (
+                scene.rays[i, ..., :3].reshape(-1, 3)
+                - scene.center[j]
+                + depth[:, None] * scene.rays[i, ..., 3:].reshape(-1, 3)
+            ) @ world_to_j.T
+            u, v, z = project(x, scene.k[j].expand(h * w, 3, 3))
+            col, row = u.round().long(), v.round().long()
+            inside = (z > 0) & (col >= 0) & (col < w) & (row >= 0) & (row < h)
+            there = ids[j].reshape(-1)[row.clamp(0, h - 1) * w + col.clamp(0, w - 1)]
+            seen[i] += inside.view(h, w)
+            agree[i] += (inside & (there == own)).view(h, w)
+    u = torch.where(seen > 0, agree / seen.clamp_min(1), 1.0)
+    out = torch.where(ids >= 0, u, 1.0)
+    assert ((out >= 0) & (out <= 1)).all()
+    return out
 
 
 def build_problem(
-    scene: Scene, cfg: RefineConfig, mv: MultiviewConfig, normals: Tensor | None = None
+    scene: Scene,
+    cfg: RefineConfig,
+    normals: Tensor | None = None,
+    segments: Tensor | None = None,
 ) -> Problem:
-    """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches."""
+    """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
+
+    E_d's weight is the confidence (mean one per view) times the consistency u; E_n's
+    edges stay within one instance; E_mv keeps the matches that land on their source's
+    instance.
+    """
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
+    ids = (
+        torch.full(scene.depth.shape, -1, dtype=torch.long)
+        if segments is None
+        else segments
+    ).to(scene.depth.device)
+    assert ids.shape == scene.depth.shape, ids.shape
     scale = scene.depth.median()
     d0 = scale / scene.depth
     w = scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)
+    w = w * consistency(scene, d0, scale, ids)
     terms = None
     if normals is not None:
         per_view = [
@@ -535,66 +717,70 @@ def build_problem(
             ],
             [
                 tuple(
-                    torch.stack([t.weights[a][k] for t in per_view]) for k in range(2)
+                    same * torch.stack([t.weights[a][k] for t in per_view])
+                    for k in range(2)
                 )
-                for a in range(2)
+                for a, same in enumerate(same_instance_edges(ids))
             ],
         )
-    return Problem(
-        scene,
-        scale,
-        d0,
-        w,
-        terms,
-        find_matches(scene, d0, scale, mv.mv_tol, mv.neighbors),
-    )
+    matches = find_matches(scene, d0, scale, cfg.neighbors)
+    matches = same_segment_matches(matches, scene, d0, scale, ids)
+    return Problem(scene, scale, d0, w, terms, matches)
 
 
 def gauss_newton(
     p: Problem,
     cfg: RefineConfig,
-    mv: MultiviewConfig,
     on_step: Callable[[Tensor, dict, int], None] | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], int]:
-    """Run `mv.gn_iters` Gauss-Newton steps from δ = 0; return δ, energy log, CG count.
+    """Run `cfg.gn_iters` Gauss-Newton steps from x = 0; return x, energy log, CG count.
 
-    Each step is halved until E decreases and no depth grows tenfold; on_step(δ,
-    energies, CG iterations so far) is called after every accepted step.
+    x is δ = d - d0 (shaped as d0). Each step is halved until E decreases and no depth
+    grows tenfold; on_step(x, energies, CG iterations so far) is called after every
+    accepted step.
     """
-    delta = torch.zeros_like(p.d0)
-    log, cg_total = [scene_energy(delta, cfg, mv, p)], 0
-    for _ in range(mv.gn_iters):
-        step, used = gauss_newton_step(delta, cfg, mv, p)
+    x = torch.zeros_like(p.d0)
+    log, cg_total = [scene_energy(x, cfg, p)], 0
+    for _ in range(cfg.gn_iters):
+        step, used = gauss_newton_step(x, cfg, p)
         cg_total += used
         for _ in range(8):
-            positive = bool((p.d0 + delta + step > 0.1 * p.d0).all())
-            trial = (
-                scene_energy(delta + step, cfg, mv, p) if positive else {"E": math.inf}
-            )
+            positive = bool((p.d0 + x + step > 0.1 * p.d0).all())
+            trial = scene_energy(x + step, cfg, p) if positive else {"E": math.inf}
             if trial["E"] < log[-1]["E"]:
-                delta = delta + step
+                x = x + step
                 log.append(trial)
                 break
             step = step / 2
         else:
             break
         if on_step is not None:
-            on_step(delta, log[-1], cg_total)
-    return delta, log, cg_total
+            on_step(x, log[-1], cg_total)
+    return x, log, cg_total
+
+
+def scene_normals(camera: np.ndarray, geometry: Geometry, scene: Scene) -> Tensor:
+    """DSINE's camera-frame normals (V, H, W, 3) rotated into the frame of the rays."""
+    return torch.stack(
+        [
+            to_world(c, c2w, depth, rays)[0]
+            for c, c2w, depth, rays in zip(
+                camera, geometry.cam_to_world, scene.depth, scene.rays, strict=True
+            )
+        ]
+    )
 
 
 @dataclass
 class JointRefiner:
     """The pipeline's refiner: all views at once by Gauss-Newton, cameras fixed.
 
-    E_d + λ_mv E_mv by default; with `dsine_repo` and λ_n > 0 also E_n on DSINE's
-    normals, with E_bd cut on the input's occlusion contours. The segmentation is not
-    used yet: the semantic terms are the next step. The output keeps the backbone's
-    cameras with each ray map replaced by its fitted pinhole (`inputs.fit_pinhole`).
+    E_n runs DSINE on the views (`dsine_repo`, needed when λ_n > 0); the linked instance
+    ids are the segments. The output keeps the backbone's cameras with each ray map
+    replaced by its fitted pinhole (`fit_pinhole`).
     """
 
     cfg: RefineConfig
-    mv: MultiviewConfig
     dsine_repo: Path | None = None
 
     def __post_init__(self) -> None:
@@ -603,20 +789,16 @@ class JointRefiner:
 
     @classmethod
     def from_config(cls, path: Path) -> "JointRefiner":
-        """Read `refine`, `multiview` and the optional `dsine_repo` from a YAML file."""
+        """Read `refine` and `dsine_repo` (YAML)."""
         raw = yaml.safe_load(path.read_text())
         repo = raw.get("dsine_repo")
-        return cls(
-            RefineConfig(**raw["refine"]),
-            MultiviewConfig(**raw["multiview"]),
-            None if repo is None else Path(repo),
-        )
+        return cls(RefineConfig(**raw["refine"]), None if repo is None else Path(repo))
 
     def refine(
         self,
         views: Views,
         geometry: Geometry,
-        segmentation: Segmentation,  # noqa: ARG002
+        segmentation: Segmentation,
     ) -> Geometry:
         """Return the jointly refined depth of every view, same shapes as the input."""
         assert views.images.shape[:3] == geometry.depth.shape, geometry.depth.shape
@@ -625,14 +807,12 @@ class JointRefiner:
         scene = scene_from_geometry(geometry).to(device)
         normals = None
         if self.cfg.lambda_n > 0:
-            normals = torch.stack(
-                [
-                    self.dsine_normals(views, geometry, scene, v)
-                    for v in range(len(views))
-                ]
-            )
+            assert self.dsine_repo is not None
+            camera = dsine_normals(views.images, geometry.intrinsics, self.dsine_repo)
+            normals = scene_normals(camera, geometry, scene)
         t0 = time.perf_counter()
-        depth, log, counts = refine_scene(scene, self.cfg, self.mv, normals)
+        segments = torch.from_numpy(segmentation.instance_ids.astype(np.int64))
+        depth, log, counts = refine_scene(scene, self.cfg, normals, segments)
         log_info(
             "refined %d views in %.1f s: E %.4g -> %.4g, %d Gauss-Newton steps, %s",
             len(views),
@@ -643,19 +823,3 @@ class JointRefiner:
             counts,
         )
         return geometry_from_scene(scene, depth, scene.conf)
-
-    def dsine_normals(
-        self, views: Views, geometry: Geometry, scene: Scene, view: int
-    ) -> Tensor:
-        """DSINE's normals of one view, rotated into the frame of the scene's rays."""
-        assert self.dsine_repo is not None
-        camera = run_dsine(
-            views.images[view], geometry.intrinsics[view], self.dsine_repo
-        )
-        world, _ = to_world(
-            camera,
-            geometry.cam_to_world[view],
-            scene.depth[view],
-            scene.rays[view],
-        )
-        return world

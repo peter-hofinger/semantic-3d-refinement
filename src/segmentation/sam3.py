@@ -7,7 +7,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import torch
@@ -18,11 +18,9 @@ from transformers import (
     Sam3VideoProcessor,
 )
 
+from src.geometry import Geometry
 from src.loaders import Views
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
-
-if TYPE_CHECKING:
-    from src.geometry import Geometry
 
 log = logging.getLogger(__name__)
 
