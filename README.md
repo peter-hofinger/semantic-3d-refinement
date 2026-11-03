@@ -24,7 +24,8 @@ OpenCV camera, same world frame as the laser-scan mesh). Load it with
 ## Data (Hypersim)
 
 Scenes (scene -> camera trajectory) and settings live in `configs/hypersim.yaml`; the
-three default scenes are from the official v1 validation split.
+six default scenes are from the official v1 validation split, three with tilt-shift and
+three with plain cameras.
 
 ```bash
 uv run hypersim-download   # metadata CSVs + only the needed files (~45 MB per trajectory)
@@ -38,9 +39,17 @@ cameras in meters) and `GroundTruth` (instance ids, z-depth, classes) straight f
 Hypersim's per-pixel maps, so `eval-instances` works unchanged. Notes:
 - Most Hypersim cameras are tilt-shift: `M_cam_from_uv` is split into a pinhole K
   (off-centre principal point) and a camera rotation; the few with skew are rejected.
+- Déjà View always predicts a centred principal point, so use plain-camera scenes with it
+  (14 of the 46 validation scenes). On tilt-shift scenes its point maps degrade with the
+  offset: Rel. L2 0.010-0.026 on the three plain scenes vs 0.031-0.116 on the three
+  tilt-shift ones (E30 in `experiments/LOG.md`).
 - Walls, floors and ceilings have no instance ids in Hypersim; each such class becomes
   one instance (`STUFF_BASE + NYU40 id`). Pixels without a label stay unlabeled.
 - Class names are NYU40 (many small objects are `otherprop`).
+- Ground-truth depth of a mirror is the mirror surface; Déjà View partly predicts the
+  reflected room there.
+- 0.69% of Déjà View's training data is Hypersim and its scene split is not published,
+  so results on Hypersim may be slightly optimistic.
 
 ## Pipeline
 
