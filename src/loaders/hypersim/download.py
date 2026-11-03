@@ -63,7 +63,7 @@ class RemoteFile(io.RawIOBase):
         self.offset = min(max(0, base[whence] + offset), self.size)
         return self.offset
 
-    def readinto(self, buffer: memoryview) -> int:  # type: ignore[override]
+    def readinto(self, buffer: bytearray | memoryview) -> int:  # type: ignore[override]
         """Fill `buffer` from the current offset with one range request."""
         n = min(len(buffer), self.size - self.offset)
         if n == 0:
