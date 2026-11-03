@@ -22,19 +22,20 @@ They skim the README, open two files and scroll the history; every one of those 
 Per view i: depth D_i, confidence C_i, ray map (origin o, direction d); points x = o + D·d. Cameras stay fixed.
 Refine inverse depth per segment s: d̂_i(p) = a_{i,s}·d⁰_i(p) + b_{i,s} + δ_i(p), minimizing by Gauss-Newton + CG
 
-  E = E_d + λ_mv·E_mv + λ_bd·E_bd + λ_n·E_n + λ_pr·E_pr + λ_δ·‖δ‖²
+  E = E_d + λ_mv·E_mv + λ_n·E_n + λ_pr·E_pr + λ_δ·‖δ‖²
 
 - E_d: Huber anchor to the prediction, weighted by confidence × fraction of views that agree on the instance.
 - E_mv: cross-view depth agreement, only where the projection lands in the same segment.
-- E_bd: smoothing within segments only, so boundaries stay sharp.
-- E_n: BiNI's normal term on DSINE normals (log depth, cut on the input's occlusion contours).
+- E_n: BiNI's normal term on DSINE normals (log depth), within one instance and cut on the input's occlusion
+  contours. The proposal's E_bd (smoothing within segments) is dropped: next to E_n it changed the depth by a median
+  0.006-0.016 % and nothing visible.
 - E_pr: planarity for structural classes (wall, floor, table).
 
 Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned
 CG, matrix-free), the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
 Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end. The
 energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the other views
-that agree on the pixel's instance id); E_mv and E_bd only within one instance; E_n is BiNI's normal term on DSINE
+that agree on the pixel's instance id); E_mv and E_n only within one instance; E_n is BiNI's normal term on DSINE
 normals (`src/refinement/normals.py`, part of the method). Every weight is 1; weights are set later, on validation
 scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim validation scenes (`configs/eval_hypersim.yaml`),
 scored by `src/evaluation/labeled.py`. The method is a black box for the evaluation: only its output cloud is scored,

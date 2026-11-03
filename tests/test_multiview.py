@@ -27,7 +27,7 @@ from src.refinement.multiview import (
     refine_scene,
     residuals,
     robust,
-    same_id_stencils,
+    same_instance_edges,
     same_segment_matches,
     scene_energy,
     scene_from_geometry,
@@ -230,7 +230,6 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         )
         + 0.5
     )
-    one = torch.zeros(d0.shape, dtype=torch.long)  # every pixel in one segment
     p = Problem(
         scene,
         scale,
@@ -238,13 +237,11 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         w,
         stacked,
         find_matches(scene, d0, scale, 4, 0.05),
-        same_id_stencils(one),
         torch.full((d0.numel(),), -1),
         0,
     )
     cfg = RefineConfig(
         lambda_mv=2.0,
-        lambda_bd=3.0,
         lambda_n=0.5,
         lambda_delta=0.1,
         huber=0.01,  # half the pixels of delta lie on Huber's linear branch
@@ -292,22 +289,32 @@ def halves() -> torch.Tensor:
     return ids
 
 
-def test_stencils_across_a_segment_boundary_are_cut() -> None:
-    xx, yy, xy = same_id_stencils(halves())
-    assert yy.all()
-    assert not xx[..., W // 2 - 2].any() and not xx[..., W // 2 - 1].any()
-    assert xx.sum() == 2 * H * (W - 4) and not xy[..., W // 2 - 1].any()
+def test_edges_across_an_instance_boundary_are_cut() -> None:
+    ids = halves()
+    ids[:, :, :10] = -1
+    x, y = same_instance_edges(ids)
+    assert y.all()  # the boundary is vertical
+    assert not x[..., W // 2 - 1].any() and not x[..., 9].any()
+    assert x[..., :9].all()  # pixels without an instance count as one
+    assert x.sum() == 2 * H * (W - 3)
     index, count = segment_index(halves(), 10)
     assert count == 4 and set(index.unique().tolist()) == {0, 1, 2, 3}
     _, count = segment_index(halves(), H * W)
     assert count == 0
 
 
-def test_unmasked_pixels_are_not_smoothed() -> None:
-    ids = halves()
-    ids[:, :, :10] = -1
-    xx, yy, _ = same_id_stencils(ids)
-    assert not xx[..., :10].any() and not yy[..., :10].any() and yy[..., 10:].all()
+def test_normals_do_not_join_two_instances() -> None:
+    scene, _ = two_views()
+    normals = torch.stack(
+        [normals_from_depth(scene.depth[i], scene.rays[i]) for i in range(2)]
+    )
+    p = build_problem(scene, RefineConfig(device="cpu"), normals, halves())
+    assert p.normals is not None
+    (x_forward, x_backward), (y_forward, _) = p.normals.weights
+    for weights in (x_forward, x_backward):
+        assert (weights[..., W // 2 - 1] == 0).all()  # the wall and the table apart
+        assert (weights[..., W // 2 :] > 0).float().mean() > 0.9
+    assert (y_forward[..., W // 2] > 0).float().mean() > 0.9
 
 
 def test_robust_residual_squares_to_huber_and_its_slope_is_exact() -> None:
@@ -368,9 +375,7 @@ def test_semantic_solve_with_no_steps_returns_the_input() -> None:
 def test_normal_equations_with_segments_match_autograd() -> None:
     scene, _ = two_views(bump=0.03)
     scene = Scene(*(getattr(scene, f).double() for f in scene.__dataclass_fields__))
-    cfg = RefineConfig(
-        lambda_mv=2.0, lambda_bd=3.0, lambda_n=0.0, lambda_delta=0.5, device="cpu"
-    )
+    cfg = RefineConfig(lambda_mv=2.0, lambda_n=0.0, lambda_delta=0.5, device="cpu")
     p = build_problem(scene, cfg, segments=halves())
     g = torch.Generator().manual_seed(0)
     n = p.d0.numel() + 2 * p.num_segments
@@ -401,7 +406,6 @@ def test_segment_scale_carries_over_pixels_no_other_view_sees() -> None:
     assert unseen.sum() > 50
     cfg = RefineConfig(
         lambda_mv=100.0,
-        lambda_bd=0.0,
         lambda_n=0.0,
         lambda_delta=10.0,
         gn_iters=20,

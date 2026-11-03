@@ -103,16 +103,16 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 at once, per linked SAM 3 instance s of view i as d = a_{i,s} d⁰ + b_{i,s} + δ, cameras
 fixed, by Gauss-Newton with matrix-free conjugate gradients:
 
-E = E_d + E_mv + E_bd + E_n + ‖δ‖², every weight 1 for now (`configs/refine.yaml`).
+E = E_d + E_mv + E_n + ‖δ‖², every weight 1 for now (`configs/refine.yaml`).
 
 - **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
   of other views that agree on the pixel's instance, so it lets go where views disagree.
 - **E_mv**: overlapping views must agree on depth, only between pixels of one instance and
   not where one view's surface hides the other's: a gap counts as occluded above Otsu's
   threshold on the scene's gaps (about 4 % on Hypersim), so there is no tolerance to set.
-- **E_bd**: thin-plate smoothing of inverse depth, only within one instance.
-- **E_n**: BiNI's normal term on DSINE normals (`src/refinement/normals.py`), cut on the
-  input's occlusion contours, times 1e-4 to put it in the other terms' units. DSINE is
+- **E_n**: BiNI's normal term on DSINE normals (`src/refinement/normals.py`), the only
+  shape term: only between pixels of one instance and cut on the input's occlusion
+  contours, times 1e-4 to put it in the other terms' units. DSINE is
   non-commercial and stays outside git
   (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
 
@@ -152,19 +152,17 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
 Kitchen, conference room and restaurant, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-131714`; 1.5 min):
+(`figures/eval_hypersim-20261103-144206`; 1.5 min):
 
 | F-score at 5 cm | kitchen | conference | restaurant |
 |---|---|---|---|
 | Déjà View | 0.910 | 0.626 | 0.777 |
-| Refined (`configs/refine.yaml`) | 0.881 | 0.558 | 0.698 |
+| Refined (`configs/refine.yaml`) | 0.884 | 0.558 | 0.715 |
 
-- **The views fuse:** disagreement between overlapping views falls about tenfold
-  (0.48 → 0.05 %, 0.96 → 0.15 %, 0.60 → 0.09 %), and in cross sections the 20 views' walls
-  become one thin wall.
-- **The cloud still scores lower:** the fused surface sits a few centimetres off the ground
-  truth, and completeness grows from 1.4–3.2 to 2.0–5.4 cm. Setting the weights is the next
-  step.
+- **The views fuse:** disagreement between overlapping views falls 6–12×, and their walls
+  merge into one thin surface.
+- **The cloud still scores lower than Déjà View's**, mostly through completeness. Setting the
+  weights is the next step.
 
 ## Layout
 

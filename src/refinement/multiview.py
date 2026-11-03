@@ -9,7 +9,7 @@ median depth, so a residual means the same in every view. Per segment s of view 
 
 a = 1 and b = 0 for pixels without a segment, minimizing
 
-  E = λ_d E_d + λ_mv E_mv + λ_bd E_bd + λ_n E_n + λ_δ ‖δ‖²,   per-pixel terms as means.
+  E = λ_d E_d + λ_mv E_mv + λ_n E_n + λ_δ ‖δ‖²,   per-pixel terms as means.
 
 - E_d = w h(d - d0): Huber's cost h (`robust`) anchors to the prediction, weighted by
   w = confidence (mean one per view) times the consistency u: the share of the other
@@ -25,11 +25,11 @@ a = 1 and b = 0 for pixels without a segment, minimizing
   (`same_segment_matches`; pixels without one are not gated). Agree means a gap below
   Otsu's threshold on the scene's gaps (`occlusion_threshold`): they fall into a mode of
   same-surface noise and one of occlusions, and the threshold splits them, per scene.
-- E_bd = d_xx² + d_yy² + 2 d_xy²: thin-plate bending of inverse depth, zero on every
-  plane, on the stencils that lie within one segment (`same_id_stencils`): no
-  smoothing across an object boundary, none on pixels without a segment. With normals
-  it is also cut on the input's occlusion contours.
-- E_n: BiNI's normal term on DSINE's normals (`normals.py`), in log depth.
+- E_n: BiNI's normal term on DSINE's normals (`normals.py`), in log depth, on the
+  edges between two pixels of one linked instance (`same_instance_edges`; pixels without
+  one count as one), and cut on the input's occlusion contours: a wall's pixels
+  do not shape the table in front of it. E_n is the only shape term; a smoothness
+  term on top of it changed the depth by a median 0.006-0.016 % on Hypersim.
 - λ_δ ‖δ‖² makes the dense residual cost more than moving a segment as a whole, so a
   correction found where views overlap carries over the segment's pixels that no other
   view sees.
@@ -37,11 +37,11 @@ a = 1 and b = 0 for pixels without a segment, minimizing
 E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI minimizes
 its normal term by CG (Cao et al. 2022): each step solves the normal equations J^T J s =
 -J^T r by Jacobi-preconditioned CG. J is never formed for the per-view terms, which are
-stencils on the pixel grid and linear in δ (E_bd), robust in δ (E_d) or linear in log
-depth (E_n); E_mv's J has five entries per match, the source pixel and j's four
-interpolated pixels. d is linear in (δ, a, b), d - d0 = L x, so every residual's
-Jacobian is J_d L and the normal equations stay matrix-free: L^T J_d^T J_d L. On 20
-views of 504 x 378 a solve takes about 5 s on an RTX 3080.
+stencils on the pixel grid, robust in δ (E_d) or linear in log depth (E_n); E_mv's J has
+five entries per match, the source pixel and j's four interpolated pixels. d is linear
+in (δ, a, b), d - d0 = L x, so every residual's Jacobian is J_d L and the normal
+equations stay matrix-free: L^T J_d^T J_d L. On 20 views of 504 x 378 a solve takes
+about 5 s on an RTX 3080.
 """
 
 import logging
@@ -74,7 +74,6 @@ class RefineConfig:
 
     lambda_d: float = 1.0
     lambda_mv: float = 1.0
-    lambda_bd: float = 1.0
     lambda_n: float = 1.0
     lambda_delta: float = 1.0
     huber: float = 0.05  # E_d's Huber threshold on d - d0
@@ -92,7 +91,6 @@ class RefineConfig:
             min(
                 self.lambda_d,
                 self.lambda_mv,
-                self.lambda_bd,
                 self.lambda_n,
                 self.lambda_delta,
             )
@@ -386,8 +384,8 @@ class Problem:
 
     w is E_d's weight per pixel, confidence times consistency. Normal terms are stacked
     over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+, w-) as in
-    `normals.NormalTerm`. `cut` keeps the (xx, yy, xy) stencils of E_bd that lie within
-    one segment; `segments` holds each pixel's segment for a and b (-1: none), flat.
+    `normals.NormalTerm`, the weights 0 between segments; `segments` holds each pixel's
+    segment for a and b (-1: none), flat.
     """
 
     scene: Scene
@@ -396,20 +394,16 @@ class Problem:
     w: Tensor
     normals: NormalTerm | None
     matches: Matches
-    cut: tuple[Tensor, Tensor, Tensor]
     segments: Tensor
     num_segments: int
 
 
-def same_id_stencils(ids: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Masks (V, H, W) of the xx, yy and xy stencils within one segment (id ≥ 0)."""
-    same_x = (ids[..., 1:] == ids[..., :-1]) & (ids[..., 1:] >= 0)
-    same_y = (ids[..., 1:, :] == ids[..., :-1, :]) & (ids[..., 1:, :] >= 0)
-    return (
-        same_x[..., :-1] & same_x[..., 1:],
-        same_y[..., :-1, :] & same_y[..., 1:, :],
-        same_x[..., :-1, :] & same_x[..., 1:, :] & same_y[..., :-1] & same_y[..., 1:],
-    )
+def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
+    """Masks (V, H, W-1), (V, H-1, W) of the x and y edges within one instance.
+
+    Pixels without an instance (-1) count as one, so E_n still shapes them.
+    """
+    return ids[..., 1:] == ids[..., :-1], ids[..., 1:, :] == ids[..., :-1, :]
 
 
 def segment_index(ids: Tensor, min_pixels: int) -> tuple[Tensor, int]:
@@ -440,20 +434,6 @@ def same_segment_matches(
     source = flat[m.src]
     keep = (source < 0) | (source == flat[(m.dst * h + row) * w + col])
     return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
-
-
-def smoothing_masks(p: Problem) -> tuple[Tensor, Tensor, Tensor]:
-    """E_bd's stencil masks: within one segment, and not across an occlusion contour."""
-    masks = p.cut
-    if p.normals is not None:
-        (kx, _), (ky, _) = [(wf > 0, wb > 0) for wf, wb in p.normals.weights]
-        contours = (
-            kx[..., :-1] & kx[..., 1:],
-            ky[..., :-1, :] & ky[..., 1:, :],
-            kx[..., :-1, :] & kx[..., 1:, :] & ky[..., :-1] & ky[..., 1:],
-        )
-        masks = tuple(a & b for a, b in zip(masks, contours, strict=True))
-    return masks
 
 
 def unknowns(x: Tensor, p: Problem) -> tuple[Tensor, Tensor, Tensor]:
@@ -500,14 +480,6 @@ def change_transpose(y: Tensor, p: Problem) -> Tensor:
     )
 
 
-def second_differences(d: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Return d_xx, d_yy, d_xy over the last two axes, batched over views."""
-    dxx = d[..., 2:] - 2 * d[..., 1:-1] + d[..., :-2]
-    dyy = d[..., 2:, :] - 2 * d[..., 1:-1, :] + d[..., :-2, :]
-    dxy = d[..., 1:, 1:] - d[..., 1:, :-1] - d[..., :-1, 1:] + d[..., :-1, :-1]
-    return dxx, dyy, dxy
-
-
 def robust(u: Tensor, k: float) -> tuple[Tensor, Tensor]:
     """Huber's cost as one squared residual: r with r² = 2 h(u), and dr/du.
 
@@ -536,18 +508,6 @@ def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tenso
     out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * robust(u, cfg.huber)[0]}
     if cfg.lambda_delta > 0:
         out["E_delta"] = math.sqrt(cfg.lambda_delta) * unknowns(x, p)[0]
-    if cfg.lambda_bd > 0:
-        dxx, dyy, dxy = second_differences(d)
-        masks = smoothing_masks(p)
-        dxx, dyy, dxy = dxx * masks[0], dyy * masks[1], dxy * masks[2]
-        root = math.sqrt(cfg.lambda_bd)
-        out["E_bd"] = torch.cat(
-            [
-                root * dxx.flatten(),
-                root * dyy.flatten(),
-                math.sqrt(2) * root * dxy.flatten(),
-            ]
-        )
     if cfg.lambda_n > 0:
         assert p.normals is not None, "E_n needs normals"
         z = -d.clamp_min(1e-6).log()
@@ -580,20 +540,13 @@ def scene_energy(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, float]:
 
 
 def energy_maps(d: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
-    """Weighted cost of E_d, E_bd, E_n and E_mv per pixel (V, H, W) at inverse depth d.
+    """Weighted cost of E_d, E_n and E_mv per pixel (V, H, W) at inverse depth d.
 
-    Their means are the terms of E (λ_δ ‖δ‖² aside, which needs δ, not d). A stencil's
-    or an edge's cost sits on its first pixel, a match's on its source pixel.
+    Their means are the terms of E (λ_δ ‖δ‖² aside, which needs δ, not d). An edge's
+    cost sits on its first pixel, a match's on its source pixel.
     """
     pad = torch.nn.functional.pad
     maps = {"E_d": 0.5 * cfg.lambda_d * p.w * robust(d - p.d0, cfg.huber)[0].square()}
-    dxx, dyy, dxy = second_differences(d)
-    masks = smoothing_masks(p)
-    maps["E_bd"] = cfg.lambda_bd * (
-        pad((dxx * masks[0]).square(), (1, 1))
-        + pad((dyy * masks[1]).square(), (0, 0, 1, 1))
-        + 2 * pad((dxy * masks[2]).square(), (0, 1, 0, 1))
-    )
     if p.normals is not None:
         z = -d.clamp_min(1e-6).log()
         dzs = (z[..., 1:] - z[..., :-1], z[..., 1:, :] - z[..., :-1, :])
@@ -615,37 +568,22 @@ def energy_maps(d: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
 def grid_operator(
     d: Tensor, cfg: RefineConfig, p: Problem, *, squared: bool = False
 ) -> Callable[[Tensor], Tensor]:
-    """J v of the residuals on the pixel grid at d: E_d, E_bd, E_n, in that order.
+    """J v of the residuals on the pixel grid at d: E_d, then E_n.
 
     v is a change of d; E_mv and E_delta (a function of δ alone) are added by
     `normal_equations`. With squared, J's entries are squared.
 
-    E_d's Jacobian is its weight times dr/du of `robust`; E_bd is linear in δ; E_n is
-    linear in z = -log d, so dz moves by -(v_q/d_q - v_p/d_p). With squared entries,
-    J∘J applied to v and transposed onto the residuals' ones gives the diagonal of
-    J^T J.
+    E_d's Jacobian is its weight times dr/du of `robust`; E_n is linear in z = -log d,
+    so dz moves by -(v_q/d_q - v_p/d_p). With squared entries, J∘J applied to v and
+    transposed onto the residuals' ones gives the diagonal of J^T J.
     """
     power = 2 if squared else 1
     a_d = ((0.5 * cfg.lambda_d * p.w).sqrt() * robust(d - p.d0, cfg.huber)[1]) ** power
-    root_bd = math.sqrt(cfg.lambda_bd) ** power
-    masks = smoothing_masks(p)
     inv_d = (1 / d) ** power
     sign = 1 if squared else -1
 
     def apply(v: Tensor) -> Tensor:
         out = [a_d * v]
-        if cfg.lambda_bd > 0:
-            c = 4 if squared else -2
-            dxx = v[..., 2:] + c * v[..., 1:-1] + v[..., :-2]
-            dyy = v[..., 2:, :] + c * v[..., 1:-1, :] + v[..., :-2, :]
-            dxy = (
-                v[..., 1:, 1:]
-                + sign * v[..., 1:, :-1]
-                + sign * v[..., :-1, 1:]
-                + v[..., :-1, :-1]
-            )
-            dxx, dyy, dxy = dxx * masks[0], dyy * masks[1], dxy * masks[2]
-            out += [root_bd * dxx, root_bd * dyy, 2 ** (power / 2) * root_bd * dxy]
         if cfg.lambda_n > 0:
             assert p.normals is not None
             q = v * inv_d
@@ -780,8 +718,8 @@ def refine_scene(
     J^T J s = -J^T r by Jacobi-preconditioned CG (`gauss_newton_step`), halving s until
     E decreases and no depth grows tenfold (the logs clamp d at 1e-6, so E alone would
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
-    rays, enable E_n and cut E_bd on the input's occlusion contours. Segments (V, H, W)
-    are linked instance ids, -1 for none (default: no pixel has a segment).
+    rays, enable E_n. Segments (V, H, W) are linked instance ids, -1 for none (default:
+    no pixel has a segment).
     """
     p = build_problem(scene, cfg, normals, segments)
     x, log, cg_total = gauss_newton(p, cfg)
@@ -845,8 +783,8 @@ def build_problem(
 ) -> Problem:
     """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
 
-    E_d's weight is the confidence (mean one per view) times the consistency u; E_bd's
-    stencils stay within one segment; a and b are per (view, segment); E_mv keeps the
+    E_d's weight is the confidence (mean one per view) times the consistency u; E_n's
+    edges stay within one segment; a and b are per (view, segment); E_mv keeps the
     matches that land on their source's segment.
     """
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
@@ -874,16 +812,15 @@ def build_problem(
             ],
             [
                 tuple(
-                    torch.stack([t.weights[a][k] for t in per_view]) for k in range(2)
+                    same * torch.stack([t.weights[a][k] for t in per_view])
+                    for k in range(2)
                 )
-                for a in range(2)
+                for a, same in enumerate(same_instance_edges(ids))
             ],
         )
     matches = find_matches(scene, d0, scale, cfg.neighbors)
     matches = same_segment_matches(matches, scene, d0, scale, ids)
-    return Problem(
-        scene, scale, d0, w, terms, matches, same_id_stencils(ids), index, count
-    )
+    return Problem(scene, scale, d0, w, terms, matches, index, count)
 
 
 def gauss_newton(

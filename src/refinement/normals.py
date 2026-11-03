@@ -8,8 +8,8 @@ which re-weights the sides during its solve, the weights are fixed on the input:
 the input's occlusion contours (`cut_weights`), 1/2 elsewhere, so E_n stays one smooth
 sum of squares for Gauss-Newton. The weights carry `SCALE` too: BiNI's residuals are
 log-depth steps times the focal length (`neighbor_terms`), so on Hypersim E_n starts at
-40-110 where E_bd, the other shape term, starts at 1e-3; times 1e-4 the two start on
-the same order and λ_n = 1 weighs them alike.
+40-110 where every other term starts below 0.004; times 1e-4 it starts on their order
+and λ_n = 1 weighs it alike.
 
 The normals come from DSINE (Bae and Davison 2024), run once per view on the image and
 the backbone's intrinsics and cached next to the views (`dsine-predict`). DSINE is
