@@ -143,6 +143,11 @@ class Sam3ImageSegmenter:
         for i, image in enumerate(views.images):
             inputs = processor(images=image, return_tensors="pt").to("cuda")
             sizes = inputs["original_sizes"].tolist()
+            # raw detections are numbered per view without limit; only the masks that
+            # still own pixels after overlap resolution get ids view * ID_STRIDE + rank
+            local = np.full((height, width), NO_INSTANCE, dtype=np.int32)
+            local_classes: dict[int, str] = {}
+            local_scores: dict[int, float] = {}
             count = 0
             with torch.no_grad():
                 vision = model.get_vision_features(
@@ -156,19 +161,20 @@ class Sam3ImageSegmenter:
                         mask_threshold=0.5,
                         target_sizes=sizes,
                     )[0]
-                    objs = i * ID_STRIDE + count + np.arange(len(res["scores"]))
+                    objs = count + np.arange(len(res["scores"]))
                     count += len(objs)
-                    assert count < ID_STRIDE, "too many masks in one view"  # noqa: S101
                     masks = res["masks"].cpu().numpy().astype(bool)
                     scores = res["scores"].float().cpu().numpy()
-                    _paint(ids[i], best[i], objs, scores, masks)
+                    _paint(local, best[i], objs, scores, masks)
                     cls = self.synonyms.get(prompt, prompt)
-                    classes.update(dict.fromkeys(objs.tolist(), cls))
-                    all_scores.update(zip(objs.tolist(), scores.tolist(), strict=True))
-            log.info("  view %2d: %3d masks", i, len(np.unique(ids[i])) - 1)
-        seg = _drop_hidden(ids, classes)
-        seg.scores = {k: all_scores[k] for k in seg.classes}
-        return seg
+                    local_classes.update(dict.fromkeys(objs.tolist(), cls))
+                    local_scores.update(zip(objs.tolist(), scores, strict=True))
+            mapping = _compact(local, ids[i], i)
+            for k, n in mapping.items():
+                classes[n] = local_classes[k]
+                all_scores[n] = float(local_scores[k])
+            log.info("  view %2d: %3d masks (%d detections)", i, len(mapping), count)
+        return Segmentation(ids, classes, scores=all_scores)
 
 
 def _paint(
@@ -183,6 +189,22 @@ def _paint(
         win = mask & (score > best)
         ids[win] = obj
         best[win] = score
+
+
+def _compact(local: np.ndarray, out: np.ndarray, view: int) -> dict[int, int]:
+    """Give the masks left in `local` ids view * ID_STRIDE + rank, written into `out`.
+
+    Raw detections that lost all their pixels to higher-scoring masks get no id, so
+    only the visible masks count against ID_STRIDE. Returns raw id -> new id.
+    """
+    present = np.unique(local[local >= 0])
+    if len(present) >= ID_STRIDE:
+        msg = f"view {view}: {len(present)} masks, ID_STRIDE is {ID_STRIDE}"
+        raise ValueError(msg)
+    new = view * ID_STRIDE + np.arange(len(present), dtype=np.int32)
+    keep = local >= 0
+    out[keep] = new[np.searchsorted(present, local[keep])]
+    return dict(zip(present.tolist(), new.tolist(), strict=True))
 
 
 def _drop_hidden(ids: np.ndarray, classes: dict[int, str]) -> Segmentation:

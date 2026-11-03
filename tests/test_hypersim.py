@@ -1,6 +1,14 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from src.loaders.hypersim.config import (
+    OFFICIAL_PARTITION,
+    HypersimConfig,
+    check_splits,
+    load_config,
+)
 from src.loaders.hypersim.prepare import (
     STUFF_BASE,
     UNKNOWN_CLASS,
@@ -99,3 +107,81 @@ def test_instance_without_label_is_unknown() -> None:
     ids = np.array([[3, 3, 9]])
     semantic = np.array([[-1, -1, 5]])
     assert instance_classes(ids, semantic) == {3: UNKNOWN_CLASS, 9: "chair"}
+
+
+M_TILT_SHIFT = np.array([[0.57776, 0, 0], [0, 0.43301, 0], [0, 0.016371, -1.00071]])
+
+
+def write_metadata(root: Path) -> None:
+    """Fake metadata: val ai_v_plain, ai_v_tilt; test ai_t_plain; cam_01 not public."""
+    with (root / "metadata_images_split_scene_v1.csv").open("w", encoding="utf-8") as f:
+        f.write("scene_name,camera_name,frame_id,included_in_public_release,")
+        f.write("exclude_reason,split_partition_name\n")
+        for scene, part in (
+            ("ai_v_plain", "val"),
+            ("ai_v_tilt", "val"),
+            ("ai_t_plain", "test"),
+        ):
+            f.write(f"{scene},cam_00,0,True,,{part}\n")
+            f.write(f"{scene},cam_01,0,False,CONTENT FLAGGED FOR REMOVAL,\n")
+    cols = [f"M_cam_from_uv_{i}{j}" for i in range(3) for j in range(3)]
+    with (root / "metadata_camera_parameters.csv").open("w", encoding="utf-8") as f:
+        f.write(",".join(["scene_name", "settings_output_img_width",
+                          "settings_output_img_height", *cols]) + "\n")  # fmt: skip
+        for scene, m in (("ai_v_plain", M_PINHOLE), ("ai_v_tilt", M_TILT_SHIFT),
+                         ("ai_t_plain", M_PINHOLE)):  # fmt: skip
+            f.write(",".join([scene, "1024", "768", *map(str, m.ravel())]) + "\n")
+
+
+def make_config(root: Path, **splits: dict[str, str]) -> HypersimConfig:
+    """A config over the fake metadata with the given splits, the rest empty."""
+    return HypersimConfig(
+        data_root=root,
+        metadata_root=root,
+        output_root=root,
+        splits={name: splits.get(name, {}) for name in OFFICIAL_PARTITION},
+    )
+
+
+def test_split_check_accepts_official_partitions(tmp_path: Path) -> None:
+    write_metadata(tmp_path)
+    cfg = make_config(
+        tmp_path,
+        dev={"ai_v_plain": "cam_00"},
+        test={"ai_t_plain": "cam_00"},
+        stress={"ai_v_tilt": "cam_00"},
+    )
+    check_splits(cfg)
+    assert cfg.scenes(["dev", "stress"]) == {
+        "ai_v_plain": "cam_00",
+        "ai_v_tilt": "cam_00",
+    }
+
+
+@pytest.mark.parametrize(
+    ("splits", "error"),
+    [
+        ({"dev": {"ai_t_plain": "cam_00"}}, "official test partition, not val"),
+        ({"test": {"ai_v_plain": "cam_00"}}, "official val partition, not test"),
+        ({"val": {"ai_v_tilt": "cam_00"}}, "off-centre"),
+        ({"dev": {"ai_v_plain": "cam_01"}}, "not in the public release"),
+    ],
+)
+def test_split_check_rejects(
+    tmp_path: Path, splits: dict[str, dict[str, str]], error: str
+) -> None:
+    write_metadata(tmp_path)
+    with pytest.raises(ValueError, match=error):
+        check_splits(make_config(tmp_path, **splits))
+
+
+def test_config_rejects_scene_in_two_splits(tmp_path: Path) -> None:
+    path = tmp_path / "hypersim.yaml"
+    path.write_text(
+        "data_root: d\nmetadata_root: m\noutput_root: o\nsplits:\n"
+        "  dev: {ai_v_plain: cam_00}\n  val: {ai_v_plain: cam_01}\n"
+        "  test: {}\n  stress: {}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="more than one split"):
+        load_config(path)

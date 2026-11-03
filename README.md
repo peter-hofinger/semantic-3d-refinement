@@ -23,12 +23,16 @@ OpenCV camera, same world frame as the laser-scan mesh). Load it with
 
 ## Data (Hypersim)
 
-Scenes (scene -> camera trajectory) and settings live in `configs/hypersim.yaml`; the
-three default scenes are from the official v1 validation split.
+Scenes and settings live in `configs/hypersim.yaml`, split into four sets of one camera
+trajectory per scene, none filtered by hand: **dev** (3 val scenes; choices are made
+here), **val** (the other 11 val scenes with a centred camera; checks that a choice holds),
+**test** (all 26 test scenes with a centred camera; reported numbers only) and **stress**
+(3 tilt-shift val scenes, see below). The loaders check each set against Hypersim's
+official v1 split, so no scene used for choices or reports is from its training split.
 
 ```bash
-uv run hypersim-download   # metadata CSVs + only the needed files (~45 MB per trajectory)
-uv run hypersim-prepare    # -> data/processed/hypersim/<scene>_<cam>/views_*.npz + gt_views_*.npz
+uv run hypersim-download --splits dev   # metadata CSVs + only the needed files (~45 MB per trajectory)
+uv run hypersim-prepare --splits dev    # -> data/processed/hypersim/<scene>_<cam>/views_*.npz + gt_views_*.npz
 ```
 
 The download reads Apple's per-scene ZIPs with HTTP range requests, so it fetches only
@@ -38,9 +42,17 @@ cameras in meters) and `GroundTruth` (instance ids, z-depth, classes) straight f
 Hypersim's per-pixel maps, so `eval-instances` works unchanged. Notes:
 - Most Hypersim cameras are tilt-shift: `M_cam_from_uv` is split into a pinhole K
   (off-centre principal point) and a camera rotation; the few with skew are rejected.
+- Déjà View always predicts a centred principal point, so use plain-camera scenes with it
+  (14 of the 46 validation scenes). On tilt-shift scenes its point maps degrade with the
+  offset: Rel. L2 0.010-0.026 on the three plain scenes vs 0.031-0.116 on the three
+  tilt-shift ones (E30 in `experiments/LOG.md`).
 - Walls, floors and ceilings have no instance ids in Hypersim; each such class becomes
   one instance (`STUFF_BASE + NYU40 id`). Pixels without a label stay unlabeled.
 - Class names are NYU40 (many small objects are `otherprop`).
+- Ground-truth depth of a mirror is the mirror surface; Déjà View partly predicts the
+  reflected room there.
+- 0.69% of Déjà View's training data is Hypersim and its scene split is not published,
+  so results on Hypersim may be slightly optimistic.
 
 ## Pipeline
 

@@ -1,0 +1,183 @@
+## Déjà View vs GT
+
+| scene | fx DV/GT | fy DV/GT | cx DV - GT (px) | cy DV - GT (px) | depth abs rel (median, per-view scale) | worst view | Rel. L2 scene Sim(3) | inliers < 3% | Rel. L2 per-view Sim(3) |
+|---|---|---|---|---|---|---|---|---|---|
+| kitchen (ts) | 1.004 | 1.003 | -0.3 | +16.3 | 0.0098 | 17: 0.0260 | 0.0307 | 80.7% | 0.0279 |
+  GT principal points kitchen (ts): cx 252.0, cy 172.5 (image 504x378); DV cx 251.7, cy 188.8
+| conference (ts) | 1.043 | 1.042 | -0.4 | +82.3 | 0.0200 | 5: 0.0343 | 0.1161 | 15.5% | 0.1215 |
+  GT principal points conference (ts): cx 252.0, cy 106.3 (image 504x378); DV cx 251.6, cy 188.6
+| restaurant (ts) | 1.009 | 1.009 | -0.2 | +13.9 | 0.0139 | 7: 0.0290 | 0.0480 | 74.5% | 0.0513 |
+  GT principal points restaurant (ts): cx 252.0, cy 174.8 (image 504x378); DV cx 251.8, cy 188.7
+| living room | 1.003 | 1.005 | -0.4 | -0.3 | 0.0045 | 13: 0.0075 | 0.0098 | 97.0% | 0.0094 |
+  GT principal points living room: cx 252.0, cy 189.0 (image 504x378); DV cx 251.6, cy 188.7
+| bedroom | 1.004 | 1.001 | -1.0 | -0.3 | 0.0071 | 3: 0.0132 | 0.0220 | 91.7% | 0.0208 |
+  GT principal points bedroom: cx 252.0, cy 189.0 (image 504x378); DV cx 251.0, cy 188.7
+| lobby | 1.004 | 1.008 | -0.3 | -0.1 | 0.0087 | 19: 0.0121 | 0.0260 | 78.5% | 0.0223 |
+  GT principal points lobby: cx 252.0, cy 189.0 (image 504x378); DV cx 251.7, cy 188.9
+
+## Segmentation (SAM 3 t0.3, association xc0.7 vf0.25 kl0.5)
+
+| scene | vocabulary | geometry | names | subset | recall | pixel recall | precision | cross-class leakage | consistent | GT in >=2 views | id switches | merges | wrong links |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| kitchen (ts) | top100 | Déjà View | 100 | all | 0.76 | 0.69 | 0.33 | 0.009 | 0.68 | 25 | 11 | 0 | 1 |
+| kitchen (ts) | top100 | Déjà View | 100 | objects | 0.78 | 0.87 | 0.30 | 0.016 | 0.70 | 23 | 9 | 0 |  |
+| kitchen (ts) | top100 | GT | 100 | all | 0.77 | 0.69 | 0.32 | 0.009 | 0.80 | 25 | 7 | 1 | 2 |
+| kitchen (ts) | top100 | GT | 100 | objects | 0.78 | 0.87 | 0.30 | 0.016 | 0.83 | 23 | 5 | 1 |  |
+| kitchen (ts) | 27B union cap64 | Déjà View | 60 | all | 0.80 | 0.67 | 0.17 | 0.010 | 0.71 | 28 | 11 | 0 | 4 |
+| kitchen (ts) | 27B union cap64 | Déjà View | 60 | objects | 0.82 | 0.82 | 0.16 | 0.021 | 0.73 | 26 | 9 | 0 |  |
+| kitchen (ts) | 27B union cap64 | GT | 60 | all | 0.80 | 0.67 | 0.17 | 0.010 | 0.89 | 28 | 5 | 0 | 5 |
+| kitchen (ts) | 27B union cap64 | GT | 60 | objects | 0.82 | 0.82 | 0.16 | 0.021 | 0.92 | 26 | 3 | 0 |  |
+| conference (ts) | top100 | Déjà View | 100 | all | 0.84 | 0.81 | 0.45 | 0.028 | 0.55 | 22 | 14 | 1 | 10 |
+| conference (ts) | top100 | Déjà View | 100 | objects | 0.89 | 0.98 | 0.41 | 0.014 | 0.63 | 19 | 10 | 1 |  |
+| conference (ts) | top100 | GT | 100 | all | 0.84 | 0.81 | 0.44 | 0.028 | 0.86 | 22 | 4 | 0 | 9 |
+| conference (ts) | top100 | GT | 100 | objects | 0.89 | 0.98 | 0.40 | 0.014 | 1.00 | 19 | 0 | 0 |  |
+| conference (ts) | 27B union cap64 | Déjà View | 71 | all | 0.77 | 0.76 | 0.15 | 0.027 | 0.36 | 22 | 19 | 1 | 18 |
+| conference (ts) | 27B union cap64 | Déjà View | 71 | objects | 0.81 | 0.89 | 0.13 | 0.015 | 0.42 | 19 | 16 | 1 |  |
+| conference (ts) | 27B union cap64 | GT | 71 | all | 0.77 | 0.76 | 0.14 | 0.027 | 0.68 | 22 | 9 | 0 | 15 |
+| conference (ts) | 27B union cap64 | GT | 71 | objects | 0.81 | 0.89 | 0.13 | 0.016 | 0.79 | 19 | 6 | 0 |  |
+| restaurant (ts) | top100 | Déjà View | 100 | all | 0.76 | 0.77 | 0.38 | 0.044 | 0.67 | 89 | 35 | 4 | 27 |
+| restaurant (ts) | top100 | Déjà View | 100 | objects | 0.76 | 0.72 | 0.36 | 0.068 | 0.70 | 86 | 31 | 4 |  |
+| restaurant (ts) | top100 | GT | 100 | all | 0.78 | 0.77 | 0.38 | 0.045 | 0.85 | 95 | 16 | 2 | 21 |
+| restaurant (ts) | top100 | GT | 100 | objects | 0.77 | 0.72 | 0.36 | 0.068 | 0.88 | 92 | 12 | 2 |  |
+| restaurant (ts) | 27B union cap64 | Déjà View | 88 | all | 0.79 | 0.78 | 0.10 | 0.051 | 0.53 | 97 | 57 | 2 | 11 |
+| restaurant (ts) | 27B union cap64 | Déjà View | 88 | objects | 0.79 | 0.74 | 0.09 | 0.063 | 0.54 | 94 | 52 | 2 |  |
+| restaurant (ts) | 27B union cap64 | GT | 88 | all | 0.79 | 0.78 | 0.10 | 0.051 | 0.69 | 97 | 35 | 2 | 15 |
+| restaurant (ts) | 27B union cap64 | GT | 88 | objects | 0.79 | 0.74 | 0.09 | 0.063 | 0.71 | 94 | 30 | 2 |  |
+| living room | top100 | Déjà View | 100 | all | 0.91 | 0.88 | 0.47 | 0.006 | 0.82 | 17 | 3 | 0 | 1 |
+| living room | top100 | Déjà View | 100 | objects | 0.92 | 0.94 | 0.41 | 0.025 | 0.86 | 14 | 2 | 0 |  |
+| living room | top100 | GT | 100 | all | 0.91 | 0.88 | 0.46 | 0.006 | 0.82 | 17 | 3 | 0 | 1 |
+| living room | top100 | GT | 100 | objects | 0.92 | 0.94 | 0.41 | 0.025 | 0.86 | 14 | 2 | 0 |  |
+| living room | 27B union cap64 | Déjà View | 33 | all | 0.94 | 0.88 | 0.43 | 0.007 | 0.83 | 18 | 3 | 0 | 4 |
+| living room | 27B union cap64 | Déjà View | 33 | objects | 0.95 | 0.96 | 0.38 | 0.028 | 0.87 | 15 | 2 | 0 |  |
+| living room | 27B union cap64 | GT | 33 | all | 0.94 | 0.88 | 0.43 | 0.007 | 0.83 | 18 | 3 | 0 | 3 |
+| living room | 27B union cap64 | GT | 33 | objects | 0.95 | 0.96 | 0.37 | 0.028 | 0.87 | 15 | 2 | 0 |  |
+| bedroom | top100 | Déjà View | 100 | all | 0.85 | 0.85 | 0.49 | 0.021 | 0.70 | 33 | 14 | 0 | 1 |
+| bedroom | top100 | Déjà View | 100 | objects | 0.83 | 0.84 | 0.43 | 0.047 | 0.73 | 30 | 10 | 0 |  |
+| bedroom | top100 | GT | 100 | all | 0.85 | 0.85 | 0.49 | 0.021 | 0.76 | 33 | 11 | 0 | 1 |
+| bedroom | top100 | GT | 100 | objects | 0.84 | 0.84 | 0.44 | 0.047 | 0.80 | 30 | 7 | 0 |  |
+| bedroom | 27B union cap64 | Déjà View | 89 | all | 0.90 | 0.88 | 0.17 | 0.022 | 0.71 | 34 | 13 | 0 | 1 |
+| bedroom | 27B union cap64 | Déjà View | 89 | objects | 0.90 | 0.91 | 0.14 | 0.045 | 0.74 | 31 | 9 | 0 |  |
+| bedroom | 27B union cap64 | GT | 89 | all | 0.90 | 0.88 | 0.17 | 0.022 | 0.79 | 34 | 10 | 0 | 3 |
+| bedroom | 27B union cap64 | GT | 89 | objects | 0.90 | 0.91 | 0.14 | 0.045 | 0.84 | 31 | 6 | 0 |  |
+| lobby | top100 | Déjà View | 100 | all | 0.80 | 0.65 | 0.23 | 0.007 | 0.81 | 31 | 9 | 1 | 8 |
+| lobby | top100 | Déjà View | 100 | objects | 0.83 | 0.88 | 0.21 | 0.018 | 0.86 | 29 | 7 | 1 |  |
+| lobby | top100 | GT | 100 | all | 0.80 | 0.65 | 0.23 | 0.008 | 0.81 | 31 | 8 | 1 | 10 |
+| lobby | top100 | GT | 100 | objects | 0.83 | 0.88 | 0.20 | 0.019 | 0.86 | 29 | 6 | 1 |  |
+| lobby | 27B union cap64 | Déjà View | 77 | all | 0.58 | 0.58 | 0.16 | 0.188 | 0.78 | 27 | 8 | 1 | 3 |
+| lobby | 27B union cap64 | Déjà View | 77 | objects | 0.57 | 0.62 | 0.13 | 0.014 | 0.88 | 24 | 5 | 0 |  |
+| lobby | 27B union cap64 | GT | 77 | all | 0.58 | 0.58 | 0.16 | 0.188 | 0.78 | 27 | 8 | 2 | 5 |
+| lobby | 27B union cap64 | GT | 77 | objects | 0.57 | 0.62 | 0.13 | 0.014 | 0.88 | 24 | 5 | 1 |  |
+
+Masks and merges:
+
+kitchen (ts) / top100 / Déjà View: 1230 per-view masks
+
+kitchen (ts) / top100 / GT: 1230 per-view masks
+  merge: table -> cabinet 24, counter 23
+
+kitchen (ts) / 27B union cap64 / Déjà View: 2316 per-view masks
+
+kitchen (ts) / 27B union cap64 / GT: 2316 per-view masks
+
+conference (ts) / top100 / Déjà View: 1911 per-view masks
+  merge: chair -> chair 5, chair 6
+
+conference (ts) / top100 / GT: 1911 per-view masks
+
+conference (ts) / 27B union cap64 / Déjà View: 4402 per-view masks
+  merge: backrest -> chair 7, chair 8
+
+conference (ts) / 27B union cap64 / GT: 4402 per-view masks
+
+restaurant (ts) / top100 / Déjà View: 3668 per-view masks
+  merge: chair -> chair 174, chair 183
+  merge: cup -> otherprop 210, otherprop 211
+  merge: cup -> otherprop 273, otherprop 274, otherprop 279
+  merge: chair -> chair 226, chair 228
+  merge: cup -> otherprop 177, otherprop 178
+  merge: cup -> otherprop 247, otherprop 248
+  merge: cup -> otherprop 238, otherprop 247
+  merge: chair -> chair 158, chair 173
+  merge: chair -> chair 126, chair 132
+  merge: cup -> otherprop 274, otherprop 280
+  merge: cup -> otherprop 267, otherprop 269
+  merge: cup -> otherprop 268, otherprop 273
+
+restaurant (ts) / top100 / GT: 3668 per-view masks
+  merge: cup -> otherprop 177, otherprop 178
+  merge: cup -> otherprop 267, otherprop 273
+  merge: chair -> chair 174, chair 183
+  merge: cup -> otherprop 236, otherprop 239
+  merge: cup -> otherprop 244, otherprop 245
+  merge: cup -> otherprop 235, otherprop 250
+  merge: cup -> otherprop 247, otherprop 248
+  merge: chair -> chair 132, chair 183
+  merge: cup -> otherprop 268, otherprop 274, otherprop 280
+  merge: cup -> otherprop 187, otherprop 188
+
+restaurant (ts) / 27B union cap64 / Déjà View: 11264 per-view masks
+  merge: chair -> chair 174, chair 183
+  merge: glass -> otherprop 247, otherprop 248
+  merge: glass -> otherprop 238, otherprop 247
+  merge: glass -> otherprop 273, otherprop 274, otherprop 279
+
+restaurant (ts) / 27B union cap64 / GT: 11264 per-view masks
+  merge: glass -> otherprop 267, otherprop 273
+  merge: glass -> otherprop 177, otherprop 178
+  merge: glass -> otherprop 244, otherprop 245
+  merge: glass -> otherprop 247, otherprop 248
+  merge: chair -> chair 174, chair 183
+  merge: glass -> otherprop 274, otherprop 280
+  merge: seating -> chair 46, chair 47
+  merge: decor -> otherprop 160, otherprop 161
+
+living room / top100 / Déjà View: 824 per-view masks
+
+living room / top100 / GT: 824 per-view masks
+
+living room / 27B union cap64 / Déjà View: 977 per-view masks
+
+living room / 27B union cap64 / GT: 977 per-view masks
+
+bedroom / top100 / Déjà View: 731 per-view masks
+
+bedroom / top100 / GT: 731 per-view masks
+
+bedroom / 27B union cap64 / Déjà View: 2599 per-view masks
+
+bedroom / 27B union cap64 / GT: 2599 per-view masks
+
+lobby / top100 / Déjà View: 2325 per-view masks
+  merge: painting -> picture 1, picture 2
+
+lobby / top100 / GT: 2325 per-view masks
+  merge: painting -> picture 1, picture 2
+
+lobby / 27B union cap64 / Déjà View: 1784 per-view masks
+  merge: lobby -> floor 1000002, wall 1000001
+
+lobby / 27B union cap64 / GT: 1784 per-view masks
+  merge: painting -> picture 1, picture 2
+  merge: lobby -> floor 1000002, wall 1000001
+
+VLM vocabularies:
+
+kitchen (ts): 60 names, truncated answers 9/20
+  wall, floor, ceiling, cabinet, chair, table, lamp, window, sink, stove, refrigerator, curtain, light, counter, drawer, door, vase, plant, dish, cutlery, rug, tile, wood, metal, glass, fabric, stone, chandelier, range hood, bowl, plate, napkin, island, shelf, fruit, teapot, cup, saucer, croissant, newspaper, faucet, oven, flower, picture, doorknob, bread, cushion, mirror, doorframe, pot, handle, pantry, utensil, backsplash, ceramic, spoon, carpet, tray, sofa, paper
+
+conference (ts): 71 names, truncated answers 17/20
+  table, chair, floor, ceiling, wall, column, screen, projector, light, rug, window, door, cabinet, shelf, plant, picture, desk, cable, panel, base, backrest, armrest, seat, leg, foot, handle, joint, frame, pillar, staircase, railing, lamp, glass, metal, wood, concrete, tile, carpet, beam, fixture, monitor, mat, socket, vent, edge, top, side, back, poster, sign, counter, stool, artwork, mirror, handrail, bicycle, mesh, speaker, plastic, fabric, strip, surface, structure, equipment, display, stand, trim, baseboard, laptop, clock, slot
+
+restaurant (ts): 88 names, truncated answers 15/20
+  table, chair, flower, vase, window, curtain, ceiling, light, floor, wall, plant, pot, column, panel, lamp, glass, plate, cutlery, rug, sofa, cushion, door, frame, tile, wood, metal, fabric, mirror, pillar, hanging light, pendant light, recessed light, wooden panel, stone wall, napkin, wine glass, candle, chandelier, shading, beam, decoration, artwork, shelf, book, clock, staircase, branch, leaf, stem, decorative element, ceramic, stone, wooden slat, decorative strip, dining set, sideboard, menu, sill, seating, decor, interior, exterior view, ocean, light fixture, partition, backrest, armrest, leg, base, top, surface, decorative panel, doorway, carpet, pendant, concrete, sign, leather, glassware, counter, picture, fan, heater, vent, pipe, cable, socket, switch
+
+living room: 33 names, truncated answers 1/20
+  sofa, coffee table, cushion, picture, light, curtain, window, plant, floor, wall, ceiling, rug, view, tree, grass, sky, doorway, step, shelf, vase, bottle, glass, chair, ottoman, lamp, frame, picture frame, pillow, table, staircase, book, armchair, pot
+
+bedroom: 89 names, truncated answers 12/20
+  wall, floor, ceiling, mirror, table, lamp, chair, stool, vase, flower, bottle, box, hand, drawer, cushion, shelf, rug, bed, pillow, blanket, nightstand, headboard, mattress, sheet, clock, window, sill, footboard, bedspread, doorknob, light, reflection, wall decal, door, handle, panel, strip, pattern, decal, spotlight, fixture, frame, post, rail, wardrobe, armrest, seat, backrest, leg, mat, hanger, clothes, base, shade, bulb, baseboard, shadow, tile, wood, metal, fabric, dresser, picture, curtain, plant, book, toy, shoe, stand, design, texture, stitch, armchair, stripe, opening, doormat, cover, remote, cabinet, decoration, switch, carpet, finial, candle, closet, knob, dress, bedpost, bed frame
+
+lobby: 77 names, truncated answers 20/20
+  wall, floor, ceiling, sofa, table, flower, artwork, railing, light, column, window, door, plant, bench, counter, lamp, rug, staircase, balcony, pillar, panel, screen, curtain, shelf, cabinet, desk, vase, cushion, stool, mirror, beam, tile, wood, glass, metal, painting, chandelier, armchair, side table, arch, frame, plaster, stone, concrete, carpet, art, balustrade, decoration, fabric, chair, monitor, keyboard, mouse, drawer, handle, reception desk, sign, picture, stone wall, glass panel, wooden floor, curved ceiling, handrail, light fixture, ledge, partition, mat, baseboard, cornice, wood panel, glass door, opening, hallway, lobby, ottoman, pot, trim
+
+figure: experiments\figures\e30_hypersim.jpg

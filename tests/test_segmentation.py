@@ -11,6 +11,7 @@ from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE
 from src.segmentation.linked import LinkedSegmenter
+from src.segmentation.sam3 import _compact
 
 
 def make_views(num: int = 2, height: int = 20, width: int = 30) -> Views:
@@ -79,3 +80,13 @@ def test_cached_backbone_rejects_other_resolution(tmp_path: Path) -> None:
     assert CachedBackbone(path).predict(make_views()).depth.shape == (2, 20, 30)
     with pytest.raises(ValueError, match="does not match"):
         CachedBackbone(path).predict(make_views(height=10))
+
+
+def test_compact_numbers_only_visible_masks() -> None:
+    """Hidden raw detections get no id; visible ones keep their order."""
+    local = np.array([[5, 5, -1], [2, 1500, 1500]], dtype=np.int32)
+    out = np.full(local.shape, -1, dtype=np.int32)
+    mapping = _compact(local, out, view=3)
+    base = 3 * ID_STRIDE
+    assert mapping == {2: base, 5: base + 1, 1500: base + 2}
+    assert out.tolist() == [[base + 1, base + 1, -1], [base, base + 2, base + 2]]

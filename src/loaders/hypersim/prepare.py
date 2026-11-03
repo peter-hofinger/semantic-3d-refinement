@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from src.loaders.frames import resize_view, select_frames, target_size
-from src.loaders.hypersim.config import HypersimConfig, load_config
+from src.loaders.hypersim.config import HypersimConfig, check_splits, load_config
 from src.loaders.hypersim.scene import (
     NYU40,
     FrameLabels,
@@ -121,14 +121,18 @@ def output_path(cfg: HypersimConfig, scene_id: str) -> Path:
 
 
 def main() -> None:
-    """Prepare every trajectory listed in the config."""
+    """Prepare the trajectories of the chosen splits after checking the split."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/hypersim.yaml"))
+    parser.add_argument(
+        "--splits", nargs="+", default=["dev"], help="dev val test stress"
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     cfg = load_config(args.config)
-    for scene, camera in cfg.scenes.items():
+    check_splits(cfg)
+    for scene, camera in cfg.scenes(args.splits).items():
         hs = HypersimScene(cfg.data_root, cfg.metadata_root, scene, camera)
         views, gt = build(hs, cfg.prepare)
         path = output_path(cfg, hs.scene_id)
