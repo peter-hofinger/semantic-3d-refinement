@@ -53,11 +53,13 @@ def umeyama(src: np.ndarray, dst: np.ndarray) -> tuple[float, np.ndarray, np.nda
 
 
 def metrics(err: np.ndarray, norm: np.ndarray) -> tuple[float, float, float]:
+    """Mean and median relative error and the share of inliers below INLIER."""
     rel = err / norm
     return rel.mean(), np.median(rel), (rel < INLIER).mean()
 
 
 def main() -> None:
+    """Print the paper's point-map metric for both scenes and write the figure."""
     rows = {}
     per_view = {}
     for scene, name in SCENES.items():
@@ -65,8 +67,12 @@ def main() -> None:
         views = Views.load(d / f"{VIEWS}.npz")
         gt = GroundTruth.load(d / f"gt_{VIEWS}.npz")
         geometry = Geometry.load(d / f"{GEOMETRY}.npz")
-        valid = (gt.instance_ids != NO_MESH) & (gt.depth > 0) & np.isfinite(geometry.depth)
-        gt_geom = Geometry(gt.depth, np.ones_like(gt.depth), views.intrinsics, views.cam_to_world)
+        valid = (
+            (gt.instance_ids != NO_MESH) & (gt.depth > 0) & np.isfinite(geometry.depth)
+        )
+        gt_geom = Geometry(
+            gt.depth, np.ones_like(gt.depth), views.intrinsics, views.cam_to_world
+        )
         gt_pts = gt_geom.world_points()
         dv_pts = geometry.world_points()
         centres = views.cam_to_world[:, :3, 3]
@@ -87,13 +93,19 @@ def main() -> None:
         errs, norms, firsts, view_rel = [], [], [], []
         for i in range(len(views)):
             v = valid[i]
-            si, ri, ti = umeyama(dv_pts[i][v].astype(np.float64), gt_pts[i][v].astype(np.float64))
+            si, ri, ti = umeyama(
+                dv_pts[i][v].astype(np.float64), gt_pts[i][v].astype(np.float64)
+            )
             e = np.linalg.norm(dv_pts[i][v] @ (si * ri).T + ti - gt_pts[i][v], axis=-1)
             errs.append(e)
             norms.append(ray[i][v])
             firsts.append(first[i][v])
             view_rel.append((np.nanmean(err_map[i]), (e / ray[i][v]).mean()))
-        err_v, ray_v, first_v = np.concatenate(errs), np.concatenate(norms), np.concatenate(firsts)
+        err_v, ray_v, first_v = (
+            np.concatenate(errs),
+            np.concatenate(norms),
+            np.concatenate(firsts),
+        )
         rows[(name, "per-view Sim(3)", "per-ray")] = metrics(err_v, ray_v)
         rows[(name, "per-view Sim(3)", "first camera")] = metrics(err_v, first_v)
         per_view[name] = np.array(view_rel)
@@ -103,23 +115,40 @@ def main() -> None:
         )
 
     print()
-    print(f"Paper (ScanNet++, whole-scene Sim(3)): Rel. L2 {PAPER[0]}, inlier ratio (< {INLIER:.0%}) {PAPER[1]:.1%}")
+    print(
+        f"Paper (ScanNet++, whole-scene Sim(3)): Rel. L2 {PAPER[0]}, inlier ratio (< {INLIER:.0%}) {PAPER[1]:.1%}"
+    )
     print()
-    print("| scene | alignment | normaliser | Rel. L2 (mean) | median | inlier ratio < 3% |")
+    print(
+        "| scene | alignment | normaliser | Rel. L2 (mean) | median | inlier ratio < 3% |"
+    )
     print("|---|---|---|---|---|---|")
     for (name, align, norm), (mean, med, inl) in rows.items():
         print(f"| {name} | {align} | {norm} | {mean:.4f} | {med:.4f} | {inl:.1%} |")
     print()
-    print("Per view, mean relative error (per-ray normaliser): scene Sim(3) / own Sim(3)")
+    print(
+        "Per view, mean relative error (per-ray normaliser): scene Sim(3) / own Sim(3)"
+    )
     for name, vals in per_view.items():
-        print(f"{name}: " + ", ".join(f"{i}: {a:.3f}/{b:.3f}" for i, (a, b) in enumerate(vals)))
+        print(
+            f"{name}: "
+            + ", ".join(f"{i}: {a:.3f}/{b:.3f}" for i, (a, b) in enumerate(vals))
+        )
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 3.8), sharey=True)
     for ax, (name, vals) in zip(axes, per_view.items(), strict=True):
         x = np.arange(len(vals))
-        ax.bar(x - 0.2, vals[:, 0], 0.4, color="#2a78d6", label="one Sim(3) for the scene")
+        ax.bar(
+            x - 0.2, vals[:, 0], 0.4, color="#2a78d6", label="one Sim(3) for the scene"
+        )
         ax.bar(x + 0.2, vals[:, 1], 0.4, color="#7fb1ea", label="one Sim(3) per view")
-        ax.axhline(PAPER[0], color="#52514e", linestyle="--", linewidth=1, label="paper, ScanNet++ (scene)")
+        ax.axhline(
+            PAPER[0],
+            color="#52514e",
+            linestyle="--",
+            linewidth=1,
+            label="paper, ScanNet++ (scene)",
+        )
         ax.set_xticks(x)
         ax.set_xlabel("view")
         ax.set_title(f"{name}: mean relative point error per view", fontsize=10)
@@ -128,9 +157,14 @@ def main() -> None:
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].set_ylabel("|aligned - GT| / GT ray length")
     axes[0].legend(fontsize=8, frameon=False)
-    fig.suptitle("E23: Déjà View point maps vs GT (5 cm mesh), 20 views at 504 px, K=16", fontsize=10)
+    fig.suptitle(
+        "E23: Déjà View point maps vs GT (5 cm mesh), 20 views at 504 px, K=16",
+        fontsize=10,
+    )
     fig.tight_layout()
-    fig.savefig(FIGURES / "e23_pointmap_metric.jpg", dpi=110, pil_kwargs={"quality": 90})
+    fig.savefig(
+        FIGURES / "e23_pointmap_metric.jpg", dpi=110, pil_kwargs={"quality": 90}
+    )
     print("figure: experiments/figures/e23_pointmap_metric.jpg")
 
 

@@ -58,7 +58,7 @@ for scene, name in SCENES.items():
                     np.array_equal(old.instance_ids, linked.instance_ids)
                     and old.classes == linked.classes
                 )
-                assert same, f"{out} differs from the cached result"  # noqa: S101
+                assert same, f"{out} differs from the cached result"
                 check = "same as cache"
             linked.save(out)
             runs.append(

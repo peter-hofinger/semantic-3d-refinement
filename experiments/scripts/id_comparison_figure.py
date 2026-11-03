@@ -64,8 +64,13 @@ for c, v in enumerate(picked):
             ys, xs = np.nonzero(ids == obj)
             if len(xs) >= min_label:
                 axes[r, c].text(
-                    np.median(xs), np.median(ys), f"{obj}", fontsize=7, color="white",
-                    ha="center", va="center",
+                    np.median(xs),
+                    np.median(ys),
+                    f"{obj}",
+                    fontsize=7,
+                    color="white",
+                    ha="center",
+                    va="center",
                     bbox={"facecolor": "black", "alpha": 0.55, "pad": 0.6, "lw": 0},
                 )
         on_target = np.unique(ids[gt.instance_ids[v] == target])

@@ -139,7 +139,9 @@ elif kind == "precision":
             where = "inside" if share > 0.9 else "spans"  # part of one object or not
             fp_into[c, gt.classes.get(int(dom), "?"), where] += 1
     total = sum(fp.values())
-    print(f"{total} of {n_pred} counted masks unmatched (precision {1 - total / n_pred:.2f})")
+    print(
+        f"{total} of {n_pred} counted masks unmatched (precision {1 - total / n_pred:.2f})"
+    )
     print("unmatched masks by predicted class:")
     for c, v in fp.most_common(15):
         print(f"  {c:16s} {v:4d}")

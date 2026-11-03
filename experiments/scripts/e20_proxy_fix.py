@@ -82,11 +82,16 @@ def id_edges(ids: np.ndarray, valid: np.ndarray) -> np.ndarray:
 
 
 def distance_to(edge: np.ndarray) -> np.ndarray:
+    """Distance in pixels to the nearest edge pixel; inf everywhere if there is none."""
     return distance_transform_edt(~edge) if edge.any() else np.full(edge.shape, np.inf)
 
 
 def fit(
-    inv: np.ndarray, region: np.ndarray, interior: np.ndarray, ids: np.ndarray, radius: int,
+    inv: np.ndarray,
+    region: np.ndarray,
+    interior: np.ndarray,
+    ids: np.ndarray,
+    radius: int,
 ) -> dict[str, np.ndarray]:
     """Inverse depth of region pixels fitted to same-segment interior pixels nearby.
 
@@ -110,11 +115,21 @@ def fit(
         y = inv[r0:r1, c0:c1]
         v, u = np.mgrid[r0:r1, c0:c1].astype(float) / radius
         terms = {
-            "1": wgt, "u": wgt * u, "v": wgt * v, "uu": wgt * u * u, "uv": wgt * u * v,
-            "vv": wgt * v * v, "y": wgt * y, "uy": wgt * u * y, "vy": wgt * v * y,
+            "1": wgt,
+            "u": wgt * u,
+            "v": wgt * v,
+            "uu": wgt * u * u,
+            "uv": wgt * u * v,
+            "vv": wgt * v * v,
+            "y": wgt * y,
+            "uy": wgt * u * y,
+            "vy": wgt * v * y,
         }
         tr, tc = rows - r0, cols - c0
-        m = {k: uniform_filter(t, size, mode="constant")[tr, tc] * size**2 for k, t in terms.items()}
+        m = {
+            k: uniform_filter(t, size, mode="constant")[tr, tc] * size**2
+            for k, t in terms.items()
+        }
         n = m["1"]
         ok = n >= MIN_NEIGHBOURS
         out["mean"][rows[ok], cols[ok]] = m["y"][ok] / n[ok]
@@ -126,7 +141,11 @@ def fit(
         suv = m["uv"] - u0 * m["v"] - v0 * m["u"] + u0 * v0 * n
         suy, svy = m["uy"] - u0 * m["y"], m["vy"] - v0 * m["y"]
         a = np.stack(
-            [np.stack([suu, suv, su], -1), np.stack([suv, svv, sv], -1), np.stack([su, sv, n], -1)],
+            [
+                np.stack([suu, suv, su], -1),
+                np.stack([suv, svv, sv], -1),
+                np.stack([su, sv, n], -1),
+            ],
             -2,
         )
         b = np.stack([suy, svy, m["y"]], -1)
@@ -142,6 +161,7 @@ def fit(
 
 
 def scene_data(scene: str) -> dict:
+    """Load GT, Déjà View geometry and segmentations of one scene, with E18's edge maps."""
     d = DATA / scene
     gt = GroundTruth.load(d / f"gt_{VIEWS}.npz")
     geometry = Geometry.load(d / f"{GEOMETRY}.npz")
@@ -157,11 +177,23 @@ def scene_data(scene: str) -> dict:
     threshold = np.quantile(jumps_valid[valid], 1 - sam_edges[valid].mean())
     everywhere = np.ones(gt_ids.shape[1:], dtype=bool)
     band = np.stack(
-        [distance_to(depth_jump(g, everywhere) > threshold) <= BAND for g in geometry.depth]
+        [
+            distance_to(depth_jump(g, everywhere) > threshold) <= BAND
+            for g in geometry.depth
+        ]
     )
-    scale = np.array([np.median(gt.depth[i][valid[i]] / geometry.depth[i][valid[i]]) for i in range(n)])
-    gt_edges = np.stack([distance_to(depth_jump(gt.depth[i], valid[i]) > DEPTH_JUMP) for i in range(n)])
-    error = np.abs(scale[:, None, None] * geometry.depth - gt.depth) / np.maximum(gt.depth, 1e-6)
+    scale = np.array(
+        [
+            np.median(gt.depth[i][valid[i]] / geometry.depth[i][valid[i]])
+            for i in range(n)
+        ]
+    )
+    gt_edges = np.stack(
+        [distance_to(depth_jump(gt.depth[i], valid[i]) > DEPTH_JUMP) for i in range(n)]
+    )
+    error = np.abs(scale[:, None, None] * geometry.depth - gt.depth) / np.maximum(
+        gt.depth, 1e-6
+    )
     bleed = valid & (gt_edges <= BLEED_RANGE) & (error > BLEED_ERROR)
     segs = {
         "none": np.zeros_like(gt_ids),
@@ -179,20 +211,38 @@ def scene_data(scene: str) -> dict:
             g, c = np.unique(gt_ids[i][in_mask], return_counts=True)
             side[i][in_mask] = np.where(gt_ids[i][in_mask] == g[c.argmax()], 1, 2)
     return {
-        "gt": gt, "depth": geometry.depth, "valid": valid, "scale": scale, "error": error,
-        "band": band, "bleed": bleed, "segs": segs, "threshold": threshold, "side": side,
+        "gt": gt,
+        "depth": geometry.depth,
+        "valid": valid,
+        "scale": scale,
+        "error": error,
+        "band": band,
+        "bleed": bleed,
+        "segs": segs,
+        "threshold": threshold,
+        "side": side,
         "images": None,
     }
 
 
-def run(data: dict, region_key: str, variant: str, radius: int) -> dict[str, np.ndarray]:
-    """Fixed relative errors (NaN = unchanged) per fit, all views stacked."""
+def run(
+    data: dict, region_key: str, variant: str, radius: int
+) -> dict[str, np.ndarray]:
+    """Return fixed relative errors (NaN = unchanged) per fit, all views stacked."""
     region = data["band"] if region_key == "realistic" else data["bleed"]
-    blocked = data["band"] | data["bleed"]  # the oracle fit must not use bleeding pixels
+    blocked = (
+        data["band"] | data["bleed"]
+    )  # the oracle fit must not use bleeding pixels
     out = {f: np.full(region.shape, np.nan) for f in FITS}
     for i in range(len(region)):
         interior = ~(region[i] if region_key == "realistic" else blocked[i])
-        fitted = fit(1 / np.maximum(data["depth"][i], 1e-6), region[i], interior, data["segs"][variant][i], radius)
+        fitted = fit(
+            1 / np.maximum(data["depth"][i], 1e-6),
+            region[i],
+            interior,
+            data["segs"][variant][i],
+            radius,
+        )
         gt_depth = data["gt"].depth[i]
         for f in FITS:
             depth = data["scale"][i] / np.where(fitted[f] > 0, fitted[f], np.nan)
@@ -201,6 +251,7 @@ def run(data: dict, region_key: str, variant: str, radius: int) -> dict[str, np.
 
 
 def summary(base: np.ndarray, fixed: np.ndarray) -> dict[str, float]:
+    """Error statistics after replacing fitted pixels (non-NaN `fixed`) in `base`."""
     changed = ~np.isnan(fixed)
     after = np.where(changed, fixed, base)
     return {
@@ -210,8 +261,12 @@ def summary(base: np.ndarray, fixed: np.ndarray) -> dict[str, float]:
         "over5": (after > BLEED_ERROR).mean(),
         "dv_changed": base[changed].mean() if changed.any() else np.nan,
         "fix_changed": fixed[changed].mean() if changed.any() else np.nan,
-        "better": (fixed[changed] < base[changed] - 0.01).mean() if changed.any() else np.nan,
-        "worse": (fixed[changed] > base[changed] + 0.01).mean() if changed.any() else np.nan,
+        "better": (fixed[changed] < base[changed] - 0.01).mean()
+        if changed.any()
+        else np.nan,
+        "worse": (fixed[changed] > base[changed] + 0.01).mean()
+        if changed.any()
+        else np.nan,
     }
 
 
@@ -222,6 +277,7 @@ REGIONS = {
 
 
 def main() -> None:
+    """Print the E20 tables for both scenes and write the figure."""
     results: dict = {}
     examples: dict = {}
     for scene, name in SCENES.items():
@@ -236,7 +292,9 @@ def main() -> None:
         )
         print()
         for region_key, title in REGIONS.items():
-            region = (data["band"] if region_key == "realistic" else data["bleed"]) & valid
+            region = (
+                data["band"] if region_key == "realistic" else data["bleed"]
+            ) & valid
             base = data["error"][region]
             for f in FITS:
                 print(f"### {title}; fit: {f}, window {2 * RADIUS + 1} px")
@@ -246,13 +304,15 @@ def main() -> None:
                 )
                 print("|---|---|---|---|---|---|---|---|---|")
                 s = summary(base, np.full(base.shape, np.nan))
-                print(f"| Déjà View (input) | 0.00 | {s['median']:.4f} | {s['mean']:.4f} | {s['over5']:.3f} | | | | |")
+                print(
+                    f"| Déjà View (input) | 0.00 | {s['median']:.4f} | {s['mean']:.4f} | {s['over5']:.3f} | | | | |"
+                )
                 for variant in VARIANTS:
                     key = (name, region_key, variant, RADIUS)
                     if key not in results:
                         results[key] = run(data, region_key, variant, RADIUS)
                     s = summary(base, results[key][f][region])
-                    results[key + (f, "summary")] = s
+                    results[(*key, f, "summary")] = s
                     print(
                         f"| {variant} | {s['changed']:.2f} | {s['median']:.4f} | {s['mean']:.4f} "
                         f"| {s['over5']:.3f} | {s['dv_changed']:.4f} | {s['fix_changed']:.4f} "
@@ -274,11 +334,19 @@ def main() -> None:
                 f"{sam[allthree].mean():.4f} vs none {none[allthree].mean():.4f}"
             )
             side = data["side"][region]
-            print("Plane fit with SAM 3 top100 by E18's which-object label (labeled GT pixels):")
-            print("| SAM 3 mask belongs to | pixels | changed | Déjà View mean | after mean | share > 5% before | after |")
+            print(
+                "Plane fit with SAM 3 top100 by E18's which-object label (labeled GT pixels):"
+            )
+            print(
+                "| SAM 3 mask belongs to | pixels | changed | Déjà View mean | after mean | share > 5% before | after |"
+            )
             print("|---|---|---|---|---|---|---|")
             labeled = (data["gt"].instance_ids >= 0)[region] | (side > 0)
-            for code, label in ((1, "right object"), (2, "other object"), (0, "no mask")):
+            for code, label in (
+                (1, "right object"),
+                (2, "other object"),
+                (0, "no mask"),
+            ):
                 sel = labeled & (side == code)
                 after = np.where(np.isnan(sam[sel]), base[sel], sam[sel])
                 print(
@@ -286,7 +354,9 @@ def main() -> None:
                     f"| {after.mean():.4f} | {(base[sel] > BLEED_ERROR).mean():.3f} | {(after > BLEED_ERROR).mean():.3f} |"
                 )
             print()
-            print(f"Window sensitivity (plane fit, share > 5% in the region; Déjà View {(base > BLEED_ERROR).mean():.3f}):")
+            print(
+                f"Window sensitivity (plane fit, share > 5% in the region; Déjà View {(base > BLEED_ERROR).mean():.3f}):"
+            )
             print("| segments | " + " | ".join(f"{2 * r + 1} px" for r in RADII) + " |")
             print("|---|" + "---|" * len(RADII))
             for variant in VARIANTS:
@@ -295,32 +365,50 @@ def main() -> None:
                     key = (name, region_key, variant, r)
                     if key not in results:
                         results[key] = run(data, region_key, variant, r)
-                    vals.append(f"{summary(base, results[key]['plane'][region])['over5']:.3f}")
+                    vals.append(
+                        f"{summary(base, results[key]['plane'][region])['over5']:.3f}"
+                    )
                 print(f"| {variant} | " + " | ".join(vals) + " |")
             print()
         examples[name] = data
 
     # figure 1: share > 5% and mean error per variant, plane fit
     colors = {
-        "Déjà View": "#a8a7a2", "none": "#52514e", "SAM 3 top100": "#2a78d6",
-        "SAM 3 union": "#7fb1ea", "GT": "#3a9a5b", "shuffled": "#d6453a",
+        "Déjà View": "#a8a7a2",
+        "none": "#52514e",
+        "SAM 3 top100": "#2a78d6",
+        "SAM 3 union": "#7fb1ea",
+        "GT": "#3a9a5b",
+        "shuffled": "#d6453a",
     }
     fig, axes = plt.subplots(2, 4, figsize=(20, 8))
     for row, name in zip(axes, SCENES.values(), strict=True):
         data = examples[name]
         for j, region_key in enumerate(REGIONS):
-            region = (data["band"] if region_key == "realistic" else data["bleed"]) & data["valid"]
+            region = (
+                data["band"] if region_key == "realistic" else data["bleed"]
+            ) & data["valid"]
             base = data["error"][region]
-            for k, (metric, label) in enumerate((("over5", "share of pixels with error > 5%"), ("mean", "mean relative error"))):
+            for k, (metric, label) in enumerate(
+                (
+                    ("over5", "share of pixels with error > 5%"),
+                    ("mean", "mean relative error"),
+                )
+            ):
                 ax = row[2 * j + k]
                 names = ["Déjà View", *VARIANTS]
                 vals = [summary(base, np.full(base.shape, np.nan))[metric]] + [
-                    results[(name, region_key, v, RADIUS, "plane", "summary")][metric] for v in VARIANTS
+                    results[(name, region_key, v, RADIUS, "plane", "summary")][metric]
+                    for v in VARIANTS
                 ]
                 ax.bar(range(len(names)), vals, 0.65, color=[colors[n] for n in names])
                 for x, val in enumerate(vals):
                     ax.text(x, val, f"{val:.3f}", ha="center", va="bottom", fontsize=7)
-                ax.set_xticks(range(len(names)), [n.replace("SAM 3 ", "SAM 3\n") for n in names], fontsize=7)
+                ax.set_xticks(
+                    range(len(names)),
+                    [n.replace("SAM 3 ", "SAM 3\n") for n in names],
+                    fontsize=7,
+                )
                 ax.set_title(f"{name}, {region_key} region: {label}", fontsize=9)
     for ax in axes.flat:
         ax.grid(axis="y", color="#e5e4df", linewidth=0.6)
@@ -344,12 +432,19 @@ def main() -> None:
         panels.append((v, np.where(np.isnan(fixed), data["error"][i], fixed)))
     fig, axes = plt.subplots(1, 4, figsize=(20, 3.6), layout="constrained")
     for ax, (title, err) in zip(axes, panels, strict=True):
-        im = ax.imshow(np.where(data["valid"][i], err, np.nan), cmap="magma", vmin=0, vmax=0.1)
-        ax.set_title(f"{name} view {i}: {title} (share > 5%: {(err[data['valid'][i]] > BLEED_ERROR).mean():.3f})", fontsize=9)
+        im = ax.imshow(
+            np.where(data["valid"][i], err, np.nan), cmap="magma", vmin=0, vmax=0.1
+        )
+        ax.set_title(
+            f"{name} view {i}: {title} (share > 5%: {(err[data['valid'][i]] > BLEED_ERROR).mean():.3f})",
+            fontsize=9,
+        )
         ax.axis("off")
     fig.colorbar(im, ax=axes, fraction=0.012, label="relative depth error")
     fig.savefig(FIGURES / "e20_example.jpg", dpi=110, pil_kwargs={"quality": 90})
-    print("figures: experiments/figures/e20_proxy_fix.jpg, experiments/figures/e20_example.jpg")
+    print(
+        "figures: experiments/figures/e20_proxy_fix.jpg, experiments/figures/e20_example.jpg"
+    )
 
 
 if __name__ == "__main__":
