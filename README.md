@@ -160,7 +160,8 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
     of each ground-truth pixel. An object is one segment over all views, so an object
     split across views counts as two.
   - Walls, floor and ceiling are background: one segment per class, scored per class but
-    left out of the aggregates.
+    left out of the label aggregates. The scene's surface scores cover every pixel, as in
+    the geometry protocols above.
 
 ```bash
 uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev

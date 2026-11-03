@@ -24,8 +24,9 @@ Segments: an instance of an object class is one segment over all views, so an ob
 split into two ids across views is two segments (the scene-level metrics of Panoptic
 Lifting, PanSt3R). The background classes (walls, floor, ceiling) have no instances in
 Hypersim's ground truth; there, and in the output, all pixels of such a class form one
-segment. Per class, every evaluated class is scored; the aggregates, over the object
-classes only.
+segment. Per class, every evaluated class is scored; the label aggregates, over the
+object classes only. The scene's surface scores cover every pixel, background included,
+as the geometry protocols do.
 
 - mIoU: IoU per class over non-void points, mean over the classes in either.
 - PQ, SQ, RQ (Kirillov et al. 2019, scene-level as in Panoptic Lifting): a predicted

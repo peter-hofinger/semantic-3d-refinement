@@ -12,7 +12,7 @@ changed:
 - **Labels:** the output's label at each ground-truth pixel, instead of the nearest predicted
   point within 5 cm; mIoU, scene-level PQ and ScanNet's AP / AP50 / AP25, without the
   100-voxel minimum. Walls, floor and ceiling are one segment per class, scored per class and
-  left out of the aggregates.
+  left out of the label aggregates; the surface scores cover every pixel.
 
 ```bash
 uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml       # 1.5 min
