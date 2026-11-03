@@ -73,9 +73,8 @@ class RefineConfig:
 
     lambda_d: float = 1.0
     lambda_mv: float = 1.0
-    lambda_n: float = (
-        1e-4  # BiNI's residuals are log-depth steps times the focal length
-    )
+    # BiNI's residuals are log-depth steps times the focal length
+    lambda_n: float = 1e-4
     lambda_delta: float = 1.0
     huber: float = 0.05  # E_d's Huber threshold on d - d0
     edge_tol: float = 0.02  # E_n's occlusion cut (log depth, `normals.cut_weights`)
@@ -87,15 +86,7 @@ class RefineConfig:
 
     def __post_init__(self) -> None:
         """Check ranges."""
-        assert (
-            min(
-                self.lambda_d,
-                self.lambda_mv,
-                self.lambda_n,
-                self.lambda_delta,
-            )
-            >= 0
-        )
+        assert min(self.lambda_d, self.lambda_mv, self.lambda_n, self.lambda_delta) >= 0
         assert self.huber > 0 and self.edge_tol > 0
         assert self.neighbors >= 1
         assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
@@ -353,9 +344,8 @@ def find_matches(
     for (i, j), pix in pairs.items():
         counts[i, j] = len(pix)
     top = torch.zeros(n, n, dtype=torch.bool)
-    top[torch.arange(n)[:, None], counts.topk(min(neighbors, n - 1), dim=1).indices] = (
-        True
-    )
+    picked = counts.topk(min(neighbors, n - 1), dim=1).indices
+    top[torch.arange(n)[:, None], picked] = True
     chosen = [(i, j) for (i, j) in pairs if top[i, j] or top[j, i]]
     rays = [ray_in(scene, i, j, pairs[i, j]) for i, j in chosen]
     m = Matches(
@@ -443,9 +433,8 @@ def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tenso
 
     E_d is w h(δ), h Huber's cost (`robust`).
     """
-    u = x
-    d = p.d0 + u
-    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * robust(u, cfg.huber)[0]}
+    d = p.d0 + x
+    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * robust(x, cfg.huber)[0]}
     if cfg.lambda_delta > 0:
         out["E_delta"] = math.sqrt(cfg.lambda_delta) * x
     if cfg.lambda_n > 0:
@@ -460,7 +449,7 @@ def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tenso
                 (cfg.lambda_n * wf).sqrt() * (af * dz + gf),
                 (cfg.lambda_n * wb).sqrt() * (ab * dz + gb),
             ]
-        out["E_n"] = torch.cat([x.flatten() for x in parts])
+        out["E_n"] = torch.cat([r.flatten() for r in parts])
     if cfg.lambda_mv > 0:
         out["E_mv"] = math.sqrt(cfg.lambda_mv) * residuals(
             d, p.scale, p.scene, p.matches
