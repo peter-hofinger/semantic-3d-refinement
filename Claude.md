@@ -27,8 +27,9 @@ Refine inverse depth per pixel: d̂_i(p) = d⁰_i(p) + δ_i(p), minimizing by Ga
 - E_d: Huber anchor to the prediction, weighted by confidence × fraction of views that agree on the instance.
 - E_mv: cross-view depth agreement, only where the projection lands in the same segment.
 - E_n: BiNI's normal term on DSINE normals (log depth), within one instance and cut on the input's occlusion
-  contours. The proposal's E_bd (smoothing within segments) is dropped: next to E_n it changed the depth by a median
-  0.006-0.016 % and nothing visible. The proposal's per-segment a, b are dropped too: equal or better without them.
+  contours. The proposal's E_bd (smoothing within segments) is dropped: next to E_n it changed the F-score at 5 cm by
+  at most 0.002 on the dev scenes and nothing visible. The proposal's per-segment a, b are dropped too: equal or better
+  without them.
 - E_pr: planarity for structural classes (wall, floor, table).
 
 Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned
