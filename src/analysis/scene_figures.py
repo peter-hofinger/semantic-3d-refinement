@@ -28,7 +28,7 @@ from src.refinement.multiview import points_from_rays
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
-    "fscore": "F-score at 2 cm ↑",
+    "fscore": "F-score at 5 cm ↑",
     "miou": "mIoU ↑",
     "ap50": "AP50 ↑",
 }

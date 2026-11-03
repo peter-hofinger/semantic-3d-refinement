@@ -57,18 +57,28 @@ def test_ground_truth_against_itself_is_perfect() -> None:
         truth.points[None, None], truth.instance[None, None], truth.classes,
         {1: 0.9, 2: 0.8}, IDENTITY,
     )  # fmt: skip
-    surface = surface_metrics(pred.points, truth.points)
+    surface = surface_metrics(pred.points, truth, ["floor", "chair"])
     assert surface["accuracy_cm"] < 1e-6 and surface["fscore"] == 1.0
+    assert set(surface["surface_per_class"]) == {"floor", "chair"}
     scores = label_metrics(truth, pred, ["floor", "chair"])
     assert scores["miou"] == 1.0 and scores["ap50"] == 1.0
 
 
 def test_a_shift_counts_only_beyond_the_tolerance() -> None:
-    truth = room().points
-    near = surface_metrics(truth + np.array([0, 0, 0.015]), truth)
-    far = surface_metrics(truth + np.array([0, 0, 0.025]), truth)
+    truth = room()
+    near = surface_metrics(truth.points + np.array([0, 0, 0.045]), truth, ["floor"])
+    far = surface_metrics(truth.points + np.array([0, 0, 0.055]), truth, ["floor"])
     assert near["fscore"] == 1.0 and far["fscore"] == 0.0
-    np.testing.assert_allclose(near["accuracy_cm"], 1.5, atol=1e-6)
+    np.testing.assert_allclose(near["accuracy_cm"], 4.5, atol=1e-6)
+
+
+def test_a_shifted_object_costs_its_own_class_only() -> None:
+    truth = room()
+    pred = truth.points.copy()
+    pred[truth.instance == 1] += [0, 0, 0.08]  # one chair floats 8 cm too high
+    per_class = surface_metrics(pred, truth, ["floor", "chair"])["surface_per_class"]
+    assert per_class["floor"]["fscore"] == 1.0
+    assert 0.4 < per_class["chair"]["recall"] < 0.6  # the other chair is in place
 
 
 def test_precision_envelope_ranks_by_score() -> None:

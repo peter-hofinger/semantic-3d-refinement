@@ -137,7 +137,8 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
   (as π³ and VGGT are evaluated). Each variant is registered on its own.
 - **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth on a
   1 cm grid:
-  - accuracy, completeness and F-score at 2 cm (Tanks and Temples);
+  - accuracy, completeness and F-score at 5 cm (Tanks and Temples), for the scene and per
+    class;
   - mIoU and instance AP50 (ScanNet's protocol), on labels transferred to the ground-truth
     points.
 

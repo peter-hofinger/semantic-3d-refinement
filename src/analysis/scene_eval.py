@@ -138,7 +138,7 @@ def score(scoring: Scoring, points: np.ndarray) -> dict:
     return {
         "scale": s,
         "align": align,
-        **surface_metrics(cloud.points, truth.points),
+        **surface_metrics(cloud.points, truth, scoring.evaluated),
         **label_metrics(truth, cloud, scoring.evaluated),
     }
 

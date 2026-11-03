@@ -18,11 +18,12 @@ off by a factor of 3 to 4.
 
 Surface (Knapitsch et al. 2017, Tanks and Temples): accuracy is the mean distance of
 each predicted point to the nearest ground-truth point, completeness the other way
-round; precision and recall are the fractions of either within `TOLERANCE` (2 cm,
-twice the grid), and the F-score their harmonic mean. Distances are capped at `CAP`
-(20 cm), as DTU's evaluation caps outliers: the means should not hinge on points
-outside a window, and a nearest-neighbor query costs more the farther the point is from
-the other cloud (1 m: 19 s per cloud).
+round; precision and recall are the fractions of either within `TOLERANCE` (5 cm), and
+the F-score their harmonic mean. Per class, completeness takes the ground-truth points
+of the class and accuracy the predicted points whose nearest ground-truth point (within
+`CAP`) has the class. Distances are capped at `CAP` (20 cm), as DTU's evaluation caps
+outliers: the means should not hinge on points outside a window, and a nearest-neighbor
+query costs more the farther the point is from the other cloud (1 m: 19 s per cloud).
 
 Labels are transferred to the ground truth: every ground-truth point takes the
 instance of the nearest predicted point within `TRANSFER`, none if there is no such
@@ -52,7 +53,7 @@ import open3d as o3d
 from scipy.spatial import cKDTree
 
 VOXEL = 0.01  # m, grid both clouds are reduced to
-TOLERANCE = 0.02  # m, precision / recall / F-score threshold
+TOLERANCE = 0.05  # m, precision / recall / F-score threshold
 TRANSFER = 0.05  # m, a ground-truth point takes the label of a prediction this close
 CAP = 0.2  # m, distances above count as this
 MIN_POINTS = 100  # voxels; smaller instances are not scored (ScanNet: 100 vertices)
@@ -205,20 +206,38 @@ def predicted_cloud(
     return LabeledCloud(centers, majority, dict(classes), dict(scores))
 
 
-def surface_metrics(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
+def surface_scores(acc: np.ndarray, comp: np.ndarray) -> dict[str, float]:
     """Accuracy, completeness (mean, cm), precision / recall / F-score at TOLERANCE."""
-    acc, comp = (
-        np.minimum(cKDTree(b).query(a, workers=-1, distance_upper_bound=CAP)[0], CAP)
-        for a, b in ((pred, truth), (truth, pred))
-    )
-    p, r = float((acc < TOLERANCE).mean()), float((comp < TOLERANCE).mean())
+    p = float((acc < TOLERANCE).mean()) if len(acc) else 0.0
+    r = float((comp < TOLERANCE).mean())
     return {
-        "accuracy_cm": 100 * float(acc.mean()),
+        "accuracy_cm": 100 * float(acc.mean()) if len(acc) else float("nan"),
         "completeness_cm": 100 * float(comp.mean()),
         "precision": p,
         "recall": r,
         "fscore": 2 * p * r / (p + r) if p + r > 0 else 0.0,
     }
+
+
+def surface_metrics(
+    pred: np.ndarray, truth: LabeledCloud, evaluated: list[str]
+) -> dict[str, float | dict[str, dict[str, float]]]:
+    """Surface scores of the whole scene, and per evaluated class (see module)."""
+    acc, nearest = cKDTree(truth.points).query(
+        pred, workers=-1, distance_upper_bound=CAP
+    )
+    comp = cKDTree(pred).query(truth.points, workers=-1, distance_upper_bound=CAP)[0]
+    acc, comp = np.minimum(acc, CAP), np.minimum(comp, CAP)
+    gt_class = truth.class_of(truth.instance)
+    found = nearest < len(truth.points)
+    pred_class = np.full(len(pred), "", dtype=object)
+    pred_class[found] = gt_class[nearest[found]]
+    per_class = {
+        c: surface_scores(acc[pred_class == c], comp[gt_class == c])
+        for c in evaluated
+        if (gt_class == c).sum() >= MIN_POINTS
+    }
+    return surface_scores(acc, comp) | {"surface_per_class": per_class}
 
 
 def transfer(
