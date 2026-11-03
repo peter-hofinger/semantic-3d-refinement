@@ -1,4 +1,4 @@
-"""E18: do SAM 3 mask boundaries sit on the depth edges where Déjà View bleeds?
+"""E18: test whether SAM 3 mask boundaries sit on the depth edges where Déjà View bleeds.
 
 Per view, on pixels where the GT ray hits the mesh, three edge maps are built
 (a pixel is an edge pixel if one of its 4 neighbours differs; both sides marked):
@@ -32,8 +32,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
-from src.geometry import Geometry
 from src.evaluation.instances import match_view
+from src.geometry import Geometry
 from src.loaders import Views
 from src.loaders.scannetpp.gt import NO_MESH, GroundTruth
 from src.segmentation import Segmentation
@@ -49,19 +49,21 @@ SEGMENTATION = (
     if len(sys.argv) > 1
     else f"sam3image-top100-t0.3_{VIEWS}_assoc-xc0.7-vf0.25-kl0.5-{GEOMETRY}"  # E17 best
 )
-PREFIX = sys.argv[2] if len(sys.argv) > 2 else "e18"  # noqa: PLR2004
+PREFIX = sys.argv[2] if len(sys.argv) > 2 else "e18"
 DEPTH_JUMP = 0.05  # relative depth change between neighbours that makes a depth edge
-BLEED_ERROR = 0.05  # relative depth error that counts as bleeding (as in Peter's README)
+BLEED_ERROR = 0.05  # relative depth error that counts as bleeding (Peter's README)
 BLEED_RANGE = 3  # px from a GT depth edge
 CANNY = (50, 150)  # hysteresis thresholds on the 8-bit gray image
-IMAGE_EDGE_RANGE = 2  # px: a GT depth edge counts as confirmed with an image edge this close
+IMAGE_EDGE_RANGE = 2  # px: an image edge this close confirms a GT depth edge
 TOLERANCES = (1, 2, 3, 5, 8)
 OFFSET_RANGE = 6  # px; mask/object differences further out are pooled in the last bin
-EROSIONS = (0, 1, 2, 3)  # px masks are shrunk by before checking which object a pixel gets
+EROSIONS = (0, 1, 2, 3)  # px masks shrink by before the which-object check
 DISTANCE_BINS = ((0, 1), (1, 3), (3, 7), (7, 15), (15, np.inf))
 
 
-def edges(changed_h: np.ndarray, changed_v: np.ndarray, valid: np.ndarray) -> np.ndarray:
+def edges(
+    changed_h: np.ndarray, changed_v: np.ndarray, valid: np.ndarray
+) -> np.ndarray:
     """Mark both pixels of every valid neighbour pair flagged as changed."""
     out = np.zeros_like(valid)
     h = changed_h & valid[:, 1:] & valid[:, :-1]
@@ -131,24 +133,39 @@ def scene_maps(scene: str) -> dict[str, np.ndarray]:
         )
         maps["error"].append(np.where(valid, error, np.nan))
         fx = views.intrinsics[i][0, 0]
-        maps["px5cm"].append(np.where(valid, fx * 0.05 / np.maximum(gt.depth[i], 1e-6), np.nan))
+        maps["px5cm"].append(
+            np.where(valid, fx * 0.05 / np.maximum(gt.depth[i], 1e-6), np.nan)
+        )
     out = {k: np.stack(v) for k, v in maps.items()}
     # GT depth edges confirmed by an image edge: drops mesh artifacts (holes and bumps
     # on dark or glossy surfaces such as screens) without looking at SAM 3 or Déjà View
     image_edges = np.stack(
-        [cv2.Canny(cv2.cvtColor(im, cv2.COLOR_RGB2GRAY), *CANNY) > 0 for im in views.images]
+        [
+            cv2.Canny(cv2.cvtColor(im, cv2.COLOR_RGB2GRAY), *CANNY) > 0
+            for im in views.images
+        ]
     )
-    near_image_edge = np.stack([distance_to(e) for e in image_edges]) <= IMAGE_EDGE_RANGE
+    near_image_edge = (
+        np.stack([distance_to(e) for e in image_edges]) <= IMAGE_EDGE_RANGE
+    )
     out["gt_depth_img"] = out["gt_depth"] & near_image_edge
     out["sam_control"] = np.roll(out["sam"], -1, axis=0) & out["valid"]
     out["sam_or_dv"] = out["sam"] | out["dv_depth"]
     # Déjà View depth edges as dense as the SAM 3 boundaries: same edge budget
-    jumps = np.stack([depth_jump(g, v) for g, v in zip(geometry.depth, out["valid"], strict=True)])
+    jumps = np.stack(
+        [depth_jump(g, v) for g, v in zip(geometry.depth, out["valid"], strict=True)]
+    )
     density = out["sam"][out["valid"]].mean()
     out["dv_threshold"] = np.quantile(jumps[out["valid"]], 1 - density)
     out["dv_dense"] = (jumps > out["dv_threshold"]) & out["valid"]
     for k in (
-        "gt_obj", "gt_depth", "gt_depth_img", "dv_depth", "dv_dense", "sam", "sam_control",
+        "gt_obj",
+        "gt_depth",
+        "gt_depth_img",
+        "dv_depth",
+        "dv_dense",
+        "sam",
+        "sam_control",
         "sam_or_dv",
     ):
         out[f"dist_{k}"] = np.stack([distance_to(e) for e in out[k]])
@@ -175,8 +192,12 @@ def scene_maps(scene: str) -> dict[str, np.ndarray]:
         for g, p, _ in match_view(gt_ids[i], seg.instance_ids[i]):
             obj = (gt_ids[i] == g) & out["valid"][i]
             mask = (seg.instance_ids[i] == p) & out["valid"][i]
-            outside = distance_transform_edt(~obj)  # distance to the object from outside
-            inside = distance_transform_edt(obj)  # distance to the background from inside
+            outside = distance_transform_edt(
+                ~obj
+            )  # distance to the object from outside
+            inside = distance_transform_edt(
+                obj
+            )  # distance to the background from inside
             for row, sel, dist in ((0, mask & ~obj, outside), (1, obj & ~mask, inside)):
                 d = np.minimum(np.ceil(dist[sel]).astype(int), OFFSET_RANGE)
                 offsets[row] += np.bincount(d, minlength=OFFSET_RANGE + 1)
@@ -194,7 +215,7 @@ def cover(m: dict[str, np.ndarray], target: str, by: str, d: float) -> float:
 
 
 def in_bin(m: dict[str, np.ndarray], key: str, lo: float, hi: float) -> np.ndarray:
-    """Valid pixels at distance (lo, hi] from a `key` edge; the first bin includes 0."""
+    """Return valid pixels at distance (lo, hi] from a `key` edge; the first bin includes 0."""
     dist = m[f"dist_{key}"]
     return m["valid"] & (dist <= hi) & ((dist > lo) | (lo == 0))
 
@@ -224,8 +245,10 @@ for scene, name in SCENES.items():
     )
     print(
         "edge density (share of evaluated pixels): "
-        + ", ".join(f"{SOURCES.get(k, k)} {m[k][valid].mean():.3f}"
-                    for k in ("gt_depth", "gt_obj", "sam", "dv_depth"))
+        + ", ".join(
+            f"{SOURCES.get(k, k)} {m[k][valid].mean():.3f}"
+            for k in ("gt_depth", "gt_obj", "sam", "dv_depth")
+        )
         + f"; dense Déjà View edges: jump > {m['dv_threshold']:.3f}"
     )
     print(
@@ -243,15 +266,24 @@ for scene, name in SCENES.items():
     print("|---|---|---|---|---|---|")
     for d in TOLERANCES:
         p, r = cover(m, "sam", "gt_obj", d), cover(m, "gt_obj", "sam", d)
-        cp, cr = cover(m, "sam_control", "gt_obj", d), cover(m, "gt_obj", "sam_control", d)
-        print(f"| {d} | {p:.2f} | {r:.2f} | {2 * p * r / max(p + r, 1e-9):.2f} | {cp:.2f} | {cr:.2f} |")
+        cp, cr = (
+            cover(m, "sam_control", "gt_obj", d),
+            cover(m, "gt_obj", "sam_control", d),
+        )
+        print(
+            f"| {d} | {p:.2f} | {r:.2f} | {2 * p * r / max(p + r, 1e-9):.2f} | {cp:.2f} | {cr:.2f} |"
+        )
     print()
     off = m["offsets"]
     print(
         "Matched masks vs their GT object (IoU >= 0.5), pixels by distance to the GT "
         "outline (last bin: >= that distance):"
     )
-    print("| | " + " | ".join(f"{d} px" for d in range(1, OFFSET_RANGE + 1)) + " | total |")
+    print(
+        "| | "
+        + " | ".join(f"{d} px" for d in range(1, OFFSET_RANGE + 1))
+        + " | total |"
+    )
     print("|---|" + "---|" * (OFFSET_RANGE + 1))
     for row, label in ((0, "mask outside the object"), (1, "object outside the mask")):
         vals = " | ".join(f"{int(v)}" for v in off[row, 1:])
@@ -314,8 +346,11 @@ for scene, name in SCENES.items():
         print("|---|---|---|---|---|")
         for label, sel in (
             ("bleeding", bleed),
-            (f"all <= {BLEED_RANGE} px from such an edge", valid & (dist <= BLEED_RANGE)),
-            ("> 15 px from such an edge", valid & (dist > 15)),  # noqa: PLR2004
+            (
+                f"all <= {BLEED_RANGE} px from such an edge",
+                valid & (dist <= BLEED_RANGE),
+            ),
+            ("> 15 px from such an edge", valid & (dist > 15)),
         ):
             s = m["side"][sel & m["labeled"]]
             m[f"side_{key}_{label.split()[0]}"] = s
@@ -325,17 +360,21 @@ for scene, name in SCENES.items():
             )
         print()
         print("Masks eroded by k px before assigning (labeled pixels):")
-        print("| k | bleeding: right | other | no mask | > 15 px: right | other | no mask |")
+        print(
+            "| k | bleeding: right | other | no mask | > 15 px: right | other | no mask |"
+        )
         print("|---|---|---|---|---|---|---|")
         for k in EROSIONS:
             parts = []
-            for sel in (bleed, valid & (dist > 15)):  # noqa: PLR2004
+            for sel in (bleed, valid & (dist > 15)):
                 s = m[f"side_eroded{k}"][sel & m["labeled"]]
                 parts += [f"{(s == c).mean():.2f}" for c in (1, 2, 0)]
             print(f"| {k} | " + " | ".join(parts) + " |")
         print()
         print("Bleeding pixels by GT class (top 10 by count):")
-        print("| GT class | pixels | share of bleeding | right object | other object | no mask |")
+        print(
+            "| GT class | pixels | share of bleeding | right object | other object | no mask |"
+        )
         print("|---|---|---|---|---|---|")
         sel = bleed & m["labeled"]
         names, counts = np.unique(m["gt_class"][sel], return_counts=True)
@@ -444,4 +483,6 @@ for ax in axes.flat:
     ax.axis("off")
 fig.tight_layout()
 fig.savefig(FIGURES / f"{PREFIX}_example.jpg", dpi=110, pil_kwargs={"quality": 90})
-print(f"figures: {FIGURES / f'{PREFIX}_boundaries.jpg'}, {FIGURES / f'{PREFIX}_example.jpg'}")
+print(
+    f"figures: {FIGURES / f'{PREFIX}_boundaries.jpg'}, {FIGURES / f'{PREFIX}_example.jpg'}"
+)

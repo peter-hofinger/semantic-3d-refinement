@@ -70,8 +70,10 @@ METHODS = {
             ("top100", "sam3image-top100-t0.3_views_n20_uniform_504"),
             (
                 "vlm",
-                "sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3"
-                "_views_n20_uniform_504",
+                (
+                    "sam3image-vlm-qwen3vl2binstruct_views_n20_uniform_504-t0.3"
+                    "_views_n20_uniform_504"
+                ),
             ),
         )
         for name, t in (("score > 0.5", "-ms0.5"), ("multi-view filter", "-kl0.5"))

@@ -27,14 +27,18 @@ SCORES = {"pixel recall": 7, "precision": 8, "cross-class leakage": 10, "merges"
 scores = {}
 for line in (RESULTS / "e19_union.txt").read_text(encoding="utf-8").splitlines():
     cells = [c.strip() for c in line.strip("|").split("|")]
-    if len(cells) == 15 and cells[2] == "on" and cells[3] == "all":  # noqa: PLR2004
+    if len(cells) == 15 and cells[2] == "on" and cells[3] == "all":
         scores[cells[0], cells[1]] = {k: float(cells[i]) for k, i in SCORES.items()}
 
 # bleeding pixels at confirmed GT depth edges: right / other object / no mask
 bleeding = {}
 for vocab, name in VOCABULARIES.items():
     text = (RESULTS / name).read_text(encoding="utf-8")
-    rows = re.findall(r"^\| bleeding \| \d+ \| ([\d.]+) \| ([\d.]+) \| ([\d.]+) \|", text, re.M)
+    rows = re.findall(
+        r"^\| bleeding \| \d+ \| ([\d.]+) \| ([\d.]+) \| ([\d.]+) \|",
+        text,
+        re.MULTILINE,
+    )
     # per scene: all edges, then confirmed edges
     for k, scene in enumerate(SCENES):
         bleeding[scene, vocab] = [float(v) for v in rows[2 * k + 1]]
@@ -46,7 +50,9 @@ width = 0.26
 for ax, metric in zip(axes, SCORES, strict=False):
     for k, vocab in enumerate(VOCABULARIES):
         vals = [scores[s, vocab][metric] for s in SCENES]
-        ax.bar(x + (k - 1) * width, vals, width * 0.95, color=COLORS[vocab], label=vocab)
+        ax.bar(
+            x + (k - 1) * width, vals, width * 0.95, color=COLORS[vocab], label=vocab
+        )
     ax.set_xticks(x, SCENES)
     lower = metric in ("cross-class leakage", "merges")
     ax.set_title(f"{metric}\n({'lower' if lower else 'higher'} is better)", fontsize=9)
@@ -68,7 +74,9 @@ ax.barh(y, none, left=np.add(right, other), color="#c9c7c0", label="no mask")
 ax.set_yticks(y, labels, fontsize=7)
 ax.set_xlim(0, 1)
 ax.set_title("bleeding pixels: SAM 3 mask\n(confirmed GT depth edges)", fontsize=9)
-ax.legend(fontsize=7, frameon=False, loc="upper center", bbox_to_anchor=(0.4, -0.08), ncol=3)
+ax.legend(
+    fontsize=7, frameon=False, loc="upper center", bbox_to_anchor=(0.4, -0.08), ncol=3
+)
 for ax in axes:
     ax.grid(axis="x" if ax is axes[-1] else "y", color="#e5e4df", linewidth=0.6)
     ax.set_axisbelow(True)
