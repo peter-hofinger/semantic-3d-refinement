@@ -46,11 +46,17 @@ run only together, in "all three".
 - **Diagnostic, not a score:** disagreement between overlapping views (median depth gap), which
   shows how far the refinement moved the views towards one another. It needs no ground truth.
 - **Labels:** always the linked SAM 3 masks, so label scores change only through geometry.
-- **Noise floor**, from this run against the previous one (same variants, same code paths for
-  them): F-score up to 0.005, mIoU up to 0.006, AP50 up to 0.02. One exception: uncut E_bd on the
-  kitchen, 0.546 then and 0.518 now, with the same accuracy (4.43 vs 4.44 cm) and a 0.3 %
-  different registration scale. A distorted surface leaves the scaled ICP less well determined,
-  and the GPU's non-deterministic sums in the refinement are enough to move it.
+- **Noise floor**, from three runs of the same variants (the GPU's sums in the refinement are
+  not deterministic; Déjà View and GT geometry repeat exactly):
+  - F-score: up to 0.006. Exception: uncut E_bd on the kitchen, 0.546 / 0.518 / 0.541 at the
+    same accuracy (4.43–4.44 cm), with registration scales 0.3 % apart. A distorted surface
+    leaves the scaled ICP less well determined.
+  - Label scores: up to 0.01 mIoU and about 0.03 AP50 on the kitchen and the restaurant. On
+    the conference room up to 0.07 mIoU and 0.10 AP50, both from "all three" (mIoU 0.463 /
+    0.469 / 0.401, AP50 0.300 / 0.300 / 0.200).
+    Labels transfer only within 5 cm, and there the surface is near that limit (completeness
+    3.7–3.9 cm), so small geometry changes decide whether a whole object keeps its label.
+  - Differences below these are not findings.
 
 ## Variants
 
@@ -159,8 +165,9 @@ Three scenes; only patterns that hold on all three are claimed.
    - The views agree to 0.04–0.05 % instead of 0.5–1 %: one surface instead of 20 layers. The
      layers had covered more of the truth (recall); the single surface is not closer to it.
    - On the conference room, plain agreement costs 0.12 mIoU and 0.10 AP50, with completeness
-     3.2 → 5.0 cm: labels are transferred within 5 cm, so a surface that moves away from the
-     truth loses its labels too. "All three" moves it less (3.7 cm) and keeps more (mIoU 0.469).
+     3.2 → 5.0 cm, in all three runs: labels are transferred within 5 cm, so a surface that
+     moves away from the truth loses its labels too. "All three" moves it less (3.7–3.9 cm);
+     how much of the labels it keeps varies between runs (mIoU 0.40–0.47).
 3. **Smoothing must stop at object boundaries.** Cut at SAM 3's boundaries, E_bd scores higher
    than uncut on the kitchen and the restaurant and the same on the conference room: F-score
    0.629 vs 0.518, 0.517 vs 0.506, 0.367 vs 0.364. Uncut, it raises the kitchen's accuracy error

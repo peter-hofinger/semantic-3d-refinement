@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
 from src.geometry import Geometry
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from src.loaders import Views
+from src.loaders import Views
 
 
+@runtime_checkable
 class Backbone(Protocol):
     """Predicts depth and cameras from images."""
 

@@ -6,19 +6,17 @@ import argparse
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import torch
 from accelerate import Accelerator
 from dvlt.common.constants import DataField, PredictionField
 from dvlt.model.dvlt.model import DVLT
+from torch import Tensor
 
 from src.geometry import Geometry
 from src.loaders import Views
-
-if TYPE_CHECKING:
-    from torch import Tensor
 
 log = logging.getLogger(__name__)
 

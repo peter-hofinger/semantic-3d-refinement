@@ -16,25 +16,21 @@ import argparse
 import logging
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from src.loaders.frames import resize_view, select_frames, target_size
-from src.loaders.hypersim.config import load_config
+from src.loaders.hypersim.config import HypersimConfig, load_config
 from src.loaders.hypersim.scene import (
     NYU40,
     FrameLabels,
     HypersimScene,
     distance_to_depth,
 )
+from src.loaders.scannetpp.config import PrepareConfig
 from src.loaders.scannetpp.gt import NO_MESH, GroundTruth
 from src.loaders.views import Views
 from src.segmentation.base import NO_INSTANCE
-
-if TYPE_CHECKING:
-    from src.loaders.hypersim.config import HypersimConfig
-    from src.loaders.scannetpp.config import PrepareConfig
 
 log = logging.getLogger(__name__)
 

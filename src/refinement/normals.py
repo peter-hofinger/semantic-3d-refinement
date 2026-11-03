@@ -235,29 +235,34 @@ def close_cuts(
     return cuts
 
 
+def cut_moves(c: Corner, cuts: list[np.ndarray], h: int, w: int) -> list[Corner]:
+    """Corners one cut edge away from c."""
+    return [n for n, (a, y, x) in corner_moves(c, h, w) if cuts[a][y, x]]
+
+
 def shortest_cut(
     tip: Corner, cuts: list[np.ndarray], costs: list[np.ndarray], budget: float
 ) -> list[Edge]:
     """Cheapest edges from a crack tip to a contour or the border (Dijkstra).
 
-    None if dearer than budget.
+    Empty if dearer than budget.
 
     The tip's own contour, up to `budget` corners back along it, is not a target, or
     every tip would close on itself.
     """
     h, w = cuts[1].shape[0] + 1, cuts[0].shape[1] + 1
-
-    def cut_moves(c: Corner) -> list[Corner]:
-        return [n for n, (a, y, x) in corner_moves(c, h, w) if cuts[a][y, x]]
-
     own, frontier = {tip}, [tip]
     for _ in range(int(budget)):
-        frontier = [n for c in frontier for n in cut_moves(c) if n not in own]
+        frontier = [
+            n for c in frontier for n in cut_moves(c, cuts, h, w) if n not in own
+        ]
         own.update(frontier)
     dist, prev, heap = {tip: 0.0}, {}, [(0.0, tip)]
     while heap:
         d, c = heapq.heappop(heap)
-        if c not in own and (c[0] in {0, h} or c[1] in {0, w} or cut_moves(c)):
+        if c not in own and (
+            c[0] in {0, h} or c[1] in {0, w} or cut_moves(c, cuts, h, w)
+        ):
             path = []
             while c != tip:
                 c, edge = prev[c]

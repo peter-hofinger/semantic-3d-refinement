@@ -70,8 +70,10 @@ errors.
 ## Code
 - Minimal and dense, from first principles. Fewer files, fewer abstractions; delete before adding.
 - Design by contract: assert shapes, dtypes, ranges and finiteness on entry and before return.
-- Type hints everywhere, enforced at runtime for the refinement modules by `beartype_packages` in `src/__init__.py`
-  (the teammates' stages import annotation types under TYPE_CHECKING, which beartype cannot resolve).
+- Type hints everywhere, enforced at runtime for all of `src` by `beartype_this_package` in `src/__init__.py`.
+  Annotation imports stay at runtime (no `TYPE_CHECKING`; ruff's TC001-3 are off), interfaces are
+  `@runtime_checkable` protocols, and hot helpers live at module level: beartype decorates a nested function anew
+  on every call of its parent.
 - Module docstrings state the idea, the equation and the paper it comes from; function docstrings state the
   contract in one line. No other comments except ones that structure code; names carry meaning.
 - No dead code, no commented-out code, no TODOs, no debug prints. Ruff `ALL` stays clean; every `noqa` names

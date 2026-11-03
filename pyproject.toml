@@ -97,6 +97,9 @@ ignore = [
     "D213",    # multi line summary second line
     "COM812",  # conflicts with the formatter
     "CPY001",  # no copyright header per file (LICENSE covers it)
+    "TC001",   # annotation imports stay at runtime: beartype resolves them
+    "TC002",
+    "TC003",
 ]
 
 [tool.ruff.lint.per-file-ignores]

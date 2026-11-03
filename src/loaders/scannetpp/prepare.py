@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -14,15 +13,13 @@ from src.loaders.frames import (
     select_frames,
     target_size,
 )
-from src.loaders.scannetpp.config import load_config
+from src.loaders.scannetpp.config import (
+    PrepareConfig,
+    ScannetppConfig,
+    load_config,
+)
 from src.loaders.scannetpp.scene import ScannetppScene
 from src.loaders.views import Views
-
-if TYPE_CHECKING:
-    from src.loaders.scannetpp.config import (
-        PrepareConfig,
-        ScannetppConfig,
-    )
 
 log = logging.getLogger(__name__)
 

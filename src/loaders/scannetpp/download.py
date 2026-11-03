@@ -13,7 +13,6 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
@@ -23,10 +22,7 @@ from src.loaders.scannetpp.assets import (
     local_path,
     remote_path,
 )
-from src.loaders.scannetpp.config import load_config
-
-if TYPE_CHECKING:
-    from src.loaders.scannetpp.config import ScannetppConfig
+from src.loaders.scannetpp.config import ScannetppConfig, load_config
 
 log = logging.getLogger(__name__)
 

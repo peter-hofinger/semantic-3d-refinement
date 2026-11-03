@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from src.geometry import Geometry
-    from src.loaders import Views
-    from src.segmentation import Segmentation
+from src.geometry import Geometry
+from src.loaders import Views
+from src.segmentation import Segmentation
 
 
 @dataclass

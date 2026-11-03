@@ -6,19 +6,13 @@ import argparse
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from src.backbone import CachedBackbone, ConstantDepthBackbone
+from src.backbone import Backbone, CachedBackbone, ConstantDepthBackbone
+from src.geometry import Geometry
 from src.loaders import Views
 from src.output import PointCloud, to_point_cloud
-from src.refinement import IdentityRefiner
-from src.segmentation import EmptySegmenter
-
-if TYPE_CHECKING:
-    from src.backbone import Backbone
-    from src.geometry import Geometry
-    from src.refinement import Refiner
-    from src.segmentation import Segmentation, Segmenter
+from src.refinement import IdentityRefiner, Refiner
+from src.segmentation import EmptySegmenter, Segmentation, Segmenter
 
 log = logging.getLogger(__name__)
 

@@ -17,6 +17,7 @@ from src.refinement.inputs import write_ply
 
 K = np.array([[40.0, 0, 16.5], [0, 41.0, 12.0], [0, 0, 1]])
 H, W = 24, 32
+STEP = 0.005  # wall samples per unit depth: five per pixel (1 / 40)
 
 
 def pose() -> np.ndarray:
@@ -26,9 +27,9 @@ def pose() -> np.ndarray:
     return c2w
 
 
-def wall(z: float, c2w: np.ndarray, step: float = 0.002) -> np.ndarray:
-    """Dense points of the fronto-parallel plane at depth z, in world coordinates."""
-    s = np.arange(-1.5, 1.5, step) * z
+def wall(z: float, c2w: np.ndarray) -> np.ndarray:
+    """Points of the fronto-parallel plane at depth z filling the view, world frame."""
+    s = np.arange(-0.5, 0.5, STEP) * z
     x, y = np.meshgrid(s, s)
     cam = np.stack([x.ravel(), y.ravel(), np.full(x.size, z)], 1)
     return cam @ c2w[:3, :3].T + c2w[:3, 3]
@@ -49,9 +50,9 @@ def test_scan_depth_keeps_the_nearest_surface() -> None:
 
 def test_lift_puts_scan_depth_back_on_the_scan() -> None:
     c2w = pose()
-    scan = wall(2.0, c2w)
-    points = lift(depth_of(scan, c2w), K, c2w)
-    assert cKDTree(scan).query(points.reshape(-1, 3))[0].max() < 0.003
+    points = lift(depth_of(wall(2.0, c2w), c2w), K, c2w)
+    camera = (points - c2w[:3, 3]) @ c2w[:3, :3]
+    np.testing.assert_allclose(camera[..., 2], 2.0, atol=1e-9)
 
 
 def test_score_aligns_scale_and_ignores_unseen_pixels() -> None:
@@ -62,7 +63,7 @@ def test_score_aligns_scale_and_ignores_unseen_pixels() -> None:
     dist, scale = score(3 * gt + 1.0 * (gt == 0), gt, K, c2w, cKDTree(scan))
     assert np.isclose(scale, 1 / 3)
     assert np.isnan(dist[:, :5]).all() and np.isfinite(dist[:, 5:]).all()
-    assert np.nanmax(dist) < 0.003
+    assert np.nanmax(dist) < STEP * 2.0 / np.sqrt(2)  # half a sample cell's diagonal
 
 
 def test_accuracy_counts_points_within_each_tolerance() -> None:

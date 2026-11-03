@@ -175,7 +175,8 @@ Kitchen, conference room and restaurant, 20 views each, every energy term at wei
 - **Smoothing:** cut at SAM 3's mask boundaries, it no longer melts objects together (kitchen
   F-score 0.518 uncut, 0.629 cut).
 - **Masks:** shuffled masks score like real ones on two of three scenes, and ground-truth
-  masks no better than SAM 3's. A rerun moves F-scores by up to 0.005.
+  masks no better than SAM 3's. Reruns move F-scores by up to 0.006 and, on the conference
+  room, label scores by up to 0.1 (see the report).
 
 ## Layout
 
