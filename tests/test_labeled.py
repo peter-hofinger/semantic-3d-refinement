@@ -161,4 +161,5 @@ def test_score_output_aligns_the_pixels_first() -> None:
     seg = Segmentation(truth.instance[None, None], truth.classes, {1: 0.9, 2: 0.8})
     scores = score_output(truth, pred[None, None], seg, EVALUATED)
     np.testing.assert_allclose(scores["scale"], 3.0)
-    assert scores["chamfer_cm"] < 1e-9 and scores["pq"] == 1.0
+    assert scores["accuracy_cm"] < 1e-9 and scores["completeness_cm"] < 1e-9
+    assert scores["pq"] == 1.0

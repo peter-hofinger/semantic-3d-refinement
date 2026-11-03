@@ -150,13 +150,16 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
 - **Output:** a labeled point per input pixel, in the first view's frame. Output pixel i and
   ground-truth pixel i see the same surface, so each variant is aligned onto the ground
   truth by one least-squares similarity on these pixels (Umeyama, as VGGT and π³), and
-  every score is taken on them. No score has a threshold, cap or grid of its own.
+  every score is taken on them. No score has a threshold, cap or grid of its own. Any
+  method returning a point and a label per input pixel can be scored this way; one with
+  another representation (mesh, Gaussians) renders depth and labels into its own
+  predicted cameras first, as point-map methods (VGGT, π³, PanSt3R) are scored.
 - **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth (its
   meshes are not public):
-  - accuracy, completeness (mean and median, uncapped) and Chamfer distance, the 7-Scenes
-    / NRGBD protocol of CUT3R, π³ and VGGT, for the scene and per class;
+  - accuracy and completeness (mean and median, uncapped), the 7-Scenes / NRGBD protocol
+    of CUT3R, π³ and VGGT, for the scene and per class;
   - mIoU, scene-level PQ / SQ / RQ (Panoptic Lifting, PanSt3R) and AP / AP50 / AP25
-    (ScanNet's `evaluate_semantic_instance`, as SegVGGT and IGGT), on the output's label
+    (3D instance AP as SegVGGT, IGGT and PanSt3R report it), on the output's label
     of each ground-truth pixel. An object is one segment over all views, so an object
     split across views counts as two.
   - Walls, floor and ceiling are background: one segment per class, scored per class but
@@ -176,7 +179,6 @@ Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none
 |---|---|---|---|
 | accuracy, Déjà View → Refined | 2.19 → 1.79 | 2.52 → 2.20 | 9.31 → 8.63 |
 | completeness | 1.01 → 1.41 | 1.17 → 1.72 | 4.80 → 7.96 |
-| Chamfer | 1.60 → 1.60 | 1.85 → 1.96 | 7.05 → 8.30 |
 
 | labels (both variants) | living room | bedroom | lobby |
 |---|---|---|---|
@@ -186,7 +188,7 @@ Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none
 
 - **Accuracy improves on every scene**, and the views fuse: disagreement between
   overlapping views falls 6–8×.
-- **Completeness drops more**, so Chamfer is level or worse. The refined surfaces are thinner
+- **Completeness drops**, by more than accuracy gains. The refined surfaces are thinner
   than Déjà View's scatter, which costs most in the large lobby. Setting the weights is the
   next step.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes

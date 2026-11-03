@@ -34,7 +34,7 @@ import numpy as np
 
 from src.geometry import Geometry
 from src.loaders import Views
-from src.loaders.scannetpp.gt import GroundTruth
+from src.loaders.ground_truth import GroundTruth
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
 
 log = logging.getLogger(__name__)

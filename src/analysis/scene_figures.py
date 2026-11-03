@@ -5,7 +5,7 @@
 each energy term per pixel before and after refinement, a horizontal cross section of
 the fused clouds with a 1 m close-up, the views with ground-truth and SAM 3 objects next
 to each pixel's distance to the nearest ground-truth point, the fused clouds from
-above, surface normals, the Chamfer distance and IoU of every class, and renders of every cloud
+above, surface normals, the accuracy, completeness and IoU of every class, and renders of every cloud
 from the same two cameras (`render_figure`).
 """
 
@@ -37,7 +37,6 @@ from src.refinement.multiview import (
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
-    "chamfer_cm": "Chamfer (cm) ↓",
     "miou": "mIoU ↑",
     "pq": "PQ ↑",
     "ap": "AP ↑",
@@ -535,19 +534,23 @@ def section_figure(
 
 
 def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
-    """Chamfer distance and IoU of every evaluated class in the scene, per variant."""
+    """Accuracy, completeness and IoU of every evaluated class in the scene, per variant."""
     classes = sorted(
         record[names[0]]["surface_per_class"],
-        key=lambda c: record[names[0]]["surface_per_class"][c]["chamfer_cm"],
+        key=lambda c: record[names[0]]["surface_per_class"][c]["accuracy_cm"],
     )
     fig, axes = plt.subplots(
-        2, 1, figsize=(max(6.0, 1 + 0.45 * len(classes)), 6.4), sharex=True
+        3, 1, figsize=(max(6.0, 1 + 0.45 * len(classes)), 8.6), sharex=True
     )
     width = 0.8 / len(names)
     for ax, (label, value) in zip(
         axes,
         (
-            ("Chamfer (cm)", lambda r, c: r["surface_per_class"][c]["chamfer_cm"]),
+            ("accuracy (cm)", lambda r, c: r["surface_per_class"][c]["accuracy_cm"]),
+            (
+                "completeness (cm)",
+                lambda r, c: r["surface_per_class"][c]["completeness_cm"],
+            ),
             ("IoU", lambda r, c: r["iou_per_class"].get(c, 0)),
         ),
         strict=True,
@@ -557,8 +560,8 @@ def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
             ax.bar(x, [value(record[n], c) for c in classes], width,
                    color=SCENE_COLORS[j], label=n)  # fmt: skip
         ax.set_ylabel(label)
-    axes[1].set_ylim(0, 1)
-    axes[1].set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
+    axes[-1].set_ylim(0, 1)
+    axes[-1].set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
     axes[0].legend(loc="upper right")
     axes[0].set_title(f"{name}: per class", fontsize=9)
     fig.tight_layout()

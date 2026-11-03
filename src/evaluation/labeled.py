@@ -6,14 +6,17 @@ ground-truth cameras (Hypersim's per-pixel maps). Hypersim's meshes are not publ
 truth there is. The method's output is a point and a label per input pixel, in the
 first view's frame at its own scale. Pixel i of the output and pixel i of the ground
 truth see the same surface, so every score is taken on these correspondences and has
-no threshold, cap or grid of its own:
+no threshold, cap or grid of its own. A method with another representation (mesh,
+Gaussians) renders depth and labels into its own predicted cameras to be scored.
+Instances meet through the pixels too: an output instance and a ground-truth instance
+overlap in the pixels, over all views, that carry both ids.
 
 - Alignment: one similarity per output by Umeyama's least squares on every pixel with
   ground-truth depth and a finite output (as VGGT and π³ align point maps; π³ and
   CUT3R add ICP, whose radius would be one more number to choose).
 - Surface (7-Scenes / NRGBD protocol of CUT3R, π³, VGGT): accuracy is the mean and
   median distance of each output point to the nearest ground-truth point, completeness
-  the other way round, Chamfer their mean. Per class, accuracy takes the output points
+  the other way round. Per class, accuracy takes the output points
   of the pixels whose ground truth has the class, completeness the ground-truth points
   of the class. Neither is capped: an outlier counts with its full distance.
 - Labels are scored per ground-truth point on the output's label of the same pixel,
@@ -34,13 +37,13 @@ as the geometry protocols do.
   makes the matching unique and the same as the IoU-maximising assignment. Void
   points are left out of the IoU; an unmatched prediction lying more than half on
   void is not a false positive (panopticapi).
-- AP, AP50, AP25 (ScanNet's `evaluate_semantic_instance.py`, as SegVGGT, IGGT,
-  PanSt3R report): per class and IoU threshold, each ground-truth segment takes the
-  highest-scoring prediction above the threshold, further matches are false
-  positives; an unmatched prediction is a false positive unless more than the
-  threshold of it lies on void. AP is averaged over thresholds 0.5:0.95:0.05.
-  ScanNet's minimum of 100 mesh vertices per instance has no counterpart on pixels
-  and is left out.
+- AP, AP50, AP25 (3D instance AP as SegVGGT, IGGT and PanSt3R report it, with the
+  matching of their shared reference evaluator): per class and IoU threshold, each
+  ground-truth segment takes the highest-scoring prediction above the threshold,
+  further matches are false positives; an unmatched prediction is a false positive
+  unless more than the threshold of it lies on void. AP is averaged over thresholds
+  0.5:0.95:0.05. The evaluator's minimum instance size (in mesh vertices) has no
+  counterpart on pixels and is left out.
 """
 
 from __future__ import annotations
@@ -55,7 +58,7 @@ from src.segmentation.base import Segmentation
 NONE = -1
 BACKGROUND = ("wall", "floor", "ceiling")  # no instances in Hypersim: one segment each
 PQ_IOU = 0.5  # PQ's matching threshold, part of its definition
-AP_IOUS = np.arange(0.5, 0.951, 0.05)  # ScanNet's AP
+AP_IOUS = np.arange(0.5, 0.951, 0.05)  # AP averages over these
 AP_IOU_50, AP_IOU_25 = 0.5, 0.25
 
 
@@ -134,14 +137,13 @@ def umeyama(
 
 
 def surface_scores(acc: np.ndarray, comp: np.ndarray) -> dict[str, float]:
-    """Accuracy, completeness (mean and median, cm) and Chamfer (their means' mean)."""
-    out = {
+    """Accuracy and completeness, mean and median, in cm."""
+    return {
         "accuracy_cm": 100 * float(acc.mean()) if len(acc) else float("nan"),
         "accuracy_median_cm": 100 * float(np.median(acc)) if len(acc) else float("nan"),
         "completeness_cm": 100 * float(comp.mean()),
         "completeness_median_cm": 100 * float(np.median(comp)),
     }
-    return out | {"chamfer_cm": (out["accuracy_cm"] + out["completeness_cm"]) / 2}
 
 
 def surface_metrics(
@@ -276,7 +278,7 @@ def panoptic_quality(ov: Overlaps, evaluated: list[str]) -> dict[str, dict[str, 
     return out
 
 
-def scannet_matches(
+def ap_matches(
     ov: Overlaps, scores: dict[int, float], c: str, threshold: float
 ) -> tuple[list[float], list[float], int]:
     """Per scored detection: true or false, its score; and the missed ground truths."""
@@ -312,15 +314,15 @@ def scannet_matches(
     return y_true, y_score, missed
 
 
-def scannet_ap(
+def instance_ap(
     ov: Overlaps, scores: dict[int, float], c: str, threshold: float
 ) -> float:
-    """AP of one class at one IoU threshold, as ScanNet's evaluate_semantic_instance."""
+    """AP of one class at one IoU threshold (see module)."""
     if c not in ov.gt_class.values():
         return float("nan")
     if c not in ov.pred_class.values():
         return 0.0
-    y_true, y_score, missed = scannet_matches(ov, scores, c, threshold)
+    y_true, y_score, missed = ap_matches(ov, scores, c, threshold)
     order = np.argsort(y_score)
     t_sorted, s_sorted = np.array(y_true)[order], np.array(y_score)[order]
     cumsum = np.cumsum(t_sorted)
@@ -362,7 +364,7 @@ def label_metrics(
     ov = overlaps(gt_seg, gt_class, pred_seg, pred_class)
     pq = panoptic_quality(ov, evaluated)
     ap = {
-        c: [scannet_ap(ov, scores, c, t) for t in (*AP_IOUS, AP_IOU_25)]
+        c: [instance_ap(ov, scores, c, t) for t in (*AP_IOUS, AP_IOU_25)]
         for c in evaluated
     }
     objects = [c for c in evaluated if c not in BACKGROUND]

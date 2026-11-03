@@ -30,7 +30,7 @@ import yaml
 
 from src.evaluation.labeled import LabeledCloud, ground_truth_cloud, score_output
 from src.geometry import Geometry
-from src.loaders.scannetpp.gt import GroundTruth
+from src.loaders.ground_truth import GroundTruth
 from src.loaders.views import Views
 from src.refinement.multiview import (
     RefineConfig,
@@ -46,7 +46,7 @@ from src.segmentation.base import Segmentation
 from src.segmentation.linked import working_associator
 from src.segmentation.sam3 import load_prompts
 
-HEADLINE = ("accuracy_cm", "completeness_cm", "chamfer_cm", "miou", "pq", "ap")
+HEADLINE = ("accuracy_cm", "completeness_cm", "miou", "pq", "ap")
 WORKERS = 6  # scoring processes; each also uses several threads
 
 
