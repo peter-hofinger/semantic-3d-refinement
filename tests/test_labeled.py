@@ -1,24 +1,23 @@
-"""Scores of a labeled cloud: voxel majority, surface, mIoU and instance AP."""
+"""Scores of a labeled per-pixel output: alignment, surface, mIoU, PQ and AP."""
 
 import numpy as np
 
 from src.evaluation.labeled import (
     NONE,
     LabeledCloud,
-    average_precision,
     ground_truth_cloud,
     label_metrics,
-    predicted_cloud,
-    register,
+    score_output,
     surface_metrics,
-    voxelize,
+    umeyama,
 )
+from src.segmentation.base import Segmentation
 
-IDENTITY = (1.0, np.eye(3), np.zeros(3))
+EVALUATED = ["chair", "floor"]
 
 
 def room() -> LabeledCloud:
-    """A 1 m floor plate (instance 0) with two 20 cm boxes on it (chairs 1, 2)."""
+    """A 1 m floor plate (instance 0) with two 20 cm plates on it (chairs 1, 2)."""
     g = np.arange(0, 1, 0.01) + 0.005
     x, y = np.meshgrid(g, g)
     floor = np.c_[x.ravel(), y.ravel(), np.zeros(x.size)]
@@ -33,75 +32,21 @@ def room() -> LabeledCloud:
     )
 
 
-def test_voxels_keep_the_majority_label() -> None:
-    points = np.array([[0.001, 0, 0], [0.002, 0, 0], [0.003, 0, 0], [0.5, 0, 0]])
-    centers, labels = voxelize(points, np.array([4, 7, 7, 1]), 0.01)
-    order = np.argsort(centers[:, 0])
-    np.testing.assert_allclose(centers[order, 0], [0.002, 0.5])
-    np.testing.assert_array_equal(labels[order], [7, 1])
+def labels(truth: LabeledCloud, ids: np.ndarray, classes: dict, scores: dict) -> dict:
+    """Label scores of predicted ids on the truth's points."""
+    return label_metrics(truth, ids, classes, scores, EVALUATED)
 
 
 def test_lifting_ground_truth_puts_pixels_on_the_plane() -> None:
     k = np.array([[[50.0, 0, 16], [0, 50.0, 12], [0, 0, 1]]])
     depth = np.full((1, 24, 32), 2.0, dtype=np.float32)
+    depth[0, 0] = 0  # no ground truth on the first row
     ids = np.zeros((1, 24, 32), dtype=np.int32)
     ids[0, :, :16] = -1
     cloud = ground_truth_cloud(depth, ids, {0: "wall"}, k, np.eye(4)[None])
     np.testing.assert_allclose(cloud.points[:, 2], 2.0)
+    assert len(cloud.points) == 23 * 32 and cloud.pixels.sum() == len(cloud.points)
     assert set(cloud.instance.tolist()) == {NONE, 0}
-
-
-def test_ground_truth_against_itself_is_perfect() -> None:
-    truth = room()
-    pred = predicted_cloud(
-        truth.points[None, None], truth.instance[None, None], truth.classes,
-        {1: 0.9, 2: 0.8}, IDENTITY,
-    )  # fmt: skip
-    surface = surface_metrics(pred.points, truth, ["floor", "chair"])
-    assert surface["accuracy_cm"] < 1e-6 and surface["fscore"] == 1.0
-    assert set(surface["surface_per_class"]) == {"floor", "chair"}
-    scores = label_metrics(truth, pred, ["floor", "chair"])
-    assert scores["miou"] == 1.0 and scores["ap50"] == 1.0
-
-
-def test_a_shift_counts_only_beyond_the_tolerance() -> None:
-    truth = room()
-    near = surface_metrics(truth.points + np.array([0, 0, 0.045]), truth, ["floor"])
-    far = surface_metrics(truth.points + np.array([0, 0, 0.055]), truth, ["floor"])
-    assert near["fscore"] == 1.0 and far["fscore"] == 0.0
-    np.testing.assert_allclose(near["accuracy_cm"], 4.5, atol=1e-6)
-
-
-def test_a_shifted_object_costs_its_own_class_only() -> None:
-    truth = room()
-    pred = truth.points.copy()
-    pred[truth.instance == 1] += [0, 0, 0.08]  # one chair floats 8 cm too high
-    per_class = surface_metrics(pred, truth, ["floor", "chair"])["surface_per_class"]
-    assert per_class["floor"]["fscore"] == 1.0
-    assert 0.4 < per_class["chair"]["recall"] < 0.6  # the other chair is in place
-
-
-def test_precision_envelope_ranks_by_score() -> None:
-    assert average_precision(np.array([True, False]), 1) == 1.0
-    assert average_precision(np.array([False, True]), 1) == 0.5
-    assert average_precision(np.array([True]), 2) == 0.5
-
-
-def test_an_object_split_across_views_loses_its_match() -> None:
-    truth = room()
-    ids = truth.instance.copy()
-    x = truth.points[:, 0]
-    ids[(ids == 1) & (x < 0.17)] = 3  # the same chair in thirds, as from three views
-    ids[(ids == 1) & (x > 0.23)] = 4
-    pred = LabeledCloud(
-        truth.points,
-        ids,
-        truth.classes | {3: "chair", 4: "chair"},
-        {2: 0.95, 1: 0.9, 3: 0.8, 4: 0.7},
-    )
-    scores = label_metrics(truth, pred, ["floor", "chair"])
-    assert scores["miou"] == 1.0  # classes are all right
-    assert scores["ap50"] == 0.5  # one of two chairs found, at full precision
 
 
 def rotation_z(angle: float) -> np.ndarray:
@@ -110,24 +55,110 @@ def rotation_z(angle: float) -> np.ndarray:
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
-def test_registration_recovers_a_similarity_from_the_clouds_alone() -> None:
+def test_umeyama_recovers_a_similarity() -> None:
     rng = np.random.default_rng(0)
-    n = 15_000
-    walls = [  # an open room, 4 x 5 x 2.5 m, and a table: no symmetry ICP could slip
-        np.c_[rng.uniform(0, 4, n), rng.uniform(0, 5, n), np.zeros(n)],
-        np.c_[np.zeros(n), rng.uniform(0, 5, n), rng.uniform(0, 2.5, n)],
-        np.c_[rng.uniform(0, 4, n), np.full(n, 5.0), rng.uniform(0, 2.5, n)],
-        np.c_[rng.uniform(1, 2, n), rng.uniform(1, 1.6, n), np.full(n, 0.75)],
-    ]
-    truth = np.concatenate(walls)
-    first = np.eye(4)
-    first[:3, :3] = rotation_z(0.7) @ rotation_z(0.3)[[2, 0, 1]]  # camera looking in
-    first[:3, 3] = [3.0, 1.0, 1.5]
-    # The output, in the first view's frame at a third of the scale, with a pose error
-    # of 2 degrees and 5 cm in that view, which registration must absorb.
-    pose_error = rotation_z(np.radians(2.0))
-    pred = ((truth - first[:3, 3] - [0.05, 0, 0]) @ first[:3, :3] @ pose_error) / 3.0
-    scale, r, t = register(pred, truth, first)
-    mapped = scale * pred @ r.T + t
-    assert np.isclose(scale, 3.0, rtol=1e-3)
-    assert np.abs(mapped - truth).max() < 1e-3
+    source = rng.normal(size=(500, 3))
+    r = rotation_z(0.7) @ rotation_z(0.3)[[2, 0, 1]]
+    target = 3.0 * source @ r.T + [1.0, -2.0, 0.5]
+    s, rotation, t = umeyama(source, target)
+    np.testing.assert_allclose(s, 3.0)
+    np.testing.assert_allclose(rotation, r, atol=1e-12)
+    np.testing.assert_allclose(t, [1.0, -2.0, 0.5], atol=1e-12)
+
+
+def test_ground_truth_against_itself_is_perfect() -> None:
+    truth = room()
+    surface = surface_metrics(truth.points, truth, EVALUATED)
+    assert surface["accuracy_cm"] < 1e-9 and surface["completeness_cm"] < 1e-9
+    assert set(surface["surface_per_class"]) == {"floor", "chair"}
+    scores = labels(truth, truth.instance, truth.classes, {1: 0.9, 2: 0.8})
+    assert scores["miou"] == scores["pq"] == scores["ap"] == 1.0
+    assert scores["pq_per_class"]["floor"]["pq"] == 1.0  # background: per class only
+
+
+def test_an_outlier_counts_with_its_full_distance() -> None:
+    truth = room()
+    pred = truth.points.copy()
+    pred[0] -= [10.0, 0, 0]  # one floor point 10 m off, beside the room
+    surface = surface_metrics(pred, truth, EVALUATED)
+    np.testing.assert_allclose(
+        surface["accuracy_cm"], 1000 / len(pred), rtol=1e-6
+    )  # no cap
+    assert surface["accuracy_median_cm"] < 1e-9
+
+
+def test_a_missing_point_costs_completeness_only() -> None:
+    truth = room()
+    pred = truth.points.copy()
+    pred[truth.instance == 1] = np.nan  # no output where the first chair is
+    surface = surface_metrics(pred, truth, EVALUATED)
+    assert surface["accuracy_cm"] < 1e-9 and surface["completeness_cm"] > 0
+    per_class = surface["surface_per_class"]
+    assert per_class["floor"]["completeness_cm"] < 1e-9
+    assert per_class["chair"]["completeness_cm"] > 0
+
+
+def test_a_shifted_object_costs_its_own_class_only() -> None:
+    truth = room()
+    pred = truth.points.copy()
+    pred[truth.instance == 1] += [0, 0, 0.5]  # one chair floats 50 cm too high
+    per_class = surface_metrics(pred, truth, EVALUATED)["surface_per_class"]
+    assert per_class["floor"]["accuracy_cm"] < 1e-9
+    assert per_class["chair"]["accuracy_cm"] > 10
+
+
+def test_an_object_split_across_views_is_two_segments() -> None:
+    truth = room()
+    ids = truth.instance.copy()
+    x = truth.points[:, 0]
+    ids[(ids == 1) & (x < 0.17)] = 3  # the same chair in thirds, as from three views
+    ids[(ids == 1) & (x > 0.23)] = 4
+    scores = labels(
+        truth, ids, truth.classes | {3: "chair", 4: "chair"},
+        {2: 0.95, 1: 0.9, 3: 0.8, 4: 0.7},
+    )  # fmt: skip
+    assert scores["miou"] == 1.0  # classes are all right
+    assert scores["ap50"] == 0.5  # one of two chairs found, at full precision
+    pq = scores["pq_per_class"]["chair"]
+    assert pq["sq"] == 1.0 and pq["rq"] == 1 / (1 + 3 / 2 + 1 / 2)  # 1 TP, 3 FP, 1 FN
+
+
+def test_background_pieces_form_one_segment() -> None:
+    truth = room()
+    ids = truth.instance.copy()
+    floor = ids == 0
+    ids[floor & (truth.points[:, 0] < 0.5)] = 7  # the floor found as two masks
+    scores = labels(truth, ids, truth.classes | {7: "floor"}, {1: 0.9, 2: 0.8})
+    assert scores["pq_per_class"]["floor"]["pq"] == 1.0
+
+
+def test_a_prediction_on_void_is_no_false_positive() -> None:
+    truth = room()
+    unlabeled = truth.instance.copy()
+    unlabeled[truth.instance == 2] = NONE  # the second chair has no ground truth
+    truth = LabeledCloud(truth.points, unlabeled, {0: "floor", 1: "chair"})
+    scores = labels(truth, room().instance, room().classes, {1: 0.9, 2: 0.8})
+    assert scores["pq"] == 1.0 and scores["ap"] == 1.0
+
+
+def test_a_lower_scored_duplicate_is_a_false_positive() -> None:
+    truth = room()
+    ids = truth.instance.copy()
+    chair = np.flatnonzero(ids == 1)
+    ids[chair[: len(chair) // 4]] = 5  # a quarter of chair 1, scored below everything
+    ap = labels(truth, ids, truth.classes | {5: "chair"}, {1: 0.9, 2: 0.8, 5: 0.1})
+    assert ap["ap50"] == 1.0  # the false positive ranks last: precision envelope full
+    ap = labels(truth, ids, truth.classes | {5: "chair"}, {1: 0.9, 2: 0.8, 5: 0.95})
+    assert ap["ap50"] < 1.0
+
+
+def test_score_output_aligns_the_pixels_first() -> None:
+    truth = room()
+    n = len(truth.points)
+    truth.pixels = np.ones((1, 1, n), dtype=bool)
+    r = rotation_z(0.4)
+    pred = ((truth.points - [0.5, 0.2, 0]) @ r) / 3.0  # other frame, a third the size
+    seg = Segmentation(truth.instance[None, None], truth.classes, {1: 0.9, 2: 0.8})
+    scores = score_output(truth, pred[None, None], seg, EVALUATED)
+    np.testing.assert_allclose(scores["scale"], 3.0)
+    assert scores["chamfer_cm"] < 1e-9 and scores["pq"] == 1.0

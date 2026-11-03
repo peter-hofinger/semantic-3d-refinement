@@ -147,16 +147,20 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
   energy term has weight 1.
 - **Inputs:** cached Déjà View geometry, DSINE normals and linked SAM 3 masks, with one prompt
   per NYU40 class.
-- **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
-  It is registered onto the ground truth from the two clouds alone: a start from the first
-  camera and the ratio of median distances to it, then ICP that also fits the scale
-  (as π³ and VGGT are evaluated). Each variant is registered on its own.
-- **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth on a
-  1 cm grid:
-  - accuracy, completeness and F-score at 5 cm (Tanks and Temples), for the scene and per
-    class;
-  - mIoU and instance AP50 (ScanNet's protocol), on labels transferred to the ground-truth
-    points.
+- **Output:** a labeled point per input pixel, in the first view's frame. Output pixel i and
+  ground-truth pixel i see the same surface, so each variant is aligned onto the ground
+  truth by one least-squares similarity on these pixels (Umeyama, as VGGT and π³), and
+  every score is taken on them. No score has a threshold, cap or grid of its own.
+- **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth (its
+  meshes are not public):
+  - accuracy, completeness (mean and median, uncapped) and Chamfer distance, the 7-Scenes
+    / NRGBD protocol of CUT3R, π³ and VGGT, for the scene and per class;
+  - mIoU, scene-level PQ / SQ / RQ (Panoptic Lifting, PanSt3R) and AP / AP50 / AP25
+    (ScanNet's `evaluate_semantic_instance`, as SegVGGT and IGGT), on the output's label
+    of each ground-truth pixel. An object is one segment over all views, so an object
+    split across views counts as two.
+  - Walls, floor and ceiling are background: one segment per class, scored per class but
+    left out of the aggregates.
 
 ```bash
 uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
@@ -165,19 +169,29 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
 Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-155403`; 1.7 min):
+(`figures/eval_hypersim-20261103-171317`; 1.5 min):
 
-| F-score at 5 cm | living room | bedroom | lobby |
+| cm, ↓ | living room | bedroom | lobby |
 |---|---|---|---|
-| Déjà View | 0.941 | 0.913 | 0.677 |
-| Refined (`configs/refine.yaml`) | 0.950 | 0.910 | 0.644 |
+| accuracy, Déjà View → Refined | 2.19 → 1.79 | 2.52 → 2.20 | 9.31 → 8.63 |
+| completeness | 1.01 → 1.41 | 1.17 → 1.72 | 4.80 → 7.96 |
+| Chamfer | 1.60 → 1.60 | 1.85 → 1.96 | 7.05 → 8.30 |
 
-- **Accuracy improves on every scene** (2.24 → 1.81, 2.71 → 2.46, 6.13 → 5.89 cm), and the
-  views fuse: disagreement between overlapping views falls 6–8×.
-- **Completeness drops.** The refined surfaces are thinner than Déjà View's scatter, which
-  costs most in the large lobby. Setting the weights is the next step.
-- **Noise:** the same energy scores within about 0.006 between runs (GPU sums are not
-  bitwise reproducible).
+| labels (both variants) | living room | bedroom | lobby |
+|---|---|---|---|
+| mIoU | 0.252 | 0.353 | 0.419 |
+| PQ | 0.167 | 0.187 | 0.204 |
+| AP / AP50 / AP25 | 0.285 / 0.370 / 0.443 | 0.297 / 0.382 / 0.480 | 0.193 / 0.278 / 0.419 |
+
+- **Accuracy improves on every scene**, and the views fuse: disagreement between
+  overlapping views falls 6–8×.
+- **Completeness drops more**, so Chamfer is level or worse. The refined surfaces are thinner
+  than Déjà View's scatter, which costs most in the large lobby. Setting the weights is the
+  next step.
+- **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
+  SAM 3 finds but the scene lacks (4–5 per scene) as 0.
+- **Noise:** GPU sums are not bitwise reproducible; the F-score used to vary by about 0.006
+  between runs, and the spread of these scores is not measured yet.
 - The tilt-shift scenes of the `stress` split are in `figures/eval_hypersim-20261103-150543`.
 
 ## Layout
@@ -197,7 +211,7 @@ src/                the code, imported as `src`
   output.py         PointCloud, PLY export
   pipeline.py       chains the stages
   evaluation/       metrics against ground truth: instances (instances.py), labeled
-                    cloud (labeled.py: F-score, mIoU, instance AP50)
+                    output (labeled.py: accuracy, completeness, mIoU, PQ, AP)
   analysis/         the Hypersim protocol (scene_eval.py), its figures and point renders
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README

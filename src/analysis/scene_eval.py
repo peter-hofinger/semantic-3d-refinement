@@ -4,10 +4,11 @@ Per scene the inputs are cached: views, ground truth, backbone geometry, DSINE n
 (`dsine-predict`) and per-view SAM 3 masks, linked across views on the backbone
 geometry exactly as `run-pipeline` does. Every variant then refines the same backbone
 geometry (`refiner: joint`, with the variant's overrides of `configs/refine.yaml`) or
-keeps it (`refiner: none`), and its output, one labeled cloud in the first view's frame,
-is scored as a black box (`evaluation.labeled`): registered onto the ground truth from
-the cloud alone, then surface and label scores, per scene and per class. The labels on
-the cloud are the linked SAM 3 masks, so label scores change only through geometry.
+keeps it (`refiner: none`), and its output, a labeled point per input pixel in the
+first view's frame, is scored (`evaluation.labeled`): aligned onto the ground truth
+by Umeyama on the pixels, then surface and label scores, per scene and per class. The
+labels are the linked SAM 3 masks and are scored per pixel, so every variant has the
+same label scores; refinement shows in the surface scores.
 Disagreement between overlapping views is logged as a diagnostic of the refinement; it
 needs no ground truth and is not a score of the output.
 
@@ -27,14 +28,7 @@ import numpy as np
 import torch
 import yaml
 
-from src.evaluation.labeled import (
-    LabeledCloud,
-    ground_truth_cloud,
-    label_metrics,
-    predicted_cloud,
-    register,
-    surface_metrics,
-)
+from src.evaluation.labeled import LabeledCloud, ground_truth_cloud, score_output
 from src.geometry import Geometry
 from src.loaders.scannetpp.gt import GroundTruth
 from src.loaders.views import Views
@@ -52,7 +46,7 @@ from src.segmentation.base import Segmentation
 from src.segmentation.linked import working_associator
 from src.segmentation.sam3 import load_prompts
 
-HEADLINE = ("accuracy_cm", "completeness_cm", "fscore", "miou", "ap50")
+HEADLINE = ("accuracy_cm", "completeness_cm", "chamfer_cm", "miou", "pq", "ap")
 WORKERS = 6  # scoring processes; each also uses several threads
 
 
@@ -117,30 +111,12 @@ class Scoring:
 
     truth: LabeledCloud
     labels: Segmentation
-    first_camera: np.ndarray  # (4, 4) the ground truth's first camera-to-world
     evaluated: list[str]
 
 
 def score(scoring: Scoring, points: np.ndarray) -> dict:
-    """Register per-pixel points (V, H, W, 3) with SAM 3 labels, score them as a cloud.
-
-    The registration is returned under `align` as a (4, 4) matrix, s R | t.
-    """
-    labels, truth = scoring.labels, scoring.truth
-    finite = np.isfinite(points).all(-1)
-    s, rotation, t = register(points[finite], truth.points, scoring.first_camera)
-    cloud = predicted_cloud(
-        points[finite], labels.instance_ids[finite], labels.classes, labels.scores,
-        (s, rotation, t),
-    )  # fmt: skip
-    align = np.eye(4)
-    align[:3, :3], align[:3, 3] = s * rotation, t
-    return {
-        "scale": s,
-        "align": align,
-        **surface_metrics(cloud.points, truth, scoring.evaluated),
-        **label_metrics(truth, cloud, scoring.evaluated),
-    }
+    """Score per-pixel points (V, H, W, 3) with the SAM 3 labels; `align` is s R | t."""
+    return score_output(scoring.truth, points, scoring.labels, scoring.evaluated)
 
 
 def refine_variant(
@@ -204,9 +180,7 @@ def main() -> None:
                 dataclasses.replace(base, gn_iters=1, cg_iters=1),
                 inputs.normals,
             )
-            scoring = Scoring(
-                inputs.truth, inputs.labels, inputs.views.cam_to_world[0], evaluated
-            )
+            scoring = Scoring(inputs.truth, inputs.labels, evaluated)
             scenes[name] = {
                 "truth_points": len(inputs.truth.points),
                 "objects": len(inputs.labels.classes),

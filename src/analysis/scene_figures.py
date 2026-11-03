@@ -5,7 +5,7 @@
 each energy term per pixel before and after refinement, a horizontal cross section of
 the fused clouds with a 1 m close-up, the views with ground-truth and SAM 3 objects next
 to each pixel's distance to the nearest ground-truth point, the fused clouds from
-above, surface normals, the F-score and IoU of every class, and renders of every cloud
+above, surface normals, the Chamfer distance and IoU of every class, and renders of every cloud
 from the same two cameras (`render_figure`).
 """
 
@@ -25,7 +25,7 @@ from scipy.spatial import cKDTree
 
 from src.analysis.render import Camera, headlight, intrinsics, look_at, splat
 from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
-from src.evaluation.labeled import NONE, lift, predicted_cloud
+from src.evaluation.labeled import NONE, lift
 from src.refinement.multiview import (
     RefineConfig,
     build_problem,
@@ -37,9 +37,10 @@ from src.refinement.multiview import (
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
-    "fscore": "F-score at 5 cm ↑",
+    "chamfer_cm": "Chamfer (cm) ↓",
     "miou": "mIoU ↑",
-    "ap50": "AP50 ↑",
+    "pq": "PQ ↑",
+    "ap": "AP ↑",
 }
 SEQUENTIAL = LinearSegmentedColormap.from_list(
     "seq_blue",
@@ -222,16 +223,11 @@ def topdown_figure(
     columns = [("ground truth", truth.points[keep], truth.instance[keep], None)]
     tree = cKDTree(truth.points)
     for k, d in points.items():
-        labels = inputs.labels
-        cloud = predicted_cloud(
-            d, labels.instance_ids, labels.classes, {},
-            (1.0, np.eye(3), np.zeros(3)),
-        )  # fmt: skip
-        keep = slab(cloud.points)
-        dist = tree.query(cloud.points[keep], workers=-1, distance_upper_bound=1.0)[0]
-        columns.append(
-            (k, cloud.points[keep], cloud.instance[keep], np.minimum(dist, 1.0))
-        )
+        finite = np.isfinite(d).all(-1)
+        cloud, ids = d[finite], inputs.labels.instance_ids[finite]
+        keep = slab(cloud)
+        dist = tree.query(cloud[keep], workers=-1, distance_upper_bound=1.0)[0]
+        columns.append((k, cloud[keep], ids[keep], np.minimum(dist, 1.0)))
     fig, axes = plt.subplots(
         2, len(columns), figsize=(4.2 * len(columns), 8.6), layout="constrained"
     )
@@ -539,10 +535,10 @@ def section_figure(
 
 
 def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
-    """F-score at 5 cm and IoU of every evaluated class in the scene, per variant."""
+    """Chamfer distance and IoU of every evaluated class in the scene, per variant."""
     classes = sorted(
         record[names[0]]["surface_per_class"],
-        key=lambda c: -record[names[0]]["surface_per_class"][c]["fscore"],
+        key=lambda c: record[names[0]]["surface_per_class"][c]["chamfer_cm"],
     )
     fig, axes = plt.subplots(
         2, 1, figsize=(max(6.0, 1 + 0.45 * len(classes)), 6.4), sharex=True
@@ -551,8 +547,8 @@ def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
     for ax, (label, value) in zip(
         axes,
         (
-            ("F-score at 5 cm", lambda r, c: r["surface_per_class"][c]["fscore"]),
-            ("IoU on ground-truth points", lambda r, c: r["iou_per_class"].get(c, 0)),
+            ("Chamfer (cm)", lambda r, c: r["surface_per_class"][c]["chamfer_cm"]),
+            ("IoU", lambda r, c: r["iou_per_class"].get(c, 0)),
         ),
         strict=True,
     ):
@@ -561,10 +557,10 @@ def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
             ax.bar(x, [value(record[n], c) for c in classes], width,
                    color=SCENE_COLORS[j], label=n)  # fmt: skip
         ax.set_ylabel(label)
-        ax.set_ylim(0, 1)
+    axes[1].set_ylim(0, 1)
     axes[1].set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
     axes[0].legend(loc="upper right")
-    axes[0].set_title(f"{name}: per class (≥ 100 ground-truth voxels)", fontsize=9)
+    axes[0].set_title(f"{name}: per class", fontsize=9)
     fig.tight_layout()
     fig.savefig(out / f"{name}_classes.png", dpi=120)
     plt.close(fig)
