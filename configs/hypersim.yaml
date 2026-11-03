@@ -1,0 +1,69 @@
+# Hypersim download and preprocessing. Paths are relative to the repo root.
+
+data_root: data/hypersim/raw            # raw Hypersim layout: <scene>/_detail, <scene>/images
+metadata_root: data/hypersim/metadata   # CSVs from github.com/apple/ml-hypersim (split, camera parameters)
+output_root: data/processed/hypersim    # preprocessed views and ground truth (.npz)
+
+# Scene split (issue #3), one camera trajectory per scene. The loader checks every entry against
+# Hypersim's official v1 split: dev, val and stress from its val partition, test from its test
+# partition; dev, val and test only with centred cameras (Deja View assumes one, E30).
+splits:
+  # choices are made here: prompts, thresholds, views, weekly visuals (E30-E32)
+  dev:
+    ai_010_007: cam_00   # living room, sofas, cushions, pictures
+    ai_006_007: cam_00   # bedroom, many distinct objects; the shared visual scene (E31, E32)
+    ai_044_001: cam_00   # hotel lobby, crowded, repeated sofas and armchairs
+  # the other centred val scenes, first public trajectory each, none filtered out:
+  # checks that a choice made on dev holds on scenes it was not made on
+  val:
+    ai_003_010: cam_00
+    ai_004_003: cam_00   # bathroom
+    ai_004_004: cam_00
+    ai_004_010: cam_00
+    ai_005_005: cam_00
+    ai_007_001: cam_00
+    ai_009_007: cam_00
+    ai_009_009: cam_00
+    ai_031_004: cam_00   # courtyard
+    ai_044_003: cam_01   # cam_00 is not in the public release
+    ai_050_002: cam_00
+  # all centred scenes of the official test split, first public trajectory each, none filtered:
+  # reported numbers only, run at the end; never used to choose anything
+  test:
+    ai_001_010: cam_00
+    ai_003_007: cam_00
+    ai_005_001: cam_00
+    ai_005_010: cam_00
+    ai_008_005: cam_00
+    ai_008_007: cam_00
+    ai_010_003: cam_00
+    ai_010_004: cam_00
+    ai_011_007: cam_00
+    ai_014_006: cam_00
+    ai_015_010: cam_00
+    ai_022_001: cam_00
+    ai_022_003: cam_00
+    ai_022_006: cam_00
+    ai_023_005: cam_00
+    ai_031_008: cam_00
+    ai_033_002: cam_00
+    ai_034_002: cam_00
+    ai_035_001: cam_00
+    ai_035_005: cam_00
+    ai_037_009: cam_00
+    ai_041_004: cam_00
+    ai_041_006: cam_00
+    ai_048_010: cam_00
+    ai_053_010: cam_00
+    ai_054_007: cam_00
+  # tilt-shift cameras (off-centre principal point), kept to document the failure (E30)
+  stress:
+    ai_015_001: cam_00   # kitchen
+    ai_047_009: cam_00   # conference room, many identical chairs
+    ai_052_001: cam_00   # restaurant, crowded, repeated chairs and tables
+
+prepare:
+  num_frames: 20       # 16 to 24
+  sampling: uniform    # uniform (over trajectory order) | farthest (spread camera positions)
+  long_side: 504       # Déjà View input size
+  patch_size: 14       # output width and height are multiples of this

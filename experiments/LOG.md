@@ -56,6 +56,10 @@ Metrics:
 | E26 | Bigger VLM: Qwen3.8-27B (4-bit, thinking off, greedy) with both schemes (per-view union, progressive) | greedy decoding makes the 27B model loop into word association ("...velocity, acceleration, force...", "...HTTP, FTP, SSH...") in 4-8 of 20 answers -> 389 / 506 names (union), 249 / 371 (progressive); precision collapses to 0.15-0.26 (top100 0.51 / 0.48), pixel recall 0.85-0.95 / 0.88-0.90 (top100 0.95 / 0.83), consistency and merges ~unchanged. Outside the loops it follows "only new names" (13-16 of 20 views add <= 1 name, correct NONE answers), unlike the 2B model. Lists as produced are unusable; decoding (repetition control) is the next variable |
 | E27 | Qwen3.8-27B as E26 + repetition penalty 1.1 (still greedy), both schemes | loops not fixed: still 3-7 of 20 answers run into word association (truncated 3 / 7 union, 5 / 4 progressive vs 5 / 8 and 5 / 4); the penalty moves the drift to other words (verbs, pronouns, utensils, physics terms) and removes some loops while creating others (kitchen view 1 now loops). Lists 265 / 476 (union), 323 / 236 (progressive); precision 0.23-0.28 (E26 0.15-0.26, top100 0.51 / 0.48), pixel recall 0.88-0.95, consistency / merges ~E26; kitchen union cross-class leakage 0.033 (junk prompt "workstation"). Repetition penalty is not the fix; next: cap the answer (deterministic) or Qwen's sampling |
 | E28 | Qwen3.8-27B as E26 with answers capped at 64 new tokens (greedy), both schemes | best 27B variant so far: lists 90 / 79 (union) and 96 / 91 (progressive) instead of 389 / 506 and 249 / 371; union answers are exactly the first 64 tokens of E26's (20/20). Union cap64: pixel recall 0.94 / 0.89 (top100 0.95 / 0.83), recall 0.91 / 0.75, consistent 0.84 / 0.76, merges 1 / 5, cross-class leakage 0.008 / 0.048 (all ~top100 or better), but precision 0.29 / 0.33 (top100 0.51 / 0.48) from abstract names at loop starts ("edge, corner, surface, front, back"). Progressive: same picture, its few loops dump ~25 junk names each |
+| E29 | Hypersim loader: views + GT from Hypersim's per-pixel maps, three val scenes (kitchen, conference room, restaurant) | correct to float16 precision (lifted points vs Hypersim's position map: median 1.2 mm); most Hypersim cameras are tilt-shift (254 + 31 of 482 scenes), handled exactly as K + camera rotation, skewed ones rejected; walls / floors / ceilings have no instances -> one per class; conference room 23% unlabeled (behind glass). Per-view GT re-associated with GT geometry: consistent 1.00 / 1.00 / 0.98, 0 merges (working setting 0.94 / 0.91 / 0.94) |
+| E30 | First Hypersim run of the segmenter: six val scenes (3 tilt-shift, 3 plain cameras), top100 vs Qwen3.8-27B union cap64, Déjà View vs GT geometry | Déjà View always predicts a centred principal point: on plain cameras depth 0.45-0.87%, Rel. L2 0.010-0.026 and association consistency ~ GT geometry (0.82 / 0.70 / 0.81 vs 0.82 / 0.76 / 0.81); on tilt-shift scenes consistency drops 0.12-0.31 (conference room Rel. L2 0.116). VLM list not better than top100 outside ScanNet++: precision lower everywhere (0.10-0.43 vs 0.23-0.49), part names split chairs (conference consistent 0.55 -> 0.36), the name "lobby" merges wall and floor (cross-class leakage 0.188). Protocol: plain-camera scenes; top100 stays default |
+| E31 | Rank the 20 bedroom views (Hypersim ai_006_007) by Déjà View's bleeding at GT depth edges, to choose the shared visual views | bleeding pixels 0.7-6.4% of the image; top views 18, 19, 0, 12; median error near edges 1.8-3.0% vs 0.3-0.9% far (as E18 / ETH3D). Bleeding sits on thin structures in front of distant surfaces (ornate bed frame, vanity mirror frame, chair and stool legs); planes stay below 1%. Visual views: frames 94, 0, 62 + 31 (overview) |
+| E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
 
 ## Reference table (current scorer, E11)
 
@@ -1405,3 +1409,203 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   recall, consistency, merges and leakage (office pixel recall better) without being a ScanNet++ list, at the cost of
   precision from abstract part names. Candidate VLM vocabulary for the Hypersim test (where top100 has no advantage).
   Not done (would be tuning on the test scenes): picking the cap from these scores, a stop-word list for abstract names.
+
+## E29: Hypersim loader (views + ground truth) on three validation scenes (02.11.2026)
+- **Goal:** move the segmentation study to Hypersim (team decision 02.11; issue #8: Hypersim GT semantics). Check that
+  the new loader gives correct cameras, depth and instance GT before any method runs on it.
+- **Scenes** (official v1 split `val`, chosen from preview frames, before any method ran): `ai_015_001` cam_00 kitchen,
+  `ai_047_009` cam_00 conference room (18 identical office chairs), `ai_052_001` cam_00 restaurant (crowded, repeated
+  chairs and tables). 20 frames uniform over the trajectory's public frames, 1024x768 -> 504x378.
+- **Code / command:** `src/loaders/hypersim/` (config, scene, download, prepare), `configs/hypersim.yaml`,
+  `uv run hypersim-download` (HTTP range reads of Apple's per-scene ZIPs, 504 files / ~45 MB per trajectory),
+  `uv run hypersim-prepare`. Checks: `uv run python experiments/scripts/e29_hypersim_loader.py >
+  experiments/results/e29_hypersim_loader.txt` (CPU). Tests `tests/test_hypersim.py` (9).
+- **Findings while building it:**
+  1. **Most Hypersim cameras are tilt-shift**, not only the 22 scenes with off-diagonal terms in `M_cam_from_uv`'s first
+     two rows: 254 of 482 scenes have a term in the third row (ray z depends on v), 31 more have skew; 197 are plain.
+     All three chosen scenes are tilt-shift without skew. Exact handling: pixel -> ray is linear (A = F M S); QR gives
+     A = Q U, U = K^-1 (zero skew, off-centre principal point, e.g. cy 216 instead of 384 in the conference room), Q is
+     folded into cam_to_world. Skewed cameras are rejected.
+  2. **Walls / floors / ceilings have no instance ids** (100% of their pixels -1); every other class has instances.
+     Decision (user): one instance per class (`STUFF_BASE + NYU40 id`, shared by all views). Unlike ScanNet++, walls
+     are not split per plane -> a SAM 3 mask of one wall plane will often miss IoU 0.5 against the whole-room wall.
+  3. **Labels have gaps:** conference room 23% of pixels have geometry but no class and no instance (foyer and stairs
+     behind the glass walls) -> unlabeled, ignored by the scorer. Kitchen / restaurant: 0.1% / 0.4%.
+  4. NYU40 classes are coarse: `otherprop` holds most small objects (50 of 77 kitchen instances, 152 of 244 restaurant).
+     3 tiny kitchen instances (0.01% of pixels) have no class -> `unknown`.
+  5. `depth_meters` is distance to the camera centre (converted to z); all files float16.
+- **Results** (`results/e29_hypersim_loader.txt`):
+  - Position-map check (kitchen frame 40, full resolution, tilt-shift camera): our K, z-depth and pose lift every pixel
+    to Hypersim's own world position within median 1.2 mm, p99 4.1 mm (relative 4e-4 = float16 rounding).
+  - Labeled / stuff / unlabeled share: kitchen 0.999 / 0.554 / 0.001, conference 0.765 / 0.361 / 0.235, restaurant
+    0.996 / 0.395 / 0.004; 77 / 34 / 244 instances in the 20 views (32 / 22 / 107 large enough to score).
+  - Scorer GT vs GT: all 1.000, leakage 0 (all three).
+  - GT masks relabeled per view + GT geometry, re-associated (cross-view poses check):
+
+  | scene | association | consistent (all) | id switches | merges |
+  |---|---|---|---|---|
+  | kitchen | default | 1.000 | 0 | 0 |
+  | kitchen | working (xc0.7 vf0.25 kl0.5) | 0.938 | 2 | 0 |
+  | conference | default | 1.000 | 0 | 0 |
+  | conference | working | 0.909 | 3 | 0 |
+  | restaurant | default | 0.981 | 3 | 0 |
+  | restaurant | working | 0.944 | 7 | 0 |
+
+    (ScanNet++ with the default setting: kitchen 1.00, office 0.93.) The visibility rule (vf0.25) costs 2-4 objects
+    here with perfect masks: hidden parts of a GT mask (chairs behind the table) make a direction not count.
+  - Cross-view z agreement (< 1%, pairs with >= 10% of points inside the other view): median 0.67 / 0.81 / 0.67, min
+    0.014 / 0.28 / 0.07. Not a clean pose test (occlusion and nearest-pixel sampling at grazing angles count as
+    disagreement); the association rows above are the stronger evidence.
+- **Figures:** `figures/e29_<scene>_gt.jpg` (GT contact sheets: chairs keep their ids over all views, glass gaps visible).
+- **Conclusion:** loader correct to file precision, GT usable with `eval-instances` and the association unchanged.
+  Caveats for the coming SAM 3 runs: whole-room wall / floor instances, coarse NYU40 classes (cross-class leakage
+  between two `otherprop` objects counts as same class), principal points far from the centre (check Déjà View copes).
+  Not checked: whether Déjà View or SAM 3 trained on Hypersim (MoGe-2 did).
+
+## Plan: E30 = first Hypersim run of the segmenter (02.11.2026)
+- **Goal:** does the segmenter (SAM 3 image mode + 3D association, working setting) carry over from ScanNet++ to
+  Hypersim, and is the VLM vocabulary better than top100 outside ScanNet++ (top100 is a ScanNet++ list)?
+- **Settings, fixed before running (none tuned on Hypersim):** E29's three scenes, 20 views at 504x378; Déjà View K=16;
+  SAM 3 image mode t0.3; vocabularies top100 (plain list) and Qwen3.8-27B union cap 64 tokens (E28 setting, one list
+  per scene from the same 20 views); association `--cross-class 0.7 --min-visible-fraction 0.25 --keep-linked-below 0.5`
+  with Déjà View geometry, and with GT geometry as the upper bound. Scorer `eval-instances` unchanged.
+- **Checks first:** Déjà View copes with the off-centre principal points (fitted K vs GT, per-view scale median depth
+  error vs GT, as E8).
+- **Training-data overlap:** Déjà View: 0.69% of its training set is Hypersim (user, from the paper); scene-level
+  split not checked -> the three scenes are from the official v1 val split, but treat DV depth here as possibly
+  optimistic. MoGe-2 also trained on Hypersim (not used here). SAM 3: not checked.
+- **Expected caveats (E29):** walls / floors / ceilings are one instance per class -> SAM 3 wall-plane masks miss
+  IoU 0.5; NYU40 `otherprop` makes cross-class leakage look smaller; conference room 23% unlabeled.
+- **Run:** cluster job `experiments/scripts/e30_hypersim.sbatch`; association + scoring locally.
+- **Change after job 760 (02.11), before any segmentation scoring:** Déjà View's fitted cameras always have a centred
+  principal point; a free pinhole fit to its raw rays agrees (cx / cy within 2-3 px of the centre, residual 0.06 deg),
+  so the network cannot represent Hypersim's tilt-shift cameras. Conference room (cy 106 vs 189): point-map Rel. L2
+  0.116, 15% inliers. Only 14 of 46 val scenes have plain cameras. Decision (user): finish E30 on the three tilt-shift
+  scenes and add three plain-camera val scenes chosen from previews before scoring: `ai_010_007` living room,
+  `ai_006_007` bedroom, `ai_044_001` hotel lobby (`ai_003_010` was picked first but has 78% unlabeled pixels:
+  walls / floor / ceiling without class). Same settings; job `experiments/scripts/e30_plain.sbatch`.
+
+## E30: first Hypersim run of the segmenter, six val scenes (03.11.2026)
+- **Goal / settings:** as "Plan: E30" above, fixed before running, nothing tuned on Hypersim. Six scenes from the v1
+  `val` split, 20 views at 504x378: three tilt-shift (ts) scenes from E29 (kitchen `ai_015_001`, conference room
+  `ai_047_009`, restaurant `ai_052_001`) and three plain-camera scenes (living room `ai_010_007`, bedroom `ai_006_007`,
+  hotel lobby `ai_044_001`), all cam_00. Déjà View K=16; SAM 3 image mode t0.3 with top100 and with the Qwen3.8-27B
+  union cap64 list (E28 setting, one list per scene); association xc0.7 vf0.25 kl0.5 with Déjà View and with GT
+  geometry. Scorer `eval-instances` unchanged.
+- **Runs:** cluster jobs 760 (ts scenes) and 776 (`experiments/scripts/e30_plain.sbatch`: plain scenes + the restaurant
+  VLM SAM 3 rerun after the `ID_STRIDE` fix 60b3d68); peak GPU 19.4 GB (27B VLM). Caches in
+  `data/processed/hypersim/<scene>/` (Déjà View, VLM lists) and `<scene>/e30_cluster/` (SAM 3). Analysis on CPU:
+  `PYTHONIOENCODING=utf-8 uv run python experiments/scripts/e30_hypersim.py > experiments/results/e30_hypersim.txt`
+  (~15 min, mostly association of the restaurant's 11k VLM masks); rerun gives an identical file.
+- **Déjà View vs GT** (fitted K vs GT K, depth abs rel median with per-view scale, paper's Rel. L2 / inliers < 3% with
+  one Sim(3) per scene):
+
+  | scene | cy DV - GT (px) | depth abs rel | Rel. L2 | inliers < 3% |
+  |---|---|---|---|---|
+  | kitchen (ts) | +16.3 | 0.0098 | 0.031 | 80.7% |
+  | conference (ts) | +82.3 | 0.0200 | 0.116 | 15.5% |
+  | restaurant (ts) | +13.9 | 0.0139 | 0.048 | 74.5% |
+  | living room | -0.3 | 0.0045 | 0.010 | 97.0% |
+  | bedroom | -0.3 | 0.0071 | 0.022 | 91.7% |
+  | lobby | -0.1 | 0.0087 | 0.026 | 78.5% |
+
+  Déjà View always predicts a centred principal point (cy 188.6-188.9 of 189); its error grows with how far the true
+  one is off-centre. On plain cameras it is as good as on ScanNet++ (E8: 0.7-0.8%, E23: Rel. L2 0.024-0.026) or better.
+  0.69% of Déjà View's training data is Hypersim (scene split not checked) -> plain-scene numbers may be optimistic.
+- **Segmentation, all classes** (Déjà View geometry; GT geometry in brackets where it differs):
+
+  | scene | vocabulary | names | recall | pixel recall | precision | cross-class leakage | consistent | merges |
+  |---|---|---|---|---|---|---|---|---|
+  | kitchen (ts) | top100 | 100 | 0.76 | 0.69 | 0.33 | 0.009 | 0.68 (0.80) | 0 (1) |
+  | kitchen (ts) | 27B | 60 | 0.80 | 0.67 | 0.17 | 0.010 | 0.71 (0.89) | 0 |
+  | conference (ts) | top100 | 100 | 0.84 | 0.81 | 0.45 | 0.028 | 0.55 (0.86) | 1 (0) |
+  | conference (ts) | 27B | 71 | 0.77 | 0.76 | 0.15 | 0.027 | 0.36 (0.68) | 1 (0) |
+  | restaurant (ts) | top100 | 100 | 0.76 | 0.77 | 0.38 | 0.044 | 0.67 (0.85) | 4 (2) |
+  | restaurant (ts) | 27B | 88 | 0.79 | 0.78 | 0.10 | 0.051 | 0.53 (0.69) | 2 |
+  | living room | top100 | 100 | 0.91 | 0.88 | 0.47 | 0.006 | 0.82 | 0 |
+  | living room | 27B | 33 | 0.94 | 0.88 | 0.43 | 0.007 | 0.83 | 0 |
+  | bedroom | top100 | 100 | 0.85 | 0.85 | 0.49 | 0.021 | 0.70 (0.76) | 0 |
+  | bedroom | 27B | 89 | 0.90 | 0.88 | 0.17 | 0.022 | 0.71 (0.79) | 0 |
+  | lobby | top100 | 100 | 0.80 | 0.65 | 0.23 | 0.007 | 0.81 | 1 |
+  | lobby | 27B | 77 | 0.58 | 0.58 | 0.16 | 0.188 | 0.78 | 1 (2) |
+
+- **Findings:**
+  1. **Association with Déjà View geometry matches GT geometry on plain cameras, not on tilt-shift ones.** Consistent
+     with Déjà View vs GT geometry: plain 0.82 / 0.82, 0.70 / 0.76, 0.81 / 0.81 (both vocabularies alike); tilt-shift
+     0.68 / 0.80, 0.55 / 0.86, 0.67 / 0.85. The gap follows the camera error above (largest in the conference room).
+     On plain cameras the ScanNet++ result (E9: Déjà View ~ GT for association) carries over to Hypersim.
+  2. **The 27B VLM vocabulary is not better than top100 on Hypersim**, although top100 is a ScanNet++ list. Instance
+     recall is higher in 4 of 6 scenes (+0.03 to +0.05) and pixel recall within ±0.03 there, but precision is lower in
+     every scene (0.10-0.43 vs 0.23-0.49) and consistency drops where the list has part names: conference room 0.55 ->
+     0.36 ("backrest, armrest, seat, leg" split the 18 chairs into parts). The hypothesis "VLM generalizes better
+     outside ScanNet++" is not supported on these six scenes.
+  3. **One abstract name can break a scene:** the lobby list contains "lobby"; SAM 3 masks the whole room with it,
+     and the association joins the wall and floor instances -> cross-class leakage 0.188 (top100 0.007), recall
+     0.80 -> 0.58. Same failure as E28's abstract names ("surface", "interior", "exterior view", "reflection",
+     "shadow" are in other lists here), now with a large cost.
+  4. Merges stay rare (0-4 per scene); most restaurant merges are adjacent `otherprop` objects (cups / glasses with
+     their saucers) under a "cup" / "glass" mask, which the coarse NYU40 GT may count as two objects.
+  5. 27B answers hitting the 64-token cap: 9 / 17 / 15 / 1 / 12 / 20 of 20 (cap working as intended, the last
+     partial line is dropped). Hypersim wall / floor / ceiling = one instance per class, so pixel recall "all" is
+     dominated by whether SAM 3 covers a whole room's wall with masks of IoU >= 0.5 (lobby, kitchen 0.65-0.69).
+- **Figure:** `figures/e30_hypersim.jpg` (pixel recall, precision, consistency, merges per scene, both vocabularies,
+  Déjà View vs GT geometry).
+- **Conclusion:** for the team protocol (issue #3): with Déjà View, use plain-camera Hypersim scenes (14 of 46 val
+  scenes); tilt-shift scenes measure Déjà View's camera model, not the method. Segmenter default stays top100; the
+  VLM vocabulary needs a filter for abstract / part names before it can replace it (not tuned here: these are now
+  seen scenes).
+
+## E31: which bedroom views show Déjà View's edge errors best (03.11.2026)
+- **Goal:** choose the views of the shared visual scene (Hypersim `ai_006_007` bedroom, plain camera, E30) that show
+  bleeding most clearly. A selection aid, not a method result.
+- **Definitions as E18** (copied into the script, same thresholds): GT depth edge = relative GT depth jump > 5% to a
+  4-neighbour; error = relative depth error after a per-view median scale; near-edge = within 3 px of a GT depth edge,
+  far = more than 10 px; a near-edge pixel bleeds if its error is > 5%. Ranked by bleeding pixels as a share of the
+  image (what a viewer sees). Déjà View K=16 cache from E30, 20 views at 504x378.
+- **Command:** `PYTHONIOENCODING=utf-8 uv run python experiments/scripts/e31_bedroom_edges.py >
+  experiments/results/e31_bedroom_edges.txt` (CPU, seconds).
+- **Results:** bleeding pixels range from 6.4% of the image (view 18, frame 94) to 0.7% (view 8, frame 41, a near-empty
+  wall and door view). Top four: views 18, 19, 0, 12 (6.4 / 5.8 / 5.3 / 4.7%); median error near edges 1.8-3.0% vs
+  0.3-0.9% far from edges, the same contrast as on ScanNet++ (E18) and ETH3D (Peter). A quarter to a third of all
+  near-edge pixels bleed in every view (0.19-0.34).
+- **Where:** almost all bleeding sits on thin structures in front of distant surfaces: the ornate metal bed frame
+  (views 18, 19, 12) and the vanity's mirror frame, chair and stool legs (view 0). Large planes (walls, door,
+  wardrobe front) stay below 1%. View 0's far error (0.9%) is raised by the mirror: GT depth is the mirror surface,
+  the error map suggests Déjà View partly predicts the reflected room (not measured).
+- **Figure:** `figures/e31_bedroom_edges.jpg` (the four chosen views 18, 0, 12, 6 with their rank: image, error map on a shared 0-10% scale, GT depth edges
+  with bleeding pixels in red).
+- **Conclusion:** visual views for the bedroom = frames 94, 0, 62 (ranks 1, 3, 4; rank 2 = frame 99 is nearly the same
+  viewpoint as 94) plus frame 31 (rank 9) as the room overview. The bed frame is the clearest test of whether a refiner
+  sharpens thin structures without smoothing across them.
+
+## E32: how the four shared bedroom views segment (03.11.2026)
+- **Goal:** a visual of the segmenter on the shared views (E31: views 18, 0, 12, 6 of Hypersim `ai_006_007`), in a form
+  that shows identity without id numbers (old TODO: better segmentation visuals than id overlays).
+- **Setting:** E30's cache, SAM 3 image mode top100 t0.3 + 3D linking xc0.7 vf0.25 kl0.5 with Déjà View geometry.
+  Colours: each linked object takes the colour of the GT object it covers most over all 20 views (one linked object
+  per GT object, largest overlap wins); further linked objects on the same GT object get other colours. Same colour
+  in the GT and SAM 3 columns = same object; a colour change of one object between views = id switch. Error map per
+  labeled GT pixel: right object / other object / no mask.
+- **Command:** `PYTHONIOENCODING=utf-8 uv run python experiments/scripts/e32_bedroom_segmentation.py >
+  experiments/results/e32_bedroom_segmentation.txt` (CPU, seconds).
+- **Results** (share of labeled GT pixels): right object 0.83-0.92, other object 0.01-0.03, no mask 0.06-0.16. Over the
+  scene 263 linked objects touch labeled pixels; 52 carry their GT object's colour, 211 are extra (part masks,
+  single-view masks, splits; precision 0.49 in E30).
+- **Where it goes wrong** (pixel counts per view from a breakdown of the same data):
+  1. Other object, mostly at the bed frame: the "bed" mask fills the gaps between the ornate bars, so wall, floor and
+     pillow pixels seen through the frame get the bed's id (view 18: 2.3k px). These are the pixels where Déjà View
+     bleeds most (E31), so here the mask would tie the background to the frame.
+  2. Other object by GT granularity: Hypersim labels the clothes inside the wardrobe separately; SAM 3's "cabinet" mask
+     covers them (2.0k / 1.2k px in views 18 / 12). Not a real error for geometry.
+  3. No mask: the mirror (view 0: 17k px, the largest single gap) and the floor mat (rug) in views 12 / 6 (12.5k /
+     18.2k px) are never masked, although top100 contains mirror and rug.
+  4. Walls: GT has one wall instance for the whole room; SAM 3 masks wall planes separately (the magenta wall is an
+     extra object). Counted right (it lies on the wall), only a granularity difference.
+  Cross-view identity of the shared objects holds in these views: door, wardrobe, vanity, pink chair and stool keep
+  one colour.
+- **Figure:** `figures/e32_bedroom_segmentation.jpg` (per view: image, GT instances, SAM 3 + linking in matched colours,
+  error map).
+- **Conclusion:** on the bedroom the harmful error is concentrated in one place: masks of thin objects with holes
+  (the bed frame) cover what is behind them, exactly where depth bleeds. A refiner that smooths within segments would
+  pull the wall seen through the frame towards the frame; such masks need trimming (e.g. by Déjà View depth jumps)
+  before they can cut or tie geometry.

@@ -67,7 +67,7 @@ def run(
             np.array_equal(old.instance_ids, linked.instance_ids)
             and old.classes == linked.classes
         )
-        assert same, f"{out} differs from the cached result"  # noqa: S101
+        assert same, f"{out} differs from the cached result"
         check = "same as cache"
     linked.save(out)
     return linked, check
@@ -169,7 +169,9 @@ for factor, other in itertools.permutations(("a", "b", "VLM"), 2):
                     )
                 vals.append(f"{np.mean(diffs):+.2f}")
             parts.append(f"{m} {'/'.join(vals)}")
-        print(f"  {factor} with {other}={'on' if level else 'off'}: " + ", ".join(parts))
+        print(
+            f"  {factor} with {other}={'on' if level else 'off'}: " + ", ".join(parts)
+        )
 
 # figure: main effects per metric, one panel each, bars per factor, scenes side by side
 COLORS = {"kitchen": "#2a78d6", "office": "#eb6834"}

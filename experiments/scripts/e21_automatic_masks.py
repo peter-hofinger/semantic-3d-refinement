@@ -28,25 +28,45 @@ import numpy as np
 from scipy.ndimage import distance_transform_edt
 
 sys.path.insert(0, str(Path(__file__).parent))
-from e20_proxy_fix import (  # noqa: E402
-    BLEED_ERROR, DATA, FIGURES, RADIUS, REGIONS, SCENES, VIEWS, run, scene_data, summary,
+from e20_proxy_fix import (
+    BLEED_ERROR,
+    DATA,
+    FIGURES,
+    RADIUS,
+    REGIONS,
+    SCENES,
+    VIEWS,
+    run,
+    scene_data,
+    summary,
 )
 
-from src.loaders import Views  # noqa: E402
-from src.segmentation import Segmentation  # noqa: E402
-from src.segmentation.base import ID_STRIDE, NO_INSTANCE  # noqa: E402
+from src.loaders import Views
+from src.segmentation import Segmentation
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE
 
 MODEL = "facebook/sam2.1-hiera-small"
 AUTO = f"sam2auto-hiera-small_{VIEWS}"
-SETTINGS = {"points_per_crop": 32, "pred_iou_thresh": 0.8, "stability_score_thresh": 0.95}
-FILL_OFFSET = 1_000_000  # automatic ids in a filled segmentation, clear of the SAM 3 ids
-VARIANTS = ("SAM 3 top100", "automatic only", "top100 + automatic", "top100 + automatic of next view", "GT")
+SETTINGS = {
+    "points_per_crop": 32,
+    "pred_iou_thresh": 0.8,
+    "stability_score_thresh": 0.95,
+}
+FILL_OFFSET = 1_000_000  # automatic ids when filling, clear of the SAM 3 ids
+VARIANTS = (
+    "SAM 3 top100",
+    "automatic only",
+    "top100 + automatic",
+    "top100 + automatic of next view",
+    "GT",
+)
 
 
 def generate() -> None:
-    import torch
-    from PIL import Image
-    from transformers import pipeline
+    """Run SAM 2 automatic masks on every view and cache them (GPU)."""
+    import torch  # noqa: PLC0415 - GPU mode only; the CPU analysis never loads them
+    from PIL import Image  # noqa: PLC0415 - GPU mode only; the CPU analysis never loads them
+    from transformers import pipeline  # noqa: PLC0415 - GPU mode only; the CPU analysis never loads them
 
     total = torch.cuda.get_device_properties(0).total_memory / 2**30
     torch.cuda.set_per_process_memory_fraction(min(3.5 / total, 1.0))
@@ -57,10 +77,16 @@ def generate() -> None:
         ids = np.full(views.images.shape[:3], NO_INSTANCE, dtype=np.int32)
         for i, image in enumerate(views.images):
             out = generator(Image.fromarray(image), points_per_batch=32, **SETTINGS)
-            masks = sorted((np.asarray(m, dtype=bool) for m in out["masks"]), key=lambda m: -m.sum())
+            masks = sorted(
+                (np.asarray(m, dtype=bool) for m in out["masks"]),
+                key=lambda m: -m.sum(),
+            )
             for k, m in enumerate(masks):
                 ids[i][m] = i * ID_STRIDE + k
-            print(f"{name} view {i}: {len(masks)} masks, coverage {(ids[i] >= 0).mean():.2f}", flush=True)
+            print(
+                f"{name} view {i}: {len(masks)} masks, coverage {(ids[i] >= 0).mean():.2f}",
+                flush=True,
+            )
         Segmentation(ids).save(DATA / scene / f"{AUTO}.npz")
     print(f"peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.2f} GB")
 
@@ -78,10 +104,12 @@ def which_object(ids: np.ndarray, gt_ids: np.ndarray, valid: np.ndarray) -> np.n
 
 
 def fill(base: np.ndarray, auto: np.ndarray) -> np.ndarray:
+    """Give pixels without a `base` mask the automatic id, offset clear of `base` ids."""
     return np.where((base == NO_INSTANCE) & (auto >= 0), auto + FILL_OFFSET, base)
 
 
 def evaluate() -> None:
+    """Print the E21 tables for both scenes and write the figure (CPU)."""
     results: dict = {}
     for scene, name in SCENES.items():
         data = scene_data(scene)
@@ -105,9 +133,15 @@ def evaluate() -> None:
             f"{(auto >= 0)[valid & (top100 < 0)].mean():.2f}"
         )
         print()
-        sides = {v: which_object(s, gt_ids, valid) for v, s in data["segs"].items() if v != "GT"}
+        sides = {
+            v: which_object(s, gt_ids, valid)
+            for v, s in data["segs"].items()
+            if v != "GT"
+        }
         for region_key, title in REGIONS.items():
-            region = (data["band"] if region_key == "realistic" else data["bleed"]) & valid
+            region = (
+                data["band"] if region_key == "realistic" else data["bleed"]
+            ) & valid
             labeled = region & (gt_ids >= 0)
             base = data["error"][region]
             print(f"### {title}")
@@ -117,7 +151,9 @@ def evaluate() -> None:
             )
             print("|---|---|---|---|---|---|---|---|---|")
             s = summary(base, np.full(base.shape, np.nan))
-            print(f"| Déjà View (input) | | | | | {s['over5']:.3f} | {s['mean']:.4f} | | |")
+            print(
+                f"| Déjà View (input) | | | | | {s['over5']:.3f} | {s['mean']:.4f} | | |"
+            )
             for v, seg in data["segs"].items():
                 fixed = run(data, region_key, v, RADIUS)["plane"][region]
                 s = summary(base, fixed)
@@ -126,16 +162,26 @@ def evaluate() -> None:
                     parts = ["1.00", "-", "-", "-"]
                 else:
                     side = sides[v][labeled]
-                    parts = [f"{(seg[region] >= 0).mean():.2f}"] + [f"{(side == c).mean():.2f}" for c in (1, 2, 0)]
-                    results[(name, region_key, v, "side")] = [(side == c).mean() for c in (1, 2, 0)]
+                    parts = [f"{(seg[region] >= 0).mean():.2f}"] + [
+                        f"{(side == c).mean():.2f}" for c in (1, 2, 0)
+                    ]
+                    results[(name, region_key, v, "side")] = [
+                        (side == c).mean() for c in (1, 2, 0)
+                    ]
                 print(
-                    f"| {v} | " + " | ".join(parts) + f" | {s['over5']:.3f} | {s['mean']:.4f} "
+                    f"| {v} | "
+                    + " | ".join(parts)
+                    + f" | {s['over5']:.3f} | {s['mean']:.4f} "
                     f"| {s['dv_changed']:.4f} | {s['fix_changed']:.4f} |"
                 )
             # only the pixels the fill adds: where top100 has no mask
             gap = (data["segs"]["SAM 3 top100"] < 0)[region]
-            filled = run(data, region_key, "top100 + automatic", RADIUS)["plane"][region]
-            ctrl = run(data, region_key, "top100 + automatic of next view", RADIUS)["plane"][region]
+            filled = run(data, region_key, "top100 + automatic", RADIUS)["plane"][
+                region
+            ]
+            ctrl = run(data, region_key, "top100 + automatic of next view", RADIUS)[
+                "plane"
+            ][region]
             for label, f in (("automatic", filled), ("next view's automatic", ctrl)):
                 after = np.where(np.isnan(f[gap]), base[gap], f[gap])
                 print(
@@ -151,13 +197,17 @@ def evaluate() -> None:
                 f"{(side[gap_l] == 0).mean():.2f}"
             )
             # what the gaps are: slivers next to a mask, or whole objects without a mask
-            near = np.stack([distance_transform_edt(t < 0) for t in top100])[region][gap]
+            near = np.stack([distance_transform_edt(t < 0) for t in top100])[region][
+                gap
+            ]
             print(
                 "distance of these pixels to the nearest SAM 3 mask: "
                 + ", ".join(f"<= {d} px {(near <= d).mean():.2f}" for d in (1, 3, 10))
             )
             gap_px = region & (top100 < 0)
-            classes = np.vectorize(lambda g: data["gt"].classes.get(int(g), "unlabeled"))(gt_ids[gap_px])
+            classes = np.array(
+                [data["gt"].classes.get(int(g), "unlabeled") for g in gt_ids[gap_px]]
+            )
             names, counts = np.unique(classes, return_counts=True)
             order = np.argsort(-counts)[:8]
             print(
@@ -169,12 +219,19 @@ def evaluate() -> None:
 
     # figure 1: per scene, which object (realistic region) and the proxy fix
     colors = {
-        "Déjà View": "#a8a7a2", "SAM 3 top100": "#2a78d6", "automatic only": "#e8a33a",
-        "top100 + automatic": "#7a4fc9", "top100 + automatic of next view": "#d6453a", "GT": "#3a9a5b",
+        "Déjà View": "#a8a7a2",
+        "SAM 3 top100": "#2a78d6",
+        "automatic only": "#e8a33a",
+        "top100 + automatic": "#7a4fc9",
+        "top100 + automatic of next view": "#d6453a",
+        "GT": "#3a9a5b",
     }
     short = {
-        "Déjà View": "Déjà View", "SAM 3 top100": "SAM 3\ntop100", "automatic only": "automatic\nonly",
-        "top100 + automatic": "top100 +\nautomatic", "top100 + automatic of next view": "top100 +\nnext view's",
+        "Déjà View": "Déjà View",
+        "SAM 3 top100": "SAM 3\ntop100",
+        "automatic only": "automatic\nonly",
+        "top100 + automatic": "top100 +\nautomatic",
+        "top100 + automatic of next view": "top100 +\nnext view's",
         "GT": "GT",
     }
     fig, axes = plt.subplots(2, 4, figsize=(20, 8))
@@ -184,25 +241,51 @@ def evaluate() -> None:
             names = [v for v in VARIANTS if v != "GT"]
             bottom = np.zeros(len(names))
             for c, (label, color) in enumerate(
-                (("right object", "#3a9a5b"), ("other object", "#d6453a"), ("no mask", "#a8a7a2"))
+                (
+                    ("right object", "#3a9a5b"),
+                    ("other object", "#d6453a"),
+                    ("no mask", "#a8a7a2"),
+                )
             ):
-                vals = np.array([results[(name, region_key, v, "side")][c] for v in names])
-                ax.bar(range(len(names)), vals, 0.6, bottom=bottom, color=color, label=label)
+                vals = np.array(
+                    [results[(name, region_key, v, "side")][c] for v in names]
+                )
+                ax.bar(
+                    range(len(names)),
+                    vals,
+                    0.6,
+                    bottom=bottom,
+                    color=color,
+                    label=label,
+                )
                 bottom += vals
             ax.set_xticks(range(len(names)), [short[v] for v in names], fontsize=7)
             ax.set_ylim(0, 1)
             ax.legend(fontsize=7, frameon=False)
-            ax.set_title(f"{name}, {region_key} region: a pixel's mask belongs to", fontsize=9)
+            ax.set_title(
+                f"{name}, {region_key} region: a pixel's mask belongs to", fontsize=9
+            )
             ax = row[2 * j + 1]
-            region = (results[(name, "data")]["band"] if region_key == "realistic" else results[(name, "data")]["bleed"])
-            base = results[(name, "data")]["error"][region & results[(name, "data")]["valid"]]
+            region = (
+                results[(name, "data")]["band"]
+                if region_key == "realistic"
+                else results[(name, "data")]["bleed"]
+            )
+            base = results[(name, "data")]["error"][
+                region & results[(name, "data")]["valid"]
+            ]
             names = ["Déjà View", *VARIANTS]
-            vals = [base.mean()] + [results[(name, region_key, v)]["mean"] for v in VARIANTS]
+            vals = [base.mean()] + [
+                results[(name, region_key, v)]["mean"] for v in VARIANTS
+            ]
             ax.bar(range(len(names)), vals, 0.65, color=[colors[n] for n in names])
             for x, val in enumerate(vals):
                 ax.text(x, val, f"{val:.3f}", ha="center", va="bottom", fontsize=7)
             ax.set_xticks(range(len(names)), [short[n] for n in names], fontsize=7)
-            ax.set_title(f"{name}, {region_key} region: mean error after the E20 proxy fix", fontsize=9)
+            ax.set_title(
+                f"{name}, {region_key} region: mean error after the E20 proxy fix",
+                fontsize=9,
+            )
     for ax in axes.flat:
         ax.grid(axis="y", color="#e5e4df", linewidth=0.6)
         ax.set_axisbelow(True)
@@ -213,7 +296,9 @@ def evaluate() -> None:
         fontsize=10,
     )
     fig.tight_layout()
-    fig.savefig(FIGURES / "e21_automatic_masks.jpg", dpi=110, pil_kwargs={"quality": 90})
+    fig.savefig(
+        FIGURES / "e21_automatic_masks.jpg", dpi=110, pil_kwargs={"quality": 90}
+    )
 
     # figure 2: office view with most bleeding: SAM 3, automatic, filled
     name = "office"
@@ -223,17 +308,24 @@ def evaluate() -> None:
     rng = np.random.default_rng(0)
     palette = rng.integers(40, 255, size=(4096, 3))
     fig, axes = plt.subplots(1, 3, figsize=(18, 4.2), layout="constrained")
-    for ax, v in zip(axes, ("SAM 3 top100", "automatic only", "top100 + automatic"), strict=True):
+    for ax, v in zip(
+        axes, ("SAM 3 top100", "automatic only", "top100 + automatic"), strict=True
+    ):
         ids = data["segs"][v][i]
         over = image.astype(float) * 0.35
         has = ids >= 0
         over[has] = 0.45 * image[has] + 0.55 * palette[ids[has] % len(palette)]
         over[data["bleed"][i]] = (255, 0, 255)
         ax.imshow(over.astype(np.uint8))
-        ax.set_title(f"{name} view {i}: {v} (dark: no mask, magenta: bleeding pixels)", fontsize=9)
+        ax.set_title(
+            f"{name} view {i}: {v} (dark: no mask, magenta: bleeding pixels)",
+            fontsize=9,
+        )
         ax.axis("off")
     fig.savefig(FIGURES / "e21_example.jpg", dpi=110, pil_kwargs={"quality": 90})
-    print("figures: experiments/figures/e21_automatic_masks.jpg, experiments/figures/e21_example.jpg")
+    print(
+        "figures: experiments/figures/e21_automatic_masks.jpg, experiments/figures/e21_example.jpg"
+    )
 
 
 if __name__ == "__main__":

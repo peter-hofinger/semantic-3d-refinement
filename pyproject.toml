@@ -13,11 +13,13 @@ dependencies = [
     "beartype>=0.23.1",
     "bitsandbytes>=0.50.2 ; sys_platform != 'darwin'",
     "dvlt",
+    "h5py>=3.16",
     "matplotlib>=3.11.2",
     "numpy>=2.4.6",
     "pillow>=13.0.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
+    "requests>=2.34",
     "scipy>=1.16",
     "torch>=2.14.1",
     "torchvision>=0.29.1",
@@ -29,6 +31,8 @@ semantic-3d-refinement = "src:main"
 scannetpp-download = "src.loaders.scannetpp.download:main"
 scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
 scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
+hypersim-download = "src.loaders.hypersim.download:main"
+hypersim-prepare = "src.loaders.hypersim.prepare:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
 sam3-segment = "src.segmentation.sam3:main"
@@ -108,6 +112,14 @@ ignore = [
     "S101",     # asserts are fine in one-off checks
     "PLR2004",  # literal values in one-off checks
     "E501",     # long report lines
+    # each script is a frozen record of one experiment, read top to bottom next to
+    # its LOG.md entry; splitting its main into helpers would change code whose
+    # output is committed, for no reader
+    "C901",     # complex-structure
+    "PLR0912",  # too-many-branches
+    "PLR0913",  # too-many-arguments
+    "PLR0915",  # too-many-statements
+    "PLR0917",  # too-many-positional-arguments
 ]
 # Peter's refinement code: design by contract, asserts state shapes, ranges and
 # finiteness on entry and exit
