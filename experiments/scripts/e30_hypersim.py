@@ -109,7 +109,10 @@ def depth_checks() -> None:
         views = Views.load(d / f"{VIEWS}.npz")
         gt = GroundTruth.load(d / f"gt_{VIEWS}.npz")
         dv = Geometry.load(d / f"{DV}.npz")
-        k_dv, k_gt = dv.intrinsics.astype(np.float64), views.intrinsics.astype(np.float64)
+        k_dv, k_gt = (
+            dv.intrinsics.astype(np.float64),
+            views.intrinsics.astype(np.float64),
+        )
         fx = np.median(k_dv[:, 0, 0] / k_gt[:, 0, 0])
         fy = np.median(k_dv[:, 1, 1] / k_gt[:, 1, 1])
         cx = np.median(k_dv[:, 0, 2] - k_gt[:, 0, 2])
@@ -119,10 +122,14 @@ def depth_checks() -> None:
         for i in range(len(views)):
             v = valid[i]
             s = np.median(gt.depth[i][v] / dv.depth[i][v])
-            per_view_rel.append(np.abs(s * dv.depth[i][v] - gt.depth[i][v]) / gt.depth[i][v])
+            per_view_rel.append(
+                np.abs(s * dv.depth[i][v] - gt.depth[i][v]) / gt.depth[i][v]
+            )
         rel_view = [np.median(r) for r in per_view_rel]
         rel_all = np.concatenate(per_view_rel)
-        gt_pts = Geometry(gt.depth, np.ones_like(gt.depth), views.intrinsics, views.cam_to_world).world_points()
+        gt_pts = Geometry(
+            gt.depth, np.ones_like(gt.depth), views.intrinsics, views.cam_to_world
+        ).world_points()
         dv_pts = dv.world_points()
         centres = views.cam_to_world[:, :3, 3]
         ray = np.linalg.norm(gt_pts - centres[:, None, None], axis=-1)
@@ -133,8 +140,12 @@ def depth_checks() -> None:
         errs, norms = [], []
         for i in range(len(views)):
             v = valid[i]
-            si, ri, ti = umeyama(dv_pts[i][v].astype(np.float64), gt_pts[i][v].astype(np.float64))
-            errs.append(np.linalg.norm(dv_pts[i][v] @ (si * ri).T + ti - gt_pts[i][v], axis=-1))
+            si, ri, ti = umeyama(
+                dv_pts[i][v].astype(np.float64), gt_pts[i][v].astype(np.float64)
+            )
+            errs.append(
+                np.linalg.norm(dv_pts[i][v] @ (si * ri).T + ti - gt_pts[i][v], axis=-1)
+            )
             norms.append(ray[i][v])
         rel_l2_v, _, _ = metrics(np.concatenate(errs), np.concatenate(norms))
         worst = int(np.argmax(rel_view))
@@ -142,13 +153,16 @@ def depth_checks() -> None:
             f"| {name} | {fx:.3f} | {fy:.3f} | {cx:+.1f} | {cy:+.1f} | {np.median(rel_all):.4f} | "
             f"{worst}: {rel_view[worst]:.4f} | {rel_l2:.4f} | {inl:.1%} | {rel_l2_v:.4f} |"
         )
-        print(f"  GT principal points {name}: cx {np.median(k_gt[:, 0, 2]):.1f}, cy {np.median(k_gt[:, 1, 2]):.1f}"
-              f" (image {views.images.shape[2]}x{views.images.shape[1]}); DV cx {np.median(k_dv[:, 0, 2]):.1f},"
-              f" cy {np.median(k_dv[:, 1, 2]):.1f}")
+        print(
+            f"  GT principal points {name}: cx {np.median(k_gt[:, 0, 2]):.1f}, cy {np.median(k_gt[:, 1, 2]):.1f}"
+            f" (image {views.images.shape[2]}x{views.images.shape[1]}); DV cx {np.median(k_dv[:, 0, 2]):.1f},"
+            f" cy {np.median(k_dv[:, 1, 2]):.1f}"
+        )
     print()
 
 
 def main() -> None:
+    """Print the Déjà View checks, the segmentation table and the VLM lists; draw the figure."""
     depth_checks()
     rows = {}
     notes = []
@@ -162,15 +176,24 @@ def main() -> None:
         d = DATA / scene
         views = Views.load(d / f"{VIEWS}.npz")
         gt = GroundTruth.load(d / f"gt_{VIEWS}.npz")
-        geometries = {"Déjà View": Geometry.load(d / f"{DV}.npz"), "GT": gt_geometry(views, gt)}
+        geometries = {
+            "Déjà View": Geometry.load(d / f"{DV}.npz"),
+            "GT": gt_geometry(views, gt),
+        }
         for label, stem in LISTS.items():
             prompts = TOP100 if stem == "top100" else d / f"{stem}.txt"
-            seg = Segmentation.load(d / "e30_cluster" / f"sam3image-{stem}-t0.3_{VIEWS}.npz")
+            seg = Segmentation.load(
+                d / "e30_cluster" / f"sam3image-{stem}-t0.3_{VIEWS}.npz"
+            )
             dom = dominant_gt(gt, seg)
             for geo_name, geometry in geometries.items():
                 linked = working_associator().associate(seg, geometry)
                 tag = "dejaview_k16" if geo_name == "Déjà View" else "gt"
-                linked.save(d / "e30_cluster" / f"sam3image-{stem}-t0.3_{VIEWS}_assoc-xc0.7-vf0.25-kl0.5-{tag}.npz")
+                linked.save(
+                    d
+                    / "e30_cluster"
+                    / f"sam3image-{stem}-t0.3_{VIEWS}_assoc-xc0.7-vf0.25-kl0.5-{tag}.npz"
+                )
                 wrong = [
                     o
                     for o, ms in members(seg, linked).items()
@@ -186,7 +209,9 @@ def main() -> None:
                         f"{s.pixel_recall:.2f} | {s.precision:.2f} | {s.cross_leakage:.3f} | "
                         f"{s.consistent:.2f} | {s.num_gt} | {s.id_switches} | {s.merges} | {extra} |"
                     )
-                notes.append((name, label, geo_name, merges(gt, linked), len(seg.classes)))
+                notes.append(
+                    (name, label, geo_name, merges(gt, linked), len(seg.classes))
+                )
 
     print("\nMasks and merges:")
     for name, label, geo_name, ms, n_masks in notes:
@@ -197,12 +222,20 @@ def main() -> None:
     print("\nVLM vocabularies:")
     for scene, name in SCENES.items():
         stem = LISTS["27B union cap64"]
-        answers = json.loads((DATA / scene / f"{stem}.json").read_text(encoding="utf-8"))
+        answers = json.loads(
+            (DATA / scene / f"{stem}.json").read_text(encoding="utf-8")
+        )
         names = prompt_names(DATA / scene / f"{stem}.txt")
         truncated = sum(a["truncated"] for a in answers.values())
-        print(f"\n{name}: {len(names)} names, truncated answers {truncated}/{len(answers)}")
+        print(
+            f"\n{name}: {len(names)} names, truncated answers {truncated}/{len(answers)}"
+        )
         print("  " + ", ".join(names))
+    figure(rows)
 
+
+def figure(rows: dict) -> None:
+    """Bar chart of four metrics per scene: both vocabularies, Déjà View vs GT geometry."""
     metrics_ = {
         "pixel_recall": "pixel recall",
         "precision": "precision",
@@ -218,17 +251,27 @@ def main() -> None:
             vals = [getattr(rows[n, lab, geo, "all"], m) for n in SCENES.values()]
             xs = x + (k - 1.5) * 0.2
             ax.bar(xs, vals, 0.19, color=c, label=f"{lab}, {geo} geometry")
-            for xx, v in zip(xs, vals, strict=True):
-                ax.text(xx, v, f"{v:.2f}" if isinstance(v, float) else str(v), ha="center", va="bottom", fontsize=6)
+            if m == "merges":
+                for xx, v in zip(xs, vals, strict=True):
+                    ax.text(xx, v, str(v), ha="center", va="bottom", fontsize=6)
         ax.set_xticks(x, list(SCENES.values()), fontsize=7, rotation=30, ha="right")
         ax.set_title(title, fontsize=9)
         ax.grid(axis="y", color="#e5e4df", linewidth=0.6)
         ax.set_axisbelow(True)
         ax.spines[["top", "right"]].set_visible(False)
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, fontsize=8, frameon=False, ncol=4, loc="upper center", bbox_to_anchor=(0.5, 0.93))
+    fig.legend(
+        handles,
+        labels,
+        fontsize=8,
+        frameon=False,
+        ncol=4,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.93),
+    )
     fig.suptitle(
-        "E30: Hypersim, SAM 3 t0.3 + association xc0.7 vf0.25 kl0.5, all classes, 20 views at 504x378",
+        "E30: Hypersim, SAM 3 t0.3 + association xc0.7 vf0.25 kl0.5, all classes, 20 views at 504x378; "
+        "(ts) = tilt-shift camera (off-centre principal point)",
         fontsize=10,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.86))
