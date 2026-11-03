@@ -3,7 +3,8 @@
 `uv run python -m src.analysis.scene_figures --run runs/<run>` writes
 `figures/<run>/`: the headline scores of every variant on every scene, and per scene
 the views with ground-truth and SAM 3 objects next to each pixel's distance to the
-ground truth, the fused clouds from above, and the IoU of every class.
+nearest ground-truth point (accuracy, per pixel), the fused clouds from above, surface
+normals at mask boundaries and the IoU of every class.
 """
 
 import argparse
@@ -30,13 +31,9 @@ from src.refinement.monocular import points_from_rays
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
-    "fscore_2cm": "F-score at 2 cm ↑",
+    "fscore": "F-score at 2 cm ↑",
     "miou": "mIoU ↑",
-    "ap": "AP ↑",
     "ap50": "AP50 ↑",
-    "precision_2cm": "precision at 2 cm ↑",
-    "recall_2cm": "recall at 2 cm ↑",
-    "disagreement_pct": "disagreement between views (%)",
 }
 SCENE_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#8a5cc2")
 ERROR_MAX_CM = 30.0
@@ -82,17 +79,19 @@ def ground_truth_points(inputs: SceneInputs) -> np.ndarray:
     )
 
 
-def summary_figure(
-    run: dict, out: Path, keys: tuple[str, ...] = HEADLINE, stem: str = "summary"
-) -> None:
+def summary_figure(run: dict, out: Path) -> None:
     """Scores: one panel per score, variants as rows, scenes as bars."""
     scenes = list(run["scenes"])
     variants = [v["name"] for v in run["config"]["variants"]]
     fig, axes = plt.subplots(
-        2, 3, figsize=(15, 0.42 * len(variants) * 2 + 2), layout="constrained"
+        1,
+        len(HEADLINE),
+        figsize=(3.6 * len(HEADLINE), 0.42 * len(variants) + 1.5),
+        layout="constrained",
+        squeeze=False,
     )
     height = 0.8 / len(scenes)
-    for ax, key in zip(axes.flat, keys, strict=True):
+    for ax, key in zip(axes.flat, HEADLINE, strict=True):
         for j, scene in enumerate(scenes):
             values = [run["scenes"][scene]["variants"][v][key] for v in variants]
             y = np.arange(len(variants)) + (j - (len(scenes) - 1) / 2) * height
@@ -102,13 +101,17 @@ def summary_figure(
         ax.invert_yaxis()
         ax.set_title(LABELS[key])
         ax.grid(axis="y", visible=False)
-    axes[0, -1].legend(loc="lower right")
+    fig.legend(
+        *axes[0, 0].get_legend_handles_labels(),
+        loc="outside lower center",
+        ncols=len(scenes),
+    )
     fig.suptitle(
         "Every variant on every scene; dashed: Déjà View's value per scene",
         x=0.01,
         ha="left",
     )
-    fig.savefig(out / f"{stem}.png", dpi=130)
+    fig.savefig(out / "summary.png", dpi=130)
     plt.close(fig)
 
 
@@ -117,18 +120,17 @@ def views_figure(
     points: dict[str, np.ndarray],
     name: str,
     out: Path,
-) -> dict[str, float]:
-    """Draw views: image, GT and SAM 3 objects, per-pixel distance to ground truth."""
-    truth = ground_truth_points(inputs)
-    seen = inputs.gt.depth > 0
-    errors = {
-        k: np.where(
-            seen,
-            100 * np.linalg.norm(d - truth, axis=-1),
-            np.nan,
-        )
-        for k, d in points.items()
-    }
+) -> None:
+    """Draw views: image, GT and SAM 3 objects, distance to the nearest GT point."""
+    tree = cKDTree(inputs.truth.points)
+    errors = {}
+    for k, d in points.items():
+        finite = np.isfinite(d).all(-1)
+        e = np.full(finite.shape, np.nan)
+        cap = ERROR_MAX_CM / 100
+        dist = tree.query(d[finite], workers=-1, distance_upper_bound=cap)[0]
+        e[finite] = 100 * np.minimum(dist, cap)
+        errors[k] = e
     first, *_, last = errors
     titles = ["image", "ground-truth objects", "SAM 3 objects (linked)"]
     titles += [f"{k}\ndistance (cm)" for k in errors] + [f"{last}\nminus {first}"]
@@ -172,13 +174,12 @@ def views_figure(
     )
     fig.colorbar(ch, ax=axes[-1, -1], location="bottom", label="cm, blue: closer")
     fig.suptitle(
-        f"{name}: distance of each pixel's point to the same pixel's ground-truth point",
+        f"{name}: distance of each pixel's point to the nearest ground-truth point",
         x=0.01,
         ha="left",
     )
     fig.savefig(out / f"{name}_views.png", dpi=110)
     plt.close(fig)
-    return {k: float(np.nanmedian(e)) for k, e in errors.items()}
 
 
 def topdown_figure(
@@ -244,41 +245,6 @@ def topdown_figure(
         ha="left",
     )
     fig.savefig(out / f"{name}_topdown.png", dpi=110)
-    plt.close(fig)
-
-
-def precision_recall_figure(run: dict, names: list[str], out: Path) -> None:
-    """Precision and recall against tolerance, per scene, for the shown variants."""
-    scenes = list(run["scenes"])
-    fig, axes = plt.subplots(
-        1, len(scenes), figsize=(4.4 * len(scenes), 3.6), squeeze=False
-    )
-    tolerances = (1, 2, 5)
-    for ax, scene in zip(axes[0], scenes, strict=True):
-        for j, n in enumerate(names):
-            r = run["scenes"][scene]["variants"][n]
-            for kind, style in (("precision", "-"), ("recall", "--")):
-                ax.plot(
-                    tolerances,
-                    [r[f"{kind}_{t}cm"] for t in tolerances],
-                    style,
-                    marker="o",
-                    color=SCENE_COLORS[j],
-                    label=f"{n}, {kind}",
-                )
-        ax.set_xticks(tolerances, [f"{t} cm" for t in tolerances])
-        ax.set_ylim(0, 1)
-        ax.set_title(scene)
-    axes[0, 0].set_ylabel("fraction within the tolerance")
-    axes[0, -1].legend(loc="upper left", fontsize=7)
-    fig.suptitle(
-        "Precision (solid): predicted points near the ground truth. "
-        "Recall (dashed): ground truth near a prediction.",
-        x=0.01,
-        ha="left",
-    )
-    fig.tight_layout()
-    fig.savefig(out / "precision_recall.png", dpi=130)
     plt.close(fig)
 
 
@@ -373,12 +339,10 @@ def main() -> None:
     out = Path("figures") / args.run.name
     out.mkdir(parents=True, exist_ok=True)
     summary_figure(run, out)
-    precision_recall_figure(run, args.show, out)
     arrays = np.load(args.run / "results.npz")
     variants = run["config"]["variants"]
     names = [v["name"] for v in variants]
     device = torch.device("cpu")
-    medians = {}
     for scene in run["scenes"]:
         inputs = load_inputs(run["config"], scene, device)
         assert inputs is not None, scene
@@ -396,7 +360,7 @@ def main() -> None:
             )
 
         points = {n: registered(n) for n in args.show}
-        medians[scene] = views_figure(inputs, points, scene, out)
+        views_figure(inputs, points, scene, out)
         topdown_figure(inputs, points, scene, out)
         smoothing = ["Déjà View", "+ E_bd", "+ E_bd cut at masks"]
         if all(n in names for n in smoothing):
@@ -404,8 +368,7 @@ def main() -> None:
         class_figure(
             run["scenes"][scene]["variants"], [*args.show, "GT geometry"], scene, out
         )
-        print(scene, {k: round(v, 3) for k, v in medians[scene].items()}, flush=True)  # noqa: T201
-    (out / "pixel_medians.yaml").write_text(yaml.safe_dump(medians, allow_unicode=True))
+        print(scene, flush=True)  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
 
 

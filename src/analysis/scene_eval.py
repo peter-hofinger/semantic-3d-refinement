@@ -5,7 +5,8 @@ SAM 3 masks, linked across views on the backbone geometry exactly as `run-pipeli
 does. Every variant then refines the same backbone geometry (or keeps it), and its
 output, one labeled cloud in the first view's frame, is scored as a black box
 (`evaluation.labeled`): registered onto the ground truth from the cloud alone, then
-surface F-score, mIoU and instance AP. Each variant is registered on its own.
+accuracy, completeness, F-score at 2 cm, mIoU and AP50. Each variant is registered on
+its own.
 Disagreement between overlapping views is logged as a diagnostic of the refinement; it
 needs no ground truth and is not a score of the output. The labels on the cloud are
 always the linked SAM 3 masks, so label scores change only through geometry; `masks`
@@ -62,7 +63,7 @@ from src.segmentation.base import Segmentation
 from src.segmentation.linked import working_associator
 from src.segmentation.sam3 import load_prompts
 
-HEADLINE = ("accuracy_cm", "completeness_cm", "fscore_2cm", "miou", "ap", "ap50")
+HEADLINE = ("accuracy_cm", "completeness_cm", "fscore", "miou", "ap50")
 WORKERS = 6  # scoring processes; each also uses several threads
 
 

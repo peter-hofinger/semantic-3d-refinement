@@ -58,17 +58,17 @@ def test_ground_truth_against_itself_is_perfect() -> None:
         {1: 0.9, 2: 0.8}, IDENTITY,
     )  # fmt: skip
     surface = surface_metrics(pred.points, truth.points)
-    assert surface["accuracy_cm"] < 1e-6 and surface["fscore_1cm"] == 1.0
+    assert surface["accuracy_cm"] < 1e-6 and surface["fscore"] == 1.0
     scores = label_metrics(truth, pred, ["floor", "chair"])
-    assert scores["miou"] == 1.0 and scores["ap"] == 1.0
-    assert scores["ap50_class_agnostic"] == 1.0
+    assert scores["miou"] == 1.0 and scores["ap50"] == 1.0
 
 
-def test_a_shift_fails_the_tight_tolerance_only() -> None:
+def test_a_shift_counts_only_beyond_the_tolerance() -> None:
     truth = room().points
-    surface = surface_metrics(truth + np.array([0, 0, 0.015]), truth)
-    assert surface["precision_1cm"] == 0.0 and surface["fscore_2cm"] == 1.0
-    np.testing.assert_allclose(surface["chamfer_cm"], 1.5, atol=1e-6)
+    near = surface_metrics(truth + np.array([0, 0, 0.015]), truth)
+    far = surface_metrics(truth + np.array([0, 0, 0.025]), truth)
+    assert near["fscore"] == 1.0 and far["fscore"] == 0.0
+    np.testing.assert_allclose(near["accuracy_cm"], 1.5, atol=1e-6)
 
 
 def test_precision_envelope_ranks_by_score() -> None:

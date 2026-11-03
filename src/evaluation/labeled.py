@@ -16,12 +16,13 @@ it from coarse to fine. Global registration without that start (FPFH features, R
 failed on Hypersim rooms: features are not scale invariant, and Déjà View's scale is
 off by a factor of 3 to 4.
 
-Surface (Knapitsch et al. 2017, Tanks and Temples): accuracy is the distance of each
-predicted point to the nearest ground-truth point, completeness the other way round;
-precision and recall are the fractions of either within a tolerance τ, and the F-score
-their harmonic mean. Distances are capped at `CAP` (20 cm), as DTU's evaluation caps
-outliers: the means should not hinge on points outside a window, and a nearest-neighbor
-query costs more the farther the point is from the other cloud (1 m: 19 s per cloud).
+Surface (Knapitsch et al. 2017, Tanks and Temples): accuracy is the mean distance of
+each predicted point to the nearest ground-truth point, completeness the other way
+round; precision and recall are the fractions of either within `TOLERANCE` (2 cm,
+twice the grid), and the F-score their harmonic mean. Distances are capped at `CAP`
+(20 cm), as DTU's evaluation caps outliers: the means should not hinge on points
+outside a window, and a nearest-neighbor query costs more the farther the point is from
+the other cloud (1 m: 19 s per cloud).
 
 Labels are transferred to the ground truth: every ground-truth point takes the
 instance of the nearest predicted point within `TRANSFER`, none if there is no such
@@ -32,10 +33,9 @@ refinement that moves surfaces into place shows in the label scores too.
 - Semantics: IoU per class over ground-truth points, the mean over evaluated classes
   (mIoU; ScanNet, ScanNet++). Points whose ground-truth class is not evaluated are
   ignored.
-- Instances: average precision (ScanNet's protocol, also ScanNet++): per class,
-  predictions by descending score are matched greedily to unmatched ground-truth
-  instances at IoU ≥ t; AP is the area under the precision envelope, averaged over t
-  = 0.50, 0.55, ..., 0.95 (AP), or taken at t = 0.5 (AP50) and 0.25 (AP25). Walls,
+- Instances: AP50 (ScanNet's protocol, also ScanNet++): per class, predictions by
+  descending score are matched greedily to unmatched ground-truth instances at IoU ≥
+  0.5; AP is the area under the precision envelope, averaged over classes. Walls,
   floors and ceilings are left out, as in ScanNet. A prediction that lies mostly on
   points of classes outside the evaluation is neither a hit nor a false positive.
   An object split into two ids across views fuses into two half-size masks in 3D,
@@ -54,11 +54,11 @@ from scipy.spatial import cKDTree
 from src.evaluation.depth import lift
 
 VOXEL = 0.01  # m, grid both clouds are reduced to
-TOLERANCES = (0.01, 0.02, 0.05)  # m, precision / recall / F-score thresholds
+TOLERANCE = 0.02  # m, precision / recall / F-score threshold
 TRANSFER = 0.05  # m, a ground-truth point takes the label of a prediction this close
 CAP = 0.2  # m, distances above count as this
 MIN_POINTS = 100  # voxels; smaller instances are not scored (ScanNet: 100 vertices)
-IOU_THRESHOLDS = np.round(np.arange(0.5, 0.951, 0.05), 2)
+MATCH_IOU = 0.5  # an instance is found at this IoU (AP50)
 STRUCTURE = ("wall", "floor", "ceiling")  # no instances (ScanNet's AP leaves them out)
 NONE = -1
 ICP_STAGES = ((0.05, 0.5), (0.05, 0.2), (0.02, 0.05), (0.01, 0.02))  # voxel, radius (m)
@@ -199,28 +199,20 @@ def predicted_cloud(
     return LabeledCloud(centers, majority, dict(classes), dict(scores))
 
 
-def surface_metrics(
-    pred: np.ndarray, truth: np.ndarray, tolerances: tuple[float, ...] = TOLERANCES
-) -> dict[str, float]:
-    """Accuracy, completeness (mean, cm), Chamfer, precision / recall / F-score at τ."""
+def surface_metrics(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
+    """Accuracy, completeness (mean, cm), precision / recall / F-score at TOLERANCE."""
     acc, comp = (
         np.minimum(cKDTree(b).query(a, workers=-1, distance_upper_bound=CAP)[0], CAP)
         for a, b in ((pred, truth), (truth, pred))
     )
-    out = {
+    p, r = float((acc < TOLERANCE).mean()), float((comp < TOLERANCE).mean())
+    return {
         "accuracy_cm": 100 * float(acc.mean()),
         "completeness_cm": 100 * float(comp.mean()),
-        "chamfer_cm": 50 * float(acc.mean() + comp.mean()),
+        "precision": p,
+        "recall": r,
+        "fscore": 2 * p * r / (p + r) if p + r > 0 else 0.0,
     }
-    for tau in tolerances:
-        p, r = float((acc < tau).mean()), float((comp < tau).mean())
-        tag = f"{100 * tau:g}cm"
-        out |= {
-            f"precision_{tag}": p,
-            f"recall_{tag}": r,
-            f"fscore_{tag}": 2 * p * r / (p + r) if p + r > 0 else 0.0,
-        }
-    return out
 
 
 def transfer(
@@ -264,15 +256,10 @@ def average_precision(matched: np.ndarray, num_gt: int) -> float:
     return float((envelope * steps).sum())
 
 
-def instance_ap(
-    truth: LabeledCloud,
-    pred: LabeledCloud,
-    labels: np.ndarray,
-    evaluated: list[str],
-    *,
-    class_agnostic: bool = False,
-) -> dict[float, float]:
-    """Mean AP over classes per IoU threshold (ScanNet's protocol, see module)."""
+def instance_ap50(
+    truth: LabeledCloud, pred: LabeledCloud, labels: np.ndarray, evaluated: list[str]
+) -> float:
+    """Mean AP over classes at IoU 0.5 (ScanNet's protocol, see module)."""
     things = [c for c in evaluated if c not in STRUCTURE]
     gt_class = truth.class_of(truth.instance)
     ignored = ~np.isin(gt_class, evaluated)
@@ -304,47 +291,37 @@ def instance_ap(
         n = overlap.get(p, {}).get(g, 0)
         return n / (preds[p] + gt[g] - n)
 
-    groups = [None] if class_agnostic else things
-    out = {}
-    for t in (*IOU_THRESHOLDS, 0.25):
-        aps = []
-        for c in groups:
-            gts = {g for g in gt if c is None or truth.classes[g] == c}
-            ranked = sorted(
-                (p for p in preds if c is None or pred.classes[p] == c),
-                key=lambda p: -pred.scores.get(p, 0.0),
+    aps = []
+    for c in things:
+        gts = {g for g in gt if truth.classes[g] == c}
+        ranked = sorted(
+            (p for p in preds if pred.classes[p] == c),
+            key=lambda p: -pred.scores.get(p, 0.0),
+        )
+        used: set[int] = set()
+        hits = []
+        for p in ranked:
+            best = max(
+                (g for g in overlap.get(p, {}) if g in gts - used),
+                key=lambda g, p=p: iou(p, g),
+                default=None,
             )
-            used: set[int] = set()
-            hits = []
-            for p in ranked:
-                best = max(
-                    (g for g in overlap.get(p, {}) if g in gts - used),
-                    key=lambda g, p=p: iou(p, g),
-                    default=None,
-                )
-                hit = best is not None and iou(p, best) >= t
-                if hit:
-                    used.add(best)
-                hits.append(hit)
-            aps.append(average_precision(np.array(hits, dtype=bool), len(gts)))
-        out[float(t)] = float(np.nanmean(aps)) if not np.isnan(aps).all() else 0.0
-    return out
+            hit = best is not None and iou(p, best) >= MATCH_IOU
+            if hit:
+                used.add(best)
+            hits.append(hit)
+        aps.append(average_precision(np.array(hits, dtype=bool), len(gts)))
+    return float(np.nanmean(aps)) if not np.isnan(aps).all() else 0.0
 
 
 def label_metrics(
     truth: LabeledCloud, pred: LabeledCloud, evaluated: list[str]
 ) -> dict[str, float | dict[str, float]]:
-    """MIoU, AP / AP50 / AP25 and class-agnostic AP50 after the label transfer."""
+    """MIoU and AP50 after the label transfer, and the IoU of each class."""
     labels = transfer(pred, truth)
     ious = semantic_iou(truth, pred, labels, evaluated)
-    ap = instance_ap(truth, pred, labels, evaluated)
-    agnostic = instance_ap(truth, pred, labels, evaluated, class_agnostic=True)
     return {
         "miou": float(np.mean(list(ious.values()))) if ious else float("nan"),
-        "ap": float(np.mean([ap[float(t)] for t in IOU_THRESHOLDS])),
-        "ap50": ap[0.5],
-        "ap25": ap[0.25],
-        "ap50_class_agnostic": agnostic[0.5],
-        "labeled_fraction": float((labels != NONE).mean()),
+        "ap50": instance_ap50(truth, pred, labels, evaluated),
         "iou_per_class": ious,
     }

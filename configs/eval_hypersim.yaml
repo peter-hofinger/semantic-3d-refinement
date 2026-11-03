@@ -3,7 +3,8 @@
 # 20 views each at 504 px, Déjà View K = 16, SAM 3 image mode with one prompt per
 # NYU40 class at threshold 0.3, linked with the working association. Scored as labeled
 # clouds on a 1 cm grid, each output registered onto the ground truth from the cloud
-# alone: surface F-score, mIoU, instance AP (src/evaluation/labeled.py).
+# alone: accuracy, completeness and F-score at 2 cm, mIoU, AP50
+# (src/evaluation/labeled.py).
 output_dir: runs
 root: data/processed/hypersim
 scenes: [ai_015_001_cam_00, ai_047_009_cam_00, ai_052_001_cam_00]
@@ -14,7 +15,10 @@ classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
 refine: configs/refine.yaml          # base weights and solver budget of every variant
 # Every term that is on has weight 1 (lambda_d = lambda_mv = 1 in refine.yaml), none
 # tuned: lambda_bd = 1 where E_bd is on, lambda_delta = 1 where the per-pixel change is
-# penalized.
+# penalized. Each variant answers one question: does agreement help, does smoothing
+# help and only when cut at masks, do all three semantic terms help, and is it the
+# masks (shuffled, ground truth). a, b and same-segment E_mv alone changed nothing
+# measurable (figures/eval_hypersim-20261103-093957), so they run only together.
 variants:
   - name: Déjà View
     refiner: none
@@ -24,13 +28,6 @@ variants:
   - name: + E_bd cut at masks
     refine: {lambda_bd: 1.0}
     semantic: {cut_boundaries: true}
-  - name: + λ_δ (no a, b)
-    refine: {lambda_delta: 1.0}
-  - name: + λ_δ + a, b
-    refine: {lambda_delta: 1.0}
-    semantic: {affine: true}
-  - name: + E_mv same segment
-    semantic: {same_segment: true}
   - name: all three
     refine: {lambda_bd: 1.0, lambda_delta: 1.0}
     semantic: {cut_boundaries: true, affine: true, same_segment: true}

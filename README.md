@@ -149,9 +149,9 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
   (as π³ and VGGT are evaluated). Each variant is registered on its own.
 - **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth on a
   1 cm grid:
-  - accuracy, completeness and F-score at 1 / 2 / 5 cm (Tanks and Temples);
-  - mIoU and instance AP / AP50 / AP25 (ScanNet's protocol), on labels transferred to the
-    ground-truth points.
+  - accuracy, completeness and F-score at 2 cm (Tanks and Temples);
+  - mIoU and instance AP50 (ScanNet's protocol), on labels transferred to the ground-truth
+    points.
 
 ```bash
 uv run hypersim-download && uv run hypersim-prepare
@@ -160,22 +160,22 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
 Kitchen, conference room and restaurant, 20 views each, every energy term at weight 1
-(`figures/eval_hypersim-20261103-093957`; 3 min for all 11 variants):
+(`figures/eval_hypersim-20261103-111445`; 2.4 min for all 8 variants):
 
 | F-score at 2 cm (fused cloud) | kitchen | conference | restaurant |
 |---|---|---|---|
 | Déjà View | 0.633 | 0.381 | 0.519 |
-| + agreement (E_d + E_mv) | 0.622 | 0.381 | 0.486 |
-| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks (`configs/refine_semantic.yaml`) | 0.647 | 0.372 | 0.520 |
-| same, shuffled masks (control) | 0.601 | 0.377 | 0.517 |
-| same, ground-truth masks | 0.643 | 0.367 | 0.509 |
+| + agreement (E_d + E_mv) | 0.621 | 0.382 | 0.486 |
+| + cut E_bd, a, b, same-segment E_mv, SAM 3 masks (`configs/refine_semantic.yaml`) | 0.644 | 0.377 | 0.517 |
+| same, shuffled masks (control) | 0.600 | 0.368 | 0.516 |
+| same, ground-truth masks | 0.641 | 0.375 | 0.505 |
 
 - **Agreement:** the views become consistent (disagreement 0.5–1 % → 0.05 %); precision rises
   (+0.03 to +0.06), recall falls (−0.14 to −0.16), and the F-score does not improve.
 - **Smoothing:** cut at SAM 3's mask boundaries, it no longer melts objects together (kitchen
-  F-score 0.546 uncut, 0.629 cut).
-- **Masks:** a, b and same-segment agreement change nothing measurable; shuffled masks score
-  like real ones on two of three scenes, and ground-truth masks no better than SAM 3's.
+  F-score 0.518 uncut, 0.629 cut).
+- **Masks:** shuffled masks score like real ones on two of three scenes, and ground-truth
+  masks no better than SAM 3's. A rerun moves F-scores by up to 0.005.
 
 ## Layout
 
@@ -194,7 +194,7 @@ src/                the code, imported as `src`
   output.py         PointCloud, PLY export
   pipeline.py       chains the stages
   evaluation/       metrics against ground truth: instances, depth, fused cloud,
-                    labeled cloud (labeled.py: F-score, mIoU, instance AP)
+                    labeled cloud (labeled.py: F-score, mIoU, instance AP50)
   analysis/         refinement studies, the Hypersim protocol (scene_eval.py) and figures
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README
