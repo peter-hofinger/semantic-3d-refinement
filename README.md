@@ -142,9 +142,9 @@ uv run run-pipeline $D/views_n20_uniform_504.npz --geometry $D/dejaview_k16_view
 ## Evaluation (Hypersim)
 
 One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
-- **Scenes:** the three tilt-shift validation scenes (`stress` in `configs/hypersim.yaml`),
-  20 views each. The test split is never used, and no weight is tuned: every energy term has
-  weight 1.
+- **Scenes:** the `dev` split of `configs/hypersim.yaml`, three validation scenes with
+  centred cameras, 20 views each. The test split is never used, and no weight is tuned: every
+  energy term has weight 1.
 - **Inputs:** cached Déjà View geometry, DSINE normals and linked SAM 3 masks, with one prompt
   per NYU40 class.
 - **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
@@ -159,26 +159,26 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
     points.
 
 ```bash
-uv run hypersim-download --splits stress && uv run hypersim-prepare --splits stress
+uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
 uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, dsine-predict, sam3-segment
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Kitchen, conference room and restaurant, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-150543`; 1.5 min):
+Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none tuned
+(`figures/eval_hypersim-20261103-155403`; 1.7 min):
 
-| F-score at 5 cm | kitchen | conference | restaurant |
+| F-score at 5 cm | living room | bedroom | lobby |
 |---|---|---|---|
-| Déjà View | 0.910 | 0.626 | 0.777 |
-| Refined (`configs/refine.yaml`) | 0.889 | 0.596 | 0.730 |
+| Déjà View | 0.941 | 0.913 | 0.677 |
+| Refined (`configs/refine.yaml`) | 0.950 | 0.910 | 0.644 |
 
-- **The views fuse:** disagreement between overlapping views falls 5–8×, and their walls
-  merge into one thin surface.
-- **The cloud still scores lower than Déjà View's**, mostly through completeness. Setting the
-  weights is the next step.
-- **Noise:** the conference room's F-score moves by up to 0.04 between runs of the same code
-  (GPU sums are not bitwise reproducible, and its registration amplifies that); the other
-  two by about 0.005.
+- **Accuracy improves on every scene** (2.24 → 1.81, 2.71 → 2.46, 6.13 → 5.89 cm), and the
+  views fuse: disagreement between overlapping views falls 6–8×.
+- **Completeness drops.** The refined surfaces are thinner than Déjà View's scatter, which
+  costs most in the large lobby. Setting the weights is the next step.
+- **Noise:** the same energy scores within about 0.006 between runs (GPU sums are not
+  bitwise reproducible).
+- The tilt-shift scenes of the `stress` split are in `figures/eval_hypersim-20261103-150543`.
 
 ## Layout
 

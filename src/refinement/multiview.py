@@ -25,15 +25,16 @@ pixel, d_i(p) = d0_i(p) + δ_i(p), minimizing
   edges between two pixels of one linked instance (`same_instance_edges`; pixels without
   one count as one), and cut on the input's occlusion contours: a wall's pixels
   do not shape the table in front of it. E_n is the only shape term; a smoothness
-  term on top of it changed the depth by a median 0.006-0.016 % on Hypersim.
+  term on top of it changed the F-score at 5 cm by at most 0.002 on Hypersim.
 - λ_δ ‖δ‖² anchors every pixel to the prediction, also where E_d lets go: about 8-10 %
-  of the pixels on Hypersim have E_d's weight 0 (no other view agrees on their
-  instance), and 1,300-2,700 of them per scene have no normal edge or match either, so
-  without it the normal equations are singular there and the solve stalls. It also
-  limits how far E_n carries a correction from matched pixels into unmatched ones: a few
-  pixels (`test_normals_carry_a_correction_a_few_pixels_beyond_the_matches`). The
-  proposal's per-segment scale and shift of inverse depth (a, b) would carry it across
-  the instance, but on Hypersim the F-score at 5 cm is equal or better without them.
+  of the pixels on Hypersim's tilt-shift scenes have E_d's weight 0 (no other view
+  agrees on their instance), and 1,300-2,700 of them per scene have no normal edge or
+  match either, so without it the normal equations are singular there and the solve
+  stalls. It also limits how far E_n carries a correction from matched pixels into
+  unmatched ones: a few pixels
+  (`test_normals_carry_a_correction_a_few_pixels_beyond_the_matches`). The proposal's
+  per-segment scale and shift of inverse depth (a, b) would carry it across the
+  instance, but on Hypersim the F-score at 5 cm is equal or better without them.
 
 E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI minimizes
 its normal term by CG (Cao et al. 2022): each step solves the normal equations J^T J s =

@@ -1,5 +1,9 @@
 # Evaluation protocol: Déjà View against the refined cloud on three Hypersim scenes
 
+> **Superseded** by [`eval_hypersim-20261103-155403`](../eval_hypersim-20261103-155403/README.md).
+> These three scenes have tilt-shift cameras, which Déjà View cannot represent (E30). They are
+> the `stress` split of `configs/hypersim.yaml` now and are not used for choices.
+
 Run `runs/eval_hypersim-20261103-150543` (`configs/eval_hypersim.yaml`, `configs/refine.yaml`;
 git `1d86004` plus the uncommitted changes of the commit that adds this report). Reproduce:
 
