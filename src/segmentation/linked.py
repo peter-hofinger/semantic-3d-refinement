@@ -48,8 +48,7 @@ class LinkedSegmenter:
 
     def segment(self, views: Views, geometry: Geometry) -> Segmentation:
         """Segment every view, then link the masks with the geometry."""
-        per_view = self.per_view.segment(views, geometry)
-        return self.associator.associate(per_view, geometry)
+        return self.associator.associate(self.per_view.segment(views), geometry)
 
 
 def sam3_segmenter(prompt_files: list[Path] | None = None) -> LinkedSegmenter:
