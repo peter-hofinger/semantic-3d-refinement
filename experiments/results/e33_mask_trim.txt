@@ -1,0 +1,36 @@
+## E33: SAM 3 nyu40 t0.3 masks untrimmed vs cut at Déjà View depth jumps, linked (working setting)
+
+| scene | variant | subset | recall | pixel recall | precision | leakage | cross-class leakage | consistent | id switches | merges |
+|---|---|---|---|---|---|---|---|---|---|---|
+| living room | untrimmed | all | 0.87 | 0.87 | 0.71 | 0.005 | 0.005 | 0.88 | 2 | 0 |
+| living room | untrimmed | objects | 0.86 | 0.92 | 0.66 | 0.020 | 0.020 | 0.92 | 1 | 0 |
+| living room | trimmed | all | 0.81 | 0.77 | 0.66 | 0.004 | 0.004 | 0.88 | 2 | 0 |
+| living room | trimmed | objects | 0.82 | 0.89 | 0.62 | 0.015 | 0.014 | 0.92 | 1 | 0 |
+| bedroom | untrimmed | all | 0.85 | 0.84 | 0.66 | 0.021 | 0.021 | 0.68 | 14 | 0 |
+| bedroom | untrimmed | objects | 0.83 | 0.81 | 0.61 | 0.051 | 0.049 | 0.71 | 9 | 0 |
+| bedroom | trimmed | all | 0.69 | 0.65 | 0.54 | 0.017 | 0.016 | 0.71 | 12 | 0 |
+| bedroom | trimmed | objects | 0.70 | 0.67 | 0.49 | 0.034 | 0.033 | 0.75 | 8 | 0 |
+| lobby | untrimmed | all | 0.76 | 0.63 | 0.28 | 0.008 | 0.006 | 0.72 | 11 | 1 |
+| lobby | untrimmed | objects | 0.78 | 0.82 | 0.25 | 0.022 | 0.016 | 0.78 | 9 | 1 |
+| lobby | trimmed | all | 0.58 | 0.42 | 0.21 | 0.009 | 0.007 | 0.86 | 6 | 0 |
+| lobby | trimmed | objects | 0.62 | 0.72 | 0.19 | 0.020 | 0.014 | 0.85 | 6 | 0 |
+
+Per labeled GT pixel over all 20 views (E32's breakdown); masked = share of all pixels with a per-view mask
+
+| scene | variant | right object | other object | no mask | masked | linked objects |
+|---|---|---|---|---|---|---|
+| living room | untrimmed | 0.935 | 0.005 | 0.060 | 0.952 | 61 |
+| living room | trimmed | 0.834 | 0.003 | 0.163 | 0.838 | 84 |
+| bedroom | untrimmed | 0.849 | 0.019 | 0.132 | 0.877 | 184 |
+| bedroom | trimmed | 0.649 | 0.011 | 0.340 | 0.671 | 226 |
+| lobby | untrimmed | 0.905 | 0.008 | 0.087 | 0.877 | 380 |
+| lobby | trimmed | 0.626 | 0.006 | 0.369 | 0.631 | 508 |
+
+Bedroom bed (GT instances of class bed), all 20 views; bed masks = linked objects whose dominant GT is the bed
+
+| GT id | variant | right | other | no mask | bed-mask px | bed mask on other GT | there, by GT class (px) |
+|---|---|---|---|---|---|---|---|
+| 52 | untrimmed | 0.786 | 0.007 | 0.207 | 472286 | 0.092 | wall 21586, clothes 7208, pillow 5382, floor 3602 |
+| 52 | trimmed | 0.593 | 0.007 | 0.401 | 344720 | 0.062 | wall 8566, clothes 5741, pillow 2230, floor 1689 |
+
+figure: experiments\figures\e33_mask_trim.jpg

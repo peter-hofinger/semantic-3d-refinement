@@ -1609,3 +1609,94 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   (the bed frame) cover what is behind them, exactly where depth bleeds. A refiner that smooths within segments would
   pull the wall seen through the frame towards the frame; such masks need trimming (e.g. by Déjà View depth jumps)
   before they can cut or tie geometry.
+
+## Plan: E33 = trim masks at Déjà View depth jumps (03.11.2026)
+- **Goal:** stop masks of thin objects with holes from covering what is seen through them (E32: the "bed" mask takes
+  the wall, floor and pillows between the frame's bars, exactly where Déjà View bleeds, E31). Also answers the
+  bed-frame headroom question: how much of the bed's wrong-object area a geometric trim removes.
+- **Change (the only one):** per view and per raw SAM 3 mask, split the mask into 4-connected regions that never
+  cross a Déjà View depth jump (relative jump > 5% between 4-neighbours, the E18 / E31 edge definition, not tuned).
+  A region is removed from the mask if it lies on the far side of most (> 50%) of the jumps on its border with the
+  rest of the mask: it is background seen through a hole or past an outline. Removed pixels lose this mask; overlap
+  resolution and the association then run unchanged. Both thresholds fixed here, before running.
+- **Setting (as Peter's protocol, PR #17):** Hypersim `dev` split (living room `ai_010_007`, bedroom `ai_006_007`,
+  lobby `ai_044_001`), 20 views at 504x378, Déjà View K=16, SAM 3 image mode with `configs/prompts/nyu40.txt` at
+  t0.3, association xc0.7 vf0.25 kl0.5 on Déjà View geometry. Baseline: the same masks untrimmed. nyu40 instead of
+  E30-E32's top100 so that the result plugs into the team's protocol (user, 03.11); E32's bed numbers are therefore
+  not directly comparable.
+- **Scores:** (1) `eval-instances` against the Hypersim GT instances, unchanged; plus E32's per-pixel breakdown
+  (right object / other object / no mask) for the bedroom's bed. (2) `src.analysis.scene_eval` with the trimmed
+  masks as the segmentation: the Déjà View variant isolates the labels (geometry unchanged), the refined variant
+  shows whether the refiner's instance gating gains from cleaner masks. Same machine for both runs (bf16 noise).
+  Geometry is reported for the refined variant too (accuracy and completeness, not only labels). Hypothesis, not a
+  claim: E_mv and E_n act within one instance, so a mask that spans a depth jump lets them pull the far surface
+  (wall, floor behind the bars) towards the near one. That would match the pattern in Peter's dev table (issue #5):
+  accuracy better on all three scenes, completeness worse by more, (acc + comp) / 2 = 1.60 -> 1.60, 1.85 -> 1.96,
+  7.06 -> 8.30 cm. If trimming does not move completeness, the drop comes from elsewhere.
+- **Protocol in flux:** Peter's `metrics` branch (issue #5, not pushed on 04.11) replaces F@5cm with accuracy /
+  completeness (mean, median), PQ / PQ_th / PQ_st and AP / AP50 / AP25. E33 is scored first with `scene_eval` as on
+  main, and rescored with the new metrics once they merge; the masks and runs stay the same.
+- **Caveat:** the idea comes from looking at the bedroom (E32), which is a dev scene; the thresholds are not tuned
+  on it. A gain counts once it also holds on `val`; `test` is not used.
+- **Run:** cluster job 824 (`~/mircea/jobs/e33_inputs.sbatch`) builds the nyu40 masks and DSINE normals for the
+  three scenes; trimming and `eval-instances` on CPU; `scene_eval` on the cluster.
+- **Progress 04.11:** job 824 done (SAM 3 nyu40 ~11 s and 2.2 GB peak GPU per scene; DSINE ~3 s per scene). GPU
+  nodes have no git, which `scene_eval` needs for the run's hash: the login node's `/usr/bin/git` copied to
+  `~/mircea/bin` (on the job's PATH), and the `data` symlink ignored (f874685), so runs are no longer marked dirty.
+  Timing job 879 (bedroom only, untrimmed nyu40 = the baseline, a421cc4, RTX 5090): 2:30 min wall for the whole
+  scene, 2.9 GB peak RAM, refiner 1.2 s. Déjà View -> Refined: accuracy 2.705 -> 2.453 cm, completeness 1.314 ->
+  1.743 cm, F@5cm 0.915 -> 0.909, mIoU 0.488 -> 0.479, AP50 0.396 -> 0.411. Same direction as Peter's run on 03.11
+  (`figures/eval_hypersim-20261103-155403`), not the same numbers: his masks came from another machine (bf16).
+
+## E33: trim masks at Déjà View depth jumps -> does not work: removes far more true mask than leak (04.11.2026)
+- **Goal, change, setting:** as in the plan above; thresholds (5% jump, far side of > 50% of cuts) not changed.
+- **Commit:** 1f5f991 (`trim_mask` in `src/segmentation/trim.py`, `sam3-segment --trim dejaview_k16`).
+- **Command:** cluster job 881 (`~/mircea/jobs/e33_run.sbatch`, VC15, RTX 5090): `sam3-segment --mode image
+  --threshold 0.3 --prompts configs/prompts/nyu40.txt --trim dejaview_k16 <3 dev views>`, then
+  `python -m src.analysis.scene_eval --cfg` with `configs/eval_hypersim.yaml` and `segmentation:` set to
+  `sam3image-nyu40-t0.3` (baseline) or `sam3image-nyu40-t0.3-trim` (runs `e33_baseline-20261104-131001`,
+  `e33_trim-20261104-131231`, both git 1f5f991 clean, same job, same GPU). 2D scores:
+  `uv run python experiments/scripts/e33_mask_trim.py > experiments/results/e33_mask_trim.txt` (CPU, laptop).
+- **Runtime:** trimming costs ~10 s per scene on top of SAM 3's 11 s (21 s vs 11 s; the first scene's 199 s is
+  weight loading from a slow disk). Refiner 1.0-1.6 s per scene either way.
+- **`scene_eval`** (Déjà View = labels only, geometry identical; Refined = joint refiner, every weight 1):
+
+  | scene | variant | masks | accuracy (cm) | completeness (cm) | F@5cm | mIoU | AP50 |
+  |---|---|---|---|---|---|---|---|
+  | living room | Déjà View | untrimmed | 2.258 | 1.037 | 0.940 | 0.543 | 0.375 |
+  | living room | Déjà View | trimmed | 2.258 | 1.037 | 0.940 | 0.500 | 0.375 |
+  | living room | Refined | untrimmed | 1.816 | 1.358 | 0.953 | 0.504 | 0.324 |
+  | living room | Refined | trimmed | 1.826 | 1.363 | 0.953 | 0.464 | 0.371 |
+  | bedroom | Déjà View | untrimmed | 2.705 | 1.314 | 0.915 | 0.488 | 0.396 |
+  | bedroom | Déjà View | trimmed | 2.705 | 1.314 | 0.915 | 0.448 | 0.348 |
+  | bedroom | Refined | untrimmed | 2.455 | 1.743 | 0.909 | 0.477 | 0.411 |
+  | bedroom | Refined | trimmed | 2.417 | 1.745 | 0.910 | 0.431 | 0.370 |
+  | lobby | Déjà View | untrimmed | 6.058 | 3.814 | 0.683 | 0.722 | 0.545 |
+  | lobby | Déjà View | trimmed | 6.058 | 3.814 | 0.683 | 0.512 | 0.268 |
+  | lobby | Refined | untrimmed | 5.628 | 5.156 | 0.656 | 0.564 | 0.231 |
+  | lobby | Refined | trimmed | 5.640 | 5.223 | 0.651 | 0.424 | 0.218 |
+
+  Run-to-run noise of the same setting (bedroom, job 879 vs 881): accuracy 2.453 vs 2.455 cm, mIoU 0.479 vs 0.477.
+- **2D (`e33_mask_trim.txt`), per labeled GT pixel over all 20 views, untrimmed -> trimmed:** right object
+  0.935 -> 0.834 (living room), 0.849 -> 0.649 (bedroom), 0.905 -> 0.626 (lobby); other object 0.005 -> 0.003,
+  0.019 -> 0.011, 0.008 -> 0.006; masked share of the image 0.952 -> 0.838, 0.877 -> 0.671, 0.877 -> 0.631.
+  Recall (all) 0.87 -> 0.81, 0.85 -> 0.69, 0.76 -> 0.58; leakage 0.005 -> 0.004, 0.021 -> 0.017, 0.008 -> 0.009.
+  Bed (GT 52): bed masks on other GT objects 9.2% -> 6.2% of their area (wall 21.6k -> 8.6k px, floor 3.6k ->
+  1.7k), but the bed's own pixels with the right object 0.786 -> 0.593.
+- **Figure:** `figures/e33_mask_trim.jpg` (in `experiments/`) (bedroom, E31 views 18/0/12/6; untrimmed, trimmed, pixels that lost
+  their mask). View 18 shows the intended effect: the wall and floor seen between the bed frame's bars leave the
+  bed mask. Views 0, 12, 6 show the failure: a wall mask spans two wall planes with an occluding edge between
+  them (the alcove behind the floor lamp, view 0: 26% of the image loses its mask), the floor is cut where the
+  bed and rug occlude it, and the open wardrobe loses its door. These pixels lose their mask altogether: the
+  lower-scoring masks under them do not cover them either.
+- **Conclusion:** the rule does what it was written to do, and that is the wrong thing. Depth order alone cannot
+  tell "seen through a hole of this object" from "a farther part of the same object or class": one wall or floor
+  mask legitimately spans occluding edges. Per pixel it removes about 25x more correct mask than wrong mask
+  (bedroom: right -0.200, other -0.008), so every label score drops (mIoU -0.04 to -0.21 for Déjà View).
+  Geometry does not move: completeness of the refined output changes by +0.005 / +0.002 / +0.067 cm, within or
+  near noise, so leaking masks are not what drives the refiner's completeness drop (plan's hypothesis rejected
+  on these three scenes; the trim also removed coverage, so this is not a clean isolation of leakage). No
+  threshold was changed after seeing results. Not adopted. A version restricted to thing classes with holes is
+  not pursued: on the bed alone the trim removes ~128k bed-mask px, of which ~22k were leak (43k -> 21k on
+  other objects) and ~105k the bed's own (mattress behind the footboard, headboard between the bars), so
+  sparing wall and floor would not change the ~5:1 ratio. The trim code is reverted right after this report.
