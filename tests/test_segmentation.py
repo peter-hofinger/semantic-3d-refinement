@@ -12,6 +12,7 @@ from src.segmentation import Segmentation
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import _compact
+from src.segmentation.trim import trim_mask
 
 
 def make_views(num: int = 2, height: int = 20, width: int = 30) -> Views:
@@ -90,3 +91,31 @@ def test_compact_numbers_only_visible_masks() -> None:
     base = 3 * ID_STRIDE
     assert mapping == {2: base, 5: base + 1, 1500: base + 2}
     assert out.tolist() == [[base + 1, base + 1, -1], [base, base + 2, base + 2]]
+
+
+def test_trim_keeps_a_mask_without_depth_jumps_bit_for_bit() -> None:
+    v, u = np.mgrid[0:20, 0:30]
+    depth = 2.0 + 0.01 * u + 0.005 * v  # a slanted plane: < 1% between neighbours
+    mask = (u - 15) ** 2 + (v - 10) ** 2 < 60
+    assert np.array_equal(trim_mask(mask, depth), mask)
+
+
+def test_trim_removes_what_is_seen_through_holes_and_past_the_outline() -> None:
+    depth = np.full((20, 30), 3.0)  # wall
+    frame = np.zeros((20, 30), dtype=bool)
+    frame[4:16, 4:20] = True
+    frame[6:14, 6:9] = frame[6:14, 11:14] = frame[6:14, 16:18] = False  # holes
+    depth[frame] = 1.0
+    mask = np.zeros_like(frame)
+    mask[4:16, 4:23] = True  # the frame, its holes and a strip of wall to its right
+    assert np.array_equal(trim_mask(mask, depth), frame)
+
+
+def test_trim_returns_a_nonempty_subset_of_the_mask() -> None:
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        depth = rng.choice([1.0, 1.5, 2.5], size=(12, 12))
+        mask = rng.random((12, 12)) < 0.7
+        trimmed = trim_mask(mask, depth)
+        assert not (trimmed & ~mask).any()
+        assert trimmed.any() == mask.any()

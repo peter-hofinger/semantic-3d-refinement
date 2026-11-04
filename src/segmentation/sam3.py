@@ -21,6 +21,7 @@ from transformers import (
 from src.geometry import Geometry
 from src.loaders import Views
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
+from src.segmentation.trim import trim_mask
 
 log = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ class Sam3ImageSegmenter:
     synonyms: dict[str, str] = field(default_factory=dict)  # prompt -> class
     checkpoint: str = CHECKPOINT
     threshold: float = 0.5
+    trim: bool = False  # cut every mask at the geometry's depth jumps (`trim`)
     _model: Any = field(default=None, init=False, repr=False)
     _processor: Any = field(default=None, init=False, repr=False)
 
@@ -132,10 +134,17 @@ class Sam3ImageSegmenter:
             self._processor = Sam3Processor.from_pretrained(self.checkpoint)
         return self._model, self._processor
 
-    def segment(self, views: Views, geometry: Geometry | None = None) -> Segmentation:  # noqa: ARG002
-        """Run every prompt on every view, reusing the image features per view."""
-        model, processor = self._load()
+    def segment(self, views: Views, geometry: Geometry | None = None) -> Segmentation:
+        """Run every prompt on every view, reusing the image features per view.
+
+        With `trim`, each raw mask is cut at `geometry`'s depth jumps before overlaps
+        are resolved, so the pixels it loses can go to a lower-scoring mask.
+        """
         num, height, width = views.images.shape[:3]
+        if self.trim:
+            assert geometry is not None, "trim needs the depth"  # noqa: S101
+            assert geometry.depth.shape == (num, height, width)  # noqa: S101
+        model, processor = self._load()
         ids = np.full((num, height, width), NO_INSTANCE, dtype=np.int32)
         best = np.zeros((num, height, width), dtype=np.float32)
         classes: dict[int, str] = {}
@@ -164,6 +173,9 @@ class Sam3ImageSegmenter:
                     objs = count + np.arange(len(res["scores"]))
                     count += len(objs)
                     masks = res["masks"].cpu().numpy().astype(bool)
+                    if self.trim:
+                        for mask in masks:
+                            mask[:] = trim_mask(mask, geometry.depth[i])
                     scores = res["scores"].float().cpu().numpy()
                     _paint(local, best[i], objs, scores, masks)
                     cls = self.synonyms.get(prompt, prompt)
@@ -242,6 +254,12 @@ def main() -> None:
         "saved, other values add -t<value> to the output name",
     )
     parser.add_argument(
+        "--trim",
+        metavar="BACKBONE",
+        help="image mode: cut every mask at the depth jumps of the cached geometry "
+        "<BACKBONE>_<views>.npz (e.g. dejaview_k16); adds -trim to the output name",
+    )
+    parser.add_argument(
         "--max-gpu-gb",
         type=float,
         default=3.5,
@@ -265,6 +283,11 @@ def main() -> None:
             parser.error("--threshold is only used in image mode")
         options["threshold"] = args.threshold
         tag += f"-t{args.threshold:g}"
+    if args.trim:
+        if args.mode != "image":
+            parser.error("--trim is only used in image mode")
+        options["trim"] = True
+        tag += "-trim"
     segmenter = SEGMENTERS[args.mode](**options)
     for path in args.views:
         views = Views.load(path)
@@ -277,7 +300,12 @@ def main() -> None:
         )
         torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
-        seg = segmenter.segment(views)
+        geometry = (
+            Geometry.load(path.with_name(f"{args.trim}_{path.stem}.npz"))
+            if args.trim
+            else None
+        )
+        seg = segmenter.segment(views, geometry)
         out = path.with_name(f"{tag}_{path.stem}.npz")
         seg.save(out)
         log.info(

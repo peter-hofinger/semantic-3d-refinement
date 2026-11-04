@@ -125,9 +125,8 @@ ignore = [
     "PLR0915",  # too-many-statements
     "PLR0917",  # too-many-positional-arguments
 ]
-# Peter's refinement code: design by contract, asserts state shapes, ranges and
-# finiteness on entry and exit
-"src/{analysis/*,refinement/{multiview,normals},evaluation/labeled}.py" = [
+# design by contract: asserts state shapes, ranges and finiteness on entry and exit
+"src/{analysis/*,refinement/{multiview,normals},evaluation/labeled,segmentation/trim}.py" = [
     "S101",     # contract asserts
     "PT018",    # composite contract asserts
 ]
