@@ -1757,3 +1757,28 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   loses completeness) the first thing to answer before any weight search. ai_009_009 (a 28 m hall) is a Déjà
   View failure (F 0.30) that this refiner barely changes (0.35). One trajectory per scene, 10 scenes: per-scene
   differences of a few thousandths are within noise; the 10 / 10 completeness and mIoU counts are not.
+- **Addendum, rescored with PR #19's protocol (05.11.2026):** the protocol changed after this entry (main f645d08:
+  one Umeyama Sim(3) on the pixel pairs instead of scaled ICP, Chamfer instead of F@5cm, labels scored per pixel),
+  so the same caches were scored again. Cluster job 994 (VC15, RTX 5090, 2:25 for dev and val): `scene_eval`
+  at main f645d08 (clean) with `--splits dev val` and two local config copies, no code change:
+  `eval_hypersim.yaml` with `per_scene: [dev, val]` (val keeps per-scene scores) and a dataset yaml whose val list
+  leaves out ai_031_004 (its bad camera would skew the split aggregate). Run
+  `eval_hypersim_v2_val10-20261105-123026`. Table and figure: `uv run python
+  experiments/scripts/e34_val_eval_v2.py runs/eval_hypersim_v2_val10-20261105-123026/run.yaml >
+  experiments/results/e34_val_eval_v2.txt`; figure `figures/e34_val_eval_v2.jpg` (in `experiments/`): Refined
+  minus Déjà View per scene for accuracy, completeness and Chamfer on one cm scale, split means on top.
+
+  | split | accuracy (cm) | completeness (cm) | Chamfer (cm) | scenes better: acc / comp / Chamfer |
+  |---|---|---|---|---|
+  | dev (3) | 4.651 -> 4.178 | 2.307 -> 3.657 | 3.479 -> 3.917 | 3 / 0 / 1 |
+  | val (10) | 6.213 -> 5.884 | 4.100 -> 5.685 | 5.156 -> 5.785 | 8 / 0 / 1 |
+
+  Label scores are identical for both variants, as the protocol intends (val mIoU 0.392, PQ^sc 0.265, AP 0.353;
+  dev 0.352 / 0.294 / 0.217). The one dev scene with better Chamfer is the living room by 0.004 cm, the one val
+  scene is ai_005_005 (4.504 -> 4.450); ai_004_010 is worse by 0.003 cm, within noise. Dev agrees with PR #19's
+  RTX 3080 run to 0.03 cm (Chamfer 3.50 -> 3.95 there), the expected cross-GPU difference.
+  **Conclusion:** the finding holds under the new protocol: completeness worse on every scene (val +1.59 cm), a
+  smaller accuracy gain (val -0.33 cm), Chamfer worse on 9 of 10 val scenes. Per-scene numbers move a lot
+  between the two alignments (bathroom ai_004_003 Déjà View completeness 1.58 -> 10.48 cm; ai_009_009 accuracy
+  better under ICP, worse under Umeyama), so per-scene claims depend on the alignment; the split-level pattern
+  does not.
