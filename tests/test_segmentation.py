@@ -9,7 +9,7 @@ from src.loaders import Views
 from src.pipeline import Pipeline
 from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
-from src.segmentation.base import ID_STRIDE, NO_INSTANCE
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import _compact
 
@@ -90,3 +90,13 @@ def test_compact_numbers_only_visible_masks() -> None:
     base = 3 * ID_STRIDE
     assert mapping == {2: base, 5: base + 1, 1500: base + 2}
     assert out.tolist() == [[base + 1, base + 1, -1], [base, base + 2, base + 2]]
+
+
+def test_count_pairs_matches_unique_rows() -> None:
+    rng = np.random.default_rng(0)
+    a, b = rng.integers(-3, 5, 1000), rng.integers(-2, 900, 1000)
+    pairs, counts = np.unique(np.stack([a, b]), axis=1, return_counts=True)
+    got_a, got_b, got_counts = count_pairs(a, b)
+    np.testing.assert_array_equal(np.stack([got_a, got_b]), pairs)
+    np.testing.assert_array_equal(got_counts, counts)
+    assert count_pairs(a[:0], b[:0])[2].size == 0

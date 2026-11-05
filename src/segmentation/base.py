@@ -15,6 +15,27 @@ NO_INSTANCE = -1
 ID_STRIDE = 1000  # per-view ids: view index * ID_STRIDE + k (before association)
 
 
+def count_pairs(
+    a: np.ndarray, b: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Distinct pairs (a_i, b_i) of two id arrays, sorted, and how often each occurs.
+
+    Sorts one integer key instead of `np.unique(..., axis=1)`'s rows, which takes tens
+    of times as long on the millions of pixels of a scene.
+    """
+    assert a.shape == b.shape, (a.shape, b.shape)  # noqa: S101
+    assert a.ndim == 1, a.shape  # noqa: S101
+    if not a.size:
+        return a, b, np.zeros(0, dtype=np.int64)
+    low_a, low_b = int(a.min()), int(b.min())
+    stride = int(b.max()) - low_b + 1
+    keys, counts = np.unique(
+        (a.astype(np.int64) - low_a) * stride + (b.astype(np.int64) - low_b),
+        return_counts=True,
+    )
+    return keys // stride + low_a, keys % stride + low_b, counts
+
+
 @dataclass
 class Segmentation:
     """Instance masks that are consistent across views.
