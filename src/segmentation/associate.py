@@ -34,8 +34,8 @@ import numpy as np
 
 from src.geometry import Geometry
 from src.loaders import Views
-from src.loaders.scannetpp.gt import GroundTruth
-from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
+from src.loaders.ground_truth import GroundTruth
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation, count_pairs
 
 log = logging.getLogger(__name__)
 
@@ -101,15 +101,13 @@ class Associator:
                 a_ids, a_inv, a_count = np.unique(
                     ids, return_inverse=True, return_counts=True
                 )
-                pairs, n = np.unique(
-                    np.stack([a_inv, landed]), axis=1, return_counts=True
-                )
+                sources, targets, n = count_pairs(a_inv, landed)
                 enough = (a_count >= self.min_visible) & (
                     a_count
                     >= self.min_visible_fraction
                     * np.array([in_frame[m] for m in a_ids.tolist()])
                 )
-                for (a, b), c in zip(pairs.T, n, strict=True):
+                for a, b, c in zip(sources, targets, n, strict=True):
                     if b != NO_INSTANCE and enough[a]:
                         overlap[int(a_ids[a]), int(b)] = c / a_count[a]
         return overlap

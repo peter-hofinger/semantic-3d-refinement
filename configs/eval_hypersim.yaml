@@ -1,18 +1,20 @@
-# Evaluation protocol (src/analysis/scene_eval.py): every variant on the same Hypersim
-# validation scenes (the dev split of configs/hypersim.yaml; the test split is
-# never used), 20 views each at 504 px, Déjà View K = 16, SAM 3 image mode with one
-# prompt per NYU40 class at threshold 0.3, linked with the working association, DSINE
-# normals on Déjà View's intrinsics (dsine-predict). Scored as labeled clouds on a
-# 1 cm grid, each output registered onto the ground truth from the cloud alone:
-# accuracy, completeness and F-score at 5 cm for the scene and per class, mIoU, AP50
+# Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
+# configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
+# K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3
+# (all NYU40 classes but the three catch-alls, which still count in the scores), linked with
+# the working association, DSINE normals on Déjà View's intrinsics (dsine-predict). Each
+# output, a labeled point per pixel, aligned onto the ground truth by Umeyama on the
+# pixels: accuracy, completeness, Chamfer, mIoU, PQ, AP, for the scene and per class
 # (src/evaluation/labeled.py).
 output_dir: runs
 root: data/processed/hypersim
-scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # living room, bedroom, lobby
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, stress]             # splits that also keep per-scene scores
 views: views_n20_uniform_504
 backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3
-classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
 refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
 variants:
   - name: Déjà View

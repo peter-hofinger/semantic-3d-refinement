@@ -23,7 +23,7 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 from src.loaders import Views
-from src.loaders.scannetpp.gt import NO_MESH, GroundTruth
+from src.loaders.ground_truth import NO_MESH, GroundTruth
 from src.segmentation import Segmentation
 from src.segmentation.base import NO_INSTANCE
 

@@ -38,10 +38,9 @@ Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> l
 energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the other
 views that agree on the pixel's instance id); E_mv and E_n only within one instance; E_n is BiNI's normal term on
 DSINE normals (`src/refinement/normals.py`, part of the method). Every weight is 1; weights are set later, on
-validation scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim's `dev` scenes (three validation
-scenes with centred cameras, `configs/eval_hypersim.yaml`), scored by `src/evaluation/labeled.py`. The method is a
-black box for the evaluation: only its output cloud is scored, registered onto the ground truth from the clouds alone
-(first-camera start, scaled ICP); no per-pixel correspondences, cameras or depth maps of the method.
+validation scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim's splits
+(`configs/eval_hypersim.yaml`), scored by `src/evaluation/labeled.py`. The method's output is a labeled point per input
+pixel, aligned onto the ground truth by one Umeyama Sim(3) on the pixel pairs; the protocol is in the README.
 
 ## Models (frozen; we only optimize their outputs)
 - Déjà View: one shared block (frame then global attention) looped K times; default 16, collapses beyond ~30.
@@ -55,7 +54,7 @@ black box for the evaluation: only its output cloud is scored, registered onto t
 
 ## Commands
 - `uv sync --all-groups` · `uv add <pkg>` · `uv run <cmd>`. Never pip, never bare `python`.
-- `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml` (the evaluation protocol)
+- `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --splits dev stress` (the evaluation protocol)
 - `uv run run-pipeline <views> --geometry <dejaview npz> --segmenter sam3 --refiner joint`
 - `uv run pytest -q` · `uv run ruff check --fix && uv run ruff format`
 
@@ -105,6 +104,8 @@ Fixed scenes, metrics, alignment and seeds; never tune on test scenes, and say s
 ## Visuals
 Robin: show visuals, tables and graphs every week; time belongs to ideation and direction, not implementation.
 - Everything that can be visualized is visualized, as PNG.
+- Presentation visuals use only Hypersim's bedroom `ai_006_007`, views 18, 0, 12, 6 (Mircea, issue #7). Debug
+  visuals may use other scenes and views.
   `uv run python -m src.analysis.scene_figures --run runs/<run>` writes `figures/<run>/` with a README table.
 - Before and after side by side, on shared scales, with units and a caption that says what to look at.
 - Each figure README ends with findings that stand on their own, without this conversation.

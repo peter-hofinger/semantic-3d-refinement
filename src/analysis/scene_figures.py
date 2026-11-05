@@ -1,12 +1,13 @@
 """Figures for a `scene_eval` run: scores, energy terms, cross sections, views, classes.
 
-`uv run python -m src.analysis.scene_figures --run runs/<run>` writes
-`figures/<run>/`: the headline scores of every variant on every scene, and per scene
-each energy term per pixel before and after refinement, a horizontal cross section of
-the fused clouds with a 1 m close-up, the views with ground-truth and SAM 3 objects next
-to each pixel's distance to the nearest ground-truth point, the fused clouds from
-above, surface normals, the F-score and IoU of every class, and renders of every cloud
-from the same two cameras (`render_figure`).
+`uv run python -m src.analysis.scene_figures --run runs/<run>` writes per scene with a
+record each energy term per pixel before and after refinement, a horizontal cross section
+of the fused clouds with a 1 m close-up, the views with ground-truth and SAM 3 objects
+next to each pixel's distance to the nearest ground-truth point, the fused clouds from
+above, surface normals, the scores of every class, and renders of every cloud from the
+same cameras (`render_figure`). The shared presentation scene goes to
+`figures/<run>/presentation/`, always with the views Mircea chose (issue #7, E31). Every
+other scene, and per split the headline scores, go to `figures/<run>/debug/`.
 """
 
 import argparse
@@ -25,7 +26,7 @@ from scipy.spatial import cKDTree
 
 from src.analysis.render import Camera, headlight, intrinsics, look_at, splat
 from src.analysis.scene_eval import HEADLINE, SceneInputs, load_inputs
-from src.evaluation.labeled import NONE, lift, predicted_cloud
+from src.evaluation.labeled import NONE, lift
 from src.refinement.multiview import (
     RefineConfig,
     build_problem,
@@ -37,9 +38,10 @@ from src.refinement.multiview import (
 LABELS = {
     "accuracy_cm": "accuracy (cm) ↓",
     "completeness_cm": "completeness (cm) ↓",
-    "fscore": "F-score at 5 cm ↑",
+    "chamfer_cm": "Chamfer (cm) ↓",
     "miou": "mIoU ↑",
-    "ap50": "AP50 ↑",
+    "pq": "PQ ↑",
+    "ap": "AP ↑",
 }
 SEQUENTIAL = LinearSegmentedColormap.from_list(
     "seq_blue",
@@ -50,7 +52,9 @@ DIVERGING = LinearSegmentedColormap.from_list(
 )
 SCENE_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#8a5cc2")
 ERROR_MAX_CM = 30.0
-SHOWN_VIEWS = (0, 5, 10, 15)
+PRESENTATION_SCENE = "ai_006_007_cam_00"  # the bedroom, issue #7
+PRESENTATION_VIEWS = (18, 0, 12, 6)  # frames 94, 0, 62, 31: most bleeding, then layout
+DEBUG_VIEWS = (0, 10)  # two, to keep these figures small in git
 TOP_POINTS = 150_000  # per panel of the clouds from above
 SLAB = (0.05, 1.5)  # m above the floor shown from above: furniture, no floor or ceiling
 SECTION = (0.75, 0.77)  # m above the floor: the cross section, table height
@@ -71,6 +75,24 @@ def instance_colors(ids: np.ndarray) -> np.ndarray:
     lut = np.array([colorsys.hsv_to_rgb(h, 0.65, 0.92) for h in hues])
     lut[unique < 0] = 0.85
     return lut[inverse.reshape(ids.shape)]
+
+
+def shown(scene: str) -> tuple[str, tuple[int, ...]]:
+    """Return the figure folder of a scene and the views its figures show."""
+    if scene == PRESENTATION_SCENE:
+        return "presentation", PRESENTATION_VIEWS
+    return "debug", DEBUG_VIEWS
+
+
+def boundary_overlay(inputs: SceneInputs, view: int) -> np.ndarray:
+    """Return one view's image in [0, 1] with its SAM 3 boundaries in red."""
+    ids = inputs.labels.instance_ids[view]
+    edges = np.zeros(ids.shape, dtype=bool)
+    edges[:, 1:] |= ids[:, 1:] != ids[:, :-1]
+    edges[1:] |= ids[1:] != ids[:-1]
+    overlay = inputs.views.images[view].astype(float) / 255
+    overlay[edges] = (1.0, 0.2, 0.2)
+    return overlay
 
 
 def pixel_points(
@@ -98,9 +120,15 @@ def ground_truth_points(inputs: SceneInputs) -> np.ndarray:
     )
 
 
-def summary_figure(run: dict, out: Path) -> None:
-    """Scores: one panel per score, variants as rows, scenes as bars."""
-    scenes = list(run["scenes"])
+def summary_figure(run: dict, split: str, out: Path) -> None:
+    """Scores of a split: one panel per score, variants as rows, scenes as bars.
+
+    The split's aggregate, if it has one, is the last bar.
+    """
+    report = run["splits"][split]
+    bars = {s: r["variants"] for s, r in report.get("scenes", {}).items()}
+    if "aggregate" in report:
+        bars[f"{split} aggregate"] = report["aggregate"]
     variants = [v["name"] for v in run["config"]["variants"]]
     fig, axes = plt.subplots(
         1,
@@ -109,12 +137,12 @@ def summary_figure(run: dict, out: Path) -> None:
         layout="constrained",
         squeeze=False,
     )
-    height = 0.8 / len(scenes)
+    height = 0.8 / len(bars)
     for ax, key in zip(axes.flat, HEADLINE, strict=True):
-        for j, scene in enumerate(scenes):
-            values = [run["scenes"][scene]["variants"][v][key] for v in variants]
-            y = np.arange(len(variants)) + (j - (len(scenes) - 1) / 2) * height
-            ax.barh(y, values, height, color=SCENE_COLORS[j], label=scene)
+        for j, (bar, record) in enumerate(bars.items()):
+            values = [record[v]["headline"][key] for v in variants]
+            y = np.arange(len(variants)) + (j - (len(bars) - 1) / 2) * height
+            ax.barh(y, values, height, color=SCENE_COLORS[j], label=bar)
             ax.axvline(values[0], color=SCENE_COLORS[j], lw=0.8, ls="--")
         ax.set_yticks(np.arange(len(variants)), variants if ax in axes[:, 0] else [])
         ax.invert_yaxis()
@@ -123,20 +151,21 @@ def summary_figure(run: dict, out: Path) -> None:
     fig.legend(
         *axes[0, 0].get_legend_handles_labels(),
         loc="outside lower center",
-        ncols=len(scenes),
+        ncols=len(bars),
     )
     fig.suptitle(
-        "Every variant on every scene; dashed: Déjà View's value per scene",
+        f"{split}: every variant on every scene; dashed: Déjà View's value per scene",
         x=0.01,
         ha="left",
     )
-    fig.savefig(out / "summary.png", dpi=130)
+    fig.savefig(out / f"summary_{split}.png", dpi=130)
     plt.close(fig)
 
 
 def views_figure(
     inputs: SceneInputs,
     points: dict[str, np.ndarray],
+    views: tuple[int, ...],
     name: str,
     out: Path,
 ) -> None:
@@ -154,14 +183,14 @@ def views_figure(
     titles = ["image", "ground-truth objects", "SAM 3 objects (linked)"]
     titles += [f"{k}\ndistance (cm)" for k in errors] + [f"{last}\nminus {first}"]
     fig, axes = plt.subplots(
-        len(SHOWN_VIEWS),
+        len(views),
         len(titles),
-        figsize=(2.3 * len(titles), 1.9 * len(SHOWN_VIEWS) + 1.2),
+        figsize=(2.3 * len(titles), 1.9 * len(views) + 1.2),
         layout="constrained",
     )
     error_norm = Normalize(0, ERROR_MAX_CM)
     change_norm = Normalize(-10, 10)
-    for row, v in zip(axes, SHOWN_VIEWS, strict=True):
+    for row, v in zip(axes, views, strict=True):
         gt_ids = np.where(
             inputs.gt.instance_ids[v] >= 0, inputs.gt.instance_ids[v], NONE
         )
@@ -222,16 +251,11 @@ def topdown_figure(
     columns = [("ground truth", truth.points[keep], truth.instance[keep], None)]
     tree = cKDTree(truth.points)
     for k, d in points.items():
-        labels = inputs.labels
-        cloud = predicted_cloud(
-            d, labels.instance_ids, labels.classes, {},
-            (1.0, np.eye(3), np.zeros(3)),
-        )  # fmt: skip
-        keep = slab(cloud.points)
-        dist = tree.query(cloud.points[keep], workers=-1, distance_upper_bound=1.0)[0]
-        columns.append(
-            (k, cloud.points[keep], cloud.instance[keep], np.minimum(dist, 1.0))
-        )
+        finite = np.isfinite(d).all(-1)
+        cloud, ids = d[finite], inputs.labels.instance_ids[finite]
+        keep = slab(cloud)
+        dist = tree.query(cloud[keep], workers=-1, distance_upper_bound=1.0)[0]
+        columns.append((k, cloud[keep], ids[keep], np.minimum(dist, 1.0)))
     fig, axes = plt.subplots(
         2, len(columns), figsize=(4.2 * len(columns), 8.6), layout="constrained"
     )
@@ -257,7 +281,7 @@ def topdown_figure(
             ax.set_yticks([])
             ax.grid(visible=False)
     fig.suptitle(
-        f"{name}: all 20 views fused on the 1 cm grid, seen from above, points "
+        f"{name}: all 20 views fused, seen from above, points "
         f"{100 * SLAB[0]:g} to {100 * SLAB[1]:g} cm above the floor; distance in cm, "
         f"0 (light) to {ERROR_MAX_CM:g} (dark)",
         x=0.01,
@@ -285,37 +309,41 @@ def point_normals(points: np.ndarray) -> np.ndarray:
 def normals_figure(
     inputs: SceneInputs,
     points: dict[str, np.ndarray],
+    views: tuple[int, ...],
     name: str,
     out: Path,
 ) -> None:
-    """Draw one view's normals per variant, SAM 3 boundaries, ground truth, a zoom."""
-    v = SHOWN_VIEWS[1]
-    ids = inputs.labels.instance_ids[v]
-    edges = np.zeros(ids.shape, dtype=bool)
-    edges[:, 1:] |= ids[:, 1:] != ids[:, :-1]
-    edges[1:] |= ids[1:] != ids[:-1]
-    overlay = inputs.views.images[v].astype(float) / 255
-    overlay[edges] = (1.0, 0.2, 0.2)
-    panels = {"image + SAM 3 boundaries": overlay}
-    panels |= {k: point_normals(d[v]) for k, d in points.items()}
-    panels["ground truth"] = point_normals(ground_truth_points(inputs)[v])
-    h, w = ids.shape
+    """Draw each view's normals per variant, SAM 3 boundaries, ground truth, a zoom."""
+    truth = ground_truth_points(inputs)
+    h, w = truth.shape[1:3]
     zoom = (slice(h // 4, 3 * h // 4), slice(w // 4, 3 * w // 4))
+    titles = ["image + SAM 3 boundaries", *points, "ground truth"]
     fig, axes = plt.subplots(
-        2, len(panels), figsize=(3.0 * len(panels), 4.8), layout="constrained"
+        2 * len(views),
+        len(titles),
+        figsize=(3.0 * len(titles), 2.4 * 2 * len(views)),
+        layout="constrained",
     )
-    for col, (title, image) in zip(axes.T, panels.items(), strict=True):
-        col[0].imshow(image)
-        col[1].imshow(image[zoom])
-        col[0].set_title(title, fontsize=8)
-        for ax in col:
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.grid(visible=False)
-    axes[1, 0].set_ylabel("center, 2x")
+    for k, v in enumerate(views):
+        panels = [
+            boundary_overlay(inputs, v),
+            *(point_normals(d[v]) for d in points.values()),
+            point_normals(truth[v]),
+        ]
+        for col, image in zip(axes[2 * k : 2 * k + 2].T, panels, strict=True):
+            col[0].imshow(image)
+            col[1].imshow(image[zoom])
+            for ax in col:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.grid(visible=False)
+        axes[2 * k, 0].set_ylabel(f"view {v}")
+        axes[2 * k + 1, 0].set_ylabel("center, 2x")
+    for ax, title in zip(axes[0], titles, strict=True):
+        ax.set_title(title, fontsize=8)
     fig.suptitle(
-        f"{name}, view {v}: surface normals of each variant's points (central "
-        "differences; color = direction); red: SAM 3 boundaries",
+        f"{name}: surface normals of each variant's points (central differences; "
+        "color = direction); red: SAM 3 boundaries",
         x=0.01,
         ha="left",
         fontsize=9,
@@ -324,14 +352,16 @@ def normals_figure(
     plt.close(fig)
 
 
-def render_cameras(inputs: SceneInputs) -> dict[str, tuple[Camera, np.ndarray]]:
-    """Return the two cameras every cloud is rendered from: name -> (camera, eye).
+def render_cameras(
+    inputs: SceneInputs, views: tuple[int, ...]
+) -> dict[str, tuple[Camera, np.ndarray]]:
+    """Return the cameras every cloud is rendered from: name -> (camera, eye).
 
-    Both are fixed by the ground truth alone (z up). Dollhouse: from above at 60°
+    All are fixed by the ground truth alone (z up). Dollhouse: from above at 60°
     elevation, on the side the input cameras stand, far enough to see the whole room.
-    Interior: the camera of the view that sees deepest into the room (median ground-truth
-    depth), moved back and up by `PULL_BACK`, at most half the free space behind it, so
-    depth errors show as parallax and the view stays one a person took.
+    Interior, one per view: its camera moved back and up by `PULL_BACK`, at most half the
+    free space behind it, so depth errors show as parallax and the view stays one a
+    person took.
     """
     truth = inputs.truth.points
     centers = inputs.views.cam_to_world[:, :3, 3].astype(np.float64)
@@ -347,33 +377,29 @@ def render_cameras(inputs: SceneInputs) -> dict[str, tuple[Camera, np.ndarray]]:
     elevation = np.radians(60)
     above = middle + distance * np.append(np.cos(elevation) * side, np.sin(elevation))
     up = np.array([0.0, 0, 1])
-    depth = np.where(inputs.gt.depth > 0, inputs.gt.depth, np.nan)
-    v = int(np.nanargmax(np.nanmedian(depth.reshape(len(depth), -1), axis=1)))
-    pose = inputs.views.cam_to_world[v].astype(np.float64)
-    origin, axis = pose[:3, 3], pose[:3, 2]
-    back = (origin - truth) @ axis  # distance behind the camera along its axis
-    aside = np.linalg.norm(origin - truth + back[:, None] * axis, axis=1)
-    blocked = back[(back > 0) & (aside < 0.3)]  # noqa: PLR2004
-    free = blocked.min() if len(blocked) else np.inf
-    shift = min(PULL_BACK[0], 0.5 * free) * -axis + PULL_BACK[1] * up
-    eye = origin + shift
     k = intrinsics(RENDER_SIZE[1], RENDER_SIZE[0], RENDER_FOV)
-    return {
-        "dollhouse": (Camera(look_at(above, middle, up), k, RENDER_SIZE), above),
-        f"view {v}, pulled back": (
-            Camera(look_at(eye, origin + axis, up), k, RENDER_SIZE),
-            eye,
-        ),
-    }
+    cameras = {"dollhouse": (Camera(look_at(above, middle, up), k, RENDER_SIZE), above)}
+    for v in views:
+        pose = inputs.views.cam_to_world[v].astype(np.float64)
+        origin, axis = pose[:3, 3], pose[:3, 2]
+        back = (origin - truth) @ axis  # distance behind the camera along its axis
+        aside = np.linalg.norm(origin - truth + back[:, None] * axis, axis=1)
+        blocked = back[(back > 0) & (aside < 0.3)]  # noqa: PLR2004
+        free = blocked.min() if len(blocked) else np.inf
+        eye = origin + min(PULL_BACK[0], 0.5 * free) * -axis + PULL_BACK[1] * up
+        camera = Camera(look_at(eye, origin + axis, up), k, RENDER_SIZE)
+        cameras[f"view {v}, pulled back"] = (camera, eye)
+    return cameras
 
 
 def render_figure(
     inputs: SceneInputs,
     points: dict[str, np.ndarray],
+    views: tuple[int, ...],
     name: str,
     out: Path,
 ) -> None:
-    """Render every cloud from the same two cameras, in image colors and shaded.
+    """Render every cloud from the same cameras, in image colors and shaded.
 
     All pixels of all views, the ground truth's from its own depth; each point covers
     its source pixel's patch of surface (`render.splat`). The dollhouse view leaves out
@@ -386,7 +412,7 @@ def render_figure(
     centers = inputs.views.cam_to_world[:, None, None, :3, 3]
     focal = inputs.views.intrinsics[:, None, None, 0, 0]
     ceiling = np.percentile(inputs.truth.points[:, 2], 98) - CEILING_CUT
-    cameras = render_cameras(inputs)
+    cameras = render_cameras(inputs, views)
     fig, axes = plt.subplots(
         2 * len(cameras),
         len(clouds),
@@ -413,7 +439,7 @@ def render_figure(
                 ax.set_yticks([])
                 ax.grid(visible=False)
     fig.suptitle(
-        f"{name}: every cloud rendered from the same two cameras (all 20 views' pixels; "
+        f"{name}: every cloud rendered from the same cameras (all 20 views' pixels; "
         "shaded: gray, lit from the camera)",
         x=0.01,
         ha="left",
@@ -423,10 +449,14 @@ def render_figure(
 
 
 def energy_figure(
-    inputs: SceneInputs, depth: np.ndarray, cfg: RefineConfig, name: str, out: Path
+    inputs: SceneInputs,
+    depth: np.ndarray,
+    cfg: RefineConfig,
+    views: tuple[int, ...],
+    out: Path,
 ) -> None:
-    """Each energy term per pixel of one view, on the input and on the refined depth."""
-    v = SHOWN_VIEWS[1]
+    """Each energy term per pixel of each view, on the input and on the refined depth."""
+    name = inputs.views.scene_id
     segments = torch.from_numpy(inputs.labels.instance_ids.astype(np.int64))
     p = build_problem(inputs.scene, cfg, inputs.normals, segments)
     rows = {
@@ -434,49 +464,46 @@ def energy_figure(
         "Refined": energy_maps(p.scale / torch.from_numpy(depth), cfg, p),
     }
     gate = consistency(inputs.scene, p.d0, p.scale, segments)
-    ids = inputs.labels.instance_ids[v]
-    edges = np.zeros(ids.shape, dtype=bool)
-    edges[:, 1:] |= ids[:, 1:] != ids[:, :-1]
-    edges[1:] |= ids[1:] != ids[:-1]
-    overlay = inputs.views.images[v].astype(float) / 255
-    overlay[edges] = (1.0, 0.2, 0.2)
+    high = {
+        key: max(float(np.percentile(m[key].numpy(), 99.5)) for m in rows.values())
+        for key in TERMS
+    }
     fig, axes = plt.subplots(
-        2, 2 + len(TERMS), figsize=(2.9 * (2 + len(TERMS)), 5.4), layout="constrained"
+        2 * len(views),
+        2 + len(TERMS),
+        figsize=(2.9 * (2 + len(TERMS)), 2.7 * 2 * len(views)),
+        layout="constrained",
     )
-    for row, (title, maps) in zip(axes, rows.items(), strict=True):
-        row[0].imshow(overlay)
-        row[0].set_ylabel(title)
-        u = row[1].imshow(
-            gate[v],
-            cmap=SEQUENTIAL,
-            vmin=0,
-            vmax=1,
-        )
-        for ax, key in zip(row[2:], TERMS, strict=True):
-            cost = maps[key][v].numpy()
-            high = max(
-                float(np.percentile(m[key].numpy(), 99.5)) for m in rows.values()
-            )
-            im = ax.imshow(
-                np.log10(cost + 1e-12), cmap=SEQUENTIAL, vmin=np.log10(high) - 4,
-                vmax=np.log10(high),
-            )  # fmt: skip
-            ax.set_title(f"{key}, mean {maps[key].mean().item():.3g}", fontsize=8)
-        for ax in row:
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.grid(visible=False)
+    for k, v in enumerate(views):
+        overlay = boundary_overlay(inputs, v)
+        for row, (title, maps) in zip(
+            axes[2 * k : 2 * k + 2], rows.items(), strict=True
+        ):
+            row[0].imshow(overlay)
+            row[0].set_ylabel(f"view {v}, {title}")
+            u = row[1].imshow(gate[v], cmap=SEQUENTIAL, vmin=0, vmax=1)
+            for ax, key in zip(row[2:], TERMS, strict=True):
+                im = ax.imshow(
+                    np.log10(maps[key][v].numpy() + 1e-12), cmap=SEQUENTIAL,
+                    vmin=np.log10(high[key]) - 4, vmax=np.log10(high[key]),
+                )  # fmt: skip
+                ax.set_title(f"{key}, mean {maps[key].mean().item():.3g}", fontsize=8)
+            for ax in row:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.grid(visible=False)
     axes[0, 0].set_title("image + SAM 3 boundaries", fontsize=8)
     axes[0, 1].set_title("consistency u (E_d's gate)", fontsize=8)
-    fig.colorbar(u, ax=axes[:, 1], location="bottom", shrink=0.8)
+    size = {"location": "bottom", "fraction": 0.3 / fig.get_figheight(), "pad": 0.01}
+    fig.colorbar(u, ax=axes[:, 1], shrink=0.8, **size)
     fig.colorbar(
-        im, ax=axes[:, 2:], location="bottom", shrink=0.5,
+        im, ax=axes[:, 2:], shrink=0.5, **size,
         label="log10 weighted cost per pixel, 4 decades below each term's 99.5th "
         "percentile",
     )  # fmt: skip
     fig.suptitle(
-        f"{name}, view {v}: where each energy term sits, on Déjà View's depth (top) "
-        "and the refined depth (bottom); means over all views",
+        f"{name}: where each energy term sits, per view on Déjà View's depth, then on the "
+        "refined depth; means over all views",
         x=0.01,
         ha="left",
         fontsize=9,
@@ -539,20 +566,29 @@ def section_figure(
 
 
 def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
-    """F-score at 5 cm and IoU of every evaluated class in the scene, per variant."""
+    """Accuracy, completeness, IoU, PQ and AP of every class in the scene, per variant.
+
+    record: each variant's debug tier, which holds the per-class scores.
+    """
     classes = sorted(
         record[names[0]]["surface_per_class"],
-        key=lambda c: -record[names[0]]["surface_per_class"][c]["fscore"],
+        key=lambda c: record[names[0]]["surface_per_class"][c]["accuracy_cm"],
     )
     fig, axes = plt.subplots(
-        2, 1, figsize=(max(6.0, 1 + 0.45 * len(classes)), 6.4), sharex=True
+        5, 1, figsize=(max(6.0, 1 + 0.45 * len(classes)), 13.0), sharex=True
     )
     width = 0.8 / len(names)
     for ax, (label, value) in zip(
         axes,
         (
-            ("F-score at 5 cm", lambda r, c: r["surface_per_class"][c]["fscore"]),
-            ("IoU on ground-truth points", lambda r, c: r["iou_per_class"].get(c, 0)),
+            ("accuracy (cm)", lambda r, c: r["surface_per_class"][c]["accuracy_cm"]),
+            (
+                "completeness (cm)",
+                lambda r, c: r["surface_per_class"][c]["completeness_cm"],
+            ),
+            ("IoU", lambda r, c: r["iou_per_class"].get(c, 0)),
+            ("PQ", lambda r, c: r["pq_per_class"].get(c, {}).get("pq", 0)),
+            ("AP", lambda r, c: r["ap_per_class"].get(c, {}).get("ap", 0)),
         ),
         strict=True,
     ):
@@ -561,10 +597,11 @@ def class_figure(record: dict, names: list[str], name: str, out: Path) -> None:
             ax.bar(x, [value(record[n], c) for c in classes], width,
                    color=SCENE_COLORS[j], label=n)  # fmt: skip
         ax.set_ylabel(label)
+    for ax in axes[2:]:
         ax.set_ylim(0, 1)
-    axes[1].set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
+    axes[-1].set_xticks(np.arange(len(classes)), classes, rotation=60, ha="right")
     axes[0].legend(loc="upper right")
-    axes[0].set_title(f"{name}: per class (≥ 100 ground-truth voxels)", fontsize=9)
+    axes[0].set_title(f"{name}: per class", fontsize=9)
     fig.tight_layout()
     fig.savefig(out / f"{name}_classes.png", dpi=120)
     plt.close(fig)
@@ -583,17 +620,25 @@ def main() -> None:
     args = parser.parse_args()
     run = yaml.safe_load((args.run / "run.yaml").read_text())
     out = Path("figures") / args.run.name
-    out.mkdir(parents=True, exist_ok=True)
-    summary_figure(run, out)
+    (out / "debug").mkdir(parents=True, exist_ok=True)
+    for split in run["splits"]:
+        summary_figure(run, split, out / "debug")
     arrays = np.load(args.run / "results.npz")
     variants = run["config"]["variants"]
     names = [v["name"] for v in variants]
     device = torch.device("cpu")
     cfg = RefineConfig(**run["refine"]["refine"] | {"device": "cpu"})
     refined = names.index("Refined")
-    for scene in run["scenes"]:
+    records = {
+        scene: record
+        for report in run["splits"].values()
+        for scene, record in report.get("scenes", {}).items()
+    }
+    for scene, record in records.items():
+        folder, views = shown(scene)
+        folder = out / folder
+        folder.mkdir(exist_ok=True)
         inputs = load_inputs(run["config"], scene, device)
-        assert inputs is not None, scene
         assert np.array_equal(arrays[f"{scene}/labels"], inputs.labels.instance_ids)
 
         def registered(
@@ -605,13 +650,14 @@ def main() -> None:
             )
 
         points = {n: registered(n) for n in args.show}
-        energy_figure(inputs, arrays[f"{scene}/{refined}"], cfg, scene, out)
-        section_figure(inputs, points, scene, out)
-        views_figure(inputs, points, scene, out)
-        topdown_figure(inputs, points, scene, out)
-        normals_figure(inputs, points, scene, out)
-        render_figure(inputs, points, scene, out)
-        class_figure(run["scenes"][scene]["variants"], args.show, scene, out)
+        energy_figure(inputs, arrays[f"{scene}/{refined}"], cfg, views, folder)
+        section_figure(inputs, points, scene, folder)
+        views_figure(inputs, points, views, scene, folder)
+        topdown_figure(inputs, points, scene, folder)
+        normals_figure(inputs, points, views, scene, folder)
+        render_figure(inputs, points, views, scene, folder)
+        debug = {n: r["debug"] for n, r in record["variants"].items()}
+        class_figure(debug, args.show, scene, folder)
         print(scene, flush=True)  # noqa: T201
     print(f"wrote {out}")  # noqa: T201
 

@@ -1,5 +1,8 @@
 # Evaluation protocol: Déjà View against the refined cloud on Hypersim's dev scenes
 
+> **Scores superseded** by [`eval_hypersim-20261105-104445`](../eval_hypersim-20261105-104445/README.md).
+> Kept for its ablations.
+
 Run `runs/eval_hypersim-20261103-155403` (`configs/eval_hypersim.yaml`, `configs/refine.yaml`;
 git `32d6e93`). Reproduce, about 2.5 min for the cached inputs and 4 min for the rest on an RTX 3080
 (SAM 3 needs access to the gated `facebook/sam3` on Hugging Face, or a local copy with
@@ -20,7 +23,7 @@ uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>     
   with centred pinhole cameras, 20 views each, uniform over the trajectory, 504 × 378:
   `ai_010_007` (living room), `ai_006_007` (bedroom) and `ai_044_001` (hotel lobby). Déjà View
   always predicts a centred principal point, so the tilt-shift scenes of the earlier report
-  (`figures/eval_hypersim-20261103-150543`) are the `stress` split now and are not used for
+  (now in `figures/eval_hypersim-20261105-104445`) are the `stress` split now and are not used for
   choices (E30 in `experiments/LOG.md`). The test split is never used.
 - **Pipeline:** Déjà View (K = 16) → SAM 3 image mode, one prompt per NYU40 class, threshold
   0.3, linked across views → DSINE normals on Déjà View's intrinsics → joint refinement.

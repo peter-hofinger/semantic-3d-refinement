@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from src.loaders.frames import resize_view, select_frames, target_size
+from src.loaders.ground_truth import NO_MESH, GroundTruth
 from src.loaders.hypersim.config import HypersimConfig, check_splits, load_config
 from src.loaders.hypersim.scene import (
     NYU40,
@@ -28,7 +29,6 @@ from src.loaders.hypersim.scene import (
     distance_to_depth,
 )
 from src.loaders.scannetpp.config import PrepareConfig
-from src.loaders.scannetpp.gt import NO_MESH, GroundTruth
 from src.loaders.views import Views
 from src.segmentation.base import NO_INSTANCE
 
