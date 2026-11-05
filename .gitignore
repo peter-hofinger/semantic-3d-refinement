@@ -16,7 +16,7 @@ wheels/
 .env
 
 # Data (raw downloads and preprocessed outputs) and run outputs, repo root only
-/data/
+/data
 /outputs/
 /runs/
 
