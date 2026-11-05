@@ -1700,3 +1700,60 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   not pursued: on the bed alone the trim removes ~128k bed-mask px, of which ~22k were leak (43k -> 21k on
   other objects) and ~105k the bed's own (mattress behind the footboard, headboard between the bars), so
   sparing wall and floor would not change the ~5:1 ratio. The trim code is reverted right after this report.
+
+## E34: the evaluation protocol on the 11 val scenes -> refiner loses F@5cm on 7 of 10, completeness on all (05.11.2026)
+- **Goal:** check on scenes no choice was made on whether the dev picture of PR #17's joint refiner holds
+  (dev: accuracy better on 3/3, completeness worse on 3/3, F@5cm +0.013 / -0.006 / -0.027; E33 baseline).
+  Nothing changed in the method or the scorer; the val split is the one of `configs/hypersim.yaml`.
+- **Commit:** main 5f3af22 (clean) for every job; config `configs/eval_hypersim_val.yaml` (= `eval_hypersim.yaml`
+  with the 11 val scenes; the job read an identical copy in `~/mircea/configs/`, the file is added here).
+- **Data prep (laptop):** `uv run hypersim-download --splits val` 15.7 min for the 10 scenes not yet on disk
+  (14-48 MB raw each; ai_003_010 skipped as present), `uv run hypersim-prepare --splits val` 1 min (20 views
+  504x378 each, ~18 MB views + GT per scene). Contact sheets (RGB, GT depth, GT instances) of all 11 looked at
+  before scoring: ai_003_010 has no labels on wall, floor and ceiling (78% of pixels unlabeled; geometry still
+  scored, per-class only on objects); ai_005_005 is a bathroom of mirrors and glass (GT depth goes through the
+  glass); the 21-28% "no geometry" in ai_004_004 / ai_004_010 is sea, sky and open windows, as it should be.
+- **Commands (cluster, RTX 5090):** job 896 (VC15, 6:39): `dejaview-predict` per scene (12 s each incl. model
+  load, 43 s for the first), `sam3-segment --mode image --threshold 0.3 --prompts configs/prompts/nyu40.txt`
+  (178 s for all 11), `dsine-predict` (52 s for all 11). Job 969 (VC17, 3:53 for all 11 scenes, refiner 1.2-2.1 s
+  per scene): `python -m src.analysis.scene_eval --cfg configs/eval_hypersim_val.yaml`, run
+  `eval_hypersim_val-20261105-094825`. Table and figure: `uv run python experiments/scripts/e34_val_eval.py
+  runs/eval_hypersim_val-20261105-094825/run.yaml > experiments/results/e34_val_eval.txt` (laptop, CPU).
+- **ai_031_004 is invalid, not a result:** both variants score the cap (20 cm / 20 cm / F 0.000) because the
+  registration starts at scale 421 (all other scenes 2.8-7.1). Cause: in Hypersim's raw
+  `cam_00/camera_keyframe_orientations.hdf5` the rotation of keyframe 0 is exactly 10 x an orthonormal matrix
+  (singular values 10, 10, 10; the other 99 keyframes and every keyframe of the other 10 val scenes have
+  |R R^T - I| < 1e-6, as do all 17 prepared scenes but this one). Keyframe 0 is our view 0, which the scorer
+  uses for the GT cloud and as the registration start. The loader takes the rotation as stored and does not
+  check it. Déjà View, SAM 3 and DSINE never see the cameras, so their caches are fine. Excluded below; not
+  fixed yet (planned: divide by cbrt(det) in `src/loaders/hypersim/scene.py`, assert a uniformly scaled
+  rotation, re-prepare, rescore).
+- **Results** (Déjà View = backbone output; Refined = joint refiner, every weight 1; F at 5 cm):
+
+  | scene | acc DV (cm) | acc Ref | comp DV (cm) | comp Ref | F DV | F Ref | mIoU DV | mIoU Ref |
+  |---|---|---|---|---|---|---|---|---|
+  | ai_003_010 | 2.359 | 2.105 | 1.247 | 1.484 | 0.942 | 0.944 | 0.482 | 0.398 |
+  | ai_004_003 (bathroom) | 2.220 | 2.398 | 1.576 | 2.129 | 0.931 | 0.902 | 0.867 | 0.841 |
+  | ai_004_004 | 7.006 | 7.716 | 1.544 | 2.043 | 0.767 | 0.718 | 0.607 | 0.544 |
+  | ai_004_010 | 8.215 | 7.438 | 1.470 | 1.848 | 0.722 | 0.746 | 0.829 | 0.817 |
+  | ai_005_005 | 5.916 | 6.119 | 2.346 | 3.470 | 0.748 | 0.707 | 0.557 | 0.525 |
+  | ai_007_001 | 5.043 | 4.699 | 2.186 | 3.049 | 0.790 | 0.786 | 0.444 | 0.396 |
+  | ai_009_007 | 5.962 | 6.132 | 3.861 | 4.488 | 0.685 | 0.660 | 0.598 | 0.589 |
+  | ai_009_009 | 13.210 | 11.221 | 10.739 | 10.748 | 0.299 | 0.351 | 0.199 | 0.186 |
+  | ai_044_003 (cam_01) | 4.441 | 4.163 | 2.751 | 4.132 | 0.791 | 0.741 | 0.354 | 0.332 |
+  | ai_050_002 | 3.916 | 3.588 | 2.554 | 3.481 | 0.810 | 0.793 | 0.555 | 0.504 |
+  | **mean of 10** | 5.829 | 5.558 | 3.027 | 3.687 | 0.749 | 0.735 | 0.549 | 0.513 |
+
+  Refined vs Déjà View, scenes better / worse: accuracy 6 / 4, completeness 0 / 10, F@5cm 3 / 7, mIoU 0 / 10,
+  AP50 3 / 3 (mean 0.437 -> 0.439). Run-to-run noise on dev was ~0.002 cm (E33); one run per setting here.
+- **Figure:** `figures/e34_val_eval.jpg` (in `experiments/`): F@5cm, accuracy and completeness per scene, both
+  variants on shared axes, ai_031_004 greyed. The completeness bars are higher for Refined in every scene; the
+  accuracy gains are largest where Déjà View is worst (ai_009_009 -2.0 cm, ai_004_010 -0.8 cm).
+- **Conclusion:** the dev picture holds and is worse on val. Completeness gets worse on every scene (+0.66 cm
+  on average), accuracy better on 6 of 10 (-0.27 cm on average), and at 5 cm the net effect is a loss on 7 of 10
+  scenes (mean F -0.014; dev mean -0.007). Labels get worse too (mIoU lower on all 10, -0.036 on average), as on
+  all three dev scenes (E33: -0.039, -0.011, -0.158). The weights were never tuned (all 1, as on dev), so this is
+  the untuned refiner, not the method's ceiling; it makes the completeness study (next, E35: why the refiner
+  loses completeness) the first thing to answer before any weight search. ai_009_009 (a 28 m hall) is a Déjà
+  View failure (F 0.30) that this refiner barely changes (0.35). One trajectory per scene, 10 scenes: per-scene
+  differences of a few thousandths are within noise; the 10 / 10 completeness and mIoU counts are not.
