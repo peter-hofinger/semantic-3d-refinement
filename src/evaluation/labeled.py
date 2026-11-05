@@ -15,10 +15,11 @@ overlap in the pixels, over all views, that carry both ids.
   ground-truth depth and a finite output (as VGGT and π³ align point maps; π³ and
   CUT3R add ICP, whose radius would be one more number to choose).
 - Surface (7-Scenes / NRGBD protocol of CUT3R, π³, VGGT): accuracy is the mean and
-  median distance of each output point to the nearest ground-truth point, completeness
-  the other way round. Per class, accuracy takes the output points
-  of the pixels whose ground truth has the class, completeness the ground-truth points
-  of the class. Neither is capped: an outlier counts with its full distance.
+  median distance of each output point to the nearest ground-truth point,
+  completeness the other way round, Chamfer the mean of the two. Per class, accuracy
+  takes the output points of the pixels whose ground truth has the class, completeness
+  the ground-truth points of the class. Nothing is capped: an outlier counts with its
+  full distance.
 - Labels are scored per ground-truth point on the output's label of the same pixel,
   so they measure the segmentation, not where its points landed. Pixels whose
   ground truth is unlabeled or of a class outside the evaluation are void.
@@ -27,13 +28,16 @@ Segments: an instance of an object class is one segment over all views, so an ob
 split into two ids across views is two segments (the scene-level metrics of Panoptic
 Lifting, PanSt3R). The background classes (walls, floor, ceiling) have no instances in
 Hypersim's ground truth; there, and in the output, all pixels of such a class form one
-segment. Per class, every evaluated class is scored. mIoU and PQ are averaged over all
-classes, as semantic and panoptic benchmarks report them; PQ also over the object
-classes (PQ_th) and the background ones (PQ_st), as PanSt3R. AP is over object classes
-only, as the instance benchmarks report it. The scene's surface scores cover every
-pixel, background included, as the geometry protocols do.
+segment. The evaluated classes are the dataset's full label set, and every score is
+also given per class. mIoU and PQ are averaged over all classes, as semantic and
+panoptic benchmarks report them; PQ, SQ and RQ also over the object classes (_th) and
+the background ones (_st), as PanSt3R. AP is over object classes only, as the instance
+benchmarks report it. The scene's surface scores cover every pixel, background
+included, as the geometry protocols do.
 
-- mIoU: IoU per class over non-void points, mean over the classes in either.
+- mIoU: IoU per class over non-void points, mean over the classes in either. Over
+  several scenes each class's intersections and unions are summed first, as semantic
+  benchmarks pool over a dataset (`split_scores`).
 - PQ, SQ, RQ (Kirillov et al. 2019, scene-level as in Panoptic Lifting): a predicted
   and a ground-truth segment of the same class match if their IoU is above 0.5, which
   makes the matching unique and the same as the IoU-maximising assignment. Void
@@ -45,23 +49,29 @@ pixel, background included, as the geometry protocols do.
   further matches are false positives; an unmatched prediction is a false positive
   unless more than the threshold of it lies on void. AP is averaged over thresholds
   0.5:0.95:0.05. The evaluator's minimum instance size (in mesh vertices) has no
-  counterpart on pixels and is left out.
+  counterpart on pixels and is left out. Class-agnostic AP is the same with all object
+  classes taken as one: it scores the instances alone, not what they are called.
+
+Over a split, mIoU pools as above and every other score is the mean over its scenes;
+a per-class score is the mean over the scenes that have the class (`split_scores`).
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.spatial import cKDTree
 
-from src.segmentation.base import Segmentation
+from src.segmentation.base import Segmentation, count_pairs
 
 NONE = -1
 BACKGROUND = ("wall", "floor", "ceiling")  # no instances in Hypersim: one segment each
 PQ_IOU = 0.5  # PQ's matching threshold, part of its definition
 AP_IOUS = np.arange(0.5, 0.951, 0.05)  # AP averages over these
-AP_IOU_50, AP_IOU_25 = 0.5, 0.25
+AP_IOU_25 = 0.25
+OBJECT = "object"  # the one class of class-agnostic AP
 
 
 @dataclass
@@ -80,17 +90,23 @@ class LabeledCloud:
         assert np.isfinite(self.points).all()
         assert self.pixels is None or self.pixels.sum() == len(self.points)
 
-    def class_of(self, ids: np.ndarray) -> np.ndarray:
-        """Class name of each id, '' for NONE and ids without a class."""
-        return class_names(ids, self.classes)
 
-
-def class_names(ids: np.ndarray, classes: dict[int, str]) -> np.ndarray:
-    """Class name of each id, '' for NONE and ids without a class."""
-    lut = {NONE: ""} | classes
+def class_index(
+    ids: np.ndarray, classes: dict[int, str], evaluated: list[str]
+) -> np.ndarray:
+    """Each id's index in `evaluated`, len(evaluated) if it has no evaluated class."""
+    index = {c: i for i, c in enumerate(evaluated)}
     unique, inverse = np.unique(ids, return_inverse=True)
-    names = np.array([lut.get(int(i), "") for i in unique], dtype=object)
-    return names[inverse.reshape(ids.shape)]
+    lut = np.array(
+        [index.get(classes.get(int(i)), len(evaluated)) for i in unique], dtype=np.int64
+    )
+    return lut[inverse.reshape(ids.shape)]
+
+
+def mean(values: list[float]) -> float:
+    """Mean of the values that are not NaN, NaN if there are none."""
+    values = [v for v in values if not np.isnan(v)]
+    return float(np.mean(values)) if values else float("nan")
 
 
 def lift(depth: np.ndarray, k: np.ndarray, cam_to_world: np.ndarray) -> np.ndarray:
@@ -138,14 +154,29 @@ def umeyama(
     return scale, rotation, mu_t - scale * rotation @ mu_s
 
 
+def nearest_distances(points: np.ndarray, queries: np.ndarray) -> np.ndarray:
+    """Distance of each query to its nearest point.
+
+    Sliding-midpoint splits, not cKDTree's default median ones: the distances are the
+    same, but on a scene's axis-aligned walls and floors far-off queries took a median
+    tree over 100 times as long (154 s against 1.4 s on ai_047_009).
+    """
+    tree = cKDTree(points, balanced_tree=False, compact_nodes=False)
+    return tree.query(queries, workers=-1)[0]
+
+
 def surface_scores(acc: np.ndarray, comp: np.ndarray) -> dict[str, float]:
-    """Accuracy and completeness, mean and median, in cm."""
-    return {
+    """Accuracy, completeness and Chamfer (their mean), mean and median, in cm."""
+    out = {
         "accuracy_cm": 100 * float(acc.mean()) if len(acc) else float("nan"),
         "accuracy_median_cm": 100 * float(np.median(acc)) if len(acc) else float("nan"),
         "completeness_cm": 100 * float(comp.mean()),
         "completeness_median_cm": 100 * float(np.median(comp)),
     }
+    for k in ("", "_median"):
+        acc_k, comp_k = out[f"accuracy{k}_cm"], out[f"completeness{k}_cm"]
+        out[f"chamfer{k}_cm"] = (acc_k + comp_k) / 2
+    return out
 
 
 def surface_metrics(
@@ -158,13 +189,13 @@ def surface_metrics(
     assert pred.shape == truth.points.shape, (pred.shape, truth.points.shape)
     found = np.isfinite(pred).all(1)
     acc = np.full(len(pred), np.nan)
-    acc[found] = cKDTree(truth.points).query(pred[found], workers=-1)[0]
-    comp = cKDTree(pred[found]).query(truth.points, workers=-1)[0]
-    gt_class = truth.class_of(truth.instance)
+    acc[found] = nearest_distances(truth.points, pred[found])
+    comp = nearest_distances(pred[found], truth.points)
+    index = class_index(truth.instance, truth.classes, evaluated)
     per_class = {
-        c: surface_scores(acc[found & (gt_class == c)], comp[gt_class == c])
-        for c in evaluated
-        if (gt_class == c).any()
+        c: surface_scores(acc[found & (index == i)], comp[index == i])
+        for i, c in enumerate(evaluated)
+        if (index == i).any()
     }
     return surface_scores(acc[found], comp) | {"surface_per_class": per_class}
 
@@ -177,12 +208,12 @@ def segments(
     Objects keep their instance id; a background class c becomes the segment
     -2 - evaluated.index(c), as does no instance. Classes outside `evaluated`: NONE.
     """
-    names = class_names(ids, classes)
-    out = np.where(np.isin(names, evaluated), ids, NONE)
+    index = class_index(ids, classes, evaluated)
+    out = np.where(index < len(evaluated), ids, NONE)
     seg_class = {int(i): classes[int(i)] for i in np.unique(out) if i != NONE}
     for c in BACKGROUND:
         if c in evaluated:
-            out[names == c] = -2 - evaluated.index(c)
+            out[index == evaluated.index(c)] = -2 - evaluated.index(c)
             seg_class[-2 - evaluated.index(c)] = c
     present = set(np.unique(out).tolist())
     seg_class = {s: c for s, c in seg_class.items() if s in present}
@@ -213,42 +244,49 @@ def overlaps(
     pred_class: dict[int, str],
 ) -> Overlaps:
     """Sizes and same-class intersections of segments; NONE in gt is void."""
-    pairs, counts = np.unique(np.stack([pred, gt]), axis=1, return_counts=True)
-    gt_size = dict(zip(*np.unique(gt[gt != NONE], return_counts=True), strict=True))
-    pred_size = dict(
-        zip(*np.unique(pred[pred != NONE], return_counts=True), strict=True)
-    )
+    gt_size: dict[int, int] = Counter()
+    pred_size: dict[int, int] = Counter()
     pred_void: dict[int, int] = {}
     inter: dict[tuple[int, int], int] = {}
-    for p, g, n in zip(*pairs.tolist(), counts.tolist(), strict=True):
+    preds, gts, counts = count_pairs(pred, gt)
+    for p, g, n in zip(preds.tolist(), gts.tolist(), counts.tolist(), strict=True):
+        if g != NONE:
+            gt_size[g] += n
         if p == NONE:
             continue
+        pred_size[p] += n
         if g == NONE:
             pred_void[p] = n
         elif pred_class[p] == gt_class[g]:
             inter[p, g] = n
-    return Overlaps(
-        gt_class,
-        pred_class,
-        {int(k): int(v) for k, v in gt_size.items()},
-        {int(k): int(v) for k, v in pred_size.items()},
-        pred_void,
-        inter,
-    )
+    return Overlaps(gt_class, pred_class, gt_size, pred_size, pred_void, inter)
 
 
-def semantic_iou(
-    gt_names: np.ndarray, pred_names: np.ndarray, evaluated: list[str]
-) -> dict[str, float]:
-    """IoU per evaluated class over non-void points, for classes in either."""
-    scored = np.isin(gt_names, evaluated)
-    out = {}
-    for c in evaluated:
-        g, p = scored & (gt_names == c), scored & (pred_names == c)
-        union = (g | p).sum()
-        if union:
-            out[c] = float((g & p).sum() / union)
-    return out
+def iou_counts(
+    gt_index: np.ndarray, pred_index: np.ndarray, evaluated: list[str]
+) -> dict[str, dict[str, int]]:
+    """Intersection and union per evaluated class in either, over non-void points.
+
+    gt_index, pred_index: `class_index` of each point; the prediction's last index, no
+    evaluated class, still counts in the union of the point's ground-truth class.
+    """
+    n = len(evaluated)
+    scored = gt_index < n
+    confusion = np.bincount(
+        gt_index[scored] * (n + 1) + pred_index[scored], minlength=n * (n + 1)
+    ).reshape(n, n + 1)
+    inter = confusion.diagonal()
+    union = confusion.sum(1) + confusion[:, :n].sum(0) - inter
+    return {
+        c: {"intersection": int(i), "union": int(u)}
+        for c, i, u in zip(evaluated, inter, union, strict=True)
+        if u
+    }
+
+
+def class_ious(counts: dict[str, dict[str, int]]) -> dict[str, float]:
+    """IoU per class of `iou_counts`."""
+    return {c: n["intersection"] / n["union"] for c, n in counts.items()}
 
 
 def panoptic_quality(ov: Overlaps, evaluated: list[str]) -> dict[str, dict[str, float]]:
@@ -343,6 +381,22 @@ def instance_ap(
     return float(precision @ widths)
 
 
+def agnostic_ap(
+    gt: np.ndarray,
+    gt_class: dict[int, str],
+    pred: np.ndarray,
+    pred_class: dict[int, str],
+    scores: dict[int, float],
+) -> float:
+    """AP over `AP_IOUS` with every object class taken as one (see module)."""
+
+    def merged(seg_class: dict[int, str]) -> dict[int, str]:
+        return {s: c if c in BACKGROUND else OBJECT for s, c in seg_class.items()}
+
+    ov = overlaps(gt, merged(gt_class), pred, merged(pred_class))
+    return mean([instance_ap(ov, scores, OBJECT, t) for t in AP_IOUS])
+
+
 def label_metrics(
     truth: LabeledCloud,
     pred_ids: np.ndarray,
@@ -352,6 +406,8 @@ def label_metrics(
 ) -> dict[str, float | dict]:
     """MIoU, PQ / SQ / RQ and AP / AP50 / AP25, per class and averaged (see module).
 
+    Also class-agnostic AP, and each class's `iou_counts` for pooling over a split.
+
     pred_ids: (N,) the output's instance at each ground-truth point's pixel.
     """
     assert pred_ids.shape == truth.instance.shape, pred_ids.shape
@@ -360,9 +416,12 @@ def label_metrics(
     scores = {
         int(s): pred_scores.get(int(s), 0.0) for s in pred_class if s >= 0
     }  # a background segment is its class's only prediction: its score is moot
-    ious = semantic_iou(
-        class_names(gt_seg, gt_class), class_names(pred_seg, pred_class), evaluated
+    counts = iou_counts(
+        class_index(gt_seg, gt_class, evaluated),
+        class_index(pred_seg, pred_class, evaluated),
+        evaluated,
     )
+    ious = class_ious(counts)
     ov = overlaps(gt_seg, gt_class, pred_seg, pred_class)
     pq = panoptic_quality(ov, evaluated)
     ap = {
@@ -370,23 +429,20 @@ def label_metrics(
         for c in evaluated
     }
     objects = [c for c in evaluated if c not in BACKGROUND]
-
-    def mean(values: list[float]) -> float:
-        values = [v for v in values if not np.isnan(v)]
-        return float(np.mean(values)) if values else float("nan")
-
     background = [c for c in evaluated if c in BACKGROUND]
     return {
         "miou": mean(list(ious.values())),
         **{k: mean([v[k] for v in pq.values()]) for k in ("pq", "sq", "rq")},
         **{
-            f"{k}_th": mean([pq[c][k] for c in objects if c in pq])
+            f"{k}_{part}": mean([pq[c][k] for c in classes if c in pq])
+            for part, classes in (("th", objects), ("st", background))
             for k in ("pq", "sq", "rq")
         },
-        "pq_st": mean([pq[c]["pq"] for c in background if c in pq]),
         "ap": mean([v for c in objects for v in ap[c][:-1]]),
         "ap50": mean([ap[c][0] for c in objects]),
         "ap25": mean([ap[c][-1] for c in objects]),
+        "ap_agnostic": agnostic_ap(gt_seg, gt_class, pred_seg, pred_class, scores),
+        "iou_counts": counts,
         "iou_per_class": ious,
         "pq_per_class": pq,
         "ap_per_class": {
@@ -419,4 +475,37 @@ def score_output(
         "align": align,
         **surface_metrics(pred, truth, evaluated),
         **label_metrics(truth, ids, labels.classes, labels.scores, evaluated),
+    }
+
+
+def mean_over_scenes(scenes: list[dict]) -> dict:
+    """Mean of each score, nested dicts per key, over the scenes that have it."""
+    out = {}
+    for key in dict.fromkeys(k for scene in scenes for k in scene):
+        values = [scene[key] for scene in scenes if key in scene]
+        nested = isinstance(values[0], dict)
+        out[key] = mean_over_scenes(values) if nested else mean(values)
+    return out
+
+
+def split_scores(scenes: list[dict]) -> dict:
+    """Scores of a split from its scenes' `score_output`, without `align` (see module).
+
+    The alignment scale belongs to one scene and has no aggregate.
+    """
+    counts: dict[str, dict[str, int]] = {}
+    for scene in scenes:
+        for c, n in scene["iou_counts"].items():
+            pooled = counts.setdefault(c, {"intersection": 0, "union": 0})
+            pooled["intersection"] += n["intersection"]
+            pooled["union"] += n["union"]
+    ious = class_ious(counts)
+    averaged = [
+        {k: v for k, v in scene.items() if k not in ("scale", "iou_counts")}
+        for scene in scenes
+    ]
+    return mean_over_scenes(averaged) | {
+        "miou": mean(list(ious.values())),
+        "iou_counts": counts,
+        "iou_per_class": ious,
     }

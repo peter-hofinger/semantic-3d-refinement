@@ -1,13 +1,19 @@
 """Scores of a labeled per-pixel output: alignment, surface, mIoU, PQ and AP."""
 
-import numpy as np
+from pathlib import Path
 
+import numpy as np
+import pytest
+import yaml
+
+from src.analysis.scene_eval import HEADLINE, split_report, split_scenes, tiers
 from src.evaluation.labeled import (
     NONE,
     LabeledCloud,
     ground_truth_cloud,
     label_metrics,
     score_output,
+    split_scores,
     surface_metrics,
     umeyama,
 )
@@ -69,11 +75,12 @@ def test_umeyama_recovers_a_similarity() -> None:
 def test_ground_truth_against_itself_is_perfect() -> None:
     truth = room()
     surface = surface_metrics(truth.points, truth, EVALUATED)
-    assert surface["accuracy_cm"] < 1e-9 and surface["completeness_cm"] < 1e-9
+    assert surface["chamfer_cm"] < 1e-9 and surface["chamfer_median_cm"] < 1e-9
     assert set(surface["surface_per_class"]) == {"floor", "chair"}
     scores = labels(truth, truth.instance, truth.classes, {1: 0.9, 2: 0.8})
     assert scores["miou"] == scores["pq"] == scores["ap"] == 1.0
     assert scores["pq_th"] == scores["pq_st"] == 1.0
+    assert scores["sq_st"] == scores["rq_st"] == 1.0
 
 
 def test_an_outlier_counts_with_its_full_distance() -> None:
@@ -85,6 +92,9 @@ def test_an_outlier_counts_with_its_full_distance() -> None:
         surface["accuracy_cm"], 1000 / len(pred), rtol=1e-6
     )  # no cap
     assert surface["accuracy_median_cm"] < 1e-9
+    np.testing.assert_allclose(
+        surface["chamfer_cm"], (surface["accuracy_cm"] + surface["completeness_cm"]) / 2
+    )
 
 
 def test_a_missing_point_costs_completeness_only() -> None:
@@ -172,4 +182,134 @@ def test_background_counts_in_the_all_class_means_only() -> None:
     scores = labels(truth, ids, truth.classes, {1: 0.9, 2: 0.8})
     assert scores["pq_th"] == 1.0
     assert scores["miou"] == scores["pq"] == 0.5  # floor 0, chair 1
-    assert scores["pq_st"] == 0.0
+    assert scores["pq_st"] == scores["rq_st"] == 0.0
+
+
+def test_class_agnostic_ap_ignores_the_object_class() -> None:
+    truth = room()
+    wrong = truth.classes | {1: "sofa", 2: "sofa"}  # right objects, wrong class
+    scores = label_metrics(
+        truth, truth.instance, wrong, {1: 0.9, 2: 0.8}, [*EVALUATED, "sofa"]
+    )
+    assert scores["ap"] == 0.0
+    assert scores["ap_agnostic"] == 1.0
+
+
+def test_class_agnostic_ap_counts_a_missed_object() -> None:
+    truth = room()
+    ids = truth.instance.copy()
+    ids[ids == 2] = NONE
+    scores = labels(truth, ids, truth.classes, {1: 0.9})
+    assert scores["ap_agnostic"] == 0.5  # one of two chairs at full precision
+
+
+def scene_scores(ids_gt: np.ndarray, ids_pred: np.ndarray, classes: dict) -> dict:
+    """Scores of one scene on points that only differ in their labels."""
+    points = np.c_[np.arange(len(ids_gt), dtype=float), np.zeros((len(ids_gt), 2))]
+    truth = LabeledCloud(points, ids_gt, classes)
+    return {
+        "scale": 2.0,
+        **surface_metrics(points, truth, EVALUATED),
+        **label_metrics(truth, ids_pred, classes, {}, EVALUATED),
+    }
+
+
+def test_split_miou_pools_classes_and_other_scores_average_scenes() -> None:
+    classes = {0: "floor", 1: "chair"}
+    small = np.array([1, 1, 0, 0])  # chair IoU 0: all of it predicted floor
+    large = np.r_[np.ones(96, dtype=np.int64), np.zeros(4, dtype=np.int64)]  # IoU 1
+    scenes = [
+        scene_scores(small, np.zeros(4, dtype=np.int64), classes),
+        scene_scores(large, large, classes),
+    ]
+    split = split_scores(scenes)
+    assert split["iou_counts"]["chair"] == {"intersection": 96, "union": 98}
+    assert split["iou_per_class"]["chair"] == 96 / 98
+    np.testing.assert_allclose(
+        split["miou"], (96 / 98 + split["iou_per_class"]["floor"]) / 2
+    )
+    assert split["miou"] != (scenes[0]["miou"] + scenes[1]["miou"]) / 2
+    assert split["pq"] == (scenes[0]["pq"] + scenes[1]["pq"]) / 2
+    assert "scale" not in split
+
+
+def test_split_averages_a_class_over_the_scenes_that_have_it() -> None:
+    classes = {0: "floor", 1: "chair"}
+    floor_only = np.zeros(4, dtype=np.int64)
+    both = np.array([0, 0, 1, 1])
+    split = split_scores(
+        [
+            scene_scores(floor_only, floor_only, classes),
+            scene_scores(both, both, classes),
+        ]
+    )
+    assert split["pq_per_class"]["chair"]["pq"] == 1.0  # not halved by the first scene
+    assert split["ap"] == 1.0  # a scene without objects has no AP: it is left out
+
+
+def test_tiers_follow_the_protocol() -> None:
+    truth = room()
+    surface = surface_metrics(truth.points, truth, EVALUATED)
+    label = labels(truth, truth.instance, truth.classes, {1: 0.9, 2: 0.8})
+    sorted_ = tiers({"scale": 1.0, "refinement_s": 2.0, **surface, **label})
+    assert tuple(sorted_["headline"]) == HEADLINE
+    assert {
+        "accuracy_median_cm",
+        "chamfer_median_cm",
+        "sq",
+        "rq",
+        "pq_th",
+        "rq_st",
+    } <= (set(sorted_["supplementary"]))
+    assert {"ap50", "ap25", "ap_agnostic", "refinement_s"} <= set(
+        sorted_["supplementary"]
+    )
+    assert {
+        "scale",
+        "surface_per_class",
+        "iou_per_class",
+        "pq_per_class",
+        "ap_per_class",
+    } <= set(sorted_["debug"])
+
+
+def test_split_report_follows_the_config() -> None:
+    classes = {0: "floor", 1: "chair"}
+    ids = np.array([0, 0, 1, 1])
+    flat = scene_scores(ids, ids, classes) | {"refinement_s": 1.0}
+    raw = {
+        "variants": [{"name": "v"}],
+        "aggregated": ["dev", "val"],
+        "per_scene": ["dev", "stress"],
+    }
+    splits = {"dev": ["a"], "val": ["b"], "stress": ["c"]}
+    scores = {(n, "v"): flat for n in "abc"}
+    logs = {(n, "v"): {"gn_steps": 1} for n in "abc"}
+    report = split_report(raw, splits, scores, logs)
+    assert set(report["dev"]) == {"aggregate", "scenes"}
+    assert set(report["val"]) == {"aggregate"}
+    assert set(report["stress"]) == {"scenes"}
+    assert report["stress"]["scenes"]["c"]["variants"]["v"]["log"] == {"gn_steps": 1}
+    assert "log" not in report["dev"]["aggregate"]["v"]
+    assert yaml.safe_load(yaml.safe_dump(report))["val"]["aggregate"]["v"]["headline"]
+
+
+def test_a_missing_input_stops_the_run_before_it_starts(tmp_path: Path) -> None:
+    dataset = yaml.safe_load(Path("configs/hypersim.yaml").read_text())
+    dataset["splits"]["dev"] = {"ai_000_000": "cam_00"}
+    path = tmp_path / "hypersim.yaml"
+    path.write_text(yaml.safe_dump(dataset))
+    raw = {
+        "dataset": str(path),
+        "root": str(tmp_path),
+        "views": "views",
+        "backbone": "backbone",
+        "segmentation": "masks",
+    }
+    with pytest.raises(FileNotFoundError, match="ai_000_000_cam_00"):
+        split_scenes(raw, ["dev"])
+    folder = tmp_path / "ai_000_000_cam_00"
+    folder.mkdir()
+    for name in ("views", "gt_views", "backbone_views", "masks_views", "dsine_views"):
+        (folder / f"{name}.npz").touch()
+    assert split_scenes(raw, ["dev"]) == {"dev": ["ai_000_000_cam_00"]}
