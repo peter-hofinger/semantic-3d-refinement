@@ -8,6 +8,8 @@ keeps it (`refiner: none`), and its output, one labeled cloud in the first view'
 is scored as a black box (`evaluation.labeled`): registered onto the ground truth from
 the cloud alone, then surface and label scores, per scene and per class. The labels on
 the cloud are the linked SAM 3 masks, so label scores change only through geometry.
+A segmenter that links its masks across views itself (SegVGGT) sets `linked: true`
+and its masks are scored as they are, without the association.
 Disagreement between overlapping views is logged as a diagnostic of the refinement; it
 needs no ground truth and is not a score of the output.
 
@@ -87,7 +89,7 @@ class SceneInputs:
 
 
 def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs | None:
-    """Load one scene's cached inputs (None if any is missing), link the SAM 3 masks."""
+    """Load one scene's cached inputs (None if any is missing), link the masks."""
     folder = Path(raw["root"]) / name
     paths = {
         "views": folder / f"{raw['views']}.npz",
@@ -102,7 +104,9 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs | Non
         return None
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
     geometry = Geometry.load(paths["geometry"])
-    labels = working_associator().associate(Segmentation.load(paths["masks"]), geometry)
+    masks = Segmentation.load(paths["masks"])
+    linked = raw.get("linked", False)
+    labels = masks if linked else working_associator().associate(masks, geometry)
     scene = scene_from_geometry(geometry).to(device)
     normals = scene_normals(np.load(paths["normals"])["normals"], geometry, scene)
     truth = ground_truth_cloud(

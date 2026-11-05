@@ -1,0 +1,17 @@
+# SegVGGT as the backbone (issue #6): the protocol of eval_hypersim.yaml, unchanged, on
+# SegVGGT's geometry (segvggt-predict) in place of Déjà View's. The labels are still the
+# linked SAM 3 masks, so label scores compare geometries, not segmenters. DSINE normals
+# are the cached ones, predicted with Déjà View's intrinsics.
+output_dir: runs
+root: data/processed/hypersim
+scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # living room, bedroom, lobby
+views: views_n20_uniform_504
+backbone: segvggt
+segmentation: sam3image-nyu40-t0.3
+classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
+refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+variants:
+  - name: SegVGGT
+    refiner: none
+  - name: Refined
+    refiner: joint
