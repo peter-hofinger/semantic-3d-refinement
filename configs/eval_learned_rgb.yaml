@@ -1,0 +1,15 @@
+# Learned refiner without masks (issue #11): as eval_learned.yaml, on the refiner that sees only
+# RGB, depth and confidence.
+output_dir: runs
+root: data/processed/hypersim
+scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # living room, bedroom, lobby
+views: views_n20_uniform_504
+backbone: learned-rgb
+segmentation: sam3image-nyu40-t0.3
+classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
+refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+variants:
+  - name: Learned (no masks)
+    refiner: none
+  - name: Learned (no masks) + joint
+    refiner: joint

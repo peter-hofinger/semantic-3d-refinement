@@ -1,0 +1,16 @@
+# Learned refiner with masks (issue #11, learned-refine): the protocol of eval_hypersim.yaml,
+# unchanged, on its refined Déjà View depth in place of the raw one. eval_learned_rgb.yaml is the
+# same refiner trained without the masks.
+output_dir: runs
+root: data/processed/hypersim
+scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # living room, bedroom, lobby
+views: views_n20_uniform_504
+backbone: learned-sam3
+segmentation: sam3image-nyu40-t0.3
+classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
+refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+variants:
+  - name: Learned
+    refiner: none
+  - name: Learned + joint
+    refiner: joint

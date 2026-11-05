@@ -60,6 +60,7 @@ Metrics:
 | E30 | First Hypersim run of the segmenter: six val scenes (3 tilt-shift, 3 plain cameras), top100 vs Qwen3.8-27B union cap64, Déjà View vs GT geometry | Déjà View always predicts a centred principal point: on plain cameras depth 0.45-0.87%, Rel. L2 0.010-0.026 and association consistency ~ GT geometry (0.82 / 0.70 / 0.81 vs 0.82 / 0.76 / 0.81); on tilt-shift scenes consistency drops 0.12-0.31 (conference room Rel. L2 0.116). VLM list not better than top100 outside ScanNet++: precision lower everywhere (0.10-0.43 vs 0.23-0.49), part names split chairs (conference consistent 0.55 -> 0.36), the name "lobby" merges wall and floor (cross-class leakage 0.188). Protocol: plain-camera scenes; top100 stays default |
 | E31 | Rank the 20 bedroom views (Hypersim ai_006_007) by Déjà View's bleeding at GT depth edges, to choose the shared visual views | bleeding pixels 0.7-6.4% of the image; top views 18, 19, 0, 12; median error near edges 1.8-3.0% vs 0.3-0.9% far (as E18 / ETH3D). Bleeding sits on thin structures in front of distant surfaces (ornate bed frame, vanity mirror frame, chair and stool legs); planes stay below 1%. Visual views: frames 94, 0, 62 + 31 (overview) |
 | E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
+| E34 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | no real gain over Déjà View: dev F-score 0.845 with masks, 0.839 without, 0.844 raw; masks ahead by 0.006 (bedroom 0.908 vs 0.892), within single-seed noise |
 
 ## Reference table (current scorer, E11)
 
@@ -1700,3 +1701,35 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   not pursued: on the bed alone the trim removes ~128k bed-mask px, of which ~22k were leak (43k -> 21k on
   other objects) and ~105k the bed's own (mattress behind the footboard, headboard between the bars), so
   sparing wall and floor would not change the ~5:1 ratio. The trim code is reverted right after this report.
+
+## E34: learned single-view depth refiner, with and without SAM 3 masks -> no real gain over Déjà View (05.11.2026)
+- **Goal:** issue #11, a BetterDepth/PatchRefiner-style learned refiner as an alternative to the energy; does
+  conditioning on the masks help it?
+- **Setting:** `learned-refine` (`src/refinement/learned.py`, `configs/learned.yaml`): residual U-Net (7.85M
+  parameters) on log depth; input RGB, Déjà View K=16 log depth and log confidence, with masks also the
+  boundaries and the wall/floor/ceiling area of the per-view SAM 3 masks (`sam3image-nyu40-t0.3`). Per view the
+  depth is scaled onto the GT (median ratio), the net fits the remaining log error, L1 + gradient L1 on 4 scales
+  (weight 0.5). 4000 steps, batch 8, 256 px crops, AdamW 1e-3 one-cycle, seed 0. One run, nothing tuned.
+- **Data:** new `train` split in `configs/hypersim.yaml`: 40 of the 153 centred scenes of Hypersim's official
+  train partition, evenly spaced in name order; 36 fit, last 4 held out (loss only). 20 views at 504 px each.
+  On the workstation SAM 3 runs with `HF_HUB_OFFLINE=1` (cached weights, no token).
+- **Commands:** `uv run learned-refine`, then `scene_eval --cfg` with `configs/eval_learned.yaml`,
+  `configs/eval_learned_rgb.yaml`, `configs/eval_hypersim.yaml` (workstation, RTX 3080; runs
+  `learned-20261105-112054`, `eval_learned-20261105-113133`, `eval_learned_rgb-20261105-113319`,
+  `eval_hypersim-20261105-113507`, dirty tree before this commit). Training 5 min per model.
+- **Held out (4 train scenes):** mean abs log error 3.68% -> 3.43% with masks, 3.50% without.
+- **`scene_eval`** (means over the 3 dev scenes):
+
+| variant | F-score | accuracy cm | completeness cm | mIoU | AP50 |
+|---|---|---|---|---|---|
+| Déjà View | 0.844 | 3.70 | 2.06 | 0.587 | 0.431 |
+| learned, masks | 0.845 | 3.69 | 1.97 | 0.602 | 0.458 |
+| learned, no masks | 0.839 | 3.75 | 2.04 | 0.597 | 0.453 |
+| Déjà View + joint | 0.836 | 3.37 | 2.79 | 0.515 | 0.327 |
+| learned, masks + joint | 0.836 | 3.33 | 2.71 | 0.531 | 0.344 |
+| learned, no masks + joint | 0.830 | 3.38 | 2.72 | 0.530 | 0.329 |
+
+- **Conclusion:** the refiner matches Déjà View instead of improving it (lobby 0.687 vs 0.677, bedroom 0.908 vs
+  0.913). With masks it is ahead of without by 0.006 F-score, mostly the bedroom; one seed on three scenes, so
+  not evidence that the masks help. Stacking the joint refiner gives what it gives on raw Déjà View. Next, if
+  pursued: more train scenes and seeds, and the val split before any claim.
