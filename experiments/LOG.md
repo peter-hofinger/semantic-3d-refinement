@@ -1818,3 +1818,8 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   **Conclusion:** ai_031_004 behaves like the rest of val: accuracy better, completeness worse, Chamfer worse.
   With it, completeness is worse on 11 of 11 val scenes and Chamfer on 10 of 11; the split means move by less
   than 0.15 cm, so nothing in the conclusions above changes. Val is now complete; quote these 11-scene numbers.
+- **Note (08.11.2026):** `configs/eval_hypersim_val.yaml` is deleted on merging main: it is in the config format
+  from before PR #19, which `scene_eval` no longer reads. Val now runs with `configs/eval_hypersim.yaml --splits
+  val`, whose `per_scene` now includes val (the copy job 1373 read differs only in a comment and in not keeping
+  stress per scene, which a `--splits val` run never reads). The first E34 run
+  stays reproducible from 5f3af22 with the file as it was in ca1b6b8.

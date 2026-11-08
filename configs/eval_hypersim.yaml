@@ -10,7 +10,7 @@ output_dir: runs
 root: data/processed/hypersim
 dataset: configs/hypersim.yaml       # the scenes of each split
 aggregated: [dev, val, test]         # splits that get a split aggregate
-per_scene: [dev, stress]             # splits that also keep per-scene scores
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
 views: views_n20_uniform_504
 backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3
