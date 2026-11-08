@@ -21,6 +21,7 @@ from src.loaders.hypersim.scene import (
     FrameLabels,
     camera_from_cam_from_uv,
     distance_to_depth,
+    unscaled_rotation,
 )
 from src.segmentation.base import NO_INSTANCE
 
@@ -67,6 +68,33 @@ def test_skewed_camera_is_rejected() -> None:
     m[2, 1] = 0.1
     with pytest.raises(ValueError, match="skew"):
         camera_from_cam_from_uv(m, 1024, 768)
+
+
+def rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
+    """Rodrigues: rotation by `angle` about the unit vector `axis`."""
+    k = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
+    return np.eye(3) + np.sin(angle) * k + (1 - np.cos(angle)) * k @ k
+
+
+@pytest.mark.parametrize("scale", [1.0, 10.0, 0.25])
+def test_scaled_rotation_is_unscaled(scale: float) -> None:
+    r = rotation_about_axis(np.array([1.0, 2.0, 2.0]) / 3, 0.7)
+    np.testing.assert_allclose(unscaled_rotation(scale * r), r, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "r",
+    [
+        np.diag([1.0, 1.0, -1.0]),  # reflection
+        np.diag([10.0, 10.0, 1.0]),  # non-uniform scale
+        np.array([[1.0, 0.1, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),  # shear
+    ],
+)
+def test_non_rotation_is_rejected(r: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="scaled rotation"):
+        unscaled_rotation(r)
 
 
 def test_distance_becomes_z_depth() -> None:

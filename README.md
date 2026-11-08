@@ -42,6 +42,8 @@ cameras in meters) and `GroundTruth` (instance ids, z-depth, classes) straight f
 Hypersim's per-pixel maps, so `eval-instances` works unchanged. Notes:
 - Most Hypersim cameras are tilt-shift: `M_cam_from_uv` is split into a pinhole K
   (off-centre principal point) and a camera rotation; the few with skew are rejected.
+- One stored camera orientation is 10 × a rotation (ai_031_004, keyframe 0): the loader
+  divides a uniform scale out and rejects any other non-rotation (E34 in `experiments/LOG.md`).
 - Déjà View always predicts a centred principal point, so use plain-camera scenes with it
   (14 of the 46 validation scenes). On tilt-shift scenes its point maps degrade with the
   offset: Rel. L2 0.010-0.026 on the three plain scenes vs 0.031-0.116 on the three
@@ -164,8 +166,8 @@ Geometry comes first, segmentation second.
 | Supplementary | medians, SQ, RQ, PQ / SQ / RQ for objects (_th) and background (_st), AP50, AP25, class-agnostic AP, refinement runtime |
 | Debug (team only) | all scores per class, alignment scale |
 
-- **Aggregation:** every split except stress gets a split aggregate. Dev and stress also get
-  per-scene scores. mIoU pools each class over the split's scenes, then averages over
+- **Aggregation:** every split except stress gets a split aggregate. Dev, val and stress also
+  get per-scene scores. mIoU pools each class over the split's scenes, then averages over
   classes. All other scores are averaged over the scenes. Within a scene, PQ averages over
   classes appearing in the ground truth or prediction, and AP over object classes in the
   ground truth.
@@ -196,7 +198,7 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 | PQ^sc | 0.292 | 0.286 | 0.269 | 0.321 |
 | AP | 0.216 | 0.228 | 0.276 | 0.145 |
 
-- **Refinement does not improve Chamfer on any scene:** it is 3.50 → 3.95 cm on dev,
+- **Refinement does not improve Chamfer on any dev scene:** it is 3.50 → 3.95 cm on dev,
   unchanged in the living room and worse elsewhere. Accuracy improves on every scene and
   disagreement between overlapping views falls 6-8×, but the refined surfaces are thinner
   than Déjà View's scatter, so completeness loses more than accuracy gains, most in the
@@ -208,8 +210,10 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   classes (0.360); the mean of its scenes would be 0.405.
 - **Noise:** GPU sums are not bitwise reproducible, and the spread of these scores is not
   measured yet.
-- `val` and `test` run with the same command once their inputs are cached; neither has been
-  run on this protocol.
+- **Val** (11 scenes no choice was made on, `--splits val`, RTX 5090, 2.2 min) confirms it:
+  accuracy 6.07 → 5.75 cm (better on 9 of 11), completeness 4.15 → 5.67 cm (worse on all
+  11), Chamfer 5.11 → 5.71 cm (worse on 10 of 11). Per scene: E34 in `experiments/LOG.md`.
+- `test` runs with the same command once its inputs are cached; it has not been run.
 
 ## Layout
 
