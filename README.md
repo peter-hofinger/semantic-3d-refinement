@@ -143,44 +143,75 @@ uv run run-pipeline $D/views_n20_uniform_504.npz --geometry $D/dejaview_k16_view
 
 ## Evaluation (Hypersim)
 
-One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`):
-- **Scenes:** the `dev` split of `configs/hypersim.yaml`, three validation scenes with
-  centred cameras, 20 views each. The test split is never used, and no weight is tuned: every
-  energy term has weight 1.
-- **Inputs:** cached Déjà View geometry, DSINE normals and linked SAM 3 masks, with one prompt
-  per NYU40 class.
-- **Black box:** only the output, one labeled cloud in the first view's frame, is scored.
-  It is registered onto the ground truth from the two clouds alone: a start from the first
-  camera and the ratio of median distances to it, then ICP that also fits the scale
-  (as π³ and VGGT are evaluated). Each variant is registered on its own.
-- **Scores** (`src/evaluation/labeled.py`), against Hypersim's per-pixel ground truth on a
-  1 cm grid:
-  - accuracy, completeness and F-score at 5 cm (Tanks and Temples), for the scene and per
-    class;
-  - mIoU and instance AP50 (ScanNet's protocol), on labels transferred to the ground-truth
-    points.
+One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hypersim.yaml`).
+Geometry comes first, segmentation second.
+
+- **Data:** the splits of `configs/hypersim.yaml`, 20 evenly spaced views per scene, 504 px.
+  No weight is tuned: every energy term has weight 1.
+- **Output:** per input pixel, a 3D point in view 0's frame (V, H, W, 3) and an instance id
+  (V, H, W). The same id means the same object in every view. Each id has a class and a
+  confidence.
+- **Alignment:** one Umeyama Sim(3) on the pixel pairs, since output pixel i matches
+  ground-truth pixel i.
+- **Classes:** the dataset's full label set (Hypersim: all 40 NYU40 classes). Wall, floor and
+  ceiling have no instances in Hypersim, so all pixels of such a class in a scene form one
+  segment, in both ground truth and prediction. Unlabeled pixels are void for label scores,
+  but still count for geometry.
+- **Labels:** scored per pixel, so geometric drift doesn't affect them.
+- **Thresholds:** none beyond the metrics' own definitions.
+
+| Tier | Metrics |
+|---|---|
+| Headline | mean accuracy, mean completeness, mean Chamfer (all uncapped), mIoU, PQ^sc, class-aware AP |
+| Supplementary | medians, SQ, RQ, PQ / SQ / RQ for objects (_th) and background (_st), AP50, AP25, class-agnostic AP, refinement runtime |
+| Debug (team only) | all scores per class, alignment scale |
+
+- **Aggregation:** every split except stress gets a split aggregate. Dev and stress also get
+  per-scene scores. mIoU pools each class over the split's scenes, then averages over
+  classes. All other scores are averaged over the scenes. Within a scene, PQ averages over
+  classes appearing in the ground truth or prediction, and AP over object classes in the
+  ground truth.
+- **Comparability:** per-pixel points and labels and PQ^sc follow PanSt3R and Pano3D, and the
+  evenly spaced views follow Pano3D. Our numbers are not directly comparable to
+  competitors, because scenes, classes and scored views differ. Comparing requires running
+  their methods on this protocol.
 
 ```bash
-uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
-uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml   # inputs: dejaview-predict, dsine-predict, sam3-segment
+uv run hypersim-download --splits dev stress && uv run hypersim-prepare --splits dev stress
+uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --splits dev stress   # inputs: dejaview-predict, dsine-predict, sam3-segment
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Living room, bedroom and hotel lobby, 20 views each, every energy weight 1, none tuned
-(`figures/eval_hypersim-20261103-155403`; 1.7 min):
+Every energy weight 1, none tuned (`figures/eval_hypersim-20261105-104445`; 1.2 min for both
+splits on an RTX 3080). Its `presentation/` folder holds the shared bedroom at the views of
+issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 
-| F-score at 5 cm | living room | bedroom | lobby |
-|---|---|---|---|
-| Déjà View | 0.941 | 0.913 | 0.677 |
-| Refined (`configs/refine.yaml`) | 0.950 | 0.910 | 0.644 |
+| cm, ↓ | dev aggregate | living room | bedroom | lobby |
+|---|---|---|---|---|
+| accuracy | 4.68 → 4.21 | 2.19 → 1.79 | 2.52 → 2.20 | 9.31 → 8.63 |
+| completeness | 2.32 → 3.69 | 1.01 → 1.41 | 1.17 → 1.72 | 4.80 → 7.96 |
+| Chamfer | 3.50 → 3.95 | 1.60 → 1.60 | 1.85 → 1.96 | 7.05 → 8.30 |
 
-- **Accuracy improves on every scene** (2.24 → 1.81, 2.71 → 2.46, 6.13 → 5.89 cm), and the
-  views fuse: disagreement between overlapping views falls 6–8×.
-- **Completeness drops.** The refined surfaces are thinner than Déjà View's scatter, which
-  costs most in the large lobby. Setting the weights is the next step.
-- **Noise:** the same energy scores within about 0.006 between runs (GPU sums are not
-  bitwise reproducible).
-- The tilt-shift scenes of the `stress` split are in `figures/eval_hypersim-20261103-150543`.
+| labels (both variants) | dev aggregate | living room | bedroom | lobby |
+|---|---|---|---|---|
+| mIoU | 0.360 | 0.345 | 0.413 | 0.457 |
+| PQ^sc | 0.292 | 0.286 | 0.269 | 0.321 |
+| AP | 0.216 | 0.228 | 0.276 | 0.145 |
+
+- **Refinement does not improve Chamfer on any scene:** it is 3.50 → 3.95 cm on dev,
+  unchanged in the living room and worse elsewhere. Accuracy improves on every scene and
+  disagreement between overlapping views falls 6-8×, but the refined surfaces are thinner
+  than Déjà View's scatter, so completeness loses more than accuracy gains, most in the
+  large lobby. Setting the weights is the next step.
+- **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
+  the kitchen, 15.29 → 15.91 in the conference room, 3.99 → 4.36 in the restaurant.
+- **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
+  SAM 3 finds but the scene lacks (4-5 per dev scene) as 0. The dev mIoU is pooled over 29
+  classes (0.360); the mean of its scenes would be 0.405.
+- **Noise:** GPU sums are not bitwise reproducible, and the spread of these scores is not
+  measured yet.
+- `val` and `test` run with the same command once their inputs are cached; neither has been
+  run on this protocol.
 
 ## Layout
 
@@ -199,7 +230,7 @@ src/                the code, imported as `src`
   output.py         PointCloud, PLY export
   pipeline.py       chains the stages
   evaluation/       metrics against ground truth: instances (instances.py), labeled
-                    cloud (labeled.py: F-score, mIoU, instance AP50)
+                    output (labeled.py: accuracy, completeness, Chamfer, mIoU, PQ, AP)
   analysis/         the Hypersim protocol (scene_eval.py), its figures and point renders
 experiments/        SAM 3 study (LOG.md, scripts, results, figures)
 figures/            refinement figures, one folder per run with a README

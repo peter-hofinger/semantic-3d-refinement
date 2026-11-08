@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from src.analysis.render import Camera, intrinsics, look_at, splat
+from src.analysis.scene_figures import shown
 
 
 def test_the_nearest_point_wins_where_it_projects() -> None:
@@ -24,3 +25,8 @@ def test_a_splat_covers_its_surface_patch() -> None:
     point, color = torch.tensor([[0.0, 0, 2]]), torch.ones(1, 3)
     near = splat(point, color, torch.tensor([0.2]), Camera(camera, k, (41, 41)), 0.0)
     assert near[..., 0].sum() == 5 * 5  # half-width 20 * 0.2 / 2 = 2 pixels
+
+
+def test_the_presentation_shows_only_the_chosen_scene_and_views() -> None:
+    assert shown("ai_006_007_cam_00") == ("presentation", (18, 0, 12, 6))
+    assert shown("ai_044_001_cam_00")[0] == "debug"

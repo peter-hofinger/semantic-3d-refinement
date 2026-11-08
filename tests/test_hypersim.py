@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from src.loaders.ground_truth import NO_MESH
 from src.loaders.hypersim.config import (
     OFFICIAL_PARTITION,
     HypersimConfig,
@@ -22,7 +23,6 @@ from src.loaders.hypersim.scene import (
     distance_to_depth,
     unscaled_rotation,
 )
-from src.loaders.scannetpp.gt import NO_MESH
 from src.segmentation.base import NO_INSTANCE
 
 # ai_015_001: 60 degree horizontal field of view, 1024 x 768
