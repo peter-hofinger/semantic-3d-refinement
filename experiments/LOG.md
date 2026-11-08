@@ -1801,3 +1801,20 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   views' walls. **Conclusion:** the fixed GT is multi-view consistent, as well as any other pair in the scene
   (0.104% vs 0.083% median), so ai_031_004 can be scored. Déjà View, SAM 3 and DSINE caches need no rerun
   (they never read cameras); only `views_n20_uniform_504.npz` was replaced on the cluster (old copy kept).
+- **Addendum, all 11 val scenes after the fix (08.11.2026):** cluster job 1373 (VC17, RTX 5090, 2:14), `scene_eval` at
+  main f645d08 (clean) with `--splits val` and a config copy that differs from the addendum above only in reading
+  `configs/hypersim.yaml` (all 11 val scenes); run `eval_hypersim_v2_val-20261108-183432`. Table: `uv run python
+  experiments/scripts/e34_val11.py runs/eval_hypersim_v2_val-20261108-183432/run.yaml >
+  experiments/results/e34_val11.txt`. ai_031_004 now registers at scale 2.78 (other scenes 2.75-7.24; 421 before).
+
+  | | accuracy (cm) | completeness (cm) | Chamfer (cm) | scenes better: acc / comp / Chamfer |
+  |---|---|---|---|---|
+  | ai_031_004 (courtyard) | 4.586 -> 4.399 | 4.623 -> 5.525 | 4.604 -> 4.962 | |
+  | val (11) | 6.065 -> 5.749 | 4.147 -> 5.671 | 5.106 -> 5.710 | 9 / 0 / 1 |
+  | the other 10, this run | 6.213 -> 5.885 | 4.100 -> 5.685 | 5.156 -> 5.785 | |
+
+  The other 10 scenes reproduce job 994 (same GPU type): Déjà View identical to 0.001 cm, Refined accuracy 5.885 vs
+  5.884. Label scores are unchanged by the refiner, as the protocol intends (val mIoU 0.395, PQ^sc 0.256, AP 0.353).
+  **Conclusion:** ai_031_004 behaves like the rest of val: accuracy better, completeness worse, Chamfer worse.
+  With it, completeness is worse on 11 of 11 val scenes and Chamfer on 10 of 11; the split means move by less
+  than 0.15 cm, so nothing in the conclusions above changes. Val is now complete; quote these 11-scene numbers.
