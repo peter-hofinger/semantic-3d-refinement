@@ -7,7 +7,10 @@ Hypersim conventions (github.com/apple/ml-hypersim, README and contrib/mikerober
 - `M_cam_from_uv` maps (u, v, 1), with u and v in [-1, 1] (v up), to a camera ray;
   tilt-shift scenes (most of them) have extra terms: split into K and a camera
   rotation (`camera_from_cam_from_uv`); the few whose K would have skew are rejected;
-- `semantic` holds NYU40 class ids, `semantic_instance` instance ids, -1 = none.
+- `semantic` holds NYU40 class ids, `semantic_instance` instance ids, -1 = none;
+- a stored orientation can be a uniformly scaled rotation (ai_031_004 cam_00 keyframe 0
+  is 10 R, singular values 10, 10, 10; every other prepared frame is orthonormal to
+  1e-6): it is divided by cbrt(det), anything else is rejected (`unscaled_rotation`).
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from PIL import Image
 
 OPENGL_TO_OPENCV = np.diag([1.0, -1.0, -1.0, 1.0])
 SKEW_TOL = 1e-3  # pixels; larger K[0, 1] = skewed tilt-shift camera, rejected
+ROTATION_TOL = 1e-5  # max |R^T R - I| after removing a uniform scale
 
 # NYU40 class names, index = class id (0 unused)
 NYU40 = (
@@ -82,6 +86,22 @@ def camera_from_cam_from_uv(
         raise ValueError(msg)
     k[0, 1] = 0.0
     return k, q
+
+
+def unscaled_rotation(r: np.ndarray) -> np.ndarray:
+    """Return r / s for r = s R (s > 0, R a rotation); raise if r has another form."""
+    if r.shape != (3, 3) or not np.isfinite(r).all():
+        msg = f"orientation is not a finite 3 x 3 matrix: {r.tolist()}"
+        raise ValueError(msg)
+    det = np.linalg.det(r)
+    if det <= 0:
+        msg = f"orientation is not a scaled rotation (det {det}): {r.tolist()}"
+        raise ValueError(msg)
+    rotation = r / np.cbrt(det)
+    if np.abs(rotation.T @ rotation - np.eye(3)).max() > ROTATION_TOL:
+        msg = f"orientation is not a uniformly scaled rotation: {r.tolist()}"
+        raise ValueError(msg)
+    return rotation
 
 
 def distance_to_depth(distance: np.ndarray, k: np.ndarray) -> np.ndarray:
@@ -181,7 +201,7 @@ class HypersimScene:
         for frame_id in self.public_frame_ids():
             k = keyframe_of[frame_id]
             pose = np.eye(4)
-            pose[:3, :3] = rotations[k]
+            pose[:3, :3] = unscaled_rotation(rotations[k])
             pose[:3, 3] = positions[k] * self.meters_per_asset_unit
             frames.append(
                 Frame(

@@ -42,6 +42,8 @@ cameras in meters) and `GroundTruth` (instance ids, z-depth, classes) straight f
 Hypersim's per-pixel maps, so `eval-instances` works unchanged. Notes:
 - Most Hypersim cameras are tilt-shift: `M_cam_from_uv` is split into a pinhole K
   (off-centre principal point) and a camera rotation; the few with skew are rejected.
+- One stored camera orientation is 10 × a rotation (ai_031_004, keyframe 0): the loader
+  divides a uniform scale out and rejects any other non-rotation (E34 in `experiments/LOG.md`).
 - Déjà View always predicts a centred principal point, so use plain-camera scenes with it
   (14 of the 46 validation scenes). On tilt-shift scenes its point maps degrade with the
   offset: Rel. L2 0.010-0.026 on the three plain scenes vs 0.031-0.116 on the three

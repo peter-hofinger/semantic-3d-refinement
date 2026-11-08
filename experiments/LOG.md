@@ -1782,3 +1782,22 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   between the two alignments (bathroom ai_004_003 Déjà View completeness 1.58 -> 10.48 cm; ai_009_009 accuracy
   better under ICP, worse under Umeyama), so per-scene claims depend on the alignment; the split-level pattern
   does not.
+- **Addendum, loader fix for ai_031_004 (08.11.2026):** `src/loaders/hypersim/scene.py` now passes every stored
+  orientation through `unscaled_rotation`: divide by cbrt(det), then require |R^T R - I| <= 1e-5; a reflection,
+  a non-uniform scale or a shear raises (tests: three scales recovered to 1e-12, the three bad forms rejected).
+  Only keyframe 0 of ai_031_004 cam_00 has cbrt(det) != 1 (10.000000). Re-prepared views differ from the old ones
+  only in view 0's `cam_to_world` (images, intrinsics and GT identical); the camera rebuilt from the fixed one
+  times 10 matches the old file to 5e-7. Check: `uv run python experiments/scripts/e34_ai031004_camera.py >
+  experiments/results/e34_ai031004_camera.txt` (laptop, 35 s) lifts each view's GT z-depth, projects it into every
+  other view and compares depths where the point is visible (within 5%):
+
+  | camera of view 0 | view 0 pairs that overlap | median rel. depth error, view 0 | other 342 pairs |
+  |---|---|---|---|
+  | stored (10 R) | 0 / 38 | - | 322 overlap, 0.083% |
+  | unscaled | 38 / 38 (mean overlap 34.6%) | 0.104% | 322 overlap, 0.083% |
+
+  Figure `figures/e34_ai031004_camera.jpg` (in `experiments/`): GT points from above; with the stored camera,
+  view 0's points spread 10 times too far (out to 80 m in a courtyard about 10 m across), after the fix they lie on the other
+  views' walls. **Conclusion:** the fixed GT is multi-view consistent, as well as any other pair in the scene
+  (0.104% vs 0.083% median), so ai_031_004 can be scored. Déjà View, SAM 3 and DSINE caches need no rerun
+  (they never read cameras); only `views_n20_uniform_504.npz` was replaced on the cluster (old copy kept).
