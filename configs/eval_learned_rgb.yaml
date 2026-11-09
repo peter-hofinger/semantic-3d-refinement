@@ -1,0 +1,17 @@
+# Learned refiner without masks (issue #11): as eval_learned.yaml, on the refiner that sees only
+# RGB, depth and confidence. Run with --splits dev.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
+views: views_n20_uniform_504
+backbone: learned-rgb
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
+refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+variants:
+  - name: Learned (no masks)
+    refiner: none
+  - name: Learned (no masks) + joint
+    refiner: joint

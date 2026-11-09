@@ -1,0 +1,8 @@
+# SegVGGT (src/backbone/segvggt.py, segvggt-predict): the authors' code and ScanNet
+# checkpoint (VGGT License, research use only), both outside git.
+repo: data/third_party/SegVGGT      # IDEA-Research/SegVGGT @ cd5f156
+config: configs/eval/segvggt_scannetv2.yaml
+checkpoint: data/third_party/SegVGGT/checkpoint/segvggt_scannetv2.pt   # JinyuanQu/SegVGGT
+# Mask2Former's panoptic inference defaults (Cheng et al., CVPR 2022), not tuned
+object_threshold: 0.8
+overlap_threshold: 0.8
