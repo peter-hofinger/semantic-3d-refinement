@@ -1,0 +1,121 @@
+run runs/e37_hypersim-20261109-162959 (git b90bc6744349e40fe656ba42c195d2f8cf08682d); variants ['Déjà View', 'Refined, no confidence']
+check, completeness recomputed vs the run's (cm): scene | variant | here | run
+  ai_010_007_cam_00 | Déjà View | 1.012 | 1.012
+  ai_010_007_cam_00 | Refined, no confidence | 1.398 | 1.398
+  ai_006_007_cam_00 | Déjà View | 1.164 | 1.164
+  ai_006_007_cam_00 | Refined, no confidence | 1.703 | 1.703
+  ai_044_001_cam_00 | Déjà View | 4.746 | 4.746
+  ai_044_001_cam_00 | Refined, no confidence | 7.799 | 7.799
+  ai_003_010_cam_00 | Déjà View | 3.255 | 3.255
+  ai_003_010_cam_00 | Refined, no confidence | 3.753 | 3.753
+  ai_004_003_cam_00 | Déjà View | 10.475 | 10.475
+  ai_004_003_cam_00 | Refined, no confidence | 12.039 | 12.039
+  ai_004_004_cam_00 | Déjà View | 1.506 | 1.506
+  ai_004_004_cam_00 | Refined, no confidence | 2.180 | 2.180
+  ai_004_010_cam_00 | Déjà View | 1.412 | 1.412
+  ai_004_010_cam_00 | Refined, no confidence | 1.676 | 1.676
+  ai_005_005_cam_00 | Déjà View | 2.435 | 2.435
+  ai_005_005_cam_00 | Refined, no confidence | 3.320 | 3.320
+  ai_007_001_cam_00 | Déjà View | 2.257 | 2.257
+  ai_007_001_cam_00 | Refined, no confidence | 3.379 | 3.379
+  ai_009_007_cam_00 | Déjà View | 2.395 | 2.395
+  ai_009_007_cam_00 | Refined, no confidence | 3.244 | 3.244
+  ai_009_009_cam_00 | Déjà View | 12.150 | 12.150
+  ai_009_009_cam_00 | Refined, no confidence | 19.006 | 19.006
+  ai_031_004_cam_00 | Déjà View | 4.623 | 4.623
+  ai_031_004_cam_00 | Refined, no confidence | 5.508 | 5.508
+  ai_044_003_cam_01 | Déjà View | 2.797 | 2.797
+  ai_044_003_cam_01 | Refined, no confidence | 4.534 | 4.534
+  ai_050_002_cam_00 | Déjà View | 2.318 | 2.318
+  ai_050_002_cam_00 | Refined, no confidence | 3.330 | 3.330
+  ai_015_001_cam_00 | Déjà View | 1.355 | 1.355
+  ai_015_001_cam_00 | Refined, no confidence | 2.024 | 2.024
+  ai_047_009_cam_00 | Déjà View | 14.030 | 14.030
+  ai_047_009_cam_00 | Refined, no confidence | 15.642 | 15.642
+  ai_052_001_cam_00 | Déjà View | 2.492 | 2.492
+  ai_052_001_cam_00 | Refined, no confidence | 3.656 | 3.656
+
+## dev (3 scenes)
+variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale
+Déjà View | 14.58 | 13.53 | 0.58 | 0.049 | 0.93 | 15.05 | 15.14 | 0.89 | 11.56 | 9.92 | 0.004 | 9.62 | 0 | 2.31 | 5.5157
+Refined, no confidence | 13.90 | 13.09 | 0.26 | 0.042 | 0.93 | 14.36 | 14.56 | 0.89 | 10.88 | 9.06 | 0.004 | 9.54 | 0 | 3.63 | 5.5139
+edges, Déjà View: bin | px share | contribution to error cm
+  <=1 px | 0.060 | 5.49
+  1-3 px | 0.049 | 1.07
+  3-10 px | 0.137 | 1.93
+  >10 px | 0.755 | 6.09
+edges, Refined, no confidence: bin | px share | contribution to error cm
+  <=1 px | 0.060 | 5.37
+  1-3 px | 0.049 | 1.00
+  3-10 px | 0.137 | 1.81
+  >10 px | 0.755 | 5.72
+completeness change, Refined, no confidence - Déjà View: +1.33 cm; group | px share | contribution cm
+  by_edge: <=1 px 0.060 / +0.16 | 1-3 px 0.049 / +0.10 | 3-10 px 0.137 / +0.31 | >10 px 0.754 / +0.76
+  by_views: 1 view 0.039 / +0.02 | 2-3 0.133 / +0.07 | 4-7 0.263 / +0.16 | 8+ 0.565 / +1.07
+  by_confidence: Q1 (low) 0.250 / +0.51 | Q2 0.250 / +0.33 | Q3 0.250 / +0.32 | Q4 (high) 0.250 / +0.16
+  by_moved: Q1 (low) 0.250 / +0.22 | Q2 0.250 / +0.30 | Q3 0.250 / +0.36 | Q4 (high) 0.250 / +0.45
+  by_class (largest 8): wall 0.343 / +0.62 | unlabeled 0.068 / +0.29 | door 0.024 / +0.07 | ceiling 0.101 / +0.07 | desk 0.012 / +0.06 | picture 0.030 / +0.06 | sofa 0.034 / +0.04 | table 0.018 / +0.03
+pulled across the edge (<= 3 px, 0.087 of px): Déjà View 0.222, Refined, no confidence 0.218
+
+## val (11 scenes)
+variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale
+Déjà View | 17.60 | 16.95 | 0.66 | 0.080 | 0.83 | 16.67 | 16.08 | 0.80 | 14.04 | 10.20 | 0.022 | 27.92 | 0 | 4.15 | 4.0317
+Refined, no confidence | 17.50 | 16.85 | 0.38 | 0.065 | 0.83 | 16.59 | 16.11 | 0.80 | 13.91 | 9.66 | 0.022 | 25.28 | 0 | 5.63 | 4.0359
+edges, Déjà View: bin | px share | contribution to error cm
+  <=1 px | 0.081 | 6.73
+  1-3 px | 0.063 | 1.63
+  3-10 px | 0.165 | 2.63
+  >10 px | 0.692 | 6.61
+edges, Refined, no confidence: bin | px share | contribution to error cm
+  <=1 px | 0.081 | 6.65
+  1-3 px | 0.063 | 1.62
+  3-10 px | 0.165 | 2.69
+  >10 px | 0.692 | 6.53
+completeness change, Refined, no confidence - Déjà View: +1.49 cm; group | px share | contribution cm
+  by_edge: <=1 px 0.081 / +0.22 | 1-3 px 0.062 / +0.17 | 3-10 px 0.164 / +0.38 | >10 px 0.694 / +0.71
+  by_views: 1 view 0.046 / +0.06 | 2-3 0.132 / +0.18 | 4-7 0.292 / +0.41 | 8+ 0.530 / +0.83
+  by_confidence: Q1 (low) 0.250 / +0.84 | Q2 0.250 / +0.29 | Q3 0.250 / +0.21 | Q4 (high) 0.250 / +0.14
+  by_moved: Q1 (low) 0.250 / +0.21 | Q2 0.250 / +0.26 | Q3 0.250 / +0.34 | Q4 (high) 0.250 / +0.68
+  by_class (largest 8): wall 0.319 / +0.92 | unlabeled 0.169 / +0.19 | ceiling 0.086 / +0.07 | otherstructure 0.045 / +0.05 | window 0.012 / +0.05 | floor 0.162 / +0.04 | lamp 0.012 / +0.02 | otherprop 0.019 / +0.02
+pulled across the edge (<= 3 px, 0.115 of px): Déjà View 0.237, Refined, no confidence 0.235
+
+## stress (3 scenes)
+variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale
+Déjà View | 26.21 | 27.37 | 1.01 | 0.155 | 0.92 | 23.36 | 22.53 | 0.86 | 22.22 | 15.88 | 0.043 | 13.81 | 0 | 5.96 | 3.5368
+Refined, no confidence | 25.71 | 26.96 | 0.63 | 0.138 | 0.92 | 22.94 | 22.34 | 0.86 | 21.69 | 15.37 | 0.043 | 13.70 | 0 | 7.11 | 3.5426
+edges, Déjà View: bin | px share | contribution to error cm
+  <=1 px | 0.130 | 8.25
+  1-3 px | 0.093 | 2.68
+  3-10 px | 0.187 | 3.54
+  >10 px | 0.590 | 11.74
+edges, Refined, no confidence: bin | px share | contribution to error cm
+  <=1 px | 0.130 | 8.11
+  1-3 px | 0.093 | 2.62
+  3-10 px | 0.187 | 3.47
+  >10 px | 0.590 | 11.51
+completeness change, Refined, no confidence - Déjà View: +1.15 cm; group | px share | contribution cm
+  by_edge: <=1 px 0.128 / +0.19 | 1-3 px 0.092 / +0.13 | 3-10 px 0.187 / +0.26 | >10 px 0.593 / +0.57
+  by_views: 1 view 0.049 / +0.07 | 2-3 0.154 / +0.14 | 4-7 0.303 / +0.22 | 8+ 0.494 / +0.71
+  by_confidence: Q1 (low) 0.250 / +0.55 | Q2 0.250 / +0.33 | Q3 0.250 / +0.18 | Q4 (high) 0.250 / +0.08
+  by_moved: Q1 (low) 0.250 / +0.16 | Q2 0.250 / +0.25 | Q3 0.250 / +0.32 | Q4 (high) 0.250 / +0.42
+  by_class (largest 8): wall 0.268 / +0.45 | unlabeled 0.080 / +0.17 | window 0.043 / +0.12 | chair 0.178 / +0.10 | blinds 0.028 / +0.06 | ceiling 0.057 / +0.04 | otherstructure 0.022 / +0.04 | floor 0.112 / +0.04
+pulled across the edge (<= 3 px, 0.180 of px): Déjà View 0.237, Refined, no confidence 0.236
+
+## per scene: error cm, per-view cm, cross-view >5%, comp cm (variant 0 -> 1), comp change by edge bin cm
+ai_010_007_cam_00 | 5.77 -> 5.28 | 5.56 -> 5.13 | 0.019 -> 0.017 | 1.01 -> 1.40 | +0.02 +0.02 +0.05 +0.29
+ai_006_007_cam_00 | 6.79 -> 6.44 | 6.17 -> 5.90 | 0.077 -> 0.069 | 1.16 -> 1.70 | +0.03 +0.02 +0.06 +0.42
+ai_044_001_cam_00 | 31.18 -> 29.98 | 28.86 -> 28.23 | 0.051 -> 0.042 | 4.75 -> 7.80 | +0.42 +0.27 +0.81 +1.56
+ai_003_010_cam_00 | 10.63 -> 10.39 | 10.59 -> 10.41 | 0.068 -> 0.061 | 3.25 -> 3.75 | +0.06 +0.03 +0.06 +0.35
+ai_004_003_cam_00 | 19.30 -> 19.34 | 18.47 -> 18.51 | 0.020 -> 0.016 | 10.48 -> 12.04 | +0.20 +0.06 +0.16 +1.15
+ai_004_004_cam_00 | 9.54 -> 9.44 | 10.04 -> 9.94 | 0.074 -> 0.067 | 1.51 -> 2.18 | +0.04 +0.02 +0.06 +0.55
+ai_004_010_cam_00 | 6.44 -> 6.16 | 6.16 -> 5.89 | 0.045 -> 0.038 | 1.41 -> 1.68 | +0.01 +0.01 +0.03 +0.22
+ai_005_005_cam_00 | 14.78 -> 13.68 | 14.64 -> 13.64 | 0.153 -> 0.103 | 2.43 -> 3.32 | +0.09 +0.08 +0.19 +0.53
+ai_007_001_cam_00 | 8.54 -> 8.03 | 7.03 -> 6.83 | 0.043 -> 0.034 | 2.26 -> 3.38 | +0.03 +0.03 +0.09 +0.98
+ai_009_007_cam_00 | 14.76 -> 14.49 | 13.95 -> 13.73 | 0.151 -> 0.132 | 2.40 -> 3.24 | +0.13 +0.10 +0.18 +0.45
+ai_009_009_cam_00 | 60.21 -> 62.78 | 56.81 -> 58.80 | 0.127 -> 0.101 | 12.15 -> 19.01 | +1.33 +1.09 +2.60 +1.84
+ai_031_004_cam_00 | 15.36 -> 15.27 | 15.21 -> 15.16 | 0.072 -> 0.062 | 4.62 -> 5.51 | +0.15 +0.10 +0.22 +0.41
+ai_044_003_cam_01 | 22.17 -> 21.33 | 22.20 -> 21.37 | 0.050 -> 0.043 | 2.80 -> 4.53 | +0.25 +0.17 +0.38 +0.94
+ai_050_002_cam_00 | 11.93 -> 11.53 | 11.36 -> 11.08 | 0.077 -> 0.064 | 2.32 -> 3.33 | +0.19 +0.14 +0.27 +0.42
+ai_015_001_cam_00 | 7.60 -> 7.40 | 7.00 -> 6.82 | 0.115 -> 0.103 | 1.35 -> 2.02 | +0.05 +0.05 +0.13 +0.44
+ai_047_009_cam_00 | 50.86 -> 50.21 | 55.37 -> 54.93 | 0.172 -> 0.152 | 14.03 -> 15.64 | +0.25 +0.15 +0.30 +0.92
+ai_052_001_cam_00 | 20.17 -> 19.52 | 19.73 -> 19.13 | 0.179 -> 0.158 | 2.49 -> 3.66 | +0.27 +0.20 +0.35 +0.35

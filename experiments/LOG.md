@@ -2055,3 +2055,57 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Cost:** E35's jobs took 3:14 (Hypersim, 2 variants) and 1:27 (ETH3D); a third variant adds about half, so one
   job of ~8 min on one RTX 5090.
 - **Numbering:** E36 stays reserved for Pouya's learned-refiner entry, as E35 announced.
+
+## E37: E_d without Déjà View's confidence -> does not work: removes 1-3% of the completeness loss (09.11.2026)
+- **Goal, change, scenes and expectations:** as in the plan entry above, run as planned.
+- **Commits:** 0f9f210 (`RefineConfig.conf_power`, tests), b90bc67 (plan, `experiments/configs/e37_{hypersim,eth3d}.yaml`,
+  `e35_error_split.py --variants`), this commit (`experiments/scripts/e37_anchor.py`, `e37_figures.py`).
+- **Commands** (cluster, one RTX 5090, VC18, git b90bc67 clean; `runs/` stays local):
+  - job 1503, 9:18 in all: `scene_eval --cfg experiments/configs/e37_hypersim.yaml --splits dev val stress` (2:29,
+    run `e37_hypersim-20261109-162959`), `e35_eth3d_eval.py --cfg experiments/configs/e37_eth3d.yaml` (2:04, run
+    `e37_eth3d-20261109-163228`), then `e35_error_split.py <run> --variants 0 1` and `--variants 0 2` on both
+    -> `results/e37_eval.txt` (log), `results/e37_error_split_{hypersim,eth3d}.txt` (p = 0 against Déjà View).
+    Job 1504 redid the Hypersim splits with `--maps ai_006_007_cam_00` (1503 passed the name without `_cam_00`).
+  - `uv run python experiments/scripts/e37_anchor.py` (laptop, the 7 scenes whose Déjà View output is cached
+    there) -> `results/e37_anchor.txt`; `uv run python experiments/scripts/e37_figures.py runs/e37_hypersim-20261109-162959
+    runs/e37_eth3d-20261109-163228` -> `results/e37_figures.txt` and the figures below.
+- **Reproduction:** the p = 1 variant equals E35 (completeness within 0.001 cm on every scene).
+- **Protocol scores, cm, mean of scenes (Déjà View / refined p = 1 / refined p = 0):**
+
+  | scenes | accuracy | completeness | Chamfer |
+  |---|---|---|---|
+  | Hypersim dev (3) | 4.65 / 4.18 / 4.18 | 2.31 / 3.66 / 3.63 | 3.48 / 3.92 / 3.91 |
+  | Hypersim val (11) | 6.07 / 5.75 / 5.75 | 4.15 / 5.67 / 5.63 | 5.11 / 5.71 / 5.69 |
+  | ETH3D indoor (7) | 6.70 / 6.46 / 6.46 | 4.43 / 5.12 / 5.11 | 5.56 / 5.79 / 5.78 |
+  | ETH3D outdoor (6) | 18.69 / 18.67 / 18.65 | 11.67 / 13.91 / 13.89 | 15.18 / 16.29 / 16.27 |
+
+  p = 0 has the better completeness than p = 1 on 26 of 30 scenes (dev 2/3, val 10/11, stress 3/3, ETH3D 11/13),
+  by at most 0.23 cm (ai_009_009, 19.23 -> 19.01; worse by up to 0.09, playground); the loss against Déjà View
+  stays (val +1.52 -> +1.49 cm). Accuracy moves by at most 0.14 cm either way (ai_009_009 better, 21.35 -> 21.22).
+- **Completeness change by Déjà View confidence quartile** (`results/e37_error_split_*.txt`; contributions in cm,
+  they sum to the change): the lowest quarter carries val +0.87 -> +0.84, ETH3D outdoor +1.11 -> +1.11, ETH3D
+  indoor +0.40 -> +0.37, dev +0.53 -> +0.51 (p = 1 -> p = 0). Its share of the loss does not fall.
+- **Why so little** (`results/e37_anchor.txt`): inside Huber's threshold the per-pixel anchor's stiffness on δ is
+  λ_d w / 2 from E_d plus λ_δ from ‖δ‖², which no confidence scales. With every weight 1 that is at most
+  1 + c / 2: on the 7 cached scenes the confidence c (divided by its view's mean) averages 0.43 in its lowest
+  quarter and 1.69 in its highest, so the stiffness bound is 1.22 there against 1.85, and p = 0 raises it to 1.5.
+  Low-confidence pixels were never anchored much more weakly than the rest, and p = 0 stiffens them by about a fifth.
+- **Figures:** `figures/e37_confidence.jpg` (the change per group and quartile, both refiners side by side);
+  `figures/e37_coverage_ai_006_007.jpg` and `figures/e37_coverage_office.jpg` (Déjà View confidence, each GT
+  pixel's completeness change for p = 1 and p = 0 on one ±5 cm scale, and p = 0 - p = 1 on ±1 cm). The p = 1 and
+  p = 0 maps look the same; their difference is below 1 cm except in small patches (office view 10's ceiling
+  beams, bedroom's lamp and bed). In office view 0 the high-confidence left wall turns red as much as the
+  low-confidence ones: the loss spreads over whole surfaces whatever their confidence.
+- **Conclusion:**
+  - E35's reading of H3 is wrong in its mechanism: the loss does sit on low-confidence pixels, but not because
+    the confidence weight leaves them unanchored; E_d is at most a third of the anchor next to λ_δ‖δ‖².
+    Confidence most likely marks where Déjà View's views disagree, which is where E_mv moves the depth most (E35:
+    the quarter of pixels whose depth moved most carries 34-46% of the loss on Hypersim, 37-54% on ETH3D). This
+    is a reading, not a measurement.
+  - Not worth keeping as a method change: p = 0 is a consistent but negligible gain. `conf_power` stays at 1 in
+    `configs/refine.yaml`.
+  - Not tested, next candidates: (a) whether completeness rewards spread: Déjà View's 20 overlapping layers of a
+    wall scatter around the GT, so some layer lies near every GT point; E_mv pulls them into one surface (E35:
+    median cross-view gap halved), and if that surface sits off the GT every GT point is further away. Scoring
+    each view's cloud alone before and after refinement would tell. (b) E35's other variant, E_mv off on the
+    lowest-confidence quarter. (a) is analysis only and comes first.
