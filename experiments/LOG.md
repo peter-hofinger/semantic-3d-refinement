@@ -2109,3 +2109,31 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
     median cross-view gap halved), and if that surface sits off the GT every GT point is further away. Scoring
     each view's cloud alone before and after refinement would tell. (b) E35's other variant, E_mv off on the
     lowest-confidence quarter. (a) is analysis only and comes first.
+
+## Plan: E38 = does completeness reward Déjà View's spread, which the refiner merges away (09.11.2026)
+- **Goal:** test E37's candidate (a). Each scene is 20 overlapping views, so Déjà View gives every surface up to
+  20 layers that scatter around the GT; completeness takes the nearest point of any layer, and some layer lies
+  near almost every GT point. E_mv pulls the layers into one surface (E35: median cross-view gap halved). If
+  that surface sits off the GT, fused completeness gets worse even when no single view does. Analysis only: no
+  change to the method, the scorer or any run.
+- **Inputs:** E37's two runs (git b90bc67), variants 0 (Déjà View) and 1 (Refined, the refiner as it is, p = 1);
+  Hypersim dev (3), val (11), stress (3), ETH3D (13). Every point aligned by the run's own scene Sim(3).
+- **Measured, per scene** (GT pixels as the protocol's completeness: every pixel with GT depth, all views):
+  - *Fused completeness* C_f: a GT point's distance to the nearest predicted point of any view (the protocol's).
+  - *Own-view completeness* C_o: a GT point of view i to the nearest predicted point of view i alone.
+  - *Fusion bonus* B = C_o - C_f >= 0, per GT point. Exactly ΔC_f = ΔC_o - ΔB (refined minus Déjà View,
+    averaged over the same GT points), so the completeness loss splits into "each view moved off the GT" (ΔC_o)
+    and "the views stopped covering for each other" (-ΔB).
+  - *Spread:* per GT point, the number of views with a predicted point within 2 cm and within 5 cm; the share of
+    GT points whose nearest predicted point comes from another view than their own (C_f < C_o).
+  - ΔC_o and -ΔB by Déjà View confidence quartile (per scene, as E35), to tie back to H3.
+- **Decision, fixed before running:** on Hypersim val and ETH3D, if -ΔB carries at least half of ΔC_f, the loss
+  is mainly the merge of a spread that completeness rewarded (and the metric, not only the surface, is part of
+  the story); if ΔC_o carries more than half, each view's surface moves off the GT and the refiner itself is
+  wrong there. Thresholds 2 and 5 cm only; no other value is tried on these numbers.
+- **Expected, written before running:** -ΔB at least half of the loss on val, since E35's coverage maps show
+  the loss on large surfaces where views agree more after refinement; ΔC_o positive but smaller.
+- **Figures:** per group, ΔC_f split into ΔC_o and -ΔB, Déjà View and Refined; histogram of views within 2 cm;
+  bedroom ai_006_007 views 18, 0, 12, 6 and ETH3D office views 0, 5, 10, 15: ΔC_o and -ΔB per GT pixel on one
+  cm scale.
+- **Cost:** CPU only on the cluster, one k-d tree per view and scene; expected under 30 min with 16 cores.
