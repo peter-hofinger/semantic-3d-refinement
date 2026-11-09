@@ -1,7 +1,7 @@
-"""E35: time every pipeline stage on one scene with warm models, and where SAM 3 spends it.
+"""E36: time every pipeline stage on one scene with warm models, and where SAM 3 spends it.
 
-    uv run python experiments/scripts/e35_profile.py <scene folder>
-    uv run python experiments/scripts/e35_profile.py <scene folder> --breakdown
+    uv run python experiments/scripts/e36_profile.py <scene folder>
+    uv run python experiments/scripts/e36_profile.py <scene folder> --breakdown
 
 Default: weights load once (timed apart), then Déjà View, SAM 3, association, DSINE and
 the joint refiner run `--repeats` times each; the median per stage is reported. The

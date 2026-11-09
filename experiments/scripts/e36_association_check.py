@@ -1,6 +1,6 @@
-"""E35: the torch association against the numpy one it replaced, on real scenes.
+"""E36: the torch association against the numpy one it replaced, on real scenes.
 
-    uv run python experiments/scripts/e35_association_check.py <scene folder>...
+    uv run python experiments/scripts/e36_association_check.py <scene folder>...
 
 Links the eval's cached SAM 3 masks with the cached Déjà View geometry. The numpy
 reprojection is the oracle kept in `tests/test_segmentation.py`. Per scene: directed
