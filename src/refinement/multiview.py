@@ -62,6 +62,9 @@ from src.refinement.normals import NormalTerm, dsine_normals, normal_term, to_wo
 from src.segmentation.base import Segmentation
 
 log_info = logging.getLogger(__name__).info
+# px, median distance of a ray map to its pinhole fit above which the fit counts as
+# broken; Déjà View's rays reach 5.7 px out of domain (ETH3D, E35), 0.6-0.9 in it
+MAX_PINHOLE_RESIDUAL = 10.0
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,9 @@ def fit_pinhole(
     0.6-0.9 px (median) on ScanNet++, in patch-sized steps that show as a 14 px grid in
     every normal map lifted through them, and by up to 2.7 px on ETH3D office (1.8 px
     even with a free rotation, so the rays themselves are less pinhole-like there).
+    Out of domain the deviation grows: on ETH3D's 13 training scenes the per-view
+    median reaches 5.7 px (19 of 259 views above 3 px, E35), so the bound only
+    catches a fit that broke (MAX_PINHOLE_RESIDUAL), not a camera that is off.
     """
     h, w = rays.shape[:2]
     d = rays[..., 3:] @ rotation
@@ -130,7 +136,7 @@ def fit_pinhole(
     fx, cx = np.polyfit(x.ravel(), u.ravel(), 1)
     fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
     residual = np.hypot(fx * x + cx - u, fy * y + cy - v)
-    assert np.median(residual) < 3, np.median(residual)  # noqa: PLR2004
+    assert np.median(residual) < MAX_PINHOLE_RESIDUAL, np.median(residual)
     dirs = (
         np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
     )
