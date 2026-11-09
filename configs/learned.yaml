@@ -1,0 +1,20 @@
+# Learned single-view refiner (src/refinement/learned.py, learned-refine, issue #11): trained on
+# Déjà View's depth of the Hypersim train split, written for the dev scenes, scored there by
+# eval_learned.yaml and eval_learned_rgb.yaml. One run, nothing tuned.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml         # its train split
+held_out: 4                          # last train scenes, loss curve only
+predict: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # dev
+models:                              # name -> sees the masks; otherwise identical
+  learned-sam3: true
+  learned-rgb: false
+width: 32          # channels at full resolution, doubled per level (~7.8M parameters)
+steps: 4000
+batch: 8
+crop: 256
+lr: 1.0e-3
+grad_weight: 0.5
+seed: 0
