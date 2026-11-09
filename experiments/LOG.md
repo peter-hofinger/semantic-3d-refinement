@@ -1929,3 +1929,104 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   as `src.analysis.scene_eval` (same protocol: one Umeyama Sim(3) on the pixels, accuracy / completeness /
   Chamfer; no label scores, as ETH3D has no labels), not by extending `scene_eval`, so the evaluation
   module stays as it is. Hypersim dev / val / stress keep running through `scene_eval`.
+
+## E35: where the error comes from -> edges in domain, cameras out of domain; the refiner's completeness loss follows low confidence, not edges (09.11.2026)
+- **Goal, scenes, split and hypotheses:** as in the plan entry above, run as planned except where noted.
+- **Commits:** 5ca14a9 (`configs/eval_eth3d.yaml`, `experiments/scripts/e35_eth3d_eval.py`), 4487a62 (pinhole
+  bound, below), 47b531e and this commit (`experiments/scripts/e35_error_split.py`,
+  `experiments/scripts/e35_figures.py`).
+- **Commands** (cluster, RTX 5090; `runs/` stays local):
+  - Backbones on ETH3D: `dejaview-predict`, `sam3-segment --mode image --threshold 0.3 --prompts
+    configs/prompts/nyu40.txt`, `dsine-predict` on the 13 scenes (job 1488, 7:43: Déjà View 13-17 s per scene,
+    SAM 3 3:09 for all, DSINE 54 s); SAM 3 and DSINE for the 3 stress scenes, same settings (job 1489).
+  - `uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --splits dev val stress` (job 1492,
+    3:14, git 5ca14a9, run `eval_hypersim-20261109-145132`): dev and val equal E34's.
+  - `uv run python experiments/scripts/e35_eth3d_eval.py --cfg configs/eval_eth3d.yaml` (job 1495, 1:27, git
+    47b531e, run `eval_eth3d-20261109-152420`) -> `results/e35_eth3d_eval.txt`.
+  - `uv run python experiments/scripts/e35_error_split.py runs/<run> --maps <scene>` on both runs (CPU, 1-3 min)
+    -> `results/e35_error_split_{hypersim,eth3d}.txt`; the completeness it recomputes equals the run's on all
+    30 scenes (to 0.001 cm).
+  - `uv run python experiments/scripts/e35_figures.py runs/eval_hypersim-20261109-145132
+    runs/eval_eth3d-20261109-152420` (laptop) -> `results/e35_figures.txt` and the three figures below.
+- **Changed after the plan:**
+  - *Pinhole bound.* Every view's ray map is replaced by its pinhole fit (`fit_pinhole`), which asserted a
+    median ray-to-pinhole distance below 3 px (set on ScanNet++, 0.6-0.9 px). Déjà View's rays on ETH3D exceed it
+    in 19 of 259 views over 7 scenes (per-scene median over views 0.55-2.81 px; relief_2 9 of 20 views; worst view
+    5.72 px, playground), so the first ETH3D run stopped. Leaving those scenes out would remove the
+    out-of-domain cases E35 is about; the bound moved to 10 px (4487a62), a value for a broken fit rather than
+    one just above the ETH3D maximum. In-domain scores do not change (every Hypersim view was below 3 px).
+  - *Objects on SAM 3 instances for Hypersim too.* The plan fitted GT instances on Hypersim and SAM 3 instances
+    on ETH3D; the first numbers showed that the two do not compare, so both are reported on Hypersim.
+- **ETH3D, protocol scores, Déjà View -> refined (cm, mean of scenes):**
+
+  | scenes | accuracy | completeness | Chamfer |
+  |---|---|---|---|
+  | indoor (7) | 6.70 -> 6.46 | 4.43 -> 5.12 | 5.56 -> 5.79 |
+  | outdoor (6) | 18.69 -> 18.67 | 11.67 -> 13.91 | 15.18 -> 16.29 |
+  | all 13 | 12.23 -> 12.09 | 7.77 -> 9.18 | 10.00 -> 10.64 |
+
+  Completeness and Chamfer worse on 13 of 13 scenes, accuracy better on 10 (worse on electro, playground,
+  terrace): the pattern of E34 on Hypersim val. Déjà View fails on playground (accuracy 48.8 cm; the next worst,
+  terrace, 21.9). Not compared with the Déjà View paper's ETH3D numbers (other metric and alignment).
+- **Error split, Déjà View** (per-pixel error = distance to the pixel's own GT point after the protocol's Sim(3);
+  scenes weighted equally; full tables per group and per scene in the results files):
+
+  | | Hypersim dev (3) | val (11) | stress (3) | ETH3D indoor (7) | outdoor (6) |
+  |---|---|---|---|---|---|
+  | per-pixel error, cm | 14.58 | 17.60 | 26.21 | 13.86 | 38.78 |
+  | 1. one Sim(3) per view instead, cm | 13.53 (-7%) | 16.95 (-4%) | 27.37 (+4%) | 10.39 (-25%) | 30.94 (-20%) |
+  | 2. view pairs disagreeing by > 5% | 0.049 | 0.080 | 0.155 | 0.047 | 0.051 |
+  | 3. pixels within 3 px of a GT depth edge | 0.108 | 0.144 | 0.223 | 0.026 | 0.038 |
+  | 3. their share of the error | 0.450 | 0.475 | 0.417 | 0.068 | 0.070 |
+  | 4. GT objects: error -> own scale + shift, cm | 15.05 -> 15.14 | 16.67 -> 16.08 | 23.36 -> 22.53 | - | - |
+  | 4. SAM 3 objects: error -> own scale + shift, cm | 11.56 -> 9.92 | 14.04 -> 10.20 | 22.22 -> 15.88 | 12.35 -> 7.63 | 58.58 -> 13.83 |
+  | 5. glass / mirror: pixel share, error cm | 0.004, 9.6 | 0.022, 27.9 | 0.043, 13.8 | - | - |
+
+  The Sim(3) fits are least squares, so the mean distance can rise where the alignment was already right (stress
+  per view, GT objects on dev). Every refined point is finite.
+- **Completeness change, refined - Déjà View** (shares of the change; contributions sum to it):
+
+  | | Hypersim dev | val | stress | ETH3D indoor | outdoor |
+  |---|---|---|---|---|---|
+  | change, cm | +1.35 | +1.52 | +1.17 | +0.69 | +2.24 |
+  | within 3 px of a GT depth edge | 0.20 | 0.26 | 0.28 | 0.04 | 0.03 |
+  | more than 10 px from one | 0.57 | 0.48 | 0.50 | 0.84 | 0.90 |
+  | lowest-confidence quarter of pixels | 0.39 | 0.57 | 0.49 | 0.58 | 0.50 |
+  | points seen by 1 / 2-3 / 4-7 / 8+ views | .02/.05/.12/.81 | .04/.13/.28/.56 | .06/.13/.19/.62 | .04/.32/.55/.10 | .06/.34/.44/.16 |
+  | wall pixels (Hypersim) | 0.47 | 0.62 | 0.39 | - | - |
+  | near-edge pixels nearer the far side, Déjà View -> refined | 0.222 -> 0.218 | 0.237 -> 0.235 | 0.237 -> 0.236 | 0.252 -> 0.248 | 0.299 -> 0.299 |
+
+  Per scene, the lowest-confidence quarter takes more than its 25% of the loss in 29 of 30 scenes; the
+  exception is the bedroom ai_006_007 (0.23). The refiner halves the median cross-view gap (Hypersim dev 0.58 ->
+  0.26%, ETH3D 0.79 -> 0.53%) while coverage gets worse.
+- **Figures:** `figures/e35_error_split.jpg` (the two tables as bars per group);
+  `figures/e35_coverage_ai_006_007.jpg` (bedroom views 18, 0, 12, 6) and `figures/e35_coverage_office.jpg`
+  (ETH3D office views 0, 5, 10, 15, fixed before looking): image, Déjà View confidence, each GT pixel's
+  completeness distance before and after on one cm scale, and the difference. In both scenes the difference is
+  red over whole walls, doors and ceilings, not in bands along depth edges; office's worst patch is its
+  low-confidence ceiling (view 10).
+- **Hypotheses:**
+  - H1 (completeness loss in the 0-3 px edge bins): **rejected.** Near-edge pixels lose more per pixel on Hypersim
+    (20-28% of the loss on 11-22% of the pixels), but 48-90% of the loss lies more than 10 px from any edge, and
+    no more near-edge pixels end up nearer the far side of their edge than before.
+  - H2 (where few views see a point): **rejected.** Points seen by 1-3 views hold 7-19% of the loss on Hypersim
+    (17-20% of the pixels) and 36-40% on ETH3D (28-30%): at most a mild excess; most of the loss is on points
+    seen by 4 or more views.
+  - H3 (at low confidence): **supported** on both datasets, and per scene in 29 of 30.
+  - H4 (camera / inconsistency grow out of domain): **half.** Per-view alignment removes 20-25% of Déjà View's
+    error on ETH3D against 4-7% on Hypersim, so placing the views relative to each other gets worse out of
+    domain; views do not disagree more (0.047-0.051 of pairs over 5% on ETH3D, 0.049-0.080 on Hypersim dev and
+    val).
+- **Conclusion:**
+  - In domain, depth edges carry the largest share of Déjà View's error (42-48% within 3 px of an edge on
+    Hypersim); this supports the premise of the 3D refiner (#20) on Hypersim. On ETH3D the dotted laser GT
+    under-counts edges (2.6-3.8% of pixels near one), so the edge share there is not comparable.
+  - Out of domain, the camera / global part grows from about 5% to 20-25% of the error, and Déjà View's rays move
+    further from a pinhole (up to 5.7 px per view); test-time adaptation or pose refinement aims at this part.
+  - The object split is no clean measure: on the same Hypersim scenes the fit removes 4% on GT instances and
+    27% on SAM 3's, so it depends on how the segments are cut, not only on placement.
+  - The joint refiner's completeness loss is not an edge effect and not holes: whole low-confidence surfaces
+    (walls, ceilings) move off the GT while the views agree more with each other. Where confidence is low the
+    confidence-weighted anchor E_d is weak and E_mv / E_n set the surface, and a self-consistent consensus off
+    the GT looks like this. Not tested here: rerun with E_d's weight not scaled by confidence (one change), or
+    with E_mv off on the lowest-confidence quarter, and see whether the loss goes.

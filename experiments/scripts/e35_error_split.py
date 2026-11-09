@@ -15,9 +15,11 @@ Error split, per variant (LOG.md E35 plan; thresholds fixed before running):
 3. Edges: error by distance to the nearest GT depth edge (a relative jump above
    DEPTH_JUMP to a 4-neighbour, E18 / E31), bins of EDGE_BINS px: pixel share and
    contribution to the mean error (contributions sum to the mean).
-4. Objects: on GT instances (SAM 3's linked instances where the dataset has no labels)
-   of at least MIN_OBJECT px, each fitted with its own isotropic scale and 3D shift in
-   closed form; the error that stays is shape, the rest placement.
+4. Objects: on GT instances (where the dataset has labels) and on SAM 3's linked
+   instances (every scene, so the datasets compare), of at least MIN_OBJECT px, each
+   fitted with its own isotropic scale and 3D shift in closed form; the error that
+   stays is shape, the rest placement. The fit is least squares, so the mean distance
+   can rise slightly where placement is already right.
 5. Glass and mirrors (NYU40 window, mirror): reported apart and left out of 1-4.
 
 Completeness, Déjà View -> refined: each GT point's distance to the nearest predicted
@@ -28,7 +30,10 @@ non-finite points, and near edges (<= COLLAPSE px) the share of pixels whose dep
 closer to the GT depth across the edge than to their own (two surfaces pulled into one).
 Scenes are averaged with equal weight, as the protocol's split means.
 
-uv run python experiments/scripts/e35_error_split.py runs/<run> > experiments/results/e35_error_split_<data>.txt
+uv run python experiments/scripts/e35_error_split.py runs/<run> [--maps <scene> ...] > experiments/results/e35_error_split_<data>.txt
+also writes `runs/<run>/e35_split.yaml` (every record) and, for the `--maps` scenes,
+`runs/<run>/e35_maps.npz` (`<scene>/comp/<i>`: each GT pixel's completeness distance, m,
+NaN without GT), the inputs of `e35_figures.py`.
 """
 
 import argparse
@@ -198,6 +203,20 @@ def object_error(
     return np.concatenate(before), np.concatenate(after)
 
 
+def object_record(
+    fit: tuple[np.ndarray, np.ndarray] | None, pixels: int
+) -> dict[str, float]:
+    """Pixel share and mean error before and after the object fit, NaN without objects."""
+    if fit is None or not len(fit[0]):
+        return dict.fromkeys(("object_px", "object_cm", "fit_cm"), float("nan"))
+    before, after = fit
+    return {
+        "object_px": float(len(before) / pixels),
+        "object_cm": 100 * float(before.mean()),
+        "fit_cm": 100 * float(after.mean()),
+    }
+
+
 def bins(values: np.ndarray, edges: tuple[float, ...]) -> np.ndarray:
     """Bin index of each value: <= edges[0], ..., > edges[-1]."""
     return np.searchsorted(np.asarray(edges, dtype=float), values, side="left")
@@ -219,9 +238,12 @@ COLUMNS = (
     ("error_per_view_cm", ".2f"),
     ("cross_view_median_pct", ".2f"),
     ("cross_view_over_5pct", ".3f"),
-    ("object_px_share", ".2f"),
-    ("object_error_cm", ".2f"),
-    ("object_fit_error_cm", ".2f"),
+    ("gt_object_px", ".2f"),
+    ("gt_object_cm", ".2f"),
+    ("gt_fit_cm", ".2f"),
+    ("sam3_object_px", ".2f"),
+    ("sam3_object_cm", ".2f"),
+    ("sam3_fit_cm", ".2f"),
     ("glass_px_share", ".3f"),
     ("glass_error_cm", ".2f"),
     ("nonfinite_px", ".0f"),
@@ -239,7 +261,7 @@ def quartile(values: np.ndarray) -> np.ndarray:
 
 
 def analyse(
-    raw: dict, name: str, arrays: dict[str, np.ndarray], n_variants: int
+    raw: dict, name: str, arrays: dict[str, np.ndarray], n_variants: int, *, maps: bool
 ) -> dict:
     """Every number of the module docstring for one scene."""
     paths = input_paths(raw, name)
@@ -271,20 +293,20 @@ def analyse(
     seen, gaps = cross_view(gt_pts, depth, valid, use, (k, c2w), preds)
     dist = edge_distance(depth, valid)
     ebin = bins(dist, EDGE_BINS)
-    labelled = bool(gt.classes)
-    objects = gt.instance_ids if labelled else arrays[f"{name}/labels"]
+    objects = {"gt": gt.instance_ids, "sam3": arrays[f"{name}/labels"]}
+    if not gt.classes:
+        del objects["gt"]
 
-    out: dict = {
-        "objects_from": "GT instances" if labelled else "SAM 3 instances",
-        "variants": [],
-    }
+    out: dict = {"variants": []}
     comps = []
     for v, pred in enumerate(preds):
         err = np.linalg.norm(pred - gt_pts, axis=-1)
         finite = np.isfinite(err)
         u = use & finite
         view_err = per_view_error(pred, gt_pts, u)
-        ob, oa = object_error(pred[u], gt_pts[u], objects[u])
+        fits = {
+            o: object_error(pred[u], gt_pts[u], ids[u]) for o, ids in objects.items()
+        }
         found = np.isfinite(pred[valid]).all(1)
         comp = nearest_distances(pred[valid][found], gt_pts[valid])
         comps.append(comp)
@@ -295,11 +317,11 @@ def analyse(
                 "cross_view_median_pct": 100 * float(np.median(gaps[v])),
                 "cross_view_over_5pct": float((gaps[v] > VISIBLE).mean()),
                 "edges": contributions(err[u], ebin[u], EDGE_LABELS),
-                "object_px_share": float(len(ob) / u.sum()),
-                "object_error_cm": 100 * float(ob.mean()) if len(ob) else float("nan"),
-                "object_fit_error_cm": 100 * float(oa.mean())
-                if len(oa)
-                else float("nan"),
+                **{
+                    f"{o}_{key}": value
+                    for o in ("gt", "sam3")
+                    for key, value in object_record(fits.get(o), u.sum()).items()
+                },
                 "glass_px_share": float(glass.sum() / valid.sum()),
                 "glass_error_cm": 100 * float(err[glass & finite].mean())
                 if (glass & finite).any()
@@ -336,6 +358,11 @@ def analyse(
         collapse.append(float((np.abs(z - other) < np.abs(z - depth))[ok].mean()))
     out["collapse_near_edges"] = collapse
     out["near_edge_px_share"] = float(has.sum() / valid.sum())
+    if maps:
+        for v, comp in enumerate(comps):
+            full = np.full(valid.shape, np.nan, dtype=np.float32)
+            full[valid] = comp
+            out[f"map/{v}"] = full
     return out
 
 
@@ -375,11 +402,9 @@ def mean_of(records: list[dict], path: tuple) -> float:
 
 def report(group: str, records: list[dict], variants: list[str]) -> None:
     """Print one group's split, averaged over its scenes."""
+    print(f"\n## {group} ({len(records)} scenes)")
     print(
-        f"\n## {group} ({len(records)} scenes; objects from {records[0]['objects_from']})"
-    )
-    print(
-        "variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | object px | object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale"
+        "variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale"
     )
     for v, name in enumerate(variants):
         cells = [
@@ -427,7 +452,9 @@ def main() -> None:
     """Split every scene of a run; see the module docstring."""
     parser = argparse.ArgumentParser()
     parser.add_argument("run", type=Path)
-    run: Path = parser.parse_args().run
+    parser.add_argument("--maps", nargs="*", default=[], help="scenes to save maps of")
+    args = parser.parse_args()
+    run: Path = args.run
     summary = yaml.safe_load((run / "run.yaml").read_text(encoding="utf-8"))
     raw = summary["config"]
     variants = [v["name"] for v in raw["variants"]]
@@ -440,9 +467,33 @@ def main() -> None:
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(WORKERS, mp_context=context) as pool:
         jobs = {
-            n: pool.submit(analyse, raw, n, per_scene[n], len(variants)) for n in names
+            n: pool.submit(
+                analyse, raw, n, per_scene[n], len(variants), maps=n in args.maps
+            )
+            for n in names
         }
         records = {n: job.result() for n, job in jobs.items()}
+    maps = {
+        f"{n}/comp/{k.split('/')[1]}": records[n].pop(k)
+        for n in names
+        for k in list(records[n])
+        if k.startswith("map/")
+    }
+    if maps:
+        np.savez_compressed(run / "e35_maps.npz", **maps)
+    (run / "e35_split.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "run": str(run),
+                "git": summary["git"],
+                "groups": groups,
+                "scenes": records,
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
     print(f"run {run} (git {summary['git']}); variants {variants}")
     print(
         "check, completeness recomputed vs the run's (cm): scene | variant | here | run"
