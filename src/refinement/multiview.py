@@ -8,10 +8,10 @@ pixel, d_i(p) = d0_i(p) + δ_i(p), minimizing
   E = λ_d E_d + λ_mv E_mv + λ_n E_n + λ_δ ‖δ‖²,   per-pixel terms as means.
 
 - E_d = w h(d - d0): Huber's cost h (`robust`) anchors to the prediction, weighted by
-  w = confidence (mean one per view) times the consistency u: the share of the other
-  views a pixel lands in whose pixel there carries the same instance id
-  (`consistency`). Where views disagree on the object, at bleeding edges and flying
-  pixels, the anchor lets go.
+  w = c^p u: c the confidence (mean one per view) to the power p (`conf_power`; 0
+  drops it) times the consistency u: the share of the other views a pixel lands in
+  whose pixel there carries the same instance id (`consistency`). Where views
+  disagree on the object, at bleeding edges and flying pixels, the anchor lets go.
 - E_mv: each pixel p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into
   each neighboring view j (the `neighbors` views it overlaps most); the residual is
   log z_j(x) + log d_j(π_j(x)) - log s, the log ratio of the two depths, d_j bilinear
@@ -81,6 +81,7 @@ class RefineConfig:
     lambda_n: float = 1e-4
     lambda_delta: float = 1.0
     huber: float = 0.05  # E_d's Huber threshold on d - d0
+    conf_power: float = 1.0  # E_d's weight: confidence to this power, times u
     edge_tol: float = 0.02  # E_n's occlusion cut (log depth, `normals.cut_weights`)
     neighbors: int = 4  # views each view is matched with, the ones it overlaps most
     gn_iters: int = 10
@@ -91,7 +92,7 @@ class RefineConfig:
     def __post_init__(self) -> None:
         """Check ranges."""
         assert min(self.lambda_d, self.lambda_mv, self.lambda_n, self.lambda_delta) >= 0
-        assert self.huber > 0 and self.edge_tol > 0
+        assert self.huber > 0 and self.edge_tol > 0 and self.conf_power >= 0
         assert self.neighbors >= 1
         assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
 
@@ -379,8 +380,8 @@ def disagreement_pct(depth: Tensor, scene: Scene, matches: Matches) -> float:
 class Problem:
     """What stays fixed in the solve: scene, scale s, d0, weights, normals, matches.
 
-    w is E_d's weight per pixel, confidence times consistency. Normal terms are stacked
-    over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+, w-) as in
+    w is E_d's weight per pixel, confidence^p times consistency. Normal terms are
+    stacked over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+, w-) as in
     `normals.NormalTerm`, the weights 0 between instances.
     """
 
@@ -695,7 +696,7 @@ def build_problem(
 ) -> Problem:
     """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
 
-    E_d's weight is the confidence (mean one per view) times the consistency u; E_n's
+    E_d's weight is the confidence (mean one per view) to `conf_power` times u; E_n's
     edges stay within one instance; E_mv keeps the matches that land on their source's
     instance.
     """
@@ -708,7 +709,7 @@ def build_problem(
     assert ids.shape == scene.depth.shape, ids.shape
     scale = scene.depth.median()
     d0 = scale / scene.depth
-    w = scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)
+    w = (scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)) ** cfg.conf_power
     w = w * consistency(scene, d0, scale, ids)
     terms = None
     if normals is not None:
