@@ -2137,3 +2137,53 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   bedroom ai_006_007 views 18, 0, 12, 6 and ETH3D office views 0, 5, 10, 15: ΔC_o and -ΔB per GT pixel on one
   cm scale.
 - **Cost:** CPU only on the cluster, one k-d tree per view and scene; expected under 30 min with 16 cores.
+
+## E38: most of the completeness loss is the views no longer covering for each other, not each view moving off the GT (09.11.2026)
+- **Goal, inputs and decision rule:** as in the plan entry above, run as planned.
+- **Commits:** the plan commit (plan, `experiments/scripts/e38_spread.py`), this commit (`e38_figures.py`, results,
+  figures).
+- **Commands** (cluster, CPU job 1519, 16 cores, git b90bc67 + `e38_spread.py`, 5 min for both runs):
+  `e38_spread.py runs/e37_hypersim-20261109-162959 --maps ai_006_007_cam_00` and
+  `e38_spread.py runs/e37_eth3d-20261109-163228 --maps office` -> `results/e38_spread_{hypersim,eth3d}.txt`;
+  laptop: `uv run python experiments/scripts/e38_figures.py runs/e37_hypersim-20261109-162959
+  runs/e37_eth3d-20261109-163228` -> `results/e38_figures.txt` and the figures below.
+- **Check:** C_f equals the run's own completeness to 0.001 cm on all 30 scenes.
+- **Completeness split, cm, mean of scenes, variant 0 (Déjà View) -> 1 (Refined, p = 1):**
+
+  | scenes | C_f | C_o | B | ΔC_f = ΔC_o + (-ΔB) | -ΔB share |
+  |---|---|---|---|---|---|
+  | Hypersim dev (3) | 2.31 -> 3.66 | 5.15 -> 5.17 | 2.85 -> 1.52 | +1.35 = +0.02 + 1.33 | 0.99 |
+  | Hypersim val (11) | 4.15 -> 5.67 | 7.03 -> 7.65 | 2.88 -> 1.98 | +1.52 = +0.62 + 0.90 | 0.59 |
+  | Hypersim stress (3) | 5.96 -> 7.13 | 9.46 -> 9.83 | 3.50 -> 2.70 | +1.17 = +0.37 + 0.80 | 0.68 |
+  | ETH3D indoor (7) | 4.43 -> 5.12 | 6.87 -> 7.04 | 2.44 -> 1.92 | +0.69 = +0.18 + 0.52 | 0.75 |
+  | ETH3D outdoor (6) | 11.67 -> 13.91 | 16.43 -> 17.33 | 4.76 -> 3.42 | +2.23 = +0.90 + 1.33 | 0.60 |
+
+  -ΔB > ΔC_o on 8 of 11 val scenes and 9 of 13 ETH3D scenes. The scenes where ΔC_o dominates are Déjà View's
+  failures: ai_009_009 (28 m hall, ΔC_o +4.93 cm) and playground (accuracy 48.8 cm in E35, ΔC_o +4.65). Without
+  them the -ΔB share is 0.80 on val (10 scenes) and 0.85 on ETH3D (12).
+- **Spread** (views with a predicted point within 2 cm of a GT point): the mean barely moves (val 2.61 -> 2.78,
+  ETH3D 1.16 -> 1.20), but its distribution splits. GT points no view comes within 2 cm of rise from 37% to 48%
+  (val) and from 59% to 66% (ETH3D), while points covered by 8 or more views rise too. Where the merged surface
+  lies on the GT every view is there; where it lies off, none is.
+- **By Déjà View confidence quartile:** ΔC_o sits in the lowest quarter (val +0.50 of +0.62, ETH3D +0.43 of
+  +0.51); -ΔB is spread over all four (val +0.37 / +0.24 / +0.17 / +0.13). E35's H3 signal is therefore the
+  smaller part, the low-confidence pixels whose own surface does move off the GT.
+- **Figures:** `figures/e38_split.jpg` (ΔC_o and -ΔB per group; the views-within-2-cm distribution, val and
+  ETH3D indoor); `figures/e38_coverage_ai_006_007.jpg` and `figures/e38_coverage_office.jpg` (ΔC_o and -ΔB per GT
+  pixel, ±5 cm). Bedroom view 6: the back wall's own cloud moves onto its GT (ΔC_o -0.69 cm, blue) while the same
+  wall loses more from the other views (-ΔB +1.16, red). Office: ΔC_o is near zero apart from view 10's ceiling
+  beams, and -ΔB is red on every wall.
+- **Conclusion:**
+  - The expectation holds: on val and ETH3D the merge, not each view moving off the GT, carries 59-75% of the
+    completeness loss (80-85% without Déjà View's two failure scenes). Déjà View's 20 layers scatter around the
+    surface and the metric takes the nearest layer, so some layer sits close to most GT points. E_mv pulls the
+    layers onto one consensus surface that is no closer to the GT than one view alone was (C_o unchanged on dev,
+    +0.6 cm on val), and the nearest-layer advantage goes.
+  - So the completeness loss is mostly the protocol rewarding a scattered cloud. Its 20 per-pixel clouds score
+    a thick shell better than one surface that sits a few cm off. The refiner is not making each view's surface
+    better either: E_mv reaches agreement, not the GT.
+  - Not tested, next candidates: (a) a protocol that scores one surface (fuse the views, e.g. one point per
+    voxel, or own-view completeness next to C_f). That changes the evaluation, so ask the team first. (b) What
+    would move the consensus onto the GT rather than to the views' mean: E_mv weighted by confidence on both
+    sides of a pair, or the 3D refiner Pouya proposes. (c) E35's other variant (E_mv off on the
+    lowest-confidence quarter) aims at ΔC_o, the smaller part, and now matters less.
