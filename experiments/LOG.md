@@ -1823,3 +1823,71 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   val`, whose `per_scene` now includes val (the copy job 1373 read differs only in a comment and in not keeping
   stress per scene, which a `--splits val` run never reads). The first E34 run
   stays reproducible from 5f3af22 with the file as it was in ca1b6b8.
+
+## Plan: E35 = where Déjà View's error comes from, in and out of domain, and where the refiner loses completeness (09.11.2026)
+- **Goal:** split the error of Déjà View, and of Déjà View + joint refiner, by its source instead of one number
+  per scene, so that the next method aims at the largest part (feedback on 05.11 and the split agreed in issue
+  #13). Takes in the completeness study announced as E35 in E34's conclusion: the same split answers why the
+  refiner gains accuracy and loses completeness (val: completeness 4.15 -> 5.67 cm, worse on 11 of 11 scenes).
+  Analysis only: no change to the method, the scorer or the backbones.
+- **Scenes:**
+  - *Out of domain:* the 13 scenes of ETH3D's high-res multi-view training set (7 indoor, 6 outdoor, 14-76 DSLR
+    images each, depth rendered from laser scans). ETH3D is not in Déjà View's 29-dataset training mix (paper
+    Table 6); the paper evaluates on it zero-shot, which gives a sanity check of our numbers. Geometry only:
+    ETH3D has no labels.
+  - *In domain:* Hypersim dev (3) and val (11), the scenes of E34; stress (3 tilt-shift, E30) as the known
+    off-centre-camera failure. Test is not used.
+- **ETH3D loader (new):** undistorted DSLR JPEGs (COLMAP PINHOLE cameras, `cameras.txt` / `images.txt`) to the
+  `Views` + `GroundTruth` format of the Hypersim loader: 20 views per scene by `select_frames(..., "uniform")` in
+  file-name order (all of them for pipes, 14, and meadow, 15), long side 504 (504x336), images resized as in
+  Hypersim, GT sampled nearest. GT depth: ETH3D's depth maps are raw float32 dumps, infinity where no scan point,
+  and match the *distorted* originals (THIN_PRISM_FISHEYE), not the undistorted images. Each undistorted pixel is
+  therefore mapped through the distortion model of its original camera and its depth sampled nearest there
+  (no mixing across edges); no hit -> `NO_MESH`, every hit an unlabeled pixel. Two facts are checked on the data
+  before any score, not assumed: whether the stored value is z-depth or distance along the ray, and that it is
+  in metres. Check as in E34's ai_031_004 addendum: lift each view's GT, project into every other view, median
+  relative depth error where visible (a z / ray mix-up grows towards the image corners). Glass has no laser
+  return, so ETH3D has no GT there; nothing to separate.
+- **Error split** (pixel pairs, after the protocol's one Umeyama Sim(3) per scene; per-pixel error = 3D distance
+  to its GT point; acc / comp / Chamfer reported as well):
+  1. *Camera / global:* align each view on its own (one Sim(3) per view) and rescore. The error that disappears
+     comes from views placed or scaled wrong relative to each other, not from their depth.
+  2. *Cross-view inconsistency:* for pixel pairs that the GT says see the same surface (reprojected GT depth
+     within 5%, as in E34), the relative disagreement of the predicted depths; share of pairs over 5% (double
+     surfaces).
+  3. *Edges:* error by distance to the nearest GT depth edge (relative jump > 5% between 4-neighbours, the
+     E18 / E31 definition) in bins 0-1, 1-3, 3-10, > 10 px, against each bin's share of pixels. Bins instead of
+     one band width, so no width is chosen.
+  4. *Object placement vs shape* (Hypersim, GT instances with >= 200 px over the 20 views): after the scene
+     Sim(3), fit each object's own isotropic scale and 3D shift to its GT points (closed form); error that stays
+     is shape. On ETH3D only with SAM 3 instances (nyu40 prompts), reported apart because mask errors mix in.
+  5. *Glass and mirrors* (Hypersim NYU40 `window` and `mirror`): reported apart and left out of 1-4.
+- **Completeness (the former E35 study), DV -> refined, per GT pixel:** the change of its distance to the
+  nearest predicted point, summed by NYU40 class, by edge-distance bin (as in 3), by the number of views that
+  see the point (GT visibility: 1, 2-3, 4-7, 8+), by Déjà View confidence (quartiles per scene) and by how far
+  its own pixel's depth moved (|delta| quartiles). Also: non-finite refined points, and in the 0-3 px edge bins
+  the share of pixels whose refined depth lies closer to the GT depth across the edge than to their own (two
+  surfaces pulled into one). Figure: GT points that lose coverage, DV and refined side by side on a shared cm
+  scale (bedroom `ai_006_007`, views 18, 0, 12, 6). Also checks the registration scale on the bedroom and the
+  lobby (E35's open item; living room was within 0.1%).
+- **Hypotheses, written before running:** (H1) the completeness loss sits in the 0-3 px edge bins: E_n and E_mv
+  act within one instance, so a far surface inside the same mask is pulled to the near one (E33 removed leaking
+  masks and nothing moved, so this would be within correct masks). (H2) it sits where few views see a point:
+  E_mv pulls views to a consensus that rarely-seen surfaces cannot hold. (H3) it sits at low confidence, where the
+  Huber anchor is weak. Out of domain, (H4) the camera / inconsistency share grows on ETH3D relative to Hypersim.
+  None of these is a claim until the numbers say so.
+- **What the result decides (as in #13):** camera or inconsistency dominant -> test-time adaptation of Déjà View;
+  edges dominant -> 3D or MoGe-3 refinement (Pouya, #20) against a confidence / gradient filter baseline (Peter);
+  shape dominant -> a learned per-object shape prior; Déjà View fine everywhere on ETH3D -> stay on the
+  off-centre camera case. The edge bins test the premise of Pouya's 3D refiner (2D refinement does not fix edges).
+- **Fixed before running:** 20 views, long side 504, Déjà View K=16, the protocol of `configs/eval_hypersim.yaml`,
+  every refiner weight 1, the 5% thresholds, the bins and the 200 px object size. Nothing is chosen on these
+  numbers; if a threshold has to change, the entry says so.
+- **Cost:** download ~12 GB (undistorted images 5.5 GB, depth maps ~5.9 GB summed over scenes, plus the distorted
+  calibration, if it is not in the undistorted archive). Prepare on the laptop, upload the npz files (~20 MB per
+  scene). Cluster: one job for Déjà View, SAM 3 nyu40 and DSINE on the 13 ETH3D scenes (~10 min, from E34's
+  per-scene times), `scene_eval` on ETH3D and Hypersim dev/val/stress (~10 min), then the split on CPU. ETH3D's
+  licence is not stated on its download page: data stays local, and its terms are checked before any ETH3D image
+  goes into a committed figure.
+- **Numbering:** this entry takes E35, as E34 announced; Pouya's learned-refiner entry (E34 on
+  `pouya/learned-refiner`) moves to E36 when it merges.
