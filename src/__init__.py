@@ -3,8 +3,3 @@
 from beartype.claw import beartype_this_package
 
 beartype_this_package()  # runtime type checks on every annotated function in src
-
-
-def main() -> None:
-    """Print a greeting (placeholder entry point)."""
-    print("Hello from semantic-3d-refinement!")  # noqa: T201

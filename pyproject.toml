@@ -28,7 +28,6 @@ dependencies = [
 ]
 
 [project.scripts]
-semantic-3d-refinement = "src:main"
 scannetpp-download = "src.loaders.scannetpp.download:main"
 scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
 scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
@@ -76,7 +75,6 @@ override-dependencies = [
 
 [dependency-groups]
 dev = [
-    "ipykernel>=7.4.0",
     "pytest>=9.1.1",
     "ruff>=0.17.1",
     "tqdm>=4.70.1",
@@ -136,11 +134,6 @@ ignore = [
 ]
 "tests/test_{labeled,multiview,normals}.py" = [
     "PT018",    # composite contract asserts
-]
-"notebooks/**/*.ipynb" = [
-    "T201",     # print is fine in notebooks
-    "D",        # no docstrings needed in notebooks
-    "INP001",   # notebooks are not a package
 ]
 
 [tool.ruff.format]
