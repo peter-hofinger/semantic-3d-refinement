@@ -1925,3 +1925,7 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   **Conclusion:** the camera model, the depth convention and the scale hold on every scene, and the prepared
   GT is as multi-view consistent as Hypersim's; ETH3D can be scored. Not yet run: Déjà View, SAM 3, DSINE and
   the refiner on these scenes (cluster job).
+- **Scoring ETH3D (decided 09.11):** in a separate E35 script that calls the same refiner and scorer functions
+  as `src.analysis.scene_eval` (same protocol: one Umeyama Sim(3) on the pixels, accuracy / completeness /
+  Chamfer; no label scores, as ETH3D has no labels), not by extending `scene_eval`, so the evaluation
+  module stays as it is. Hypersim dev / val / stress keep running through `scene_eval`.
