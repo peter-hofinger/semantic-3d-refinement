@@ -1891,3 +1891,37 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   goes into a committed figure.
 - **Numbering:** this entry takes E35, as E34 announced; Pouya's learned-refiner entry (E34 on
   `pouya/learned-refiner`) moves to E36 when it merges.
+- **Progress 09.11, ETH3D loader (`src/loaders/eth3d/`, `configs/eth3d.yaml`):** `uv run eth3d-download`
+  fetches three archives per scene (undistorted images, distorted JPEGs for their calibration, depth maps;
+  17 GB in all, ~75 min at ~3.5 MB/s), `uv run eth3d-prepare` reads the 20 picked frames straight out of
+  them (~1 min per scene; unpacked, the depth maps alone would be ~44 GB). Three things the download page does
+  not say, found on the data:
+  - The depth maps belong to the *distorted* images (6048 x 4032; undistorted 6220 x 4141). The loader looks
+    each pixel up through our reimplementation of COLMAP's THIN_PRISM_FISHEYE model; mapped this way the
+    distorted pipes image matches the undistorted one to 1.1 grey levels on average (11.8 without the mapping).
+  - They hold **z-depth in metres**, and are **dotted**: laser points splatted on ~1 in 10 pixels (pipes: 9-13%
+    of full-resolution pixels). Sampling at the pixel centre gave depth on 11% of pipes' pixels; each 504 px
+    pixel now takes the dot nearest its centre within its footprint (~12 x 12 source pixels): 78%. One laser
+    sample per pixel, so no mixing across edges, as Hypersim's nearest sampling.
+  - The undistorted principal point is ~1 px off centre at 504 px (pipes: +0.75, -1.0). Images are cropped
+    symmetrically about it (~0.5% of the pixels), so ETH3D does not repeat E30's off-centre camera: off by
+    <= 0.04 px in every view after the crop.
+  Several scenes use more than one camera (courtyard: 4); every image keeps its own.
+- **GT check** (`uv run python experiments/scripts/e35_eth3d_gt_check.py >
+  experiments/results/e35_eth3d_gt_check.txt`, laptop CPU, ~10 min), all 13 scenes, picked views only:
+
+  | check | result over the 13 scenes |
+  |---|---|
+  | GT depth on prepared pixels | 47-92% (outdoor 47-73%: sky, glass, outside the scan; indoor 78-92%) |
+  | SfM points reprojected with our camera model vs COLMAP's observations | median 0.65-0.90 px, 90th percentile 1.9-2.5 px (6048 px images) |
+  | GT depth / camera z, image radius 0-1000 / 1000-2000 / 2000-4000 px | 0.9992-1.0003 in every bin |
+  | GT depth / distance to the camera centre, same bins | 0.96-0.99 / 0.90-0.93 / 0.79-0.83 |
+  | multi-view: median rel. depth error of GT seen from another view | 0.049-0.120% (pairs overlapping: 134-326 of 380) |
+
+  Hypersim's GT, checked the same way in E34, gave 0.083% (ai_031_004). Figure
+  `figures/e35_eth3d_gt_check.jpg` (in `experiments/`): the middle view of each scene and its GT depth; edges
+  and windows line up with the image, glass has no laser return (white), indoor depths reach 43-56 m in
+  delivery_area, relief and relief_2; where a view shows them, they are the far ends of long corridors. ETH3D data: CC BY-NC-SA 4.0, Schöps et al., CVPR 2017.
+  **Conclusion:** the camera model, the depth convention and the scale hold on every scene, and the prepared
+  GT is as multi-view consistent as Hypersim's; ETH3D can be scored. Not yet run: Déjà View, SAM 3, DSINE and
+  the refiner on these scenes (cluster job).

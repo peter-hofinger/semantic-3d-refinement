@@ -1,0 +1,29 @@
+# ETH3D high-res multi-view training set (www.eth3d.net/datasets): download and preprocessing.
+# Paths are relative to the repo root. Out-of-domain scenes for E35: none of them is in Déjà
+# View's 29-dataset training mix (paper Table 6). Geometry only, ETH3D has no labels.
+
+base_url: https://www.eth3d.net/data
+archive_root: data/eth3d/archives   # <scene>_{dslr_undistorted,dslr_jpg,dslr_depth}.7z, kept packed
+output_root: data/processed/eth3d   # preprocessed views and ground truth (.npz)
+
+# all 13 training scenes, none filtered; DSLR images per scene in brackets
+scenes:
+  courtyard: outdoor       # 38
+  delivery_area: indoor    # 44
+  electro: outdoor         # 45
+  facade: outdoor          # 76
+  kicker: indoor           # 31
+  meadow: outdoor          # 15
+  office: indoor           # 26
+  pipes: indoor            # 14
+  playground: outdoor      # 38
+  relief: indoor           # 31
+  relief_2: indoor         # 31
+  terrace: outdoor         # 23
+  terrains: indoor         # 42
+
+prepare:
+  num_frames: 20       # as Hypersim; pipes and meadow have fewer and keep all
+  sampling: uniform    # uniform over file-name (capture) order
+  long_side: 504       # Déjà View input size
+  patch_size: 14       # output width and height are multiples of this
