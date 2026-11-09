@@ -2030,3 +2030,28 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
     confidence-weighted anchor E_d is weak and E_mv / E_n set the surface, and a self-consistent consensus off
     the GT looks like this. Not tested here: rerun with E_d's weight not scaled by confidence (one change), or
     with E_mv off on the lowest-confidence quarter, and see whether the loss goes.
+
+## Plan: E37 = E_d's weight without Déjà View's confidence, against E35's completeness loss (09.11.2026)
+- **Goal:** test E35's reading of H3. E_d's weight per pixel is w = (C / mean C) * u (`build_problem`), so where
+  Déjà View's confidence C is low the Huber anchor is weak and E_mv / E_n set the surface. If that is why whole
+  low-confidence walls and ceilings move off the GT, dropping C from w should take most of the completeness loss
+  away, above all in the lowest-confidence quarter.
+- **Change (one):** `RefineConfig.conf_power` p, w = (C / mean C)^p * u. p = 1 is the refiner as it is (bit for
+  bit); p = 0 leaves the consistency u alone. Everything else as E35: every weight 1, the same Gauss-Newton / CG
+  budget, the same inputs, alignment and scorer.
+- **Scenes:** as E35, Hypersim dev (3), val (11), stress (3) through `scene_eval`, ETH3D's 13 through
+  `e35_eth3d_eval.py`; dev is where a choice would be made, val and ETH3D check it. No test scene.
+- **Variants, in one run per dataset so both refiners share a GPU (bf16 is not bit-reproducible across GPUs):**
+  Déjà View; Refined (p = 1); Refined, p = 0.
+- **Measured:** accuracy, completeness, Chamfer per group and per scene; E35's completeness split (by confidence
+  quartile, edge bin, views, class) of each refined variant against Déjà View; coverage maps of the bedroom
+  (views 18, 0, 12, 6) and ETH3D office (views 0, 5, 10, 15), all three variants on one cm scale.
+- **Expected, written before running:** completeness loss on val and ETH3D at most half of p = 1's, the
+  lowest-confidence quarter's share of the loss falling below its 25% of the pixels; accuracy gives back part of
+  its gain (low-confidence pixels are where Déjà View is least accurate, so anchoring them harder keeps their
+  error). If completeness does not move, H3's mechanism is not the anchor weight but something E_mv / E_n do
+  regardless of it, and the next step is E35's other variant (E_mv off on the lowest quarter).
+- **Fixed before running:** p in {1, 0} only; no value in between is tried on these numbers.
+- **Cost:** E35's jobs took 3:14 (Hypersim, 2 variants) and 1:27 (ETH3D); a third variant adds about half, so one
+  job of ~8 min on one RTX 5090.
+- **Numbering:** E36 stays reserved for Pouya's learned-refiner entry, as E35 announced.

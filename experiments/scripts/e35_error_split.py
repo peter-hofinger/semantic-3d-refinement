@@ -30,10 +30,12 @@ non-finite points, and near edges (<= COLLAPSE px) the share of pixels whose dep
 closer to the GT depth across the edge than to their own (two surfaces pulled into one).
 Scenes are averaged with equal weight, as the protocol's split means.
 
-uv run python experiments/scripts/e35_error_split.py runs/<run> [--maps <scene> ...] > experiments/results/e35_error_split_<data>.txt
+uv run python experiments/scripts/e35_error_split.py runs/<run> [--maps <scene> ...] [--variants A B] > experiments/results/e35_error_split_<data>.txt
 also writes `runs/<run>/e35_split.yaml` (every record) and, for the `--maps` scenes,
 `runs/<run>/e35_maps.npz` (`<scene>/comp/<i>`: each GT pixel's completeness distance, m,
-NaN without GT), the inputs of `e35_figures.py`.
+NaN without GT), the inputs of `e35_figures.py`. The split compares the run's first
+and last variant; `--variants A B` (E37) compares variants A and B instead and writes
+`e35_split_A_B.yaml` and `e35_maps_A_B.npz`.
 """
 
 import argparse
@@ -261,9 +263,14 @@ def quartile(values: np.ndarray) -> np.ndarray:
 
 
 def analyse(
-    raw: dict, name: str, arrays: dict[str, np.ndarray], n_variants: int, *, maps: bool
+    raw: dict,
+    name: str,
+    arrays: dict[str, np.ndarray],
+    picked: list[int],
+    *,
+    maps: bool,
 ) -> dict:
-    """Every number of the module docstring for one scene."""
+    """Every number of the module docstring for one scene, on the picked variants."""
     paths = input_paths(raw, name)
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
     geometry = Geometry.load(paths["geometry"])
@@ -284,7 +291,7 @@ def analyse(
     use = valid & ~glass
 
     preds, depths = [], []
-    for v in range(n_variants):
+    for v in picked:
         d = arrays[f"{name}/{v}"].astype(np.float64)
         a = arrays[f"{name}/{v}/align"]
         p = points_from_rays(torch.from_numpy(d), rays).numpy()
@@ -329,7 +336,7 @@ def analyse(
                 "nonfinite_px": int((~finite[valid]).sum()),
                 "completeness_cm": 100 * float(comp.mean()),
                 "scale": float(
-                    np.cbrt(np.linalg.det(arrays[f"{name}/{v}/align"][:3, :3]))
+                    np.cbrt(np.linalg.det(arrays[f"{name}/{picked[v]}/align"][:3, :3]))
                 ),
             }
         )
@@ -453,11 +460,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("run", type=Path)
     parser.add_argument("--maps", nargs="*", default=[], help="scenes to save maps of")
+    parser.add_argument("--variants", nargs=2, type=int, help="the two to compare")
     args = parser.parse_args()
     run: Path = args.run
     summary = yaml.safe_load((run / "run.yaml").read_text(encoding="utf-8"))
     raw = summary["config"]
-    variants = [v["name"] for v in raw["variants"]]
+    every = [v["name"] for v in raw["variants"]]
+    picked = args.variants or [0, len(every) - 1]
+    assert all(0 <= v < len(every) for v in picked), picked
+    variants = [every[v] for v in picked]
+    suffix = f"_{picked[0]}_{picked[1]}" if args.variants else ""
     groups = groups_of(summary)
     names = list(dict.fromkeys(n for g in groups.values() for n in g))
     with np.load(run / "results.npz") as f:
@@ -467,9 +479,7 @@ def main() -> None:
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(WORKERS, mp_context=context) as pool:
         jobs = {
-            n: pool.submit(
-                analyse, raw, n, per_scene[n], len(variants), maps=n in args.maps
-            )
+            n: pool.submit(analyse, raw, n, per_scene[n], picked, maps=n in args.maps)
             for n in names
         }
         records = {n: job.result() for n, job in jobs.items()}
@@ -480,8 +490,8 @@ def main() -> None:
         if k.startswith("map/")
     }
     if maps:
-        np.savez_compressed(run / "e35_maps.npz", **maps)
-    (run / "e35_split.yaml").write_text(
+        np.savez_compressed(run / f"e35_maps{suffix}.npz", **maps)
+    (run / f"e35_split{suffix}.yaml").write_text(
         yaml.safe_dump(
             {
                 "run": str(run),
