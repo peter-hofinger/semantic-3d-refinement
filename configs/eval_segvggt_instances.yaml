@@ -1,16 +1,18 @@
 # SegVGGT end to end (issue #6): its geometry and its own instances, which it links
 # across views itself, so they skip the association (linked: true); otherwise the
 # protocol of eval_hypersim.yaml. Its ScanNet head has 18 object classes and no wall,
-# floor or ceiling: NYU40 classes it cannot name score zero, and iou_per_class in
-# run.yaml gives the classes it shares with NYU40.
+# floor or ceiling: NYU40 classes it cannot name score zero, and the per-class scores in
+# run.yaml show the classes it shares with NYU40. Run with --splits dev.
 output_dir: runs
 root: data/processed/hypersim
-scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]  # living room, bedroom, lobby
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
 views: views_n20_uniform_504
 backbone: segvggt
 segmentation: segvggt-instances
 linked: true
-classes: configs/prompts/nyu40.txt   # evaluated classes: the prompted ones
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
 refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
 variants:
   - name: SegVGGT
