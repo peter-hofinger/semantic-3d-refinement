@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
 from src.backbone import CachedBackbone, ConstantDepthBackbone
 from src.geometry import Geometry
@@ -11,7 +12,7 @@ from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
-from src.segmentation.sam3 import _compact
+from src.segmentation.sam3 import compact, resolve_overlaps
 
 
 def make_views(num: int = 2, height: int = 20, width: int = 30) -> Views:
@@ -84,12 +85,53 @@ def test_cached_backbone_rejects_other_resolution(tmp_path: Path) -> None:
 
 def test_compact_numbers_only_visible_masks() -> None:
     """Hidden raw detections get no id; visible ones keep their order."""
-    local = np.array([[5, 5, -1], [2, 1500, 1500]], dtype=np.int32)
-    out = np.full(local.shape, -1, dtype=np.int32)
-    mapping = _compact(local, out, view=3)
+    local = torch.tensor([[5, 5, -1], [2, 1500, 1500]])
+    present, ids = compact(local, view=3)
     base = 3 * ID_STRIDE
-    assert mapping == {2: base, 5: base + 1, 1500: base + 2}
-    assert out.tolist() == [[base + 1, base + 1, -1], [base, base + 2, base + 2]]
+    assert present.tolist() == [2, 5, 1500]
+    assert ids.dtype == torch.int32
+    assert ids.tolist() == [[base + 1, base + 1, -1], [base, base + 2, base + 2]]
+
+
+def paint_reference(masks: np.ndarray, scores: np.ndarray) -> np.ndarray:
+    """The CPU painting E35 replaced: masks in order, a higher score takes a pixel."""
+    ids = np.full(masks.shape[1:], NO_INSTANCE, dtype=np.int32)
+    best = np.zeros(masks.shape[1:], dtype=np.float32)
+    for obj, (score, mask) in enumerate(zip(scores, masks, strict=True)):
+        win = mask & (score > best)
+        ids[win] = obj
+        best[win] = score
+    return ids
+
+
+def compact_reference(local: np.ndarray, view: int) -> np.ndarray:
+    """The CPU id compaction E35 replaced."""
+    present = np.unique(local[local >= 0])
+    out = np.full(local.shape, NO_INSTANCE, dtype=np.int32)
+    keep = local >= 0
+    new = view * ID_STRIDE + np.arange(len(present), dtype=np.int32)
+    out[keep] = new[np.searchsorted(present, local[keep])]
+    return out
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_gpu_painting_matches_sequential_painting(seed: int) -> None:
+    """Highest score wins, the earlier mask on ties, as painting in order did."""
+    rng = np.random.default_rng(seed)
+    masks = rng.random((12, 15, 20)) < 0.3
+    # few distinct scores, so ties between overlapping masks are common
+    scores = rng.choice([0.31, 0.5, 0.5, 0.77, 0.9], 12).astype(np.float32)
+    local = resolve_overlaps(torch.from_numpy(masks), torch.from_numpy(scores))
+    expected = paint_reference(masks, scores)
+    np.testing.assert_array_equal(local.numpy(), expected)
+    _, ids = compact(local, view=7)
+    np.testing.assert_array_equal(ids.numpy(), compact_reference(expected, 7))
+
+
+def test_gpu_painting_without_masks_leaves_the_view_empty() -> None:
+    local = resolve_overlaps(torch.zeros(0, 4, 5, dtype=torch.bool), torch.zeros(0))
+    assert local.shape == (4, 5)
+    assert bool((local == NO_INSTANCE).all())
 
 
 def test_count_pairs_matches_unique_rows() -> None:
