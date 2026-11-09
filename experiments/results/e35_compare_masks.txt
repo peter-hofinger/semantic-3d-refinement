@@ -1,0 +1,24 @@
+== old A vs old B
+scene | masks a | masks b | bit-identical ids | pixels with the matched mask | max score diff
+---|---|---|---|---|---
+ai_010_007_cam_00 | 467 | 467 | True | 1.00000 | 0.0000
+ai_006_007_cam_00 | 575 | 575 | True | 1.00000 | 0.0000
+ai_044_001_cam_00 | 1776 | 1776 | True | 1.00000 | 0.0000
+== old A vs the eval's cache
+scene | masks a | masks b | bit-identical ids | pixels with the matched mask | max score diff
+---|---|---|---|---|---
+ai_010_007_cam_00 | 467 | 467 | True | 1.00000 | 0.0000
+ai_006_007_cam_00 | 575 | 575 | True | 1.00000 | 0.0000
+ai_044_001_cam_00 | 1776 | 1776 | True | 1.00000 | 0.0000
+== old A vs new
+scene | masks a | masks b | bit-identical ids | pixels with the matched mask | max score diff
+---|---|---|---|---|---
+ai_010_007_cam_00 | 467 | 466 | False | 0.99983 | 0.0391
+ai_006_007_cam_00 | 575 | 578 | False | 0.99970 | 0.3965
+ai_044_001_cam_00 | 1776 | 1786 | False | 0.99854 | 0.1836
+== new vs the batch-4 trial before committing
+scene | masks a | masks b | bit-identical ids | pixels with the matched mask | max score diff
+---|---|---|---|---|---
+ai_010_007_cam_00 | 466 | 466 | True | 1.00000 | 0.0000
+ai_006_007_cam_00 | 578 | 578 | True | 1.00000 | 0.0000
+ai_044_001_cam_00 | 1786 | 1786 | True | 1.00000 | 0.0000

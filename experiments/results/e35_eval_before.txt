@@ -1,0 +1,9 @@
+ai_010_007_cam_00 | Déjà View | accuracy_cm 2.194 | completeness_cm 1.007 | chamfer_cm 1.601 | miou 0.345 | pq 0.286 | ap 0.228 | 0.0 s
+ai_010_007_cam_00 | Refined | accuracy_cm 1.794 | completeness_cm 1.410 | chamfer_cm 1.602 | miou 0.345 | pq 0.286 | ap 0.228 | 4.5 s
+ai_006_007_cam_00 | Déjà View | accuracy_cm 2.520 | completeness_cm 1.172 | chamfer_cm 1.846 | miou 0.413 | pq 0.269 | ap 0.276 | 0.0 s
+ai_006_007_cam_00 | Refined | accuracy_cm 2.204 | completeness_cm 1.717 | chamfer_cm 1.960 | miou 0.413 | pq 0.269 | ap 0.276 | 3.5 s
+ai_044_001_cam_00 | Déjà View | accuracy_cm 9.312 | completeness_cm 4.795 | chamfer_cm 7.053 | miou 0.457 | pq 0.321 | ap 0.145 | 0.0 s
+ai_044_001_cam_00 | Refined | accuracy_cm 8.635 | completeness_cm 7.955 | chamfer_cm 8.295 | miou 0.457 | pq 0.321 | ap 0.145 | 4.1 s
+dev | Déjà View | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+dev | Refined | accuracy_cm 4.211 | completeness_cm 3.694 | chamfer_cm 3.953 | miou 0.360 | pq 0.292 | ap 0.216 | 4.0 s
+wrote runs/e35_oldA-20261109-205226

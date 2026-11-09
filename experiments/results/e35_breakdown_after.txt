@@ -1,0 +1,44 @@
+ai_006_007_cam_00: 20 views 504x378, git 79538a1, NVIDIA GeForce RTX 3080, torch 2.14.1+cu130
+SAM 3 under cProfile, blocking launches: 21.63 s
+    21.62 s       1x  sam3.py:Sam3ImageSegmenter.segment
+    16.92 s     200x  modeling_sam3.py:Sam3Model.forward
+     6.42 s     200x  modeling_sam3.py:Sam3DetrDecoder.forward
+     5.47 s     200x  modeling_sam3.py:Sam3DetrEncoder.forward
+     5.36 s    1200x  modeling_sam3.py:Sam3DetrEncoderLayer.forward
+     5.08 s    6200x  modeling_sam3.py:Sam3Attention.forward
+     4.80 s     200x  modeling_sam3.py:Sam3MaskDecoder.forward
+     4.06 s     200x  modeling_sam3.py:Sam3MaskDecoder._embed_pixels
+     3.92 s     200x  modeling_sam3.py:Sam3PixelDecoder.forward
+     3.77 s      20x  modeling_sam3.py:Sam3Model.get_vision_features
+     3.77 s      20x  modeling_sam3.py:Sam3VisionModel.forward
+     3.66 s      20x  modeling_sam3.py:Sam3ViTModel.forward
+     3.61 s     640x  modeling_sam3.py:Sam3ViTLayer.forward
+     2.82 s    3040x  modeling_sam3.py:Sam3MLP.forward
+     2.34 s    1200x  modeling_sam3.py:Sam3DetrDecoder._get_rpb_matrix
+     2.18 s    1200x  modeling_sam3.py:Sam3DetrDecoderLayer.forward
+     1.83 s     640x  modeling_sam3.py:Sam3ViTRoPEAttention.forward
+     1.14 s    6400x  modeling_sam3.py:Sam3DecoderMLP.forward
+     0.78 s     640x  modeling_sam3.py:apply_rotary_pos_emb_2d
+     0.56 s    1200x  modeling_sam3.py:Sam3SinePositionEmbedding.encode_boxes
+     0.48 s       1x  sam3.py:Sam3ImageSegmenter.<listcomp>
+     0.48 s      37x  modeling_sam3.py:Sam3Model.get_text_features
+     0.29 s    1280x  modeling_sam3.py:rotate_pairwise
+     0.25 s     200x  processing_sam3.py:Sam3Processor.post_process_instance_segmentation
+     0.25 s     200x  image_processing_sam3.py:Sam3ImageProcessor.post_process_instance_segmentation
+
+association under cProfile: 0.63 s
+     0.63 s       1x  associate.py:Associator.associate
+     0.57 s       1x  associate.py:Associator.overlaps
+     0.03 s      21x  _arraysetops_impl.py:unique
+     0.03 s      21x  _arraysetops_impl.py:_unique1d
+     0.02 s       5x  ~:<method 'to' of 'torch._C.TensorBase' objects>
+     0.02 s      60x  functional.py:_unique_impl
+     0.02 s      60x  ~:<built-in method torch._unique2>
+     0.02 s       1x  shape_base.py:stack
+     0.02 s      20x  ~:<built-in method numpy._core._multiarray_umath._unique_hash>
+     0.01 s       1x  associate.py:object_labels
+     0.01 s     850x  associate.py:Associator.<genexpr>
+     0.01 s      40x  ~:<built-in method torch.floor>
+     0.00 s       1x  associate.py:Associator.<setcomp>
+     0.00 s      20x  ~:<method 'nonzero' of 'torch._C.TensorBase' objects>
+     0.00 s      80x  ~:<method 'long' of 'torch._C.TensorBase' objects>

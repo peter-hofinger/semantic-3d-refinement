@@ -1,0 +1,44 @@
+ai_006_007_cam_00: 20 views 504x378, git 066d620, NVIDIA GeForce RTX 3080, torch 2.14.1+cu130
+SAM 3 under cProfile, blocking launches: 46.87 s
+    46.87 s       1x  sam3.py:Sam3ImageSegmenter.segment
+    42.09 s     740x  modeling_sam3.py:Sam3Model.forward
+    16.71 s     740x  modeling_sam3.py:Sam3DetrDecoder.forward
+    10.05 s   22940x  modeling_sam3.py:Sam3Attention.forward
+     9.51 s     740x  modeling_sam3.py:Sam3Model.get_text_features
+     8.30 s     740x  modeling_sam3.py:Sam3DetrEncoder.forward
+     7.96 s    4440x  modeling_sam3.py:Sam3DetrEncoderLayer.forward
+     6.74 s     740x  modeling_sam3.py:Sam3MaskDecoder.forward
+     6.72 s    4440x  modeling_sam3.py:Sam3DetrDecoderLayer.forward
+     5.48 s     740x  modeling_sam3.py:Sam3MaskDecoder._embed_pixels
+     5.31 s     740x  modeling_sam3.py:Sam3PixelDecoder.forward
+     4.36 s    4440x  modeling_sam3.py:Sam3DetrDecoder._get_rpb_matrix
+     3.73 s      20x  modeling_sam3.py:Sam3Model.get_vision_features
+     3.73 s      20x  modeling_sam3.py:Sam3VisionModel.forward
+     3.62 s      20x  modeling_sam3.py:Sam3ViTModel.forward
+     3.61 s    9520x  modeling_sam3.py:Sam3MLP.forward
+     3.58 s     640x  modeling_sam3.py:Sam3ViTLayer.forward
+     2.90 s   23680x  modeling_sam3.py:Sam3DecoderMLP.forward
+     1.95 s    4440x  modeling_sam3.py:Sam3SinePositionEmbedding.encode_boxes
+     1.81 s     640x  modeling_sam3.py:Sam3ViTRoPEAttention.forward
+     0.78 s     640x  modeling_sam3.py:apply_rotary_pos_emb_2d
+     0.60 s    5180x  modeling_sam3.py:box_cxcywh_to_xyxy
+     0.42 s    5180x  modeling_sam3.py:inverse_sigmoid
+     0.34 s     740x  processing_sam3.py:Sam3Processor.post_process_instance_segmentation
+     0.33 s     740x  image_processing_sam3.py:Sam3ImageProcessor.post_process_instance_segmentation
+
+association under cProfile: 2.01 s
+     2.01 s       1x  associate.py:Associator.associate
+     1.94 s       1x  associate.py:Associator.overlaps
+     0.39 s    1097x  _arraysetops_impl.py:unique
+     0.39 s    1097x  _arraysetops_impl.py:_unique1d
+     0.07 s     380x  base.py:count_pairs
+     0.02 s       1x  shape_base.py:stack
+     0.02 s      20x  ~:<built-in method numpy._core._multiarray_umath._unique_hash>
+     0.01 s     850x  associate.py:Associator.<genexpr>
+     0.01 s       1x  associate.py:object_labels
+     0.00 s       1x  associate.py:Associator.<setcomp>
+     0.00 s    5342x  associate.py:Associator._needed
+     0.00 s       1x  associate.py:Associator.<dictcomp>
+     0.00 s     380x  associate.py:Associator.<listcomp>
+     0.00 s    2273x  associate.py:Associator.root
+     0.00 s       1x  associate.py:Associator.<dictcomp>

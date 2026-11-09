@@ -1,0 +1,4 @@
+git 79538a1, NVIDIA GeForce RTX 3080
+ai_010_007_cam_00: 466 masks, 16.9 s, peak GPU 2.82 GB -> sam3image-nyu40-t0.3-e35new_views_n20_uniform_504.npz
+ai_006_007_cam_00: 578 masks, 16.5 s, peak GPU 2.85 GB -> sam3image-nyu40-t0.3-e35new_views_n20_uniform_504.npz
+ai_044_001_cam_00: 1786 masks, 16.6 s, peak GPU 2.92 GB -> sam3image-nyu40-t0.3-e35new_views_n20_uniform_504.npz
