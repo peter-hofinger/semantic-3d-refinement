@@ -8,6 +8,7 @@ refine:
   lambda_n: 1.0e-4  # E_n's residuals are log-depth steps times the focal length
   lambda_delta: 1.0
   huber: 0.05      # E_d's Huber threshold on the change of inverse depth (relative)
+  conf_power: 1.0  # E_d's weight: Déjà View's confidence to this power, times u
   edge_tol: 0.02   # E_n's occlusion cut on the input's log depth
   neighbors: 4     # views each view is matched with, the ones it overlaps most
   gn_iters: 10     # Gauss-Newton steps of 20 CG iterations

@@ -1,0 +1,109 @@
+run runs/e37_eth3d-20261109-163228 (git b90bc6744349e40fe656ba42c195d2f8cf08682d); variants ['Déjà View', 'Refined, no confidence']
+check, completeness recomputed vs the run's (cm): scene | variant | here | run
+  courtyard | Déjà View | 3.932 | 3.932
+  courtyard | Refined, no confidence | 4.708 | 4.708
+  electro | Déjà View | 7.283 | 7.283
+  electro | Refined, no confidence | 9.426 | 9.426
+  facade | Déjà View | 10.416 | 10.416
+  facade | Refined, no confidence | 13.359 | 13.359
+  meadow | Déjà View | 3.406 | 3.406
+  meadow | Refined, no confidence | 4.267 | 4.267
+  playground | Déjà View | 28.073 | 28.073
+  playground | Refined, no confidence | 33.143 | 33.143
+  terrace | Déjà View | 16.927 | 16.927
+  terrace | Refined, no confidence | 18.460 | 18.460
+  delivery_area | Déjà View | 8.343 | 8.343
+  delivery_area | Refined, no confidence | 9.860 | 9.860
+  kicker | Déjà View | 1.244 | 1.244
+  kicker | Refined, no confidence | 1.740 | 1.740
+  office | Déjà View | 2.258 | 2.258
+  office | Refined, no confidence | 2.828 | 2.828
+  pipes | Déjà View | 1.195 | 1.195
+  pipes | Refined, no confidence | 1.380 | 1.380
+  relief | Déjà View | 5.471 | 5.471
+  relief | Refined, no confidence | 6.131 | 6.131
+  relief_2 | Déjà View | 7.384 | 7.384
+  relief_2 | Refined, no confidence | 8.177 | 8.177
+  terrains | Déjà View | 5.109 | 5.109
+  terrains | Refined, no confidence | 5.619 | 5.619
+
+## outdoor (6 scenes)
+variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale
+Déjà View | 38.78 | 30.94 | 0.71 | 0.051 | nan | nan | nan | 0.51 | 58.58 | 13.83 | 0.000 | nan | 0 | 11.67 | 7.5237
+Refined, no confidence | 39.41 | 31.32 | 0.43 | 0.044 | nan | nan | nan | 0.51 | 59.63 | 13.26 | 0.000 | nan | 0 | 13.89 | 7.5162
+edges, Déjà View: bin | px share | contribution to error cm
+  <=1 px | 0.017 | 1.51
+  1-3 px | 0.022 | 1.22
+  3-10 px | 0.087 | 3.95
+  >10 px | 0.874 | 32.10
+edges, Refined, no confidence: bin | px share | contribution to error cm
+  <=1 px | 0.017 | 1.52
+  1-3 px | 0.022 | 1.22
+  3-10 px | 0.087 | 3.97
+  >10 px | 0.874 | 32.70
+completeness change, Refined, no confidence - Déjà View: +2.22 cm; group | px share | contribution cm
+  by_edge: <=1 px 0.017 / +0.02 | 1-3 px 0.022 / +0.03 | 3-10 px 0.087 / +0.15 | >10 px 0.874 / +2.01
+  by_views: 1 view 0.034 / +0.13 | 2-3 0.242 / +0.78 | 4-7 0.517 / +0.96 | 8+ 0.207 / +0.35
+  by_confidence: Q1 (low) 0.250 / +1.11 | Q2 0.250 / +0.50 | Q3 0.250 / +0.38 | Q4 (high) 0.250 / +0.23
+  by_moved: Q1 (low) 0.250 / +0.34 | Q2 0.250 / +0.49 | Q3 0.250 / +0.60 | Q4 (high) 0.250 / +0.80
+  by_class (largest 8): unlabeled 1.000 / +2.22
+pulled across the edge (<= 3 px, 0.033 of px): Déjà View 0.299, Refined, no confidence 0.299
+
+## indoor (7 scenes)
+variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale
+Déjà View | 13.86 | 10.39 | 0.85 | 0.047 | nan | nan | nan | 0.79 | 12.35 | 7.63 | 0.000 | nan | 0 | 4.43 | 2.9735
+Refined, no confidence | 13.70 | 10.31 | 0.61 | 0.044 | nan | nan | nan | 0.79 | 12.17 | 7.46 | 0.000 | nan | 0 | 5.11 | 2.9758
+edges, Déjà View: bin | px share | contribution to error cm
+  <=1 px | 0.010 | 0.47
+  1-3 px | 0.016 | 0.47
+  3-10 px | 0.074 | 1.65
+  >10 px | 0.900 | 11.27
+edges, Refined, no confidence: bin | px share | contribution to error cm
+  <=1 px | 0.010 | 0.47
+  1-3 px | 0.016 | 0.47
+  3-10 px | 0.074 | 1.65
+  >10 px | 0.900 | 11.12
+completeness change, Refined, no confidence - Déjà View: +0.68 cm; group | px share | contribution cm
+  by_edge: <=1 px 0.010 / +0.01 | 1-3 px 0.016 / +0.02 | 3-10 px 0.074 / +0.08 | >10 px 0.900 / +0.57
+  by_views: 1 view 0.021 / +0.02 | 2-3 0.277 / +0.21 | 4-7 0.488 / +0.37 | 8+ 0.214 / +0.07
+  by_confidence: Q1 (low) 0.250 / +0.37 | Q2 0.250 / +0.14 | Q3 0.250 / +0.09 | Q4 (high) 0.250 / +0.07
+  by_moved: Q1 (low) 0.250 / +0.07 | Q2 0.250 / +0.11 | Q3 0.250 / +0.15 | Q4 (high) 0.250 / +0.35
+  by_class (largest 8): unlabeled 1.000 / +0.68
+pulled across the edge (<= 3 px, 0.021 of px): Déjà View 0.252, Refined, no confidence 0.248
+
+## all (13 scenes)
+variant | error cm | per-view Sim(3) cm | cross-view median % | >5% | GT object px | GT object cm | after fit cm | SAM 3 object px | SAM 3 object cm | after fit cm | glass px | glass cm | non-finite px | comp cm | Sim(3) scale
+Déjà View | 25.36 | 19.87 | 0.79 | 0.049 | nan | nan | nan | 0.66 | 33.69 | 10.49 | 0.000 | nan | 0 | 7.77 | 5.0736
+Refined, no confidence | 25.57 | 20.01 | 0.53 | 0.044 | nan | nan | nan | 0.66 | 34.08 | 10.14 | 0.000 | nan | 0 | 9.16 | 5.0714
+edges, Déjà View: bin | px share | contribution to error cm
+  <=1 px | 0.013 | 0.95
+  1-3 px | 0.019 | 0.82
+  3-10 px | 0.080 | 2.71
+  >10 px | 0.888 | 20.89
+edges, Refined, no confidence: bin | px share | contribution to error cm
+  <=1 px | 0.013 | 0.96
+  1-3 px | 0.019 | 0.82
+  3-10 px | 0.080 | 2.72
+  >10 px | 0.888 | 21.08
+completeness change, Refined, no confidence - Déjà View: +1.39 cm; group | px share | contribution cm
+  by_edge: <=1 px 0.013 / +0.02 | 1-3 px 0.019 / +0.02 | 3-10 px 0.080 / +0.12 | >10 px 0.888 / +1.23
+  by_views: 1 view 0.027 / +0.07 | 2-3 0.261 / +0.47 | 4-7 0.502 / +0.64 | 8+ 0.211 / +0.20
+  by_confidence: Q1 (low) 0.250 / +0.71 | Q2 0.250 / +0.31 | Q3 0.250 / +0.23 | Q4 (high) 0.250 / +0.14
+  by_moved: Q1 (low) 0.250 / +0.19 | Q2 0.250 / +0.28 | Q3 0.250 / +0.35 | Q4 (high) 0.250 / +0.56
+  by_class (largest 8): unlabeled 1.000 / +1.39
+pulled across the edge (<= 3 px, 0.027 of px): Déjà View 0.274, Refined, no confidence 0.272
+
+## per scene: error cm, per-view cm, cross-view >5%, comp cm (variant 0 -> 1), comp change by edge bin cm
+courtyard | 14.51 -> 13.99 | 10.98 -> 10.71 | 0.032 -> 0.031 | 3.93 -> 4.71 | +0.01 +0.01 +0.03 +0.74
+electro | 24.48 -> 26.54 | 21.25 -> 24.14 | 0.031 -> 0.026 | 7.28 -> 9.43 | +0.02 +0.03 +0.13 +1.96
+facade | 40.94 -> 39.40 | 35.16 -> 33.97 | 0.056 -> 0.047 | 10.42 -> 13.36 | +0.04 +0.05 +0.24 +2.61
+meadow | 16.39 -> 15.62 | 15.73 -> 14.68 | 0.036 -> 0.030 | 3.41 -> 4.27 | +0.02 +0.03 +0.12 +0.70
+playground | 96.92 -> 100.65 | 78.48 -> 80.18 | 0.141 -> 0.119 | 28.07 -> 33.14 | +0.04 +0.07 +0.31 +4.65
+terrace | 39.45 -> 40.29 | 24.07 -> 24.27 | 0.010 -> 0.010 | 16.93 -> 18.46 | +0.01 +0.02 +0.09 +1.42
+delivery_area | 26.25 -> 26.22 | 22.43 -> 22.55 | 0.050 -> 0.043 | 8.34 -> 9.86 | +0.01 +0.03 +0.15 +1.33
+kicker | 5.41 -> 5.33 | 4.73 -> 4.64 | 0.042 -> 0.040 | 1.24 -> 1.74 | +0.01 +0.01 +0.06 +0.42
+office | 5.41 -> 5.35 | 3.47 -> 3.38 | 0.016 -> 0.013 | 2.26 -> 2.83 | +0.00 +0.01 +0.04 +0.52
+pipes | 3.78 -> 3.63 | 3.31 -> 3.23 | 0.021 -> 0.020 | 1.20 -> 1.38 | +0.00 +0.01 +0.04 +0.14
+relief | 17.24 -> 16.89 | 13.82 -> 13.78 | 0.012 -> 0.012 | 5.47 -> 6.13 | +0.02 +0.03 +0.11 +0.50
+relief_2 | 25.94 -> 25.62 | 15.67 -> 15.35 | 0.064 -> 0.062 | 7.38 -> 8.18 | +0.01 +0.02 +0.12 +0.64
+terrains | 12.97 -> 12.88 | 9.27 -> 9.27 | 0.125 -> 0.116 | 5.11 -> 5.62 | +0.01 +0.02 +0.06 +0.42

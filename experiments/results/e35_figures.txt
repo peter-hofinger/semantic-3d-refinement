@@ -1,0 +1,7 @@
+Hypersim dev: error 14.58 -> per-view 13.53 cm; <=3 px: 0.108 of px, 0.450 of error, 0.199 of comp loss
+Hypersim val: error 17.60 -> per-view 16.95 cm; <=3 px: 0.144 of px, 0.475 of error, 0.264 of comp loss
+Hypersim stress: error 26.21 -> per-view 27.37 cm; <=3 px: 0.223 of px, 0.417 of error, 0.282 of comp loss
+ETH3D indoor: error 13.86 -> per-view 10.39 cm; <=3 px: 0.026 of px, 0.068 of error, 0.042 of comp loss
+ETH3D outdoor: error 38.78 -> per-view 30.94 cm; <=3 px: 0.038 of px, 0.070 of error, 0.027 of comp loss
+ai_006_007_cam_00: change +0.54 cm; low-confidence quarter +0.49 cm, rest +0.55 cm
+office: change +0.57 cm; low-confidence quarter +0.79 cm, rest +0.50 cm

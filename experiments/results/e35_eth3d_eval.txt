@@ -1,0 +1,33 @@
+courtyard | Déjà View | accuracy_cm 6.804 | completeness_cm 3.932 | chamfer_cm 5.368 | 0.0 s
+courtyard | Refined | accuracy_cm 6.261 | completeness_cm 4.712 | chamfer_cm 5.487 | 0.9 s
+delivery_area | Déjà View | accuracy_cm 10.181 | completeness_cm 8.343 | chamfer_cm 9.262 | 0.0 s
+delivery_area | Refined | accuracy_cm 9.963 | completeness_cm 9.899 | chamfer_cm 9.931 | 0.8 s
+electro | Déjà View | accuracy_cm 10.744 | completeness_cm 7.283 | chamfer_cm 9.013 | 0.0 s
+electro | Refined | accuracy_cm 11.646 | completeness_cm 9.503 | chamfer_cm 10.575 | 1.2 s
+facade | Déjà View | accuracy_cm 18.569 | completeness_cm 10.416 | chamfer_cm 14.492 | 0.0 s
+facade | Refined | accuracy_cm 17.065 | completeness_cm 13.352 | chamfer_cm 15.208 | 1.1 s
+kicker | Déjà View | accuracy_cm 2.378 | completeness_cm 1.244 | chamfer_cm 1.811 | 0.0 s
+kicker | Refined | accuracy_cm 2.197 | completeness_cm 1.747 | chamfer_cm 1.972 | 1.0 s
+meadow | Déjà View | accuracy_cm 5.403 | completeness_cm 3.406 | chamfer_cm 4.404 | 0.0 s
+meadow | Refined | accuracy_cm 4.722 | completeness_cm 4.289 | chamfer_cm 4.506 | 1.0 s
+office | Déjà View | accuracy_cm 3.156 | completeness_cm 2.258 | chamfer_cm 2.707 | 0.0 s
+office | Refined | accuracy_cm 3.058 | completeness_cm 2.830 | chamfer_cm 2.944 | 0.9 s
+pipes | Déjà View | accuracy_cm 2.066 | completeness_cm 1.195 | chamfer_cm 1.631 | 0.0 s
+pipes | Refined | accuracy_cm 1.888 | completeness_cm 1.386 | chamfer_cm 1.637 | 0.6 s
+playground | Déjà View | accuracy_cm 48.757 | completeness_cm 28.073 | chamfer_cm 38.415 | 0.0 s
+playground | Refined | accuracy_cm 49.954 | completeness_cm 33.057 | chamfer_cm 41.506 | 1.4 s
+relief | Déjà View | accuracy_cm 8.925 | completeness_cm 5.471 | chamfer_cm 7.198 | 0.0 s
+relief | Refined | accuracy_cm 8.460 | completeness_cm 6.151 | chamfer_cm 7.306 | 0.8 s
+relief_2 | Déjà View | accuracy_cm 12.845 | completeness_cm 7.384 | chamfer_cm 10.114 | 0.0 s
+relief_2 | Refined | accuracy_cm 12.358 | completeness_cm 8.223 | chamfer_cm 10.290 | 0.8 s
+terrace | Déjà View | accuracy_cm 21.877 | completeness_cm 16.927 | chamfer_cm 19.402 | 0.0 s
+terrace | Refined | accuracy_cm 22.368 | completeness_cm 18.534 | chamfer_cm 20.451 | 0.8 s
+terrains | Déjà View | accuracy_cm 7.333 | completeness_cm 5.109 | chamfer_cm 6.221 | 0.0 s
+terrains | Refined | accuracy_cm 7.279 | completeness_cm 5.630 | chamfer_cm 6.454 | 0.8 s
+indoor | Déjà View | accuracy_cm 6.698 | completeness_cm 4.429 | chamfer_cm 5.563
+indoor | Refined | accuracy_cm 6.458 | completeness_cm 5.124 | chamfer_cm 5.791
+outdoor | Déjà View | accuracy_cm 18.692 | completeness_cm 11.673 | chamfer_cm 15.183
+outdoor | Refined | accuracy_cm 18.669 | completeness_cm 13.908 | chamfer_cm 16.289
+all | Déjà View | accuracy_cm 12.234 | completeness_cm 7.772 | chamfer_cm 10.003
+all | Refined | accuracy_cm 12.094 | completeness_cm 9.178 | chamfer_cm 10.636
+wrote runs/eval_eth3d-20261109-152420

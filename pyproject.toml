@@ -18,6 +18,7 @@ dependencies = [
     "numpy>=2.4.6",
     "open3d>=0.19",
     "pillow>=13.0.0",
+    "py7zr>=1.1.4",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
     "requests>=2.34",
@@ -34,6 +35,8 @@ scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
 scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
 hypersim-download = "src.loaders.hypersim.download:main"
 hypersim-prepare = "src.loaders.hypersim.prepare:main"
+eth3d-download = "src.loaders.eth3d.download:main"
+eth3d-prepare = "src.loaders.eth3d.prepare:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
 segvggt-predict = "src.backbone.segvggt:main"
@@ -139,6 +142,10 @@ ignore = [
 ]
 "src/analysis/*.py" = [
     "E501",     # figure captions, slide text and README tables as long f-strings
+]
+# the ETH3D loader states its calibration and depth contracts the same way
+"src/loaders/eth3d/*.py" = [
+    "S101",     # contract asserts
 ]
 "tests/test_{labeled,multiview,normals,segvggt,learned}.py" = [
     "PT018",    # composite contract asserts

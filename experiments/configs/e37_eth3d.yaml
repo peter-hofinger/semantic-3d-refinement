@@ -1,0 +1,23 @@
+# E37 (experiments/LOG.md): configs/eval_eth3d.yaml plus a third variant, E_d's
+# weight without Déjà View's confidence (conf_power 0); run by e35_eth3d_eval.py as in E35.
+# E35's out-of-domain scoring (experiments/scripts/e35_eth3d_eval.py): every variant on
+# the 13 scenes of configs/eth3d.yaml, with the inputs and refiner of
+# configs/eval_hypersim.yaml (20 views at 504 px, Déjà View K = 16, SAM 3 image mode
+# nyu40 t0.3 linked with the working association, DSINE normals). Each output is aligned
+# onto the ground truth by one Umeyama Sim(3) on the pixels, as in src/evaluation/labeled.py;
+# surface scores only (accuracy, completeness, Chamfer), as ETH3D has no labels.
+output_dir: runs
+root: data/processed/eth3d
+dataset: configs/eth3d.yaml          # the scenes, each indoor or outdoor
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: Refined
+    refiner: joint
+  - name: Refined, no confidence
+    refiner: joint
+    refine: {conf_power: 0.0}
