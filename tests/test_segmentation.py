@@ -10,6 +10,7 @@ from src.loaders import Views
 from src.pipeline import Pipeline
 from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
+from src.segmentation.associate import Associator
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import compact, resolve_overlaps
@@ -132,6 +133,95 @@ def test_gpu_painting_without_masks_leaves_the_view_empty() -> None:
     local = resolve_overlaps(torch.zeros(0, 4, 5, dtype=torch.bool), torch.zeros(0))
     assert local.shape == (4, 5)
     assert bool((local == NO_INSTANCE).all())
+
+
+def overlaps_reference(
+    associator: Associator, seg: Segmentation, geometry: Geometry
+) -> dict[tuple[int, int], float]:
+    """The numpy reprojection E35 replaced, one view pair at a time."""
+    num, height, width = seg.instance_ids.shape
+    points = geometry.world_points()
+    world_to_cam = np.linalg.inv(geometry.cam_to_world)
+    overlap: dict[tuple[int, int], float] = {}
+    for i in range(num):
+        labeled = (seg.instance_ids[i] >= 0) & (geometry.depth[i] > 0)
+        src_ids = seg.instance_ids[i][labeled]
+        src_pts = points[i][labeled]
+        for j in range(num):
+            if i == j:
+                continue
+            cam = src_pts @ world_to_cam[j, :3, :3].T + world_to_cam[j, :3, 3]
+            z = cam[:, 2]
+            k = geometry.intrinsics[j]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                u = np.floor(k[0, 0] * cam[:, 0] / z + k[0, 2]).astype(np.int64)
+                v = np.floor(k[1, 1] * cam[:, 1] / z + k[1, 2]).astype(np.int64)
+            inside = (z > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
+            u, v, z, ids = u[inside], v[inside], z[inside], src_ids[inside]
+            target_depth = geometry.depth[j][v, u]
+            known = target_depth > 0
+            in_ids, in_count = np.unique(ids[known], return_counts=True)
+            in_frame = dict(zip(in_ids.tolist(), in_count.tolist(), strict=True))
+            visible = (
+                np.abs(z - target_depth) <= associator.depth_tolerance * target_depth
+            )
+            ids, landed = ids[visible], seg.instance_ids[j][v[visible], u[visible]]
+            a_ids, a_inv, a_count = np.unique(
+                ids, return_inverse=True, return_counts=True
+            )
+            sources, targets, n = count_pairs(a_inv, landed)
+            enough = (a_count >= associator.min_visible) & (
+                a_count
+                >= associator.min_visible_fraction
+                * np.array([in_frame[m] for m in a_ids.tolist()])
+            )
+            for a, b, c in zip(sources, targets, n, strict=True):
+                if b != NO_INSTANCE and enough[a]:
+                    overlap[int(a_ids[a]), int(b)] = c / a_count[a]
+    return overlap
+
+
+def random_scene(seed: int, num: int = 4) -> tuple[Segmentation, Geometry]:
+    """Views of a box of depth steps from nearby cameras, with blocky masks."""
+    rng = np.random.default_rng(seed)
+    height, width = 24, 32
+    views = make_views(num, height, width)
+    cam_to_world = np.repeat(np.eye(4)[None], num, axis=0)
+    for i in range(num):
+        angle = rng.uniform(-0.15, 0.15)
+        c, s = np.cos(angle), np.sin(angle)
+        cam_to_world[i, :3, :3] = [[c, 0, s], [0, 1, 0], [-s, 0, c]]
+        cam_to_world[i, :3, 3] = rng.uniform(-0.3, 0.3, 3)
+    blocks = rng.uniform(2.0, 4.0, (num, 4, 4))
+    depth = np.kron(blocks, np.ones((6, 8))).astype(np.float32)
+    depth[rng.random(depth.shape) < 0.05] = 0  # pixels without depth
+    labels = rng.integers(-1, 3, (num, 4, 4))
+    local = np.kron(labels, np.ones((6, 8), dtype=np.int64))
+    ids = np.where(local >= 0, np.arange(num)[:, None, None] * ID_STRIDE + local, -1)
+    classes = {int(m): "chair" for m in np.unique(ids[ids >= 0])}
+    geometry = Geometry(
+        depth=depth,
+        confidence=np.ones_like(depth),
+        intrinsics=views.intrinsics,
+        cam_to_world=cam_to_world.astype(np.float32),
+    )
+    return Segmentation(ids.astype(np.int32), classes), geometry
+
+
+@pytest.mark.parametrize("seed", range(5))
+@pytest.mark.parametrize("fraction", [0.0, 0.25])
+def test_torch_overlaps_match_the_numpy_reprojection(
+    seed: int, fraction: float
+) -> None:
+    """Same pairs, same shares to float64 rounding, for every directed mask pair."""
+    seg, geometry = random_scene(seed)
+    associator = Associator(min_visible=5, min_visible_fraction=fraction, device="cpu")
+    expected = overlaps_reference(associator, seg, geometry)
+    got = associator.overlaps(seg, geometry)
+    assert expected  # the scene has overlapping masks to compare
+    assert got.keys() == expected.keys()
+    for key, share in expected.items():
+        assert got[key] == pytest.approx(share, rel=1e-12)
 
 
 def test_count_pairs_matches_unique_rows() -> None:

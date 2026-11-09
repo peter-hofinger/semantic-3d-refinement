@@ -25,11 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from src.geometry import Geometry
 from src.loaders import Views
 from src.loaders.ground_truth import GroundTruth
-from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation, count_pairs
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class Associator:
     min_visible_fraction: float = 0.0
     # overlap needed to link masks of different classes; None: never link them
     cross_class_overlap: float | None = None
+    device: str | None = None  # where overlaps are computed; None: CUDA if available
     # scores as in SAM 3's threshold: a mask passes if its score is above the value
     min_score: float = 0.0  # masks not passing are dropped before linking
     # masks not passing are kept only if linked to a mask in another view
@@ -55,46 +57,58 @@ class Associator:
     def overlaps(
         self, seg: Segmentation, geometry: Geometry
     ) -> dict[tuple[int, int], float]:
-        """Directed overlap a -> b for every pair of masks in different views."""
+        """Directed overlap a -> b for every pair of masks in different views.
+
+        Each view's labeled pixels are projected into all other views at once, in
+        torch on `device` (CUDA if available), in float64 as the depth's lift is.
+        """
+        device = torch.device(
+            self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        )
         num, height, width = seg.instance_ids.shape
-        points = geometry.world_points()
-        world_to_cam = np.linalg.inv(geometry.cam_to_world)
+        ids = torch.from_numpy(seg.instance_ids).to(device)
+        depth = torch.from_numpy(geometry.depth).to(device, torch.float64)
+        points = torch.from_numpy(geometry.world_points()).to(device, torch.float64)
+        world_to_cam = torch.from_numpy(np.linalg.inv(geometry.cam_to_world))
+        world_to_cam = world_to_cam.to(device, torch.float64)
+        k = torch.from_numpy(geometry.intrinsics).to(device, torch.float64)
+        stride = num * ID_STRIDE + 1  # ids + 1 of any view, NO_INSTANCE -> 0
         overlap: dict[tuple[int, int], float] = {}
         for i in range(num):
-            labeled = (seg.instance_ids[i] >= 0) & (geometry.depth[i] > 0)
-            src_ids = seg.instance_ids[i][labeled]
-            src_pts = points[i][labeled]
-            for j in range(num):
-                if i == j:
-                    continue
-                cam = src_pts @ world_to_cam[j, :3, :3].T + world_to_cam[j, :3, 3]
-                z = cam[:, 2]
-                k = geometry.intrinsics[j]
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    u = np.floor(k[0, 0] * cam[:, 0] / z + k[0, 2]).astype(np.int64)
-                    v = np.floor(k[1, 1] * cam[:, 1] / z + k[1, 2]).astype(np.int64)
-                inside = (z > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
-                u, v, z, ids = u[inside], v[inside], z[inside], src_ids[inside]
-                target_depth = geometry.depth[j][v, u]
-                known = target_depth > 0
-                in_ids, in_count = np.unique(ids[known], return_counts=True)
-                in_frame = dict(zip(in_ids.tolist(), in_count.tolist(), strict=True))
-                visible = (
-                    np.abs(z - target_depth) <= self.depth_tolerance * target_depth
-                )
-                ids, landed = ids[visible], seg.instance_ids[j][v[visible], u[visible]]
-                a_ids, a_inv, a_count = np.unique(
-                    ids, return_inverse=True, return_counts=True
-                )
-                sources, targets, n = count_pairs(a_inv, landed)
-                enough = (a_count >= self.min_visible) & (
-                    a_count
-                    >= self.min_visible_fraction
-                    * np.array([in_frame[m] for m in a_ids.tolist()])
-                )
-                for a, b, c in zip(sources, targets, n, strict=True):
-                    if b != NO_INSTANCE and enough[a]:
-                        overlap[int(a_ids[a]), int(b)] = c / a_count[a]
+            labeled = (ids[i] >= 0) & (depth[i] > 0)
+            src_ids, src_pts = ids[i][labeled].long(), points[i][labeled]
+            others = torch.tensor([j for j in range(num) if j != i], device=device)
+            rot = world_to_cam[others, :3, :3]
+            cam = src_pts @ rot.transpose(1, 2) + world_to_cam[others, None, :3, 3]
+            z, kj = cam[..., 2], k[others, :, :, None]
+            u = torch.floor(kj[:, 0, 0] * cam[..., 0] / z + kj[:, 0, 2])
+            v = torch.floor(kj[:, 1, 1] * cam[..., 1] / z + kj[:, 1, 2])
+            inside = (z > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
+            row, pixel = inside.nonzero(as_tuple=True)
+            j, u, v = others[row], u[row, pixel].long(), v[row, pixel].long()
+            target = depth[j, v, u]
+            # (target view, source mask) as one key; and with the mask landed on
+            source = j * stride + src_ids[pixel] + 1
+            known = target > 0
+            visible = (z[row, pixel] - target).abs() <= self.depth_tolerance * target
+            landed = ids[j, v, u].long() + 1
+            in_keys, in_frame = torch.unique(source[known], return_counts=True)
+            a_keys, a_count = torch.unique(source[visible], return_counts=True)
+            pair_keys, n = torch.unique(
+                source[visible] * stride + landed[visible], return_counts=True
+            )
+            at = torch.searchsorted(in_keys, a_keys)  # visible pixels are known ones
+            assert bool((in_keys[at] == a_keys).all())  # noqa: S101
+            frame = in_frame[at]
+            enough = (a_count >= self.min_visible) & (
+                a_count >= self.min_visible_fraction * frame
+            )
+            a_of_pair = torch.searchsorted(a_keys, pair_keys // stride)
+            keep = (pair_keys % stride > 0) & enough[a_of_pair]
+            a = (pair_keys[keep] // stride % stride - 1).tolist()
+            b = (pair_keys[keep] % stride - 1).tolist()
+            shares = (n[keep].double() / a_count[a_of_pair[keep]]).tolist()
+            overlap.update(zip(zip(a, b, strict=True), shares, strict=True))
         return overlap
 
     def _needed(self, same_class: bool) -> float:  # noqa: FBT001
