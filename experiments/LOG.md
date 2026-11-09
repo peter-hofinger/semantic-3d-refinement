@@ -1823,3 +1823,31 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   val`, whose `per_scene` now includes val (the copy job 1373 read differs only in a comment and in not keeping
   stress per scene, which a `--splits val` run never reads). The first E34 run
   stays reproducible from 5f3af22 with the file as it was in ca1b6b8.
+
+## Plan: E35 = faster panoptic labeling (SAM 3 + association), same labels (09.11.2026)
+- **Goal (issue #29):** quality of life, not research: SAM 3 + association were estimated at ~80% of the
+  pipeline's runtime, mostly Python on the CPU. Make them faster without changing what they output.
+- **Setting:** Hypersim `dev` split (living room `ai_010_007`, bedroom `ai_006_007`, lobby `ai_044_001`) on the
+  cached inputs of `configs/eval_hypersim.yaml` (20 views at 504x378, Déjà View K=16, DSINE, `nyu40` prompts at
+  t0.3, working association xc0.7 vf0.25 kl0.5); this machine, one RTX 3080 (10 GB), 16 CPU threads. Unchanged:
+  the evaluation, prompts, thresholds, views, resolution, association rule.
+- **Step 1, profile before:** one dev scene (the bedroom, the shared visual scene) through every pipeline stage
+  with warm models: Déjà View forward, SAM 3 per-view masks, association, DSINE, joint refiner. Weight loading is
+  timed separately; each stage runs 3 times, the median is reported. SAM 3 is split further (image encoder, text
+  encoder, detector + mask decoder, post-processing, painting) to see where its time goes.
+- **Decision rule:** if SAM 3 + association are not the bulk of the runtime (< 50% of the stages above), log
+  that, skip step 2, and report the profile only.
+- **Step 2, change (as the issue proposes, nothing else):** encode each prompt once per scene (`text_embeds`),
+  run all prompts of a view as one batch, resolve mask overlaps (higher score wins) on the GPU; the
+  association's reprojection of all 380 view pairs in torch on the GPU. CPU tests show each new path matches
+  the old one on random inputs before the old code is deleted.
+- **Step 3, profile after:** as step 1.
+- **Labels:** SAM 3 is run on the three dev scenes three times: twice with the current code (old A, old B) and
+  once with the new code. Each set of masks is written under its own name (the eval's cache stays untouched) and
+  scored by `scene_eval` on `dev` through a config copy that changes only `segmentation:`.
+- **Noise floor:** bf16 kernels may be bit-identical between two runs on one GPU; then old A vs old B says
+  nothing. The floor is therefore the larger of |old A - old B| and |old A - the cached masks| (same code, made
+  on another GPU, the cross-GPU difference E34 already treats as noise), per metric on the dev aggregate.
+- **Success:** mIoU, PQ^sc and AP on dev (and Chamfer of the refined variant, which uses the labels) of the new
+  code differ from old A by no more than the noise floor, or are better. Otherwise the change is not merged as
+  is: find which part changes the masks first.
