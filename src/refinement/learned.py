@@ -32,7 +32,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F  # noqa: N812
 
 from src.analysis.scene_eval import git_hash
-from src.evaluation.labeled import STRUCTURE
+from src.evaluation.instances import STRUCTURE
 from src.geometry import Geometry
 from src.loaders.hypersim.config import load_config
 from src.loaders.scannetpp.gt import GroundTruth

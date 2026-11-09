@@ -60,7 +60,7 @@ Metrics:
 | E30 | First Hypersim run of the segmenter: six val scenes (3 tilt-shift, 3 plain cameras), top100 vs Qwen3.8-27B union cap64, Déjà View vs GT geometry | Déjà View always predicts a centred principal point: on plain cameras depth 0.45-0.87%, Rel. L2 0.010-0.026 and association consistency ~ GT geometry (0.82 / 0.70 / 0.81 vs 0.82 / 0.76 / 0.81); on tilt-shift scenes consistency drops 0.12-0.31 (conference room Rel. L2 0.116). VLM list not better than top100 outside ScanNet++: precision lower everywhere (0.10-0.43 vs 0.23-0.49), part names split chairs (conference consistent 0.55 -> 0.36), the name "lobby" merges wall and floor (cross-class leakage 0.188). Protocol: plain-camera scenes; top100 stays default |
 | E31 | Rank the 20 bedroom views (Hypersim ai_006_007) by Déjà View's bleeding at GT depth edges, to choose the shared visual views | bleeding pixels 0.7-6.4% of the image; top views 18, 19, 0, 12; median error near edges 1.8-3.0% vs 0.3-0.9% far (as E18 / ETH3D). Bleeding sits on thin structures in front of distant surfaces (ornate bed frame, vanity mirror frame, chair and stool legs); planes stay below 1%. Visual views: frames 94, 0, 62 + 31 (overview) |
 | E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
-| E34 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | no real gain over Déjà View: dev F-score 0.845 with masks, 0.839 without, 0.844 raw; masks ahead by 0.006 (bedroom 0.908 vs 0.892), within single-seed noise |
+| E35 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | dev Chamfer 3.50 -> 3.20 cm with masks (3.29 without), better on all 3 scenes in accuracy and completeness; old protocol read it as no gain (F-score 0.844 -> 0.845); one seed, val not run |
 
 ## Reference table (current scorer, E11)
 
@@ -1702,7 +1702,130 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   other objects) and ~105k the bed's own (mattress behind the footboard, headboard between the bars), so
   sparing wall and floor would not change the ~5:1 ratio. The trim code is reverted right after this report.
 
-## E34: learned single-view depth refiner, with and without SAM 3 masks -> no real gain over Déjà View (05.11.2026)
+## E34: the evaluation protocol on the 11 val scenes -> refiner loses F@5cm on 7 of 10, completeness on all (05.11.2026)
+- **Goal:** check on scenes no choice was made on whether the dev picture of PR #17's joint refiner holds
+  (dev: accuracy better on 3/3, completeness worse on 3/3, F@5cm +0.013 / -0.006 / -0.027; E33 baseline).
+  Nothing changed in the method or the scorer; the val split is the one of `configs/hypersim.yaml`.
+- **Commit:** main 5f3af22 (clean) for every job; config `configs/eval_hypersim_val.yaml` (= `eval_hypersim.yaml`
+  with the 11 val scenes; the job read an identical copy in `~/mircea/configs/`, the file is added here).
+- **Data prep (laptop):** `uv run hypersim-download --splits val` 15.7 min for the 10 scenes not yet on disk
+  (14-48 MB raw each; ai_003_010 skipped as present), `uv run hypersim-prepare --splits val` 1 min (20 views
+  504x378 each, ~18 MB views + GT per scene). Contact sheets (RGB, GT depth, GT instances) of all 11 looked at
+  before scoring: ai_003_010 has no labels on wall, floor and ceiling (78% of pixels unlabeled; geometry still
+  scored, per-class only on objects); ai_005_005 is a bathroom of mirrors and glass (GT depth goes through the
+  glass); the 21-28% "no geometry" in ai_004_004 / ai_004_010 is sea, sky and open windows, as it should be.
+- **Commands (cluster, RTX 5090):** job 896 (VC15, 6:39): `dejaview-predict` per scene (12 s each incl. model
+  load, 43 s for the first), `sam3-segment --mode image --threshold 0.3 --prompts configs/prompts/nyu40.txt`
+  (178 s for all 11), `dsine-predict` (52 s for all 11). Job 969 (VC17, 3:53 for all 11 scenes, refiner 1.2-2.1 s
+  per scene): `python -m src.analysis.scene_eval --cfg configs/eval_hypersim_val.yaml`, run
+  `eval_hypersim_val-20261105-094825`. Table and figure: `uv run python experiments/scripts/e34_val_eval.py
+  runs/eval_hypersim_val-20261105-094825/run.yaml > experiments/results/e34_val_eval.txt` (laptop, CPU).
+- **ai_031_004 is invalid, not a result:** both variants score the cap (20 cm / 20 cm / F 0.000) because the
+  registration starts at scale 421 (all other scenes 2.8-7.1). Cause: in Hypersim's raw
+  `cam_00/camera_keyframe_orientations.hdf5` the rotation of keyframe 0 is exactly 10 x an orthonormal matrix
+  (singular values 10, 10, 10; the other 99 keyframes and every keyframe of the other 10 val scenes have
+  |R R^T - I| < 1e-6, as do all 17 prepared scenes but this one). Keyframe 0 is our view 0, which the scorer
+  uses for the GT cloud and as the registration start. The loader takes the rotation as stored and does not
+  check it. Déjà View, SAM 3 and DSINE never see the cameras, so their caches are fine. Excluded below; not
+  fixed yet (planned: divide by cbrt(det) in `src/loaders/hypersim/scene.py`, assert a uniformly scaled
+  rotation, re-prepare, rescore).
+- **Results** (Déjà View = backbone output; Refined = joint refiner, every weight 1; F at 5 cm):
+
+  | scene | acc DV (cm) | acc Ref | comp DV (cm) | comp Ref | F DV | F Ref | mIoU DV | mIoU Ref |
+  |---|---|---|---|---|---|---|---|---|
+  | ai_003_010 | 2.359 | 2.105 | 1.247 | 1.484 | 0.942 | 0.944 | 0.482 | 0.398 |
+  | ai_004_003 (bathroom) | 2.220 | 2.398 | 1.576 | 2.129 | 0.931 | 0.902 | 0.867 | 0.841 |
+  | ai_004_004 | 7.006 | 7.716 | 1.544 | 2.043 | 0.767 | 0.718 | 0.607 | 0.544 |
+  | ai_004_010 | 8.215 | 7.438 | 1.470 | 1.848 | 0.722 | 0.746 | 0.829 | 0.817 |
+  | ai_005_005 | 5.916 | 6.119 | 2.346 | 3.470 | 0.748 | 0.707 | 0.557 | 0.525 |
+  | ai_007_001 | 5.043 | 4.699 | 2.186 | 3.049 | 0.790 | 0.786 | 0.444 | 0.396 |
+  | ai_009_007 | 5.962 | 6.132 | 3.861 | 4.488 | 0.685 | 0.660 | 0.598 | 0.589 |
+  | ai_009_009 | 13.210 | 11.221 | 10.739 | 10.748 | 0.299 | 0.351 | 0.199 | 0.186 |
+  | ai_044_003 (cam_01) | 4.441 | 4.163 | 2.751 | 4.132 | 0.791 | 0.741 | 0.354 | 0.332 |
+  | ai_050_002 | 3.916 | 3.588 | 2.554 | 3.481 | 0.810 | 0.793 | 0.555 | 0.504 |
+  | **mean of 10** | 5.829 | 5.558 | 3.027 | 3.687 | 0.749 | 0.735 | 0.549 | 0.513 |
+
+  Refined vs Déjà View, scenes better / worse: accuracy 6 / 4, completeness 0 / 10, F@5cm 3 / 7, mIoU 0 / 10,
+  AP50 3 / 3 (mean 0.437 -> 0.439). Run-to-run noise on dev was ~0.002 cm (E33); one run per setting here.
+- **Figure:** `figures/e34_val_eval.jpg` (in `experiments/`): F@5cm, accuracy and completeness per scene, both
+  variants on shared axes, ai_031_004 greyed. The completeness bars are higher for Refined in every scene; the
+  accuracy gains are largest where Déjà View is worst (ai_009_009 -2.0 cm, ai_004_010 -0.8 cm).
+- **Conclusion:** the dev picture holds and is worse on val. Completeness gets worse on every scene (+0.66 cm
+  on average), accuracy better on 6 of 10 (-0.27 cm on average), and at 5 cm the net effect is a loss on 7 of 10
+  scenes (mean F -0.014; dev mean -0.007). Labels get worse too (mIoU lower on all 10, -0.036 on average), as on
+  all three dev scenes (E33: -0.039, -0.011, -0.158). The weights were never tuned (all 1, as on dev), so this is
+  the untuned refiner, not the method's ceiling; it makes the completeness study (next, E35: why the refiner
+  loses completeness) the first thing to answer before any weight search. ai_009_009 (a 28 m hall) is a Déjà
+  View failure (F 0.30) that this refiner barely changes (0.35). One trajectory per scene, 10 scenes: per-scene
+  differences of a few thousandths are within noise; the 10 / 10 completeness and mIoU counts are not.
+- **Addendum, rescored with PR #19's protocol (05.11.2026):** the protocol changed after this entry (main f645d08:
+  one Umeyama Sim(3) on the pixel pairs instead of scaled ICP, Chamfer instead of F@5cm, labels scored per pixel),
+  so the same caches were scored again. Cluster job 994 (VC15, RTX 5090, 2:25 for dev and val): `scene_eval`
+  at main f645d08 (clean) with `--splits dev val` and two local config copies, no code change:
+  `eval_hypersim.yaml` with `per_scene: [dev, val]` (val keeps per-scene scores) and a dataset yaml whose val list
+  leaves out ai_031_004 (its bad camera would skew the split aggregate). Run
+  `eval_hypersim_v2_val10-20261105-123026`. Table and figure: `uv run python
+  experiments/scripts/e34_val_eval_v2.py runs/eval_hypersim_v2_val10-20261105-123026/run.yaml >
+  experiments/results/e34_val_eval_v2.txt`; figure `figures/e34_val_eval_v2.jpg` (in `experiments/`): Refined
+  minus Déjà View per scene for accuracy, completeness and Chamfer on one cm scale, split means on top.
+
+  | split | accuracy (cm) | completeness (cm) | Chamfer (cm) | scenes better: acc / comp / Chamfer |
+  |---|---|---|---|---|
+  | dev (3) | 4.651 -> 4.178 | 2.307 -> 3.657 | 3.479 -> 3.917 | 3 / 0 / 1 |
+  | val (10) | 6.213 -> 5.884 | 4.100 -> 5.685 | 5.156 -> 5.785 | 8 / 0 / 1 |
+
+  Label scores are identical for both variants, as the protocol intends (val mIoU 0.392, PQ^sc 0.265, AP 0.353;
+  dev 0.352 / 0.294 / 0.217). The one dev scene with better Chamfer is the living room by 0.004 cm, the one val
+  scene is ai_005_005 (4.504 -> 4.450); ai_004_010 is worse by 0.003 cm, within noise. Dev agrees with PR #19's
+  RTX 3080 run to 0.03 cm (Chamfer 3.50 -> 3.95 there), the expected cross-GPU difference.
+  **Conclusion:** the finding holds under the new protocol: completeness worse on every scene (val +1.59 cm), a
+  smaller accuracy gain (val -0.33 cm), Chamfer worse on 9 of 10 val scenes. Per-scene numbers move a lot
+  between the two alignments (bathroom ai_004_003 Déjà View completeness 1.58 -> 10.48 cm; ai_009_009 accuracy
+  better under ICP, worse under Umeyama), so per-scene claims depend on the alignment; the split-level pattern
+  does not.
+- **Addendum, loader fix for ai_031_004 (08.11.2026):** `src/loaders/hypersim/scene.py` now passes every stored
+  orientation through `unscaled_rotation`: divide by cbrt(det), then require |R^T R - I| <= 1e-5; a reflection,
+  a non-uniform scale or a shear raises (tests: three scales recovered to 1e-12, the three bad forms rejected).
+  Only keyframe 0 of ai_031_004 cam_00 has cbrt(det) != 1 (10.000000). Re-prepared views differ from the old ones
+  only in view 0's `cam_to_world` (images, intrinsics and GT identical); the camera rebuilt from the fixed one
+  times 10 matches the old file to 5e-7. Check: `uv run python experiments/scripts/e34_ai031004_camera.py >
+  experiments/results/e34_ai031004_camera.txt` (laptop, 35 s) lifts each view's GT z-depth, projects it into every
+  other view and compares depths where the point is visible (within 5%):
+
+  | camera of view 0 | view 0 pairs that overlap | median rel. depth error, view 0 | other 342 pairs |
+  |---|---|---|---|
+  | stored (10 R) | 0 / 38 | - | 322 overlap, 0.083% |
+  | unscaled | 38 / 38 (mean overlap 34.6%) | 0.104% | 322 overlap, 0.083% |
+
+  Figure `figures/e34_ai031004_camera.jpg` (in `experiments/`): GT points from above; with the stored camera,
+  view 0's points spread 10 times too far (out to 80 m in a courtyard about 10 m across), after the fix they lie on the other
+  views' walls. **Conclusion:** the fixed GT is multi-view consistent, as well as any other pair in the scene
+  (0.104% vs 0.083% median), so ai_031_004 can be scored. Déjà View, SAM 3 and DSINE caches need no rerun
+  (they never read cameras); only `views_n20_uniform_504.npz` was replaced on the cluster (old copy kept).
+- **Addendum, all 11 val scenes after the fix (08.11.2026):** cluster job 1373 (VC17, RTX 5090, 2:14), `scene_eval` at
+  main f645d08 (clean) with `--splits val` and a config copy that differs from the addendum above only in reading
+  `configs/hypersim.yaml` (all 11 val scenes); run `eval_hypersim_v2_val-20261108-183432`. Table: `uv run python
+  experiments/scripts/e34_val11.py runs/eval_hypersim_v2_val-20261108-183432/run.yaml >
+  experiments/results/e34_val11.txt`. ai_031_004 now registers at scale 2.78 (other scenes 2.75-7.24; 421 before).
+
+  | | accuracy (cm) | completeness (cm) | Chamfer (cm) | scenes better: acc / comp / Chamfer |
+  |---|---|---|---|---|
+  | ai_031_004 (courtyard) | 4.586 -> 4.399 | 4.623 -> 5.525 | 4.604 -> 4.962 | |
+  | val (11) | 6.065 -> 5.749 | 4.147 -> 5.671 | 5.106 -> 5.710 | 9 / 0 / 1 |
+  | the other 10, this run | 6.213 -> 5.885 | 4.100 -> 5.685 | 5.156 -> 5.785 | |
+
+  The other 10 scenes reproduce job 994 (same GPU type): Déjà View identical to 0.001 cm, Refined accuracy 5.885 vs
+  5.884. Label scores are unchanged by the refiner, as the protocol intends (val mIoU 0.395, PQ^sc 0.256, AP 0.353).
+  **Conclusion:** ai_031_004 behaves like the rest of val: accuracy better, completeness worse, Chamfer worse.
+  With it, completeness is worse on 11 of 11 val scenes and Chamfer on 10 of 11; the split means move by less
+  than 0.15 cm, so nothing in the conclusions above changes. Val is now complete; quote these 11-scene numbers.
+- **Note (08.11.2026):** `configs/eval_hypersim_val.yaml` is deleted on merging main: it is in the config format
+  from before PR #19, which `scene_eval` no longer reads. Val now runs with `configs/eval_hypersim.yaml --splits
+  val`, whose `per_scene` now includes val (the copy job 1373 read differs only in a comment and in not keeping
+  stress per scene, which a `--splits val` run never reads). The first E34 run
+  stays reproducible from 5f3af22 with the file as it was in ca1b6b8.
+
+## E35: learned single-view depth refiner, with and without SAM 3 masks -> Chamfer 3.50 -> 3.20 cm on dev with masks (05.11.2026, rescored 09.11.2026)
 - **Goal:** issue #11, a BetterDepth/PatchRefiner-style learned refiner as an alternative to the energy; does
   conditioning on the masks help it?
 - **Setting:** `learned-refine` (`src/refinement/learned.py`, `configs/learned.yaml`): residual U-Net (7.85M
@@ -1718,18 +1841,25 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   `learned-20261105-112054`, `eval_learned-20261105-113133`, `eval_learned_rgb-20261105-113319`,
   `eval_hypersim-20261105-113507`, dirty tree before this commit). Training 5 min per model.
 - **Held out (4 train scenes):** mean abs log error 3.68% -> 3.43% with masks, 3.50% without.
-- **`scene_eval`** (means over the 3 dev scenes):
+- **Old protocol (05.11, scaled ICP, F-score at 5 cm):** Deja View 0.844, learned with masks 0.845, without
+  0.839, read as no real gain.
+- **Rescored with the PR #19 protocol (09.11):** `scene_eval --splits dev` on `main` merged into this branch,
+  the Mac (CPU), runs `eval_hypersim-20261109-113140`, `eval_learned-20261109-114835`,
+  `eval_learned_rgb-20261109-120739`. Deja View's dev Chamfer is the same as PR #19's RTX 3080 run (3.50 cm).
 
-| variant | F-score | accuracy cm | completeness cm | mIoU | AP50 |
-|---|---|---|---|---|---|
-| Déjà View | 0.844 | 3.70 | 2.06 | 0.587 | 0.431 |
-| learned, masks | 0.845 | 3.69 | 1.97 | 0.602 | 0.458 |
-| learned, no masks | 0.839 | 3.75 | 2.04 | 0.597 | 0.453 |
-| Déjà View + joint | 0.836 | 3.37 | 2.79 | 0.515 | 0.327 |
-| learned, masks + joint | 0.836 | 3.33 | 2.71 | 0.531 | 0.344 |
-| learned, no masks + joint | 0.830 | 3.38 | 2.72 | 0.530 | 0.329 |
+| variant | accuracy cm | completeness cm | Chamfer cm | living room | bedroom | lobby |
+|---|---|---|---|---|---|---|
+| Deja View | 4.68 | 2.32 | 3.50 | 1.60 | 1.85 | 7.05 |
+| learned, masks | 4.34 | 2.05 | **3.20** | 1.56 | 1.74 | 6.30 |
+| learned, no masks | 4.43 | 2.16 | 3.29 | 1.57 | 1.85 | 6.45 |
+| Deja View + joint | 4.21 | 3.69 | 3.95 | 1.60 | 1.96 | 8.30 |
+| learned, masks + joint | 3.82 | 3.20 | 3.51 | 1.57 | 1.84 | 7.14 |
+| learned, no masks + joint | 3.95 | 3.34 | 3.64 | 1.58 | 1.95 | 7.40 |
 
-- **Conclusion:** the refiner matches Déjà View instead of improving it (lobby 0.687 vs 0.677, bedroom 0.908 vs
-  0.913). With masks it is ahead of without by 0.006 F-score, mostly the bedroom; one seed on three scenes, so
-  not evidence that the masks help. Stacking the joint refiner gives what it gives on raw Déjà View. Next, if
-  pursued: more train scenes and seeds, and the val split before any claim.
+  (scene columns: Chamfer cm.) Label scores are the same for every variant (mIoU 0.36), as the protocol scores
+  the SAM 3 labels per pixel.
+- **Conclusion:** with masks the refiner improves accuracy, completeness and Chamfer on all three dev scenes,
+  the first variant that improves completeness at all; most of the mean comes from the lobby (7.05 -> 6.30).
+  Without masks it gains less (3.29), and on the bedroom nothing (1.85). The joint refiner on top loses
+  completeness again, as it does on raw Deja View. One seed, three scenes: the val split and more seeds come
+  before any claim, also on whether the masks help.

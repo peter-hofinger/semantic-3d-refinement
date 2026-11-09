@@ -6,51 +6,18 @@ import argparse
 import json
 import logging
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import open3d as o3d
 
+from src.loaders.ground_truth import NO_MESH, GroundTruth
 from src.loaders.scannetpp.config import load_config
 from src.loaders.scannetpp.scene import ScannetppScene
 from src.loaders.views import Views
 from src.segmentation.base import NO_INSTANCE
 
 log = logging.getLogger(__name__)
-
-NO_MESH = -2  # the pixel's ray misses the mesh: no ground truth, ignore in evaluation
-
-
-@dataclass
-class GroundTruth:
-    """Per-view instance ids and depth rendered from the annotated laser scan."""
-
-    instance_ids: np.ndarray  # (N, H, W) int32, NO_INSTANCE unlabeled, NO_MESH no hit
-    depth: np.ndarray  # (N, H, W) float32, z-depth in meters, 0 where no hit
-    classes: dict[int, str]  # instance id -> label
-
-    def save(self, path: Path) -> None:
-        """Write to a compressed .npz file."""
-        ids = np.array(sorted(self.classes), dtype=np.int32)
-        np.savez_compressed(
-            path,
-            instance_ids=self.instance_ids,
-            depth=self.depth,
-            class_ids=ids,
-            class_names=np.array([self.classes[i] for i in ids]),
-        )
-
-    @classmethod
-    def load(cls, path: Path) -> GroundTruth:
-        """Read ground truth written by `save`."""
-        with np.load(path) as f:
-            names = [str(n) for n in f["class_names"]]
-            return cls(
-                instance_ids=f["instance_ids"],
-                depth=f["depth"],
-                classes=dict(zip(f["class_ids"].tolist(), names, strict=True)),
-            )
 
 
 def triangle_instances(
