@@ -6,8 +6,52 @@ output_root: data/processed/hypersim    # preprocessed views and ground truth (.
 
 # Scene split (issue #3), one camera trajectory per scene. The loader checks every entry against
 # Hypersim's official v1 split: dev, val and stress from its val partition, test from its test
-# partition; dev, val and test only with centred cameras (Deja View assumes one, E30).
+# partition, train from its train partition; all but stress only with centred cameras (Deja View
+# assumes one, E30).
 splits:
+  # learned refiners train here (issue #11): 40 of the 153 centred train scenes, evenly spaced in
+  # name order so they span many scene groups, first public trajectory each, none filtered out
+  train:
+    ai_001_001: cam_00
+    ai_001_005: cam_00
+    ai_001_009: cam_00
+    ai_002_004: cam_00
+    ai_002_008: cam_00
+    ai_003_001: cam_00
+    ai_003_006: cam_00
+    ai_004_002: cam_00
+    ai_004_008: cam_00
+    ai_005_006: cam_00
+    ai_006_001: cam_00
+    ai_006_006: cam_00
+    ai_007_002: cam_00
+    ai_008_002: cam_00
+    ai_008_010: cam_00
+    ai_009_003: cam_00
+    ai_009_008: cam_00
+    ai_010_006: cam_00
+    ai_011_004: cam_01
+    ai_011_009: cam_00
+    ai_013_007: cam_00
+    ai_017_003: cam_00
+    ai_021_007: cam_00
+    ai_023_007: cam_00
+    ai_024_017: cam_00
+    ai_026_017: cam_00
+    ai_027_008: cam_00
+    ai_029_005: cam_00
+    ai_030_009: cam_00
+    ai_032_005: cam_00
+    ai_036_010: cam_00
+    ai_037_008: cam_00
+    ai_043_002: cam_00
+    ai_046_004: cam_00
+    ai_047_008: cam_00
+    ai_051_002: cam_00
+    ai_053_016: cam_00
+    ai_053_020: cam_00
+    ai_055_001: cam_00
+    ai_055_010: cam_01
   # choices are made here: prompts, thresholds, views, weekly visuals (E30-E32)
   dev:
     ai_010_007: cam_00   # living room, sofas, cushions, pictures

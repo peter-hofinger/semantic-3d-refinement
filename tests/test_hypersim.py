@@ -191,6 +191,7 @@ def test_split_check_accepts_official_partitions(tmp_path: Path) -> None:
     [
         ({"dev": {"ai_t_plain": "cam_00"}}, "official test partition, not val"),
         ({"test": {"ai_v_plain": "cam_00"}}, "official val partition, not test"),
+        ({"train": {"ai_v_plain": "cam_00"}}, "official val partition, not train"),
         ({"val": {"ai_v_tilt": "cam_00"}}, "off-centre"),
         ({"dev": {"ai_v_plain": "cam_01"}}, "not in the public release"),
     ],
@@ -208,7 +209,7 @@ def test_config_rejects_scene_in_two_splits(tmp_path: Path) -> None:
     path.write_text(
         "data_root: d\nmetadata_root: m\noutput_root: o\nsplits:\n"
         "  dev: {ai_v_plain: cam_00}\n  val: {ai_v_plain: cam_01}\n"
-        "  test: {}\n  stress: {}\n",
+        "  test: {}\n  stress: {}\n  train: {}\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="more than one split"):

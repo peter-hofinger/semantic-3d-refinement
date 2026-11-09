@@ -8,8 +8,10 @@ keeps it (`refiner: none`), and its output, a labeled point per input pixel in t
 first view's frame, is scored (`evaluation.labeled`): aligned onto the ground truth
 by Umeyama on the pixels, then surface and label scores, per scene and per class. The
 labels are the linked SAM 3 masks and are scored per pixel, so every variant has the
-same label scores; refinement shows in the surface scores. The config names the splits
-that get an aggregate (`split_scores`) and those that keep per-scene records.
+same label scores; refinement shows in the surface scores. A segmenter that links its
+masks across views itself (SegVGGT) sets `linked: true`; its masks skip the association.
+The config names the splits that get an aggregate (`split_scores`) and those that keep
+per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
 between overlapping views; it is not a score of the output.
 
@@ -135,7 +137,9 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs:
     paths = input_paths(raw, name)
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
     geometry = Geometry.load(paths["geometry"])
-    labels = working_associator().associate(Segmentation.load(paths["masks"]), geometry)
+    masks = Segmentation.load(paths["masks"])
+    linked = raw.get("linked", False)
+    labels = masks if linked else working_associator().associate(masks, geometry)
     scene = scene_from_geometry(geometry).to(device)
     normals = scene_normals(np.load(paths["normals"])["normals"], geometry, scene)
     truth = ground_truth_cloud(

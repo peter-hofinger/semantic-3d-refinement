@@ -4,9 +4,10 @@ The split (issue #3) keeps scenes that choices are made on apart from scenes tha
 results are reported on. Every scene is one camera trajectory of a scene in
 Hypersim's official v1 split (`metadata_images_split_scene_v1.csv`): dev, val and
 stress come from its val partition, test from its test partition, so no scene we
-report on can be one Hypersim recommends for training. dev, val and test hold only
-centred pinhole cameras, because Déjà View always predicts a centred principal
-point (E30); the tilt-shift scenes stay in `stress`.
+report on can be one Hypersim recommends for training; train (for learned refiners)
+comes from its train partition. All but stress hold only centred pinhole cameras,
+because Déjà View always predicts a centred principal point (E30); the tilt-shift
+scenes stay in `stress`.
 """
 
 from __future__ import annotations
@@ -21,8 +22,10 @@ import yaml
 from src.loaders.hypersim.scene import camera_from_cam_from_uv
 from src.loaders.scannetpp.config import PrepareConfig
 
-OFFICIAL_PARTITION = {"dev": "val", "val": "val", "test": "test", "stress": "val"}
-CENTRED_SPLITS = ("dev", "val", "test")
+OFFICIAL_PARTITION = {
+    "train": "train", "dev": "val", "val": "val", "test": "test", "stress": "val"
+}  # fmt: skip
+CENTRED_SPLITS = ("train", "dev", "val", "test")
 CENTRE_TOL = 0.5  # pixels between the principal point and the image centre
 
 

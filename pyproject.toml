@@ -35,7 +35,9 @@ hypersim-download = "src.loaders.hypersim.download:main"
 hypersim-prepare = "src.loaders.hypersim.prepare:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
+segvggt-predict = "src.backbone.segvggt:main"
 dsine-predict = "src.refinement.normals:main"
+learned-refine = "src.refinement.learned:main"
 sam3-segment = "src.segmentation.sam3:main"
 vlm-vocabulary = "src.segmentation.vocabulary:main"
 eval-instances = "src.evaluation.instances:main"
@@ -82,6 +84,9 @@ dev = [
 normals = [  # DSINE (data/third_party/dsine_hub, not in git)
     "geffnet>=1.0.2",
 ]
+segvggt = [
+    "einops>=0.8.2",
+]
 
 [tool.ruff]
 line-length = 88
@@ -125,14 +130,15 @@ ignore = [
 ]
 # Peter's refinement code: design by contract, asserts state shapes, ranges and
 # finiteness on entry and exit
-"src/{analysis/*,refinement/{multiview,normals},evaluation/labeled}.py" = [
+# design by contract: asserts state shapes, ranges and finiteness on entry and exit
+"src/{analysis/*,refinement/{multiview,normals,learned},evaluation/labeled,backbone/segvggt}.py" = [
     "S101",     # contract asserts
     "PT018",    # composite contract asserts
 ]
 "src/analysis/*.py" = [
     "E501",     # figure captions, slide text and README tables as long f-strings
 ]
-"tests/test_{labeled,multiview,normals}.py" = [
+"tests/test_{labeled,multiview,normals,segvggt,learned}.py" = [
     "PT018",    # composite contract asserts
 ]
 
