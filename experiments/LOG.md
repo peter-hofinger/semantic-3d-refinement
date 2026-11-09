@@ -1851,3 +1851,13 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Success:** mIoU, PQ^sc and AP on dev (and Chamfer of the refined variant, which uses the labels) of the new
   code differ from old A by no more than the noise floor, or are better. Otherwise the change is not merged as
   is: find which part changes the masks first.
+- **Amendment before any new-code run (09.11.2026):** the planned noise floor is 0. The old code is deterministic
+  on this GPU: old A, old B and the eval's cached masks are bit-identical on all three dev scenes (same ids, same
+  scores; `e35_compare_masks.py`), so the cache was made here with the same code and is no second reference.
+  Batching prompts changes the shapes of SAM 3's bf16 matmuls, so the GPU may pick other kernels that round
+  differently, which is the same kind of difference as running on another GPU. The floor is therefore the
+  dev difference between the same code's masks from two GPUs, already on record: README run
+  `eval_hypersim-20261105-104445` (this RTX 3080) vs E34's addendum (RTX 5090, job 994): mIoU 0.360 vs 0.352,
+  PQ^sc 0.292 vs 0.294, AP 0.216 vs 0.217, i.e. |Δ| 0.008 / 0.002 / 0.001. Success: new vs old A within these,
+  or better; bit-identical masks pass trivially. The comparison of the masks themselves (identical pixels,
+  matched score differences) is reported as well.
