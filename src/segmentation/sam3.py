@@ -1,4 +1,4 @@
-"""SAM 3 as a Segmenter: text-prompted instances, tracked or per view."""
+"""SAM 3 image mode as a Segmenter: text-prompted instances in every view."""
 
 from __future__ import annotations
 
@@ -11,12 +11,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import (
-    Sam3Model,
-    Sam3Processor,
-    Sam3VideoModel,
-    Sam3VideoProcessor,
-)
+from transformers import Sam3Model, Sam3Processor
 
 from src.geometry import Geometry
 from src.loaders import Views
@@ -46,66 +41,6 @@ def load_prompts(paths: list[Path]) -> dict[str, str]:
                 prompt, _, cls = (s.strip() for s in line.partition("="))
                 prompts.setdefault(prompt, cls or prompt)
     return prompts
-
-
-@dataclass
-class Sam3VideoSegmenter:
-    """Treats the views as video frames; the tracker keeps instance ids across them."""
-
-    prompts: tuple[str, ...] = PROMPTS
-    synonyms: dict[str, str] = field(default_factory=dict)  # prompt -> class
-    checkpoint: str = CHECKPOINT
-    _model: Any = field(default=None, init=False, repr=False)
-    _processor: Any = field(default=None, init=False, repr=False)
-
-    def _load(self) -> tuple[Any, Any]:
-        if self._model is None:
-            self._model = Sam3VideoModel.from_pretrained(
-                self.checkpoint, dtype=torch.bfloat16
-            )
-            self._model = self._model.to("cuda").eval()
-            self._processor = Sam3VideoProcessor.from_pretrained(self.checkpoint)
-        return self._model, self._processor
-
-    def segment(self, views: Views, geometry: Geometry | None = None) -> Segmentation:  # noqa: ARG002
-        """Track every prompted class through the views in order."""
-        model, processor = self._load()
-        num, height, width = views.images.shape[:3]
-        ids = np.full((num, height, width), NO_INSTANCE, dtype=np.int32)
-        best = np.zeros((num, height, width), dtype=np.float32)
-        classes: dict[int, str] = {}
-        # one session per prompt: all prompts at once do not fit in 4 GB, and
-        # grouping saves no time since detection runs per prompt anyway
-        for k, prompt in enumerate(self.prompts):
-            start = time.perf_counter()
-            # frames and tracker state stay in CPU memory, only the model on the GPU
-            session = processor.init_video_session(
-                video=list(views.images),
-                inference_device="cuda",
-                inference_state_device="cpu",
-                processing_device="cpu",
-                video_storage_device="cpu",
-                dtype=torch.bfloat16,
-            )
-            processor.add_text_prompt(session, prompt)
-            found = set()
-            with torch.no_grad():
-                for out in model.propagate_in_video_iterator(session):
-                    res = processor.postprocess_outputs(session, out)
-                    i = out.frame_idx
-                    masks = res["masks"].cpu().numpy().astype(bool)
-                    scores = res["scores"].float().cpu().numpy()
-                    objs = res["object_ids"].cpu().numpy() + k * ID_STRIDE
-                    _paint(ids[i], best[i], objs, scores, masks)
-                    found.update(objs.tolist())
-            classes.update(dict.fromkeys(found, self.synonyms.get(prompt, prompt)))
-            log.info(
-                "  %-12s %3d tracks  %.0fs",
-                prompt,
-                len(found),
-                time.perf_counter() - start,
-            )
-        return _drop_hidden(ids, classes)
 
 
 @dataclass
@@ -207,38 +142,23 @@ def _compact(local: np.ndarray, out: np.ndarray, view: int) -> dict[int, int]:
     return dict(zip(present.tolist(), new.tolist(), strict=True))
 
 
-def _drop_hidden(ids: np.ndarray, classes: dict[int, str]) -> Segmentation:
-    """Keep classes only for ids that still own pixels after overlap resolution."""
-    present = set(np.unique(ids).tolist())
-    return Segmentation(ids, {k: v for k, v in classes.items() if k in present})
-
-
-SEGMENTERS = {"video": Sam3VideoSegmenter, "image": Sam3ImageSegmenter}
-
-
 def main() -> None:
     """Run SAM 3 on prepared views and cache the result next to them."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("views", type=Path, nargs="+", help="prepared views (.npz)")
-    parser.add_argument(
-        "--mode",
-        choices=sorted(SEGMENTERS),
-        default="video",
-        help="video: tracker ids across views; image: per-view ids (associate later)",
-    )
     parser.add_argument(
         "--prompts",
         type=Path,
         action="append",
         help="prompt file (one per line, `prompt = class` for synonyms); repeat to "
         "combine in order; default: the 16 built-in prompts. The file names go into "
-        "the output name: sam3<mode>-<stem>+<stem>_<views>.npz",
+        "the output name: sam3image-<stem>+<stem>_<views>.npz",
     )
     parser.add_argument(
         "--threshold",
         type=float,
         default=0.5,
-        help="image mode: minimum detection score (default 0.5); per-mask scores are "
+        help="minimum detection score (default 0.5); per-mask scores are "
         "saved, other values add -t<value> to the output name",
     )
     parser.add_argument(
@@ -254,18 +174,16 @@ def main() -> None:
 
     total = torch.cuda.get_device_properties(0).total_memory / 1e9
     torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total))
-    tag = f"sam3{args.mode}"
+    tag = "sam3image"
     options: dict[str, Any] = {}
     if args.prompts:
         synonyms = load_prompts(args.prompts)
         options.update(prompts=tuple(synonyms), synonyms=synonyms)
         tag += "-" + "+".join(p.stem for p in args.prompts)
     if args.threshold != 0.5:  # noqa: PLR2004
-        if args.mode != "image":
-            parser.error("--threshold is only used in image mode")
         options["threshold"] = args.threshold
         tag += f"-t{args.threshold:g}"
-    segmenter = SEGMENTERS[args.mode](**options)
+    segmenter = Sam3ImageSegmenter(**options)
     for path in args.views:
         views = Views.load(path)
         log.info(
