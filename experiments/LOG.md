@@ -2645,3 +2645,27 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - If adopted, it would remove E_n's occlusion cut, the cut window and the closing budget, and cost 1.5 s more
     per scene (autograd products).
   - The trial term stays in the code, off (λ_a = 0), until that choice is made; if BiNI stays for good it goes.
+
+## Plan: E43 = the normal term as tangent residuals (10.11.2026)
+- **Goal:** a simpler form of E42's angle term, from the review of E42 (Peter): instead of reconstructing the
+  depth's normal and comparing it with DSINE's, ask that each pixel's two chosen tangents lie in DSINE's tangent
+  plane. Per pixel, r_x = n_DSINE . t_x / |t_x| and r_y = n_DSINE . t_y / |t_y|, t_x and t_y the tangents to the
+  closer neighbor along each axis, as in E42. Both vanish exactly when the reconstructed normal is parallel to
+  DSINE's. This drops the cross product, the normal's normalization and the facing flip, and it does not depend on
+  DSINE's sign convention. Each residual is the sine of the angle between a tangent and DSINE's plane, so it is
+  bounded by 1, a robust term as E42's was. `closer_neighbor_normals` stays for figures.
+- **Scope:** a trial next to BiNI's E_n, which stays the default (issue #21 owns E_n's choice). E42's angle residual
+  is replaced by this one in the code; E42 stays reproducible at 83571a1.
+- **Energy and weight:** E_t = λ_t mean_p (r_x² + r_y²) / 2. For a normal tilted by a small θ and orthogonal
+  tangents, r_x² + r_y² ≈ θ², so E_t ≈ λ_t θ² / 2, the small-angle stiffness of E42's λ_a (1 - cos θ): the same grid
+  4e-5, 4e-4, 4e-3 compares directly with E42's. Jacobian by autograd, exact Jacobi diagonal by the 5-colour
+  probing of E42 (the residuals read the same 5-pixel stencil).
+- **Setting, rule:** as E42: dev decides, stress is looked at, RTX 3080, 5 x 10, u with the own view; variants
+  Déjà View, Refined (BiNI), E_t at the three weights. Success as before against BiNI (all three metrics within
+  0.033 / 0.037 / 0.036 cm or better); a weight that passes is checked once on val. E42's angle term at the same
+  weights is the second reference (its dev numbers, same GPU and inputs).
+- **Expected, written before running:** close to E42 at each weight, since both are bounded and equal for small
+  angles; they differ for large ones (a tangent residual saturates at 90° of its own tangent, the angle term's at
+  180°), i.e. at the ramps, where E42's speckle sat. No guess at which is better there.
+- **Figures:** bedroom views 18, 0, 12, 6: the closer-neighbor normals of BiNI's, E42's and E_t's depth next to
+  DSINE's; each pixel's distance to the GT, E_t minus BiNI.
