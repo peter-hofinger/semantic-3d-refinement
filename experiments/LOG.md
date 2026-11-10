@@ -79,6 +79,7 @@ Metrics:
 | E8a | Segment ablation (issue #8): the joint refiner given no, SAM 3's, Hypersim GT, per-view permuted and 4 px shifted segments, one run, dev + val + stress | the segments only filter E_mv's matches: completeness follows the share kept (per-scene Spearman 1.00 dev, 0.90 val); Chamfer vs no segments: SAM 3 -0.069 / -0.119 cm (dev / val), GT -0.021 / -0.043, permuted -0.249 / -0.346; GT gains least and scrambled ids most, so SAM 3 is not the bottleneck and the gain is not semantic; every refined variant stays worse than Déjà View on Chamfer |
 | E8b | Controls for E8a (issue #8): E_mv's matches cut at random to SAM 3's per-scene count, SAM 3's ids gating E_mv alone, a random cut at the permuted ids' count | a random cut of SAM 3's size acts like no cut (Chamfer vs Off -0.016 / -0.015 cm, dev / val), so E8a's "the gain is the count" is wrong; SAM 3 cuts the matches with the largest residuals (12.7% / 15.8% of E_mv's energy in 8.6% / 9.8% of matches), 2x as often at mask edges, and whole regions linked inconsistently; the gate alone carries about a third of SAM 3's gain over the random cut; still the same accuracy-for-completeness trade, nothing near Déjà View's Chamfer |
 | E8c | Residual test for E8b (issue #8): E_mv keeps the matches of smallest initial absolute residual at SAM 3's and the permuted ids' per-scene counts, no segments | residual @ SAM 3 = gate only on completeness and Chamfer (Chamfer +0.011 / -0.003 cm, dev / val; accuracy +0.042 / +0.025) while sharing only 15% / 18% of SAM 3's cut and removing 4x its share of E_mv's energy; at the permuted count it gets 98% / 84% of permuted's Chamfer gain; the scores do not care which non-random cut, so the segments are one of several equivalent ways to do less E_mv |
+| E11a | E36's learned refiner on the 11 val scenes with 3 seeds, with and without masks (issue #11) | val Chamfer 5.102 -> 5.057 with masks, 5.062 without (noise floor 0.036), by trading accuracy (+0.11) for completeness (-0.19); dev 3.50 -> 3.27 / 3.35; masks help on dev only |
 | E21a | BiNI's E_n weight λ_n swept (0, 1e-5 to 1e-3) and E_n off checked on val (issue #21) | no weight improves all three scores; off: dev Chamfer 3.928 -> 3.858 but accuracy +0.067, val 5.643 -> 5.420, accuracy +0.126; λ_n = 1e-4 stays |
 | E21b | MoGe-3's normals in place of DSINE's in E_n (issues #21, #20) | dev accuracy / completeness / Chamfer -0.020 / -0.023 / -0.021 cm, inside the noise floor; still 3.91 against Deja View's 3.50 |
 
@@ -3385,6 +3386,47 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   barely care which non-random cut: segment edges, inconsistent ids and large residuals all buy the same small
   completeness gain. For issue #8: the segments act on the joint refiner as one of several equivalent ways to do
   less of E_mv's merging, not as semantics that move the surface towards the GT.
+
+## E11a: the learned refiner on val with three seeds -> E36's dev gain shrinks to the noise floor; the masks stop mattering (10.11.2026)
+- **Goal:** issue #11: does E36's dev gain (Chamfer 3.50 -> 3.20 cm with masks, one seed, three scenes) hold on
+  the 11 val scenes and across seeds, and do the masks help there?
+- **Setting:** E36's refiner, unchanged (`configs/e11a_learned.yaml` = `configs/learned.yaml` with
+  `seeds: [0, 1, 2]` and `predict_splits: [dev, val]`): with masks (`learned-sam3`) and without (`learned-rgb`),
+  one model per seed, trained on the 36 + 4 train scenes, written for dev and val. Each model is scored without
+  the joint refiner on top. Noise floor as E40 (0.033 / 0.037 / 0.036 cm).
+- **Commits:** 424fe7f (`seeds`, `predict_splits`, the config, a config test). Workstation, RTX 3080, clean tree.
+- **Data:** val prepared on the workstation for the first time: `hypersim-download --splits val` (576 s),
+  `hypersim-prepare` (48 s), `dejaview-predict` (86 s), `sam3-segment --prompts configs/prompts/nyu40.txt
+  --threshold 0.3` (228 s), `dsine-predict` (72 s), all 11 scenes.
+- **Commands:** `uv run learned-refine --config configs/e11a_learned.yaml` (`learned-20261110-173729`, 2446 s for
+  the 6 models), then `scene_eval --splits dev val` with `configs/eval_hypersim.yaml` (`eval_hypersim-20261110-181811`)
+  and once per model with a run-local copy of `configs/eval_learned.yaml` (backbone = the model, one variant,
+  refiner none; `runs/e11a_configs/`, each copy saved in its run's `run.yaml`): `e11a_<model>-20261110-18*`.
+- **Held out (4 train scenes), mean abs log error 3.68%:** with masks 3.43 / 3.43 / 3.46% (seeds 0 / 1 / 2),
+  without 3.52 / 3.49 / 3.49%. Seed 0 is close to E36's training (3.43 / 3.50%).
+- **Aggregates, cm, mean of the 3 seeds** (seed range of Chamfer in brackets):
+
+  | variant | dev acc / comp | dev Chamfer | val acc / comp | val Chamfer |
+  |---|---|---|---|---|
+  | Deja View | 4.675 / 2.324 | 3.500 | 6.061 / 4.142 | 5.102 |
+  | joint refiner (current) | 4.199 / 3.658 | 3.928 | 5.701 / 5.585 | 5.643 |
+  | learned, masks | 4.415 / 2.118 | 3.267 (3.239-3.282) | 6.167 / 3.948 | 5.057 (5.040-5.072) |
+  | learned, no masks | 4.514 / 2.193 | 3.353 (3.292-3.411) | 6.167 / 3.956 | 5.062 (5.021-5.106) |
+
+- **Per scene, Chamfer against Deja View** (mean of seeds): dev, with masks better on 3 of 3 (bedroom -0.078,
+  living room -0.012, lobby -0.610), without on 2 of 3 (bedroom +0.002). Val, with masks better on 7 of 11,
+  without on 6 of 11. Largest val gain ai_004_003 (-0.34 / -0.42); largest loss the mirror bathroom ai_005_005
+  (+0.26 / +0.21), whose GT depth goes through the glass.
+- **Dev agrees with E36 within the seed spread:** seed 0 with masks 3.239 here against 3.197 in E36 (same seed,
+  retrained; E36 was scored on a Mac CPU).
+- **Conclusion:**
+  - On val the learned refiner improves Chamfer by about 0.04 cm, the size of the noise floor, and by a trade:
+    accuracy worse by 0.11 cm, completeness better by 0.19 cm, the mirror image of the joint refiner's trade
+    (accuracy -0.36, completeness +1.44). It is better than the joint refiner on val but not clearly better than
+    Deja View.
+  - The masks help on dev (every seed with masks beats every seed without on Chamfer) but not on val (5.057 vs
+    5.062). E36's dev gain was mostly the lobby (-0.61 of the -0.23 mean).
+  - Seeds move dev Chamfer by up to 0.12 cm, so a single seed on three scenes, as in E36, cannot decide.
 
 ## E21a: BiNI's E_n weight swept and E_n off -> the same accuracy-for-completeness trade; λ_n = 1e-4 stays (10.11.2026)
 - **Goal:** issue #21, the parts E42/E43 did not cover: does any weight of BiNI's E_n (λ_n, set to 1e-4 only to fix

@@ -1,0 +1,19 @@
+# E11a (issue #11): the learned refiner of configs/learned.yaml, unchanged, trained with three seeds and
+# written for the dev and val scenes, to check E36's dev gain on val and across seeds.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml         # its train split
+held_out: 4                          # last train scenes, loss curve only
+predict_splits: [dev, val]
+models:                              # name -> sees the masks; otherwise identical
+  learned-sam3: true
+  learned-rgb: false
+width: 32          # channels at full resolution, doubled per level (~7.8M parameters)
+steps: 4000
+batch: 8
+crop: 256
+lr: 1.0e-3
+grad_weight: 0.5
+seeds: [0, 1, 2]

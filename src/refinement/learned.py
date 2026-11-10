@@ -54,7 +54,7 @@ class LearnedConfig:
     segmentation: str
     train: list[str]  # scene folders; the last `held_out` only report a loss
     held_out: int
-    predict: list[str]
+    predict: list[str]  # scene folders, from the splits `predict_splits` names
     models: dict[str, bool]  # name -> sees the masks
     width: int
     steps: int
@@ -62,14 +62,16 @@ class LearnedConfig:
     crop: int
     lr: float
     grad_weight: float
-    seed: int
+    seeds: list[int]  # one model per seed; with several, names end in -s<seed>
 
     @classmethod
     def load(cls, path: Path) -> LearnedConfig:
-        """Read the config; the train scenes come from the Hypersim split it names."""
+        """Read the config; train and prediction scenes come from Hypersim splits."""
         raw = yaml.safe_load(path.read_text())
         split = load_config(Path(raw.pop("split")))
         raw["train"] = [f"{s}_{c}" for s, c in split.scenes(["train"]).items()]
+        predict = split.scenes(raw.pop("predict_splits"))
+        raw["predict"] = [f"{s}_{c}" for s, c in predict.items()]
         raw["root"] = Path(raw["root"])
         return cls(**raw)
 
@@ -200,11 +202,11 @@ def load_scene(
 
 
 def train(
-    cfg: LearnedConfig, device: torch.device, *, semantics: bool
+    cfg: LearnedConfig, device: torch.device, *, semantics: bool, seed: int
 ) -> tuple[Refiner, list[dict]]:
     """Fit one refiner on random crops of the train scenes; log the held-out loss."""
-    torch.manual_seed(cfg.seed)
-    rng = np.random.default_rng(cfg.seed)
+    torch.manual_seed(seed)
+    rng = np.random.default_rng(seed)
     data = [load_scene(cfg, s, semantics=semantics) for s in cfg.train]
     fit, held = data[: -cfg.held_out], data[-cfg.held_out :]
     x, target, valid = (np.concatenate(a) for a in zip(*fit, strict=True))
@@ -297,9 +299,14 @@ def main() -> None:
         "config": yaml.safe_load(args.config.read_text()),
         "git": git_hash(),
     }
-    for name, semantics in cfg.models.items():
+    runs = [
+        (f"{name}-s{seed}" if len(cfg.seeds) > 1 else name, semantics, seed)
+        for seed in cfg.seeds
+        for name, semantics in cfg.models.items()
+    ]
+    for name, semantics, seed in runs:
         t0 = time.perf_counter()
-        model, log = train(cfg, device, semantics=semantics)
+        model, log = train(cfg, device, semantics=semantics, seed=seed)
         record[name] = {"seconds": time.perf_counter() - t0, "held_out": log}
         torch.save(model.state_dict(), out / f"{name}.pt")
         for scene in cfg.predict:
