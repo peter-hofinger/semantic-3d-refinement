@@ -2626,6 +2626,16 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   further from the GT on the walls of views 18 and 6 (+0.5 to +1 cm) and on the bed frame, closer on some furniture
   edges in view 12; on view 0's right wall, where Déjà View's surface and DSINE disagree by about 60° about its
   orientation, the change is a striped ±1 cm pattern (not investigated). Mean over the bedroom +0.047 cm.
+- **Figure, normals after refinement (asked for after the report):** `figures/e42_normals_after_ai_006_007.jpg`
+  (`scripts/e42_normals_after.py runs/e42_angle-20261110-094442`), bedroom views 18, 0, 12, 6: DSINE's normals and
+  the closer-neighbor normals of Déjà View's, BiNI-refined and E_a-refined depth, one colouring. Déjà View's are
+  noisy everywhere and multicoloured along every outline. BiNI smooths the noise but leaves low-frequency blotches
+  on the walls (view 18's back wall, view 0's left wall) and keeps the multicoloured outlines: its edges are cut
+  there, so the ramp pixels are not shaped. E_a's are the closest to DSINE: walls and floor nearly uniform, outlines
+  one or two pixels wide, the bed frame's bars readable in views 18 and 12. What it leaves is isolated speckle
+  (single pixels whose closer neighbor flips), densest on view 0's right wall and the ceiling corner above it,
+  where the distance map shows the striped ±1 cm change. Smoother normals did not mean closer points: the same
+  depth is +0.047 cm further from the GT in the bedroom than BiNI's.
 - **Conclusion:**
   - The angle term is the same trade E40 found for λ_mv, λ_δ and the neighbor count: completeness and Chamfer
     better, accuracy worse; here on both dev (inside the floor) and val (beyond it). Under this issue's rule
