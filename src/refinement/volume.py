@@ -363,15 +363,19 @@ class TrainScene:
 
 
 def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], list[str]]:
-    """Every train scene, compact; scenes whose rays are no pinhole are skipped."""
+    """Every train scene, compact; skipped: no pinhole rays or missing inputs."""
     rng = np.random.default_rng(0)
     data, skipped = [], []
     for scene in cfg.train:
         try:
             pts, geometry, r, valid = load_scene(cfg, scene, semantics)
         except AssertionError as err:  # fit_pinhole: Deja View's rays are no pinhole
-            skipped.append(scene)
+            skipped.append(f"{scene}: pinhole fit failed ({err})")
             print(f"{scene}: skipped, pinhole fit failed ({err})", flush=True)  # noqa: T201
+            continue
+        except FileNotFoundError as err:  # a scene whose download or caching failed
+            skipped.append(f"{scene}: missing {Path(str(err.filename)).name}")
+            print(f"{scene}: skipped, missing input ({err})", flush=True)  # noqa: T201
             continue
         views, h, w = geometry.depth.shape
         keep = rng.choice(
