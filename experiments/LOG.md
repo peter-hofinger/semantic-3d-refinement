@@ -3051,3 +3051,7 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   and density rank the same points, E45: both lead). Instance count is below count where SAM 3's masks bleed,
   since a bled pixel's voxel holds few points of its own instance; no guess at the sign.
 - **Cost:** 7 sweeps x 3 scenes x about 38 scorings of 2 s, in 6 processes: about 10 min.
+- **Amendment before running (Peter, 10.11.2026):** only one method is reported, not the seven variants: the
+  variant with the lowest mean dev accuracy at the refiner's completeness (E45's rule for its best filter) becomes
+  "voxel fusion". All seven stay in the raw output (`results/e45_voxel_fusion_dev.txt`) for traceability. It is
+  chosen on the same three dev scenes it is reported on, which flatters it; val, the check for that, was not run.
