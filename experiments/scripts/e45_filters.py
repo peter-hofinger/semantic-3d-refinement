@@ -21,6 +21,7 @@ import argparse
 import itertools
 import json
 import multiprocessing
+from collections.abc import Callable
 from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
 
@@ -98,16 +99,25 @@ def sweep(
     grid: list[float],
     target: float | None,
     curve: list[dict] | None = None,
+    fuse: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
 ) -> dict:
     """Score the grid of q (or reuse its curve) and, given a target, the match.
+
+    fuse(points, keep), if given, moves the kept points before scoring (voxel fusion).
 
     Completeness falls as q grows, though not strictly (Umeyama refits on every cut).
     The solve takes the highest grid step whose ends bracket the target and bisects it
     until an end lies within `GAP_CM` of it or the bracket is one pixel wide, so it
     converges whatever the curve's shape inside; the end nearer the target is the match.
     """
+
+    def at(q: float) -> dict:
+        keep = keep_top(rank, q)
+        cloud = points if fuse is None else fuse(points, keep)
+        return {"q": q} | surface(truth, cloud, keep)
+
     if curve is None:
-        curve = [{"q": q} | surface(truth, points, keep_top(rank, q)) for q in grid]
+        curve = [at(q) for q in grid]
     out: dict = {"curve": curve, "match": None}
     if target is None:
         return out
@@ -127,7 +137,7 @@ def sweep(
 
     while (hi["q"] - lo["q"]) * rank.size > 1 and min(gap(lo), gap(hi)) >= GAP_CM:
         q = 0.5 * (lo["q"] + hi["q"])
-        point = {"q": q} | surface(truth, points, keep_top(rank, q))
+        point = at(q)
         steps += 1
         if point["completeness_cm"] > target:
             lo = point

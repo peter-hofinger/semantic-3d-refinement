@@ -12,6 +12,8 @@ from src.analysis.filters import (
     pixel_footprint,
     ranks,
     voxel_counts,
+    voxel_means,
+    voxel_sums,
 )
 
 
@@ -81,3 +83,23 @@ def test_facing_is_one_along_the_ray_and_zero_across_it() -> None:
     rays = np.array([[0.0, 0, 2], [0, 0, 1], [1, 1, 0]])
     normals = np.array([[0.0, 0, -1], [1, 0, 0], [-1, -1, 0]])
     np.testing.assert_allclose(facing(normals, rays), [1, 0, 1], atol=1e-12)
+
+
+def test_voxel_sums_add_a_value_per_cube_and_group() -> None:
+    points = np.array([[0.1, 0.1, 0.1], [0.9, 0.2, 0.5], [0.5, 0.5, 0.5], [1.5, 0, 0]])
+    values = np.array([1.0, 2.0, 4.0, 8.0])
+    np.testing.assert_array_equal(voxel_sums(points, 1.0, values), [7, 7, 7, 8])
+    groups = np.array([0, 0, 1, 0])
+    np.testing.assert_array_equal(voxel_sums(points, 1.0, values, groups), [3, 3, 4, 8])
+    np.testing.assert_array_equal(
+        voxel_sums(points, 1.0, np.ones(4)), voxel_counts(points, 1.0)
+    )
+
+
+def test_voxel_means_average_a_cube_and_keep_a_lone_point() -> None:
+    points = np.array([[0.1, 0.1, 0.1], [0.9, 0.3, 0.5], [1.5, 0.2, 0.7]])
+    fused = voxel_means(points, 1.0)
+    np.testing.assert_allclose(fused[:2], [[0.5, 0.2, 0.3]] * 2)
+    np.testing.assert_array_equal(fused[2], points[2])
+    apart = voxel_means(points, 1.0, np.array([0, 1, 0]))
+    np.testing.assert_array_equal(apart, points)  # two objects in a cube stay apart

@@ -20,7 +20,10 @@ Ties are broken by one fixed random permutation; within a tie a filter has no pr
   Agree is E_mv's own test (`multiview.match_candidates`).
 - voxel density: the number of the scene's points in the pixel's voxel (`voxel_counts`),
   the voxel side the scene's median pixel footprint D / f (`pixel_footprint`): the
-  cloud's own units, no GT scale.
+  cloud's own units, no GT scale. Its variants sum a value per voxel instead
+  (`voxel_sums`: confidence, or the points of one instance), and voxel fusion replaces
+  the kept points by their voxel's mean (`voxel_means`), as voxel-grid downsampling does
+  (Open3D's `voxel_down_sample`), but one point per pixel, so the protocol scores it.
 - grazing angle: |cos| between the pixel's ray and its normal (`facing`), the weight
   Curless and Levoy (1996) give a range sample.
 """
@@ -91,14 +94,48 @@ def pixel_footprint(depth: np.ndarray, k: np.ndarray) -> float:
     return float(np.median(depth / k[:, :1, :1]))
 
 
+def voxel_index(
+    points: np.ndarray, side: float, groups: np.ndarray | None = None
+) -> np.ndarray:
+    """Index (N,) of each point's cell: its cube of the grid of the given side, and group."""
+    assert points.ndim == 2 and points.shape[1] == 3 and side > 0, points.shape  # noqa: PLR2004
+    assert groups is None or groups.shape == (len(points),), groups
+    cells = np.floor(points / side).astype(np.int64)
+    if groups is not None:
+        cells = np.column_stack([cells, groups.astype(np.int64)])
+    return np.unique(cells, axis=0, return_inverse=True)[1].ravel()
+
+
 def voxel_counts(points: np.ndarray, side: float) -> np.ndarray:
     """Count the points (N,) in each point's cube of the grid of the given side."""
-    assert points.ndim == 2 and points.shape[1] == 3 and side > 0, points.shape  # noqa: PLR2004
-    cells = np.floor(points / side).astype(np.int64)
-    _, inverse, counts = np.unique(
-        cells, axis=0, return_inverse=True, return_counts=True
+    index = voxel_index(points, side)
+    return np.bincount(index)[index]
+
+
+def voxel_sums(
+    points: np.ndarray,
+    side: float,
+    values: np.ndarray,
+    groups: np.ndarray | None = None,
+) -> np.ndarray:
+    """Sum the values (N,) of the points in each point's cell (`voxel_index`)."""
+    assert values.shape == (len(points),), values.shape
+    index = voxel_index(points, side, groups)
+    return np.bincount(index, weights=values.astype(np.float64))[index]
+
+
+def voxel_means(
+    points: np.ndarray, side: float, groups: np.ndarray | None = None
+) -> np.ndarray:
+    """Replace each point (N, 3) by the mean of the points in its cell (`voxel_index`)."""
+    index = voxel_index(points, side, groups)
+    count = np.bincount(index)
+    mean = np.stack(
+        [np.bincount(index, weights=points[:, a]) / count for a in range(3)], axis=1
     )
-    return counts[inverse.ravel()]
+    out = mean[index]
+    assert np.isfinite(out).all()
+    return out
 
 
 def facing(normals: np.ndarray, directions: np.ndarray) -> np.ndarray:
