@@ -1,0 +1,41 @@
+# E21a (issue #21, experiments/LOG.md): BiNI's E_n weight λ_n swept around its unit-fixing 1e-4, half a decade
+# apart, and E_n off (E42's "no normal term", rerun here on the same inputs); configs/refine.yaml otherwise.
+# Dev decides, stress is looked at: `--splits dev stress`.
+# Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
+# configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
+# K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3
+# (all NYU40 classes but the three catch-alls, which still count in the scores), linked with
+# the working association, DSINE normals on Déjà View's intrinsics (dsine-predict). Each
+# output, a labeled point per pixel, aligned onto the ground truth by Umeyama on the
+# pixels: accuracy, completeness, Chamfer, mIoU, PQ, AP, for the scene and per class
+# (src/evaluation/labeled.py).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
+refine: configs/refine.yaml          # λ_n = 1e-4 there
+variants:
+  - name: Deja View
+    refiner: none
+  - name: lambda_n 1e-4 (current)
+    refiner: joint
+  - name: no normal term
+    refiner: joint
+    refine: {lambda_n: 0.0}
+  - name: lambda_n 1e-5
+    refiner: joint
+    refine: {lambda_n: 1.0e-5}
+  - name: lambda_n 3e-5
+    refiner: joint
+    refine: {lambda_n: 3.0e-5}
+  - name: lambda_n 3e-4
+    refiner: joint
+    refine: {lambda_n: 3.0e-4}
+  - name: lambda_n 1e-3
+    refiner: joint
+    refine: {lambda_n: 1.0e-3}
