@@ -94,7 +94,7 @@ def diffs(z: Tensor) -> tuple[Tensor, Tensor]:
 
 
 def cut_weights(
-    z0: Tensor, terms: list, tol: float, window: int = 7
+    z0: Tensor, terms: list, tol: float, window: int = 7, budget: float | None = None
 ) -> list[tuple[Tensor, Tensor]]:
     """Weights that cut the prior's occlusion edges along closed contours; else 0.5.
 
@@ -121,7 +121,8 @@ def cut_weights(
         cuts.append((crossed & (r > tol)).cpu().numpy())
         steps.append((r / tol).cpu().numpy())
     out = []
-    for cut in close_cuts(cuts, steps, budget=float(window)):
+    budget = float(window) if budget is None else budget
+    for cut in close_cuts(cuts, steps, budget=budget):
         keep = 0.5 * ~torch.from_numpy(cut).to(z0.device)
         out.append((keep, keep.clone()))
     return out
@@ -241,15 +242,20 @@ class NormalTerm:
     weights: list[tuple[Tensor, Tensor]]
 
 
-def normal_term(
-    normals: Tensor, rays: Tensor, d0: Tensor, edge_tol: float
+def normal_term(  # noqa: PLR0913, PLR0917 - E40's sweep varies the cut's window
+    normals: Tensor,
+    rays: Tensor,
+    d0: Tensor,
+    edge_tol: float,
+    window: int = 7,
+    budget: float | None = None,
 ) -> NormalTerm:
     """BiNI's residuals for the normals, cut on d0's occlusion contours (tol: log)."""
     h, w = d0.shape
     assert normals.shape == (h, w, 3) and normals.isfinite().all(), normals.shape
     assert ((normals.norm(dim=-1) - 1).abs() < 1e-3).all()  # noqa: PLR2004
     _, terms = neighbor_terms(normals.double(), rays.double())
-    weights = cut_weights(-d0.double().log(), terms, edge_tol)
+    weights = cut_weights(-d0.double().log(), terms, edge_tol, window, budget)
     return NormalTerm(
         [tuple(t.to(d0.dtype) for t in axis) for axis in terms],
         [tuple(t.to(d0.dtype) for t in axis) for axis in weights],

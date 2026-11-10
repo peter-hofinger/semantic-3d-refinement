@@ -204,7 +204,7 @@ def refine_variant(
     else:
         assert variant["refiner"] == "none", variant
     scale = scene.depth.median()
-    matches = find_matches(scene, scale / scene.depth, scale, base.neighbors)
+    matches, _ = find_matches(scene, scale / scene.depth, scale, base.neighbors)
     log_record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
     points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
     return seconds, log_record, depth.cpu().numpy(), points

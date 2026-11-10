@@ -80,10 +80,15 @@ class RefineConfig:
     # BiNI's residuals are log-depth steps times the focal length
     lambda_n: float = 1e-4
     lambda_delta: float = 1.0
-    huber: float = 0.05  # E_d's Huber threshold on d - d0
+    # E40's sweep (issue #28); None derives the value from Otsu's occlusion threshold
+    huber: float | None = 0.05  # E_d's Huber threshold on d - d0
     conf_power: float = 1.0  # E_d's weight: confidence to this power, times u
-    edge_tol: float = 0.02  # E_n's occlusion cut (log depth, `normals.cut_weights`)
+    consistency: bool = True  # E_d's weight times u
+    edge_tol: float | None = 0.02  # E_n's occlusion cut (`normals.cut_weights`)
+    cut_window: int = 7  # E_n's mid-depth window (`normals.cut_weights`)
+    close_budget: float | None = None  # `normals.close_cuts`; None: = cut_window
     neighbors: int = 4  # views each view is matched with, the ones it overlaps most
+    border: int = 1  # px a match must land inside the other view's border
     gn_iters: int = 10
     cg_iters: int = 20
     cg_tol: float = 1e-3
@@ -92,7 +97,9 @@ class RefineConfig:
     def __post_init__(self) -> None:
         """Check ranges."""
         assert min(self.lambda_d, self.lambda_mv, self.lambda_n, self.lambda_delta) >= 0
-        assert self.huber > 0 and self.edge_tol > 0 and self.conf_power >= 0
+        assert self.huber is None or self.huber > 0
+        assert self.edge_tol is None or self.edge_tol > 0
+        assert self.conf_power >= 0 and self.cut_window >= 1 and self.border >= 0
         assert self.neighbors >= 1
         assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
 
@@ -315,9 +322,14 @@ def occlusion_threshold(gaps: Tensor) -> float:
 
 
 @torch.no_grad()
-def find_matches(
-    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
-) -> Matches:
+def find_matches(  # noqa: PLR0913, PLR0917 - E40's sweep varies border too
+    scene: Scene,
+    d0: Tensor,
+    scale: Tensor,
+    neighbors: int,
+    tol: float | None = None,
+    border: int = 1,
+) -> tuple[Matches, float]:
     """Match each view with its neighbors where the input agrees within tol (log).
 
     tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
@@ -338,7 +350,13 @@ def find_matches(
                 scene.k[j].expand(h * w, 3, 3),
             )
             dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
-            inside = (z > 0) & (u >= 1) & (u <= w - 2) & (v >= 1) & (v <= h - 2)
+            inside = (
+                (z > 0)
+                & (u >= border)
+                & (u <= w - 1 - border)
+                & (v >= border)
+                & (v <= h - 1 - border)
+            )
             gap = (z.clamp_min(1e-6) * dj / scale).log()  # > 0: behind j's surface
             candidates[i, j] = (flat[inside], gap[inside], spread[inside].log())
     if tol is None:
@@ -367,7 +385,7 @@ def find_matches(
         and m.offset.isfinite().all()
         and m.direction.isfinite().all()
     )
-    return m
+    return m, tol
 
 
 def disagreement_pct(depth: Tensor, scene: Scene, matches: Matches) -> float:
@@ -391,6 +409,7 @@ class Problem:
     w: Tensor
     normals: NormalTerm | None
     matches: Matches
+    huber: float
 
 
 def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
@@ -442,7 +461,7 @@ def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tenso
     E_d is w h(δ), h Huber's cost (`robust`).
     """
     d = p.d0 + x
-    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * robust(x, cfg.huber)[0]}
+    out = {"E_d": (0.5 * cfg.lambda_d * p.w).sqrt() * robust(x, p.huber)[0]}
     if cfg.lambda_delta > 0:
         out["E_delta"] = math.sqrt(cfg.lambda_delta) * x
     if cfg.lambda_n > 0:
@@ -483,7 +502,7 @@ def energy_maps(d: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
     cost sits on its first pixel, a match's on its source pixel.
     """
     pad = torch.nn.functional.pad
-    maps = {"E_d": 0.5 * cfg.lambda_d * p.w * robust(d - p.d0, cfg.huber)[0].square()}
+    maps = {"E_d": 0.5 * cfg.lambda_d * p.w * robust(d - p.d0, p.huber)[0].square()}
     if p.normals is not None:
         z = -d.clamp_min(1e-6).log()
         dzs = (z[..., 1:] - z[..., :-1], z[..., 1:, :] - z[..., :-1, :])
@@ -515,7 +534,7 @@ def grid_operator(
     transposed onto the residuals' ones gives the diagonal of J^T J.
     """
     power = 2 if squared else 1
-    a_d = ((0.5 * cfg.lambda_d * p.w).sqrt() * robust(d - p.d0, cfg.huber)[1]) ** power
+    a_d = ((0.5 * cfg.lambda_d * p.w).sqrt() * robust(d - p.d0, p.huber)[1]) ** power
     inv_d = (1 / d) ** power
     sign = 1 if squared else -1
 
@@ -710,11 +729,22 @@ def build_problem(
     scale = scene.depth.median()
     d0 = scale / scene.depth
     w = (scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)) ** cfg.conf_power
-    w = w * consistency(scene, d0, scale, ids)
+    if cfg.consistency:
+        w = w * consistency(scene, d0, scale, ids)
+    matches, tol = find_matches(scene, d0, scale, cfg.neighbors, border=cfg.border)
+    matches = same_segment_matches(matches, scene, d0, scale, ids)
     terms = None
     if normals is not None:
+        edge_tol = tol if cfg.edge_tol is None else cfg.edge_tol
         per_view = [
-            normal_term(normals[i], scene.rays[i], d0[i], cfg.edge_tol)
+            normal_term(
+                normals[i],
+                scene.rays[i],
+                d0[i],
+                edge_tol,
+                cfg.cut_window,
+                cfg.close_budget,
+            )
             for i in range(len(d0))
         ]
         terms = NormalTerm(
@@ -730,9 +760,8 @@ def build_problem(
                 for a, same in enumerate(same_instance_edges(ids))
             ],
         )
-    matches = find_matches(scene, d0, scale, cfg.neighbors)
-    matches = same_segment_matches(matches, scene, d0, scale, ids)
-    return Problem(scene, scale, d0, w, terms, matches)
+    huber = tol if cfg.huber is None else cfg.huber
+    return Problem(scene, scale, d0, w, terms, matches, huber)
 
 
 def gauss_newton(

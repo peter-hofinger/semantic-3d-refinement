@@ -104,7 +104,7 @@ def test_bilinear_is_exact_on_affine_maps() -> None:
 def test_consistent_views_have_zero_residual_and_a_bump_does_not() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
-    m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
+    m, _ = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
     assert len(m.src) > 0.5 * scene.depth.numel()
     assert residuals(scale / scene.depth, scale, scene, m).abs().max() < 1e-4
     bumped, _ = two_views(bump=0.03)
@@ -134,7 +134,7 @@ def test_agreement_meets_halfway_between_two_views() -> None:
     cfg = RefineConfig(lambda_mv=100.0, lambda_n=0.0, lambda_delta=0.0, device="cpu")
     depth, _, _ = refine_scene(scene, cfg)
     scale = scene.depth.median()
-    m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
+    m, _ = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
     before = residuals(scale / scene.depth, scale, scene, m).abs().max()
     assert residuals(scale / depth, scale, scene, m).abs().max() < 0.1 * before
     center = (slice(20, 28), slice(28, 36))
@@ -234,7 +234,8 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         d0,
         w,
         stacked,
-        find_matches(scene, d0, scale, 4, 0.05),
+        find_matches(scene, d0, scale, 4, 0.05)[0],
+        0.01,  # half the pixels of delta lie on Huber's linear branch
     )
     cfg = RefineConfig(
         lambda_mv=2.0,
@@ -411,7 +412,7 @@ def test_normals_carry_a_correction_a_few_pixels_beyond_the_matches() -> None:
     depth[1] *= 1.03  # view 1 too far everywhere: one wrong scale
     scene = dataclasses.replace(scene, depth=depth)
     scale = depth.median()
-    m = find_matches(scene, scale / depth, scale, 4)  # as refine_scene matches
+    m, _ = find_matches(scene, scale / depth, scale, 4)  # as refine_scene matches
     seen = torch.zeros(2 * H * W, dtype=torch.bool)
     seen[m.src] = True
     seen = seen.view(2, H, W)[1]
@@ -441,7 +442,7 @@ def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
     d0 = scale / scene.depth
-    m = find_matches(scene, d0, scale, 4, 0.05)
+    m, _ = find_matches(scene, d0, scale, 4, 0.05)
     same = torch.zeros(2, H, W, dtype=torch.long)
     assert len(same_segment_matches(m, scene, d0, scale, same).src) == len(m.src)
     split = same.clone()
