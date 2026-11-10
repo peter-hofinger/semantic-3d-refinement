@@ -1,0 +1,6 @@
+ai_006_007_cam_00, all 20 views, SAM 3 minus random @ SAM 3, seed 0: mean +0.0353 cm, pixels changed by > 0.5 cm 0.1033
+ai_006_007_cam_00, all 20 views, gate only minus random @ SAM 3, seed 0: mean +0.0132 cm, pixels changed by > 0.5 cm 0.0495
+ai_006_007_cam_00, all 20 views, Off minus random @ SAM 3, seed 0: mean -0.0010 cm, pixels changed by > 0.5 cm 0.0064
+ai_006_007_cam_00, all 20 views, random @ permuted minus random @ SAM 3, seed 0: mean +0.0858 cm, pixels changed by > 0.5 cm 0.2670
+ai_006_007_cam_00: matched pixels 0.884, of them with any match cut 0.180
+wrote experiments/figures/e8b_bedroom.jpg

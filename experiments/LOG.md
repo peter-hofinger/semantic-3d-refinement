@@ -73,6 +73,7 @@ Metrics:
 | E43 | The normal term as tangent residuals (n_DSINE . t / \|t\| for the closer-neighbor tangents), E42's simpler form | λ_t 4e-4 passes dev (+0.025 / -0.249 / -0.112 cm vs BiNI) and fails val on accuracy (+0.102, worse on 10 of 11; completeness -0.506, Chamfer -0.202): within a few thousandths of E42's angle term on dev, the same trade; BiNI stays |
 | E44 | E_mv reads the other view at its nearest pixel, as u does (no interpolation, no 1 px border, no four-corner check) | dev ties (+0.011 / -0.016 / -0.002 cm), 1.9 -> 1.4 s per scene; val worse on all three (+0.048 / +0.105 / +0.077, median scene +0.015 / +0.051 / +0.026), so reverted: E_mv stays bilinear |
 | E8a | Segment ablation (issue #8): the joint refiner given no, SAM 3's, Hypersim GT, per-view permuted and 4 px shifted segments, one run, dev + val + stress | the segments only filter E_mv's matches: completeness follows the share kept (per-scene Spearman 1.00 dev, 0.90 val); Chamfer vs no segments: SAM 3 -0.069 / -0.119 cm (dev / val), GT -0.021 / -0.043, permuted -0.249 / -0.346; GT gains least and scrambled ids most, so SAM 3 is not the bottleneck and the gain is not semantic; every refined variant stays worse than Déjà View on Chamfer |
+| E8b | Controls for E8a (issue #8): E_mv's matches cut at random to SAM 3's per-scene count, SAM 3's ids gating E_mv alone, a random cut at the permuted ids' count | a random cut of SAM 3's size acts like no cut (Chamfer vs Off -0.016 / -0.015 cm, dev / val), so E8a's "the gain is the count" is wrong; SAM 3 cuts the matches with the largest residuals (12.7% / 15.8% of E_mv's energy in 8.6% / 9.8% of matches), 2x as often at mask edges, and whole regions linked inconsistently; the gate alone carries about a third of SAM 3's gain over the random cut; still the same accuracy-for-completeness trade, nothing near Déjà View's Chamfer |
 
 ## Reference table (current scorer, E11)
 
@@ -2882,3 +2883,73 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Setting:** `experiments/configs/e8b_dropout.yaml`, `scene_eval --splits dev val stress`, student cluster RTX
   5090, one job (~6 min, as E8a's). The two seeds of 4 give the seed spread; if it exceeds the floor, it is the
   floor for this comparison.
+
+## E8b: a random cut of SAM 3's size acts like no cut; SAM 3 cuts the matches that pull hardest, at mask edges (10.11.2026)
+- **Question, variants, reading:** as in the plan above (issue #8); run as planned, nothing changed after seeing
+  numbers.
+- **Commits:** d3f75f4 (`MatchSelection`: `gate` and `keep` for `build_problem`, `gate` / `keep_like` per variant in
+  `scene_eval`, tests), 7b3f2c1 (plan, config), this commit (`e8b_table.py`, `e8b_matches.py`, `e8b_figures.py`,
+  results, figure).
+- **Commands** (student cluster, clean tree at 7b3f2c1): `scene_eval --cfg experiments/configs/e8b_dropout.yaml
+  --splits dev val stress` (job 1674, RTX 5090, 6:20 for all seven variants; run `e8b_dropout-20261110-134432`);
+  `e8b_matches.py experiments/configs/e8b_dropout.yaml --splits dev val` -> `results/e8b_matches.txt` and
+  `e8b_figures.py <run>` -> `results/e8b_figures.txt`, `figures/e8b_bedroom.jpg` (CPU jobs 1678, 1679); here,
+  from the copied run.yaml, `e8b_table.py <run>/run.yaml` -> `results/e8b_table.txt`. Déjà View, Off and SAM 3
+  repeat E8a's scores to the third decimal on every split, so E8a's permuted variant compares with this run.
+- **Results, cm** (accuracy / completeness / Chamfer, lower is better; Δ against the random cut at SAM 3's size,
+  seed 0; floor 0.033 / 0.037 / 0.036; "worse" = scenes on which the variant is worse than that random cut).
+  Matches kept, share of Off's: dev / val 0.914 / 0.902 for SAM 3, both random cuts and gate only; 0.130 / 0.217
+  for random @ permuted.
+
+  | split | variant | aggregate | Δ vs random @ SAM 3 | Δ median scene | scenes worse |
+  |---|---|---|---|---|---|
+  | dev (3) | Déjà View | 4.651 / 2.307 / 3.479 | +0.551 / -1.485 / -0.467 | +0.417 / -0.625 / -0.134 | 3 / 0 / 0 |
+  | | Off | 4.097 / 3.828 / 3.962 | -0.003 / +0.036 / +0.016 | -0.001 / +0.018 / +0.009 | 0 / 3 / 3 |
+  | | SAM 3 | 4.167 / 3.620 / 3.893 | +0.067 / -0.172 / -0.053 | +0.042 / -0.094 / -0.026 | 3 / 0 / 0 |
+  | | random @ SAM 3, seed 0 | 4.100 / 3.792 / 3.946 | | | |
+  | | random @ SAM 3, seed 1 | 4.100 / 3.796 / 3.948 | -0.000 / +0.003 / +0.002 | -0.000 / +0.002 / +0.000 | 1 / 3 / 3 |
+  | | gate only | 4.112 / 3.741 / 3.927 | +0.012 / -0.051 / -0.020 | +0.014 / -0.039 / -0.013 | 3 / 1 / 1 |
+  | | random @ permuted | 4.245 / 3.286 / 3.766 | +0.145 / -0.506 / -0.180 | +0.161 / -0.342 / -0.128 | 3 / 0 / 0 |
+  | | (E8a) permuted | 4.484 / 2.943 / 3.713 | | | |
+  | val (11) | Déjà View | 6.065 / 4.147 / 5.106 | +0.431 / -1.675 / -0.622 | +0.374 / -1.036 / -0.228 | 11 / 0 / 0 |
+  | | Off | 5.635 / 5.851 / 5.743 | +0.001 / +0.029 / +0.015 | -0.001 / +0.010 / +0.005 | 4 / 11 / 10 |
+  | | SAM 3 | 5.688 / 5.559 / 5.624 | +0.054 / -0.263 / -0.104 | +0.054 / -0.099 / -0.016 | 8 / 0 / 4 |
+  | | random @ SAM 3, seed 0 | 5.634 / 5.823 / 5.728 | | | |
+  | | random @ SAM 3, seed 1 | 5.634 / 5.823 / 5.728 | +0.000 / -0.000 / -0.000 | -0.000 / -0.001 / -0.001 | 4 / 5 / 4 |
+  | | gate only | 5.636 / 5.751 / 5.694 | +0.003 / -0.071 / -0.034 | +0.004 / -0.015 / -0.010 | 6 / 0 / 4 |
+  | | random @ permuted | 5.718 / 5.524 / 5.621 | +0.084 / -0.299 / -0.107 | +0.100 / -0.256 / -0.072 | 9 / 0 / 0 |
+  | | (E8a) permuted | 5.817 / 4.978 / 5.397 | | | |
+
+  The two seeds differ by at most 0.004 cm, far below the floor. Stress orders the same way (`e8b_table.txt`).
+  Refinement takes 1.9-2.3 s per scene with a random cut against 0.9-1.3 s without: drawing the subset (a CPU
+  permutation of ~16 M matches) is inside the timed solve.
+- **Random cut at SAM 3's size = no cut:** against Off it moves dev / val Chamfer by -0.016 / -0.015, within the
+  floor. E8a's reading that SAM 3's gain comes from the number of matches it cuts is wrong.
+- **Which matches SAM 3 cuts** (`e8b_matches.txt`, on the input, dev / val means): 8.6% / 9.8% of the matches,
+  carrying 12.7% / 15.8% of E_mv's initial energy (median |residual| 1.3x / 1.5x the kept matches'); 58% / 44% of
+  them start within 3 px of a SAM 3 mask boundary, against 25% / 22% of all matches. The bedroom figure shows two
+  kinds: thin lines along mask edges, and whole regions whose ids differ between views (the ceiling in views 12
+  and 6, cut almost entirely). Those are the matches that pull hardest, so cutting them leaves the result nearer
+  Déjà View: per point of matches cut, SAM 3 moves Chamfer about 3.5x (dev) and 8x (val) as much as the random
+  cut at the permuted size.
+- **Gate vs the rest:** gate only gets 30% / 27% of SAM 3's completeness gain over the random cut (dev / val) and
+  38% / 33% of its Chamfer gain, accuracy almost unchanged. The rest comes from u and E_n's cut edges together,
+  not separated here (E40 found removing u alone a tie, on the full method).
+- **Random @ permuted vs permuted:** the count explains much of the permuted ids' gain over Off (Chamfer 79% on
+  dev, 35% on val; completeness 61% / 37%), but not all: permuted keeps every match of a pixel without a segment
+  and cuts by ids, so its cut is not random either.
+- **Figure:** `figures/e8b_bedroom.jpg`, bedroom views 18, 0, 12, 6: SAM 3's segments, the share of each pixel's
+  matches the gate cuts, the distance to the GT after the random cut, and SAM 3 / gate only minus the random cut on
+  ±2 cm. SAM 3 differs from the random cut along mask edges, on the cut ceiling (red, further from the GT) and on
+  the chairs and bed frame (both signs); gate only shows the same places, weaker. Bedroom, all 20 views: SAM 3
+  minus random mean +0.035 cm (10.3% of pixels change by > 0.5 cm), gate only +0.013 (5.0%), Off -0.001 (0.6%).
+- **Reading, by the plan's rule:** SAM 3 differs from the random cut by more than the floor on completeness and
+  Chamfer (dev and val), so which matches it cuts matters, and the gate alone carries about a third of it. In the
+  direction it acts, nothing changed from E8a: every variant trades accuracy for completeness, SAM 3 is less
+  accurate than the random cut (+0.067 / +0.054), and none comes near Déjà View's Chamfer. On val, SAM 3's
+  Chamfer gain over the random cut sits in a few scenes (median scene -0.016, 4 of 11 worse).
+- **Conclusion:** the segments are not a random filter: they find the matches with the largest residuals, at
+  object edges and where the linking disagrees between views, and switching those off is a cheap way to do less
+  of E_mv's merging. That is still less E_mv, not semantics that bring the surface nearer the GT. A
+  semantics-free check of the same idea is the next step down: cut the 9% of matches with the largest initial
+  residual and see whether it lands on SAM 3 (not run).
