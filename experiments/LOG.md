@@ -2861,3 +2861,8 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   (`scene_figures.render_figure`).
 - **Cost:** about 3 s per refinement on the RTX 3080: 3 filters x (6 x 10 + 11 x 5) = 345 refinements, about 18
   min of GPU; the bisections run meanwhile on the CPU in 6 processes, about 25 min in all.
+- **Amendment after a smoke run (dev, q = 1 and 0.5; 10.11.2026):** q = 1 repeats E45's refiner to 0.000000 cm
+  on all three dev scenes. The bisections, though, took 14 min for 18 points while E45's val sweep shared the
+  CPU, so the grid is cut to q = 1, 0.9, ..., 0.3 on dev and stress, and val to q = 1, 0.7, 0.4. At q = 0.5
+  the smoke run's completeness was already 7-49 cm (dev means), far beyond any operating point. Nothing else
+  changes. The smoke run's numbers are not reported.
