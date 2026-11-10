@@ -13,10 +13,7 @@ masks across views itself (SegVGGT) sets `linked: true`; its masks skip the asso
 A joint variant's `segments` picks what the refiner groups by, for the segment ablation
 (E8a): the linked masks (default), the ground truth's instances, none, or the linked
 masks with their identities or boundaries corrupted (`variant_segments`); the labels
-that are scored stay the linked masks. Its `gate` picks, from the same choices, the ids
-that alone gate E_mv's matches, and `keep_like` drops E_mv's matches down to the number
-another choice's gate keeps on that scene, at random (E8b's controls) or, with
-`keep_by: residual`, those of largest initial residual first (E8c).
+that are scored stay the linked masks.
 The config names the splits that get an aggregate (`split_scores`) and those that keep
 per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
@@ -50,14 +47,12 @@ from src.loaders.hypersim.config import load_config
 from src.loaders.hypersim.scene import NYU40
 from src.loaders.views import Views
 from src.refinement.multiview import (
-    MatchSelection,
     RefineConfig,
     Scene,
     disagreement_pct,
     find_matches,
     points_from_rays,
     refine_scene,
-    same_segment_matches,
     scene_from_geometry,
     scene_normals,
 )
@@ -224,17 +219,15 @@ def shift_per_view(
     return out
 
 
-def variant_segments(
-    inputs: SceneInputs, variant: dict, key: str = "segments"
-) -> torch.Tensor | None:
-    """Return the ids variant[key] names: (V, H, W) int64, -1 for none; None for off.
+def variant_segments(inputs: SceneInputs, variant: dict) -> torch.Tensor | None:
+    """Return the refiner's segments: (V, H, W) int64 ids, -1 for none; None for off.
 
-    The choice is `sam3` (the linked masks), `gt` (Hypersim's instances, the
+    `segments` is `sam3` (the linked masks, default), `gt` (Hypersim's instances, the
     unlabeled and no-mesh pixels as none), `none`, or the linked masks corrupted:
     `permuted` (`permute_per_view`) or `shifted` by `shift_px` (`shift_per_view`), drawn
-    with the variant's `seed`. A missing key falls back to `segments`, its to `sam3`.
+    with the variant's `seed`.
     """
-    kind = variant.get(key, variant.get("segments", "sam3"))
+    kind = variant.get("segments", "sam3")
     rng = np.random.default_rng(variant.get("seed", 0))
     sam3 = inputs.labels.instance_ids
     match kind:
@@ -257,17 +250,6 @@ def variant_segments(
     return torch.from_numpy(ids.astype(np.int64))
 
 
-def gated_count(inputs: SceneInputs, ids: torch.Tensor | None, neighbors: int) -> int:
-    """Return how many of E_mv's matches the gate on ids keeps (all of them for None)."""
-    scene = inputs.scene
-    scale = scene.depth.median()
-    d0 = scale / scene.depth
-    matches = find_matches(scene, d0, scale, neighbors)
-    if ids is None:
-        return len(matches.src)
-    return len(same_segment_matches(matches, scene, d0, scale, ids.to(d0.device)).src)
-
-
 def refine_variant(
     inputs: SceneInputs, variant: dict, base: RefineConfig
 ) -> tuple[float, dict, np.ndarray, np.ndarray]:
@@ -278,21 +260,8 @@ def refine_variant(
     if variant["refiner"] == "joint":
         cfg = dataclasses.replace(base, **variant.get("refine", {}))
         segments = variant_segments(inputs, variant)
-        gate = variant_segments(inputs, variant, "gate")
-        keep = (
-            gated_count(
-                inputs, variant_segments(inputs, variant, "keep_like"), cfg.neighbors
-            )
-            if "keep_like" in variant
-            else None
-        )
         t0 = time.perf_counter()
-        select = MatchSelection(
-            gate, keep, variant.get("seed", 0), variant.get("keep_by", "random")
-        )
-        depth, log, counts = refine_scene(
-            scene, cfg, inputs.normals, segments, select=select
-        )
+        depth, log, counts = refine_scene(scene, cfg, inputs.normals, segments)
         if depth.is_cuda:
             torch.cuda.synchronize()
         seconds = time.perf_counter() - t0

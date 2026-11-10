@@ -3,6 +3,7 @@
 # many per scene as SAM 3's (or the permuted ids') gate keeps (`keep_like`,
 # `keep_by: residual`), next to E8b's random cut and gate only.
 # `--splits dev val stress`. Otherwise configs/eval_hypersim.yaml's protocol.
+# Runs at f115eaf only: its variant keys were removed after E8c (experiments/LOG.md).
 output_dir: runs
 root: data/processed/hypersim
 dataset: configs/hypersim.yaml

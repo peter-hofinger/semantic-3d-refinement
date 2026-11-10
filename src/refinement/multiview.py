@@ -490,43 +490,6 @@ def same_segment_matches(
     return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
 
 
-@dataclass(frozen=True)
-class MatchSelection:
-    """E_mv's matches other than the segments' gate: the segment ablation's controls.
-
-    gate: ids that gate the matches in place of the segments (`same_segment_matches`);
-    keep: then `keep` of the gated matches, by `random`: drawn with seed
-    (`random_matches`), or `residual`: those of smallest |residual| on the input depth
-    (`smallest_residual_matches`). Used to tell what segments add from the number of
-    matches they cut (E8b) and from a plain residual test (E8c).
-    """
-
-    gate: Tensor | None = None
-    keep: int | None = None
-    seed: int = 0
-    by: str = "random"
-
-    def __post_init__(self) -> None:
-        """Check the ordering is one of the two."""
-        assert self.by in {"random", "residual"}, self.by
-
-
-def random_matches(m: Matches, n: int, seed: int) -> Matches:
-    """Keep n of the matches, drawn uniformly without replacement, in their order."""
-    assert 0 <= n <= len(m.src), (n, len(m.src))
-    g = torch.Generator().manual_seed(seed)
-    keep = torch.randperm(len(m.src), generator=g)[:n].sort().values.to(m.src.device)
-    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
-
-
-def smallest_residual_matches(m: Matches, n: int, r: Tensor) -> Matches:
-    """Keep the n matches of smallest |r| (one residual per match), in their order."""
-    assert 0 <= n <= len(m.src) and r.shape == m.src.shape, (n, r.shape, m.src.shape)
-    assert r.isfinite().all()
-    keep = r.abs().argsort(stable=True)[:n].sort().values
-    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
-
-
 def robust(u: Tensor, k: float) -> tuple[Tensor, Tensor]:
     """Huber's cost as one squared residual: r with r² = 2 h(u), and dr/du.
 
@@ -823,14 +786,12 @@ def gauss_newton_step(x: Tensor, cfg: RefineConfig, p: Problem) -> tuple[Tensor,
     return step.view_as(x), used
 
 
-def refine_scene(  # noqa: PLR0913 - three optional pixel maps + the ablation's selection
+def refine_scene(
     scene: Scene,
     cfg: RefineConfig,
     normals: Tensor | None = None,
     segments: Tensor | None = None,
     keep: Tensor | None = None,
-    *,
-    select: MatchSelection | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], dict[str, int]]:
     """Gauss-Newton on all views at once; return depth (V, H, W), energy log, counts.
 
@@ -840,9 +801,9 @@ def refine_scene(  # noqa: PLR0913 - three optional pixel maps + the ablation's 
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
     rays, enable E_n. Segments (V, H, W) are linked instance ids, -1 for none (default:
     no pixel has one). Keep (V, H, W, bool) refines only those pixels; the others are
-    NaN (default: all are refined). Select changes which of E_mv's matches are used.
+    NaN (default: all are refined).
     """
-    p = build_problem(scene, cfg, normals, segments, keep, select=select)
+    p = build_problem(scene, cfg, normals, segments, keep)
     x, log, cg_total = gauss_newton(p, cfg)
     depth_hat = p.scale / (p.d0 + x)
     assert (
@@ -894,21 +855,19 @@ def consistency(scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor) -> Tensor:
     return out
 
 
-def build_problem(  # noqa: PLR0913 - three optional pixel maps + the ablation's selection
+def build_problem(
     scene: Scene,
     cfg: RefineConfig,
     normals: Tensor | None = None,
     segments: Tensor | None = None,
     keep: Tensor | None = None,
-    *,
-    select: MatchSelection | None = None,
 ) -> Problem:
     """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
 
     E_d's weight is the confidence (mean one per view) times u; E_n's
     edges stay within one instance; E_mv keeps the matches that land on their source's
-    instance, unless select says otherwise (`MatchSelection`). A keep mask (V, H, W,
-    bool) also drops the edges and matches that touch a removed pixel.
+    instance. A keep mask (V, H, W, bool) also drops the edges and matches that touch
+    a removed pixel.
     """
     assert normals is not None or cfg.lambda_n == cfg.lambda_t == 0, "E_n needs normals"
     ids = (
@@ -949,17 +908,9 @@ def build_problem(  # noqa: PLR0913 - three optional pixel maps + the ablation's
             ],
         )
     matches = find_matches(scene, d0, scale, cfg.neighbors)
-    select = select or MatchSelection()
-    gate = ids if select.gate is None else select.gate.to(ids.device)
-    assert gate.shape == ids.shape, gate.shape
-    matches = same_segment_matches(matches, scene, d0, scale, gate)
+    matches = same_segment_matches(matches, scene, d0, scale, ids)
     if keep is not None:
         matches = kept_matches(matches, scene, d0, scale, keep)
-    if select.keep is not None and select.by == "random":
-        matches = random_matches(matches, select.keep, select.seed)
-    elif select.keep is not None:
-        r = residuals(d0, scale, scene, matches)
-        matches = smallest_residual_matches(matches, select.keep, r)
     dsine = normals if cfg.lambda_t > 0 else None
     return Problem(scene, scale, d0, w, terms, matches, dsine, keep)
 

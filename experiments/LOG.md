@@ -3229,6 +3229,9 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Commits:** d3f75f4 (`MatchSelection`: `gate` and `keep` for `build_problem`, `gate` / `keep_like` per variant in
   `scene_eval`, tests), 7b3f2c1 (plan, config), this commit (`e8b_table.py`, `e8b_matches.py`, `e8b_figures.py`,
   results, figure).
+- **Code removed after E8c:** `MatchSelection` (and the `gate` / `keep_like` / `keep_by` variant keys) served only
+  E8b and E8c, so it left the solver once they were answered; E8a's `segments` choice stays. To rerun `e8b_dropout.yaml`, check
+  out f115eaf. The analysis scripts use only functions still on main.
 - **Commands** (student cluster, clean tree at 7b3f2c1): `scene_eval --cfg experiments/configs/e8b_dropout.yaml
   --splits dev val stress` (job 1674, RTX 5090, 6:20 for all seven variants; run `e8b_dropout-20261110-134432`);
   `e8b_matches.py experiments/configs/e8b_dropout.yaml --splits dev val` -> `results/e8b_matches.txt` and
@@ -3319,6 +3322,9 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Commits:** da8dd77 (`MatchSelection.by`: `random` or `residual`, `keep_by` per variant in `scene_eval`, tests),
   5f34a8d (plan, config), this commit (`e8c_overlap.py`, `e8c_figures.py`, `e8b_table.py` takes the references as
   arguments, results, figure).
+- **Code removed after E8c:** `MatchSelection` (and the `gate` / `keep_like` / `keep_by` variant keys) served only
+  E8b and E8c, so it left the solver once they were answered; E8a's `segments` choice stays. To rerun `e8c_residual.yaml`, check
+  out f115eaf. The analysis scripts use only functions still on main.
 - **Commands** (student cluster at 5f34a8d; the run is marked dirty only by the two untracked E8c scripts, which
   `scene_eval` does not import and which match this commit's by md5): `scene_eval --cfg
   experiments/configs/e8c_residual.yaml --splits dev val stress` (job 1700, RTX 5090, 6:18 for all seven variants;
