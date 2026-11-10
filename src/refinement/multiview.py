@@ -451,13 +451,20 @@ class MatchSelection:
     """E_mv's matches other than the segments' gate: the segment ablation's controls.
 
     gate: ids that gate the matches in place of the segments (`same_segment_matches`);
-    keep: then a random `keep` of the gated matches, drawn with seed (`random_matches`).
-    Used to tell what segments add from the number of matches they cut (E8b).
+    keep: then `keep` of the gated matches, by `random`: drawn with seed
+    (`random_matches`), or `residual`: those of smallest |residual| on the input depth
+    (`smallest_residual_matches`). Used to tell what segments add from the number of
+    matches they cut (E8b) and from a plain residual test (E8c).
     """
 
     gate: Tensor | None = None
     keep: int | None = None
     seed: int = 0
+    by: str = "random"
+
+    def __post_init__(self) -> None:
+        """Check the ordering is one of the two."""
+        assert self.by in {"random", "residual"}, self.by
 
 
 def random_matches(m: Matches, n: int, seed: int) -> Matches:
@@ -465,6 +472,14 @@ def random_matches(m: Matches, n: int, seed: int) -> Matches:
     assert 0 <= n <= len(m.src), (n, len(m.src))
     g = torch.Generator().manual_seed(seed)
     keep = torch.randperm(len(m.src), generator=g)[:n].sort().values.to(m.src.device)
+    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
+
+
+def smallest_residual_matches(m: Matches, n: int, r: Tensor) -> Matches:
+    """Keep the n matches of smallest |r| (one residual per match), in their order."""
+    assert 0 <= n <= len(m.src) and r.shape == m.src.shape, (n, r.shape, m.src.shape)
+    assert r.isfinite().all()
+    keep = r.abs().argsort(stable=True)[:n].sort().values
     return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
 
 
@@ -864,8 +879,11 @@ def build_problem(
     gate = ids if select.gate is None else select.gate.to(ids.device)
     assert gate.shape == ids.shape, gate.shape
     matches = same_segment_matches(matches, scene, d0, scale, gate)
-    if select.keep is not None:
+    if select.keep is not None and select.by == "random":
         matches = random_matches(matches, select.keep, select.seed)
+    elif select.keep is not None:
+        r = residuals(d0, scale, scene, matches)
+        matches = smallest_residual_matches(matches, select.keep, r)
     dsine = normals if cfg.lambda_t > 0 else None
     return Problem(scene, scale, d0, w, terms, matches, dsine)
 

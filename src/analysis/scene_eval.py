@@ -14,8 +14,9 @@ A joint variant's `segments` picks what the refiner groups by, for the segment a
 (E8a): the linked masks (default), the ground truth's instances, none, or the linked
 masks with their identities or boundaries corrupted (`variant_segments`); the labels
 that are scored stay the linked masks. Its `gate` picks, from the same choices, the ids
-that alone gate E_mv's matches, and `keep_like` drops E_mv's matches at random down to
-the number another choice's gate keeps on that scene (E8b's controls).
+that alone gate E_mv's matches, and `keep_like` drops E_mv's matches down to the number
+another choice's gate keeps on that scene, at random (E8b's controls) or, with
+`keep_by: residual`, those of largest initial residual first (E8c).
 The config names the splits that get an aggregate (`split_scores`) and those that keep
 per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
@@ -286,7 +287,9 @@ def refine_variant(
             else None
         )
         t0 = time.perf_counter()
-        select = MatchSelection(gate, keep, variant.get("seed", 0))
+        select = MatchSelection(
+            gate, keep, variant.get("seed", 0), variant.get("keep_by", "random")
+        )
         depth, log, counts = refine_scene(scene, cfg, inputs.normals, segments, select)
         if depth.is_cuda:
             torch.cuda.synchronize()

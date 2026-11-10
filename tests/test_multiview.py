@@ -36,6 +36,7 @@ from src.refinement.multiview import (
     scene_energy,
     scene_from_geometry,
     scene_residuals,
+    smallest_residual_matches,
     stencil_diagonal,
     tangent_residuals,
 )
@@ -611,3 +612,32 @@ def test_a_gate_alone_cuts_matches_but_leaves_weights_and_edges_ungated() -> Non
     assert torch.equal(gated.matches.src, full.matches.src)
     assert torch.equal(gated.matches.dst, full.matches.dst)
     assert len(gated.matches.src) < len(off.matches.src)
+
+
+def test_keeping_every_match_by_residual_returns_the_ungated_refinement() -> None:
+    scene, _ = two_views(bump=0.03, noise=0.01)
+    cfg = RefineConfig(lambda_n=0.0, device="cpu")
+    scale = scene.depth.median()
+    every = len(find_matches(scene, scale / scene.depth, scale, cfg.neighbors).src)
+    depth, _, _ = refine_scene(scene, cfg)
+    select = MatchSelection(keep=every, by="residual")
+    kept, _, counts = refine_scene(scene, cfg, select=select)
+    assert counts["matches"] == every
+    assert torch.equal(depth, kept)
+
+
+def test_smallest_residual_matches_keeps_the_n_smallest_in_order() -> None:
+    scene, _ = two_views(bump=0.03, noise=0.01)
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    m = find_matches(scene, d0, scale, 4, 0.05)
+    r = residuals(d0, scale, scene, m)
+    n = len(m.src) // 3
+    kept = smallest_residual_matches(m, n, r)
+    rk = residuals(d0, scale, scene, kept).abs()
+    assert len(kept.src) == n
+    assert rk.max() <= r.abs().sort().values[n - 1]
+    index = (m.dst * scene.depth.numel() + m.src).tolist()
+    picked = (kept.dst * scene.depth.numel() + kept.src).tolist()
+    positions = [index.index(key) for key in picked]
+    assert positions == sorted(set(positions))  # distinct, original order
