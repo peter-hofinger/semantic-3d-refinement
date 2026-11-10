@@ -2705,3 +2705,24 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   of the angle form. It shares its trade: completeness and Chamfer better than BiNI on dev and val, accuracy worse
   on val beyond noise. BiNI stays the default (issue #21 owns that choice); E_t stays in the code, off, as the
   candidate if the team decides by Chamfer. The angle term is not kept.
+
+## Plan: E44 = E_mv reads the other view at its nearest pixel, as u does (10.11.2026)
+- **Goal (Peter):** one rule for "where does a pixel land in another view". u already takes the nearest pixel of
+  the projection, with no border and no window; E_mv's instance gate does too, but E_mv's depth comparison
+  interpolates j's inverse depth bilinearly from the four pixels around the projection, and for that it needs
+  the 1 px border (`MATCH_BORDER`, so the four stay in the image when a step moves the projection) and a check
+  that the four agree within the occlusion threshold (else the interpolation would mix two surfaces).
+- **Change:** each match stores j's nearest pixel at the input, fixed as the matches are; the residual is
+  log z_j(x) + log d_j(q) - log s with q that pixel. A projection counts if its nearest pixel lies in the image,
+  as for u. Removed: `bilinear`, `corners`, `MATCH_BORDER`, the four-corner check; E_mv's Jacobian has two entries
+  per match instead of five; the instance gate reads q directly.
+- **What it costs, before running:** j's depth is read up to half a pixel from where x projects, so on a surface
+  slanted to j the residual carries a quantization error of up to half a pixel's depth step (a few tenths of a
+  percent on Hypersim's walls), and E_mv pulls the views toward that slightly stair-stepped reading. q is fixed on
+  the input, so the energy stays smooth.
+- **Setting, rule:** as E41-E43 (dev decides, stress looked at, RTX 3080, BiNI E_n, 5 x 10, u with the own view).
+  Reference: the refiner before E44, whose scores on this GPU are on record (E41/E43 runs: dev 4.199 / 3.658 /
+  3.928, val 5.701 / 5.585 / 5.643; the same GPU repeats to 0.00005 cm). A tie or better on dev (E40's floor) is
+  adopted, since it removes a constant and a check; then val once. `disagreement_pct`, a diagnostic, changes
+  meaning with it (nearest pixel, not interpolated) and is not compared across the change.
+- **Figure:** bedroom views 18, 0, 12, 6: each pixel's distance to the GT, after minus before.
