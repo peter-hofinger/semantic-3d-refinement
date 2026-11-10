@@ -2812,3 +2812,10 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   the clouds rendered from the same cameras (`scene_figures.render_figure`), refiner next to the best filter.
 - **Cost:** one GPU run, ~5 min. Each scoring takes about 2 s (3.8M points); 11 filters x (6 scenes x 24 + 11 x 14
   scorings), about 1.8 h of CPU in one process, split over processes to fit about 30 min.
+- **Amendment after the first dev / stress pass (10.11.2026):** the planned solve (interpolation, then two
+  secant steps) left completeness gaps up to 2.65 cm (MVS consistency on the lobby; voxel density, u and
+  confidence up to 0.82 cm), against a floor of 0.037 cm: where completeness rises steeply as q falls, two steps do
+  not converge. Those matches were looked at and are not used. Replaced, before val ran, by bisection of the same
+  bracketing grid step until the gap is below 0.0005 cm (half the last printed digit of every score) or the
+  bracket is one pixel wide. Dev and stress keep their grid curves (`--reuse`, the same code scores them) and
+  are solved again; val runs once, with the bisection.
