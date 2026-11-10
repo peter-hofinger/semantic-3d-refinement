@@ -15,6 +15,7 @@ from torch import Tensor
 from transformers import Sam3Model, Sam3Processor
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
+from src.device import best_device
 from src.geometry import Geometry
 from src.loaders import Views
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
@@ -66,13 +67,14 @@ class Sam3ImageSegmenter:
             self._model = Sam3Model.from_pretrained(
                 self.checkpoint, dtype=torch.bfloat16
             )
-            self._model = self._model.to("cuda").eval()
+            self._model = self._model.to(best_device()).eval()
             self._processor = Sam3Processor.from_pretrained(self.checkpoint)
         return self._model, self._processor
 
     def segment(self, views: Views, geometry: Geometry | None = None) -> Segmentation:  # noqa: ARG002
         """Every prompt on every view: text encoded once, prompts batched per view."""
         model, processor = self._load()
+        device = model.device
         num, height, width = views.images.shape[:3]
         ids = np.full((num, height, width), NO_INSTANCE, dtype=np.int32)
         classes: dict[int, str] = {}
@@ -82,7 +84,7 @@ class Sam3ImageSegmenter:
             # the processor pads every prompt to the same 32 tokens; the encoder runs
             # once per prompt and scene: batched, its bf16 output rounds differently,
             # one at a time it is bit for bit the old per-view encoding (E39)
-            text = processor(text=list(self.prompts), return_tensors="pt").to("cuda")
+            text = processor(text=list(self.prompts), return_tensors="pt").to(device)
             embeds = torch.cat(
                 [
                     model.get_text_features(
@@ -93,7 +95,7 @@ class Sam3ImageSegmenter:
                 ]
             )
             for i, image in enumerate(views.images):
-                inputs = processor(images=image, return_tensors="pt").to("cuda")
+                inputs = processor(images=image, return_tensors="pt").to(device)
                 sizes = inputs["original_sizes"].tolist()
                 vision = model.get_vision_features(
                     pixel_values=inputs.pixel_values.to(torch.bfloat16)
@@ -121,8 +123,8 @@ class Sam3ImageSegmenter:
                         masks.append(res["masks"].bool())
                         scores.append(res["scores"].float())
                         owners += [k] * len(res["scores"])
-                empty = torch.zeros(0, height, width, dtype=torch.bool, device="cuda")
-                score = torch.cat([torch.zeros(0, device="cuda"), *scores])
+                empty = torch.zeros(0, height, width, dtype=torch.bool, device=device)
+                score = torch.cat([torch.zeros(0, device=device), *scores])
                 local = resolve_overlaps(torch.cat([empty, *masks]), score)
                 present, view_ids = compact(local, i)
                 ids[i] = view_ids.cpu().numpy()
@@ -213,8 +215,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    total = torch.cuda.get_device_properties(0).total_memory / 1e9
-    torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total))
+    cuda = torch.cuda.is_available()
+    if cuda:
+        total = torch.cuda.get_device_properties(0).total_memory / 1e9
+        torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total))
     tag = "sam3image"
     options: dict[str, Any] = {}
     if args.prompts:
@@ -234,7 +238,8 @@ def main() -> None:
             len(segmenter.prompts),
             len({segmenter.synonyms.get(p, p) for p in segmenter.prompts}),
         )
-        torch.cuda.reset_peak_memory_stats()
+        if cuda:
+            torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
         seg = segmenter.segment(views)
         out = path.with_name(f"{tag}_{path.stem}.npz")
@@ -245,7 +250,7 @@ def main() -> None:
             len(seg.classes),
             len(views),
             time.perf_counter() - start,
-            torch.cuda.max_memory_allocated() / 1e9,
+            torch.cuda.max_memory_allocated() / 1e9 if cuda else float("nan"),
             out,
         )
 

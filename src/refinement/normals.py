@@ -25,6 +25,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from src.device import best_device
 from src.geometry import Geometry
 from src.loaders.views import Views
 
@@ -319,7 +320,7 @@ DSINE_SIGNS = {
 
 
 def dsine_normals(images: np.ndarray, intrinsics: np.ndarray, repo: Path) -> np.ndarray:
-    """DSINE's camera-frame normals (V, H, W, 3) of uint8 images, run on CUDA."""
+    """DSINE's camera-frame normals (V, H, W, 3) of uint8 images, on `best_device`."""
     assert images.dtype == np.uint8 and images.shape[-1] == 3, images.shape  # noqa: PLR2004
     assert intrinsics.shape == (len(images), 3, 3), intrinsics.shape
     sys.path.insert(0, str(repo))
@@ -327,12 +328,21 @@ def dsine_normals(images: np.ndarray, intrinsics: np.ndarray, repo: Path) -> np.
     assert spec is not None and spec.loader is not None
     hub = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hub)
-    predictor = hub.DSINE()
+    # hub.DSINE() would load the same weights but moves them to CUDA unconditionally
+    dsine = importlib.import_module("models.dsine")
+    device = best_device()
+    model = dsine.DSINE()
+    model.load_state_dict(hub._load_state_dict(None), strict=True)  # noqa: SLF001
+    model = model.eval().to(device)
+    model.pixel_coords = model.pixel_coords.to(device)
+    predictor = hub.Predictor(model)
+    predictor.device = device
     out = []
     with torch.no_grad():
         for image, k in zip(images, intrinsics, strict=True):
             x = torch.from_numpy(image).float().permute(2, 0, 1)[None] / 255
-            n = predictor.infer_tensor(x, torch.from_numpy(k).float()[None].cuda())[0]
+            k_t = torch.from_numpy(k).float()[None].to(device)
+            n = predictor.infer_tensor(x, k_t)[0]
             out.append(n.permute(1, 2, 0).cpu().numpy().astype(np.float32))
     normals = np.stack(out)
     assert normals.shape == images.shape and np.isfinite(normals).all()

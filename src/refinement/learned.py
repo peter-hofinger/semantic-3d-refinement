@@ -32,6 +32,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F  # noqa: N812
 
 from src.analysis.scene_eval import git_hash
+from src.device import best_device
 from src.evaluation.instances import STRUCTURE
 from src.geometry import Geometry
 from src.loaders.hypersim.config import load_config
@@ -289,7 +290,7 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=Path("configs/learned.yaml"))
     args = parser.parse_args()
     cfg = LearnedConfig.load(args.config)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = best_device()
     out = Path("runs") / f"learned-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True)
     record: dict = {
