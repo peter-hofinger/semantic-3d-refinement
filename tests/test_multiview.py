@@ -7,10 +7,12 @@ import torch
 
 from src.loaders.views import Views
 from src.refinement.multiview import (
+    MATCH_BORDER,
     JointRefiner,
     Problem,
     RefineConfig,
     Scene,
+    bilinear,
     build_problem,
     consistency,
     energy_maps,
@@ -85,23 +87,33 @@ def two_views(bump: float = 0.0, noise: float = 0.0) -> tuple[Scene, torch.Tenso
     return scene, truth
 
 
-def test_consistent_views_agree_to_half_a_pixel_and_a_bump_does_not() -> None:
+def test_bilinear_is_exact_on_affine_maps() -> None:
+    v, u = torch.meshgrid(
+        torch.arange(H, dtype=torch.float64),
+        torch.arange(W, dtype=torch.float64),
+        indexing="ij",
+    )
+    d = torch.stack([1 + 0.01 * u + 0.02 * v, 2 - 0.01 * v])
+    pu, pv = torch.tensor([3.3, 10.75, 40.5]), torch.tensor([7.2, 0.5, 30.9])
+    value, _ = bilinear(d, torch.tensor([0, 1, 0]), pu.double(), pv.double())
+    torch.testing.assert_close(
+        value,
+        torch.stack(
+            [1 + 0.01 * pu + 0.02 * pv, 2 - 0.01 * pv, 1 + 0.01 * pu + 0.02 * pv]
+        )
+        .double()
+        .diagonal(),
+    )
+
+
+def test_consistent_views_have_zero_residual_and_a_bump_does_not() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
-    d0 = scale / scene.depth
-    m = find_matches(scene, d0, scale, 4, 0.05)
+    m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
     assert len(m.src) > 0.5 * scene.depth.numel()
-    # q is the nearest pixel, so the residual is the log-depth change over at most
-    # half a pixel along each axis of the plane seen in j
-    log_d = d0.log()
-    step = max(
-        (log_d[..., 1:] - log_d[..., :-1]).abs().median(),
-        (log_d[..., 1:, :] - log_d[..., :-1, :]).abs().median(),
-    )
-    r = residuals(d0, scale, m).abs()
-    assert r.median() < step and r.median() > 0
+    assert residuals(scale / scene.depth, scale, scene, m).abs().max() < 1e-4
     bumped, _ = two_views(bump=0.03)
-    assert residuals(scale / bumped.depth, scale, m).abs().max() > 0.02
+    assert residuals(scale / bumped.depth, scale, bumped, m).abs().max() > 0.02
 
 
 def test_zero_iterations_and_zero_weight_return_the_input() -> None:
@@ -128,8 +140,8 @@ def test_agreement_meets_halfway_between_two_views() -> None:
     depth, _, _ = refine_scene(scene, cfg)
     scale = scene.depth.median()
     m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
-    before = residuals(scale / scene.depth, scale, m).abs().max()
-    assert residuals(scale / depth, scale, m).abs().max() < 0.1 * before
+    before = residuals(scale / scene.depth, scale, scene, m).abs().max()
+    assert residuals(scale / depth, scale, scene, m).abs().max() < 0.1 * before
     center = (slice(20, 28), slice(28, 36))
     error = [
         (d[v][center] / truth[v][center].float()).log().mean().item()
@@ -264,8 +276,10 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         torch.testing.assert_close(diag[c], column.square().sum())
 
     d = d0 + delta
-    cols, vals = match_jacobian(d, scale, p.matches)
-    _, exact_mv = torch.func.jvp(lambda x: residuals(x, scale, p.matches), (d,), (v,))
+    cols, vals = match_jacobian(d, scale, scene, p.matches)
+    _, exact_mv = torch.func.jvp(
+        lambda x: residuals(x, scale, scene, p.matches), (d,), (v,)
+    )
     torch.testing.assert_close((vals * v.flatten()[cols]).sum(0), exact_mv)
 
 
@@ -364,18 +378,16 @@ def test_scaling_every_weight_leaves_the_minimizer_so_e_d_needs_none() -> None:
     torch.testing.assert_close(log_k[-1]["E"], k * log[-1]["E"], rtol=1e-6, atol=0)
 
 
-def test_matches_read_the_nearest_pixel_anywhere_in_the_image() -> None:
+def test_matches_keep_the_border_margin() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
     d0 = scale / scene.depth
     m = find_matches(scene, d0, scale, 4, 0.05)
     depth = scale / d0.reshape(-1)[m.src]
     u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
-    col, row = u.round().long(), v.round().long()
-    assert ((col >= 0) & (col < W) & (row >= 0) & (row < H)).all()
-    assert torch.equal(m.pixel, (m.dst * H + row) * W + col)
-    on_border = (col == 0) | (col == W - 1) | (row == 0) | (row == H - 1)
-    assert on_border.any()  # the former 1 px margin is matched now
+    b = MATCH_BORDER
+    assert (u >= b).all() and (u <= W - 1 - b).all()
+    assert (v >= b).all() and (v <= H - 1 - b).all()
 
 
 def test_energy_maps_add_up_to_the_energy() -> None:
@@ -465,15 +477,15 @@ def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
     d0 = scale / scene.depth
     m = find_matches(scene, d0, scale, 4, 0.05)
     same = torch.zeros(2, H, W, dtype=torch.long)
-    assert len(same_segment_matches(m, same).src) == len(m.src)
+    assert len(same_segment_matches(m, scene, d0, scale, same).src) == len(m.src)
     split = same.clone()
     split[1] = 7  # view 1 is one other object: nothing may match across
-    assert len(same_segment_matches(m, split).src) == 0
+    assert len(same_segment_matches(m, scene, d0, scale, split).src) == 0
     unmasked = torch.full((2, H, W), -1, dtype=torch.long)  # nothing to gate on
-    assert len(same_segment_matches(m, unmasked).src) == len(m.src)
+    assert len(same_segment_matches(m, scene, d0, scale, unmasked).src) == len(m.src)
     shifted = halves()
     shifted[1] = torch.roll(shifted[1], 20, dims=1)  # view 1's boundary elsewhere
-    kept = same_segment_matches(m, shifted)
+    kept = same_segment_matches(m, scene, d0, scale, shifted)
     assert 0.2 * len(m.src) < len(kept.src) < 0.9 * len(m.src)
 
 
