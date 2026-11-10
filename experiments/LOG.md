@@ -2756,3 +2756,59 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   ones, not measured separately) cost completeness. Reverted: E_mv reads j bilinearly again, with its 1 px border
   and four-corner check, whose reasons stand (`MATCH_BORDER`). u keeps its nearest pixel; it only reads a label,
   for which interpolation has no meaning.
+
+## Plan: E45 = the refiner against filters of Déjà View's points at equal completeness (10.11.2026)
+- **Goal (issue #27):** the refiner lowers accuracy error and raises completeness error (dev, E41: 4.65 -> 4.20 /
+  2.31 -> 3.66 cm). Dropping points does the same. So the question is whether the refiner beats the obvious
+  baseline: Déjà View's points, filtered until they are exactly as complete as the refiner's output. Is accuracy
+  (and Chamfer) then better or worse than the refiner's, beyond noise?
+- **Setting:** Hypersim dev (3) for the answer, stress (3) for a second look, val (11) once as a check. Cached
+  inputs of `configs/eval_hypersim.yaml`, the default refiner on main (E41's: 5 x 10, u counting the own view,
+  BiNI E_n), this machine's RTX 3080 for one `scene_eval --splits dev val stress` run. That run gives the refined
+  depth and Déjà View's; the filters run on its stored Déjà View depth, on the CPU. No test scene.
+- **Scoring (the protocol as is, nothing new):** a filtered output is Déjà View's per-pixel cloud with the removed
+  pixels set to NaN. The protocol scores such an output as it stands: Umeyama on the pixels that remain, then
+  accuracy over the remaining points and completeness over every GT point (`score_output`'s surface part, shared
+  through one function, not copied). Labels do not move and are not scored again.
+- **Filters:** each is one score per pixel, higher means keep. The cut keeps the top fraction q of the scene's
+  pixels (all 20 views pooled, as VGGT's demo takes its confidence percentile over all frames). Ties are broken by
+  one fixed random permutation (seed 0): within a tie the filter has no preference. Scores use Déjà View's own
+  outputs (depth, confidence, rays, the linked SAM 3 ids, DSINE's normals), never the GT.
+
+  | filter | score (keep high) | source |
+  |---|---|---|
+  | confidence | C | Déjà View's confidence, as DUSt3R / VGGT clouds are cut (VGGT demo: a percentile of C) |
+  | depth gradient | -\|∇ log D\| (central differences) | flying pixels sit on steep depth; log makes it scale-free |
+  | both | min of the two scores' ranks | kept at q only if it passes both cuts at the same level |
+  | u | the refiner's consistency u | E_d's semantic weight: share of views agreeing on the instance |
+  | depth edge | -log(max / min D in the 3 x 3 window) | MoGe's point-cloud export (`utils3d.depth_edge`, rtol cut) |
+  | statistical outlier | -mean distance to the k = 20 nearest points of the scene | Rusu et al. 2008 (PCL); k = Open3D's documented default |
+  | multi-view consistency | number of other views whose depth agrees | MVS fusion (COLMAP, Schönberger et al. 2016; MVSNet, Yao et al. 2018); agree = E_mv's own test (Otsu's threshold, bilinear, four corners) |
+  | voxel density | points of the scene in the pixel's voxel | issue #27; voxel side = the scene's median pixel footprint D / f (no GT scale) |
+  | grazing angle | \|cos\| between the view ray and DSINE's normal | Curless & Levoy 1996 weight range samples by this cosine |
+  | random | a uniform random number (seed 0) | the floor any filter must beat |
+  | refined + confidence | C on the refined depth | not a baseline: the refiner's own curve |
+
+  Their constants are the cited ones (k = 20, the 3 x 3 window, seed 0); the cut itself is a quantile, and the
+  grid of q is the curve's resolution, not a threshold: q = 1, 0.95, ..., 0.05 on dev and stress, 1, 0.9, ..., 0.1
+  on val (only the equal-completeness point is read there).
+- **Equal completeness:** per scene, q is solved so that the filter's completeness equals the refiner's on that
+  scene: linear interpolation between the two grid points around it, then two secant steps, each scored exactly.
+  The residual gap is reported. Accuracy and Chamfer there, per scene; the split's numbers are means over scenes,
+  as the protocol aggregates.
+- **Noise floor and rule, fixed before running:** E40's cross-GPU floor, 0.033 / 0.037 / 0.036 cm (accuracy /
+  completeness / Chamfer, dev aggregate). At equal completeness, the refiner lies **above** a filter's curve
+  (better) if its accuracy is lower by more than 0.033 cm and Chamfer by more than 0.036; **below** (worse) if
+  higher by more than that; otherwise a tie. Filters on Déjà View's cached depth are deterministic; the floor is
+  the refiner's own.
+- **Expected, written before running:** E38 found that the refiner's completeness loss is mostly the views no
+  longer covering for each other, not points moving off the GT. A filter removes the worst points without moving
+  the rest, so the confidence and multi-view filters should reach the refiner's accuracy at its completeness or
+  beat it, i.e. the refiner lies on or below their curves on dev. Random lies far below the refiner. No guess for
+  the others.
+- **Report:** accuracy-completeness curves per filter with the refiner as one point, per scene and dev aggregate,
+  then stress; each filter's accuracy and Chamfer at the refiner's completeness (dev, stress, val); the bedroom
+  (`ai_006_007`, views 18, 0, 12, 6): which pixels the best filter removes, each pixel's distance to the GT, and
+  the clouds rendered from the same cameras (`scene_figures.render_figure`), refiner next to the best filter.
+- **Cost:** one GPU run, ~5 min. Each scoring takes about 2 s (3.8M points); 11 filters x (6 scenes x 24 + 11 x 14
+  scorings), about 1.8 h of CPU in one process, split over processes to fit about 30 min.
