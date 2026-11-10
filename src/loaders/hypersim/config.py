@@ -23,9 +23,10 @@ from src.loaders.hypersim.scene import camera_from_cam_from_uv
 from src.loaders.scannetpp.config import PrepareConfig
 
 OFFICIAL_PARTITION = {
-    "train": "train", "dev": "val", "val": "val", "test": "test", "stress": "val"
+    "train": "train", "train_extra": "train", "dev": "val", "val": "val",
+    "test": "test", "stress": "val",
 }  # fmt: skip
-CENTRED_SPLITS = ("train", "dev", "val", "test")
+CENTRED_SPLITS = ("train", "train_extra", "dev", "val", "test")
 CENTRE_TOL = 0.5  # pixels between the principal point and the image centre
 
 
