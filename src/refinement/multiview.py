@@ -19,13 +19,15 @@ dev in E40 (issue #28, `experiments/LOG.md`); its reason is where it is set.
   view agrees.
 - E_mv: each pixel p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into
   each neighboring view j (the `neighbors` views it overlaps most); the residual is
-  log z_j(x) + log d_j(π_j(x)) - log s, the log ratio of the two depths, d_j bilinear
-  at the projection. The matches are fixed on the input, as BiNI's cut edges are, so E
-  stays smooth: x lands in j at least `MATCH_BORDER` inside the border, the depths
-  agree, so do j's four interpolated pixels, and j's nearest pixel lies in p's segment
-  (`same_segment_matches`; pixels without one are not gated). Agree means a gap below
-  Otsu's threshold on the scene's gaps (`occlusion_threshold`): they fall into a mode of
-  same-surface noise and one of occlusions, and the threshold splits them, per scene.
+  log z_j(x) + log d_j(q) - log s, the log ratio of the two depths, q the pixel of j
+  nearest to x's projection on the input. The matches are fixed on the input, as
+  BiNI's cut edges are, so E stays smooth: q lies in j's image, the depths agree, and q
+  lies in p's segment (`same_segment_matches`; pixels without one are not gated). q is
+  the nearest pixel, as for u, not an interpolation: one rule for where a pixel lands
+  in another view, at the cost of reading j up to half a pixel off (E44). Agree means
+  a gap below Otsu's threshold on the scene's gaps (`occlusion_threshold`): they fall
+  into a mode of same-surface noise and one of occlusions, and the threshold splits
+  them, per scene.
 - E_n: BiNI's normal term on DSINE's normals (`normals.py`), in log depth, on the
   edges between two pixels of one linked instance (`same_instance_edges`; pixels without
   one count as one), and cut on the input's occlusion contours: a wall's pixels
@@ -45,7 +47,7 @@ E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI min
 its normal term by CG (Cao et al. 2022): each step solves the normal equations J^T J s =
 -J^T r by Jacobi-preconditioned CG. J is never formed for the per-view terms, which are
 stencils on the pixel grid, robust in δ (E_d) or linear in log depth (E_n); E_mv's J has
-five entries per match, the source pixel and j's four interpolated pixels. On 20 views
+two entries per match, the source pixel and q. On 20 views
 of 504 x 378 a solve (5 steps of 10 CG iterations) takes about 2 s on an RTX 3080.
 """
 
@@ -74,10 +76,6 @@ from src.refinement.normals import (
 from src.segmentation.base import Segmentation
 
 log_info = logging.getLogger(__name__).info
-# px a match must land inside the other view's border, so the linearization's four
-# bilinear corners stay in the image when a step moves the projection; 0 (the bilinear
-# support alone) tied on dev but failed E40's val check in combination with two others
-MATCH_BORDER = 1
 # px, median distance of a ray map to its pinhole fit above which the fit counts as
 # broken; Déjà View's rays reach 5.7 px out of domain (ETH3D, E35), 0.6-0.9 in it
 MAX_PINHOLE_RESIDUAL = 10.0
@@ -240,13 +238,15 @@ def geometry_from_scene(scene: Scene, depth: Tensor, confidence: Tensor) -> Geom
 
 @dataclass(frozen=True)
 class Matches:
-    """Fixed matches (view i, pixel p) -> view j: p's flat index, j, and the ray in j.
+    """Fixed matches (view i, pixel p) -> view j: p's flat index, j, q, the ray in j.
 
-    x_j = offset + D_i(p) * direction is the lifted point in camera j's coordinates.
+    x_j = offset + D_i(p) * direction is the lifted point in camera j's coordinates; q
+    (flat, over all views) is j's pixel nearest to its projection on the input.
     """
 
     src: Tensor
     dst: Tensor
+    pixel: Tensor
     offset: Tensor
     direction: Tensor
 
@@ -261,31 +261,6 @@ def project(x: Tensor, k: Tensor) -> tuple[Tensor, Tensor, Tensor]:
     )
 
 
-def corners(
-    view: Tensor, u: Tensor, v: Tensor, h: int, w: int
-) -> tuple[Tensor, Tensor]:
-    """Flat indices of the four pixels around each fractional pixel, bilinear weights.
-
-    u, v are clamped to [0, W-1] x [0, H-1], so a step that leaves the image stays
-    defined.
-    """
-    u, v = u.clamp(0, w - 1 - 1e-4), v.clamp(0, h - 1 - 1e-4)
-    x0, y0 = u.detach().floor().long(), v.detach().floor().long()
-    fu, fv = u - x0, v - y0
-    base = (view * h + y0) * w + x0
-    index = torch.stack([base, base + 1, base + w, base + w + 1])
-    return index, torch.stack(
-        [(1 - fu) * (1 - fv), fu * (1 - fv), (1 - fu) * fv, fu * fv]
-    )
-
-
-def bilinear(d: Tensor, view: Tensor, u: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
-    """Sample d (V, H, W) at fractional pixels; also the four corners' max/min ratio."""
-    index, weights = corners(view, u, v, *d.shape[1:])
-    c = d.reshape(-1)[index]
-    return (weights * c).sum(0), c.amax(0) / c.amin(0)
-
-
 def ray_in(scene: Scene, i: int, j: int, pixels: Tensor) -> tuple[Tensor, Tensor]:
     """Rays of view i's (flat) pixels in camera j's coordinates: offset, direction."""
     world_to_j = scene.rotation[j].T
@@ -293,30 +268,28 @@ def ray_in(scene: Scene, i: int, j: int, pixels: Tensor) -> tuple[Tensor, Tensor
     return (rays[:, :3] - scene.center[j]) @ world_to_j.T, rays[:, 3:] @ world_to_j.T
 
 
-def residuals(d: Tensor, scale: Tensor, scene: Scene, m: Matches) -> Tensor:
-    """Return log z_j(x) + log d_j(π_j(x)) - log s per match, d (V, H, W)."""
+def depth_in_j(d: Tensor, scale: Tensor, m: Matches) -> Tensor:
+    """Return z_j(x), the depth of each match's lifted point in camera j."""
     depth = scale / d.reshape(-1)[m.src]
-    u, v, z = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
-    dj, _ = bilinear(d, m.dst, u, v)
-    return z.clamp_min(1e-6).log() + dj.clamp_min(1e-6).log() - scale.log()
+    return (m.offset[:, 2] + depth * m.direction[:, 2]).clamp_min(1e-6)
 
 
-def match_jacobian(
-    d: Tensor, scale: Tensor, scene: Scene, m: Matches
-) -> tuple[Tensor, Tensor]:
-    """Columns and values (5, M) of the Jacobian in d: source pixel, j's four corners.
+def residuals(d: Tensor, scale: Tensor, m: Matches) -> Tensor:
+    """Return log z_j(x) + log d_j(q) - log s per match, d (V, H, W)."""
+    dj = d.reshape(-1)[m.pixel].clamp_min(1e-6)
+    return depth_in_j(d, scale, m).log() + dj.log() - scale.log()
 
-    The corners stay those of the linearization point; their bilinear weights and the
-    source's ray carry the rest.
+
+def match_jacobian(d: Tensor, scale: Tensor, m: Matches) -> tuple[Tensor, Tensor]:
+    """Columns and values (2, M) of the Jacobian in d: the source pixel and q.
+
+    z_j = o_z + (s / d_p) r_z, so d log z_j / d d_p = -(z_j - o_z) / (z_j d_p);
+    d log d_q / d d_q = 1 / d_q.
     """
     flat = d.reshape(-1)
-    di = flat[m.src].clone().requires_grad_()
-    u, v, z = project(m.offset + (scale / di)[:, None] * m.direction, scene.k[m.dst])
-    index, weights = corners(m.dst, u, v, *d.shape[1:])
-    c = flat[index].clone().requires_grad_()
-    r = z.clamp_min(1e-6).log() + (weights * c).sum(0).clamp_min(1e-6).log()
-    g_src, g_corners = torch.autograd.grad(r.sum(), [di, c])
-    return torch.cat([m.src[None], index]), torch.cat([g_src[None], g_corners])
+    z = depth_in_j(d, scale, m)
+    g_src = -(z - m.offset[:, 2]) / (z * flat[m.src])
+    return torch.stack([m.src, m.pixel]), torch.stack([g_src, 1 / flat[m.pixel]])
 
 
 def occlusion_threshold(gaps: Tensor) -> float:
@@ -345,10 +318,10 @@ def find_matches(
 ) -> Matches:
     """Match each view with its neighbors where the input agrees within tol (log).
 
-    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
-    Both the gap and the spread of j's four interpolated pixels must stay below it. A
-    view's neighbors are the `neighbors` views it shares the most matches with; a pair
-    counts if either side picks the other, and is matched both ways.
+    A candidate is a pixel whose projection's nearest pixel q lies in j's image; tol
+    defaults to `occlusion_threshold` over the gaps of all candidates. A view's
+    neighbors are the `neighbors` views it shares the most matches with; a pair counts
+    if either side picks the other, and is matched both ways.
     """
     n, h, w = d0.shape
     flat = torch.arange(h * w, device=d0.device)
@@ -362,34 +335,36 @@ def find_matches(
                 offset + (scale / d0[i].reshape(-1))[:, None] * direction,
                 scene.k[j].expand(h * w, 3, 3),
             )
-            dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
-            b = MATCH_BORDER
-            inside = (z > 0) & (u >= b) & (u <= w - 1 - b) & (v >= b) & (v <= h - 1 - b)
-            gap = (z.clamp_min(1e-6) * dj / scale).log()  # > 0: behind j's surface
-            candidates[i, j] = (flat[inside], gap[inside], spread[inside].log())
+            col, row = u.round().long(), v.round().long()
+            inside = (z > 0) & (col >= 0) & (col < w) & (row >= 0) & (row < h)
+            q = (j * h + row.clamp(0, h - 1)) * w + col.clamp(0, w - 1)
+            gap = (z.clamp_min(1e-6) * d0.reshape(-1)[q] / scale).log()  # > 0: behind
+            candidates[i, j] = (flat[inside], q[inside], gap[inside])
     if tol is None:
-        tol = occlusion_threshold(torch.cat([g for _, g, _ in candidates.values()]))
+        tol = occlusion_threshold(torch.cat([g for _, _, g in candidates.values()]))
         log_info("occlusion threshold: %.4f (log depth)", tol)
     pairs = {
-        ij: pix[(gap.abs() < tol) & (spread < tol)]
-        for ij, (pix, gap, spread) in candidates.items()
+        ij: (pix[gap.abs() < tol], q[gap.abs() < tol])
+        for ij, (pix, q, gap) in candidates.items()
     }
     counts = torch.zeros(n, n)
-    for (i, j), pix in pairs.items():
+    for (i, j), (pix, _) in pairs.items():
         counts[i, j] = len(pix)
     top = torch.zeros(n, n, dtype=torch.bool)
     picked = counts.topk(min(neighbors, n - 1), dim=1).indices
     top[torch.arange(n)[:, None], picked] = True
     chosen = [(i, j) for (i, j) in pairs if top[i, j] or top[j, i]]
-    rays = [ray_in(scene, i, j, pairs[i, j]) for i, j in chosen]
+    rays = [ray_in(scene, i, j, pairs[i, j][0]) for i, j in chosen]
     m = Matches(
-        torch.cat([i * h * w + pairs[i, j] for i, j in chosen]),
-        torch.cat([torch.full_like(pairs[i, j], j) for i, j in chosen]),
+        torch.cat([i * h * w + pairs[i, j][0] for i, j in chosen]),
+        torch.cat([torch.full_like(pairs[i, j][0], j) for i, j in chosen]),
+        torch.cat([pairs[i, j][1] for i, j in chosen]),
         torch.cat([offset for offset, _ in rays]),
         torch.cat([direction for _, direction in rays]),
     )
     assert (
         (m.src // (h * w) != m.dst).all()
+        and (m.pixel // (h * w) == m.dst).all()
         and m.offset.isfinite().all()
         and m.direction.isfinite().all()
     )
@@ -399,7 +374,7 @@ def find_matches(
 def disagreement_pct(depth: Tensor, scene: Scene, matches: Matches) -> float:
     """Median |log depth gap| between overlapping views, in percent."""
     scale = scene.depth.median()
-    return 100 * residuals(scale / depth, scale, scene, matches).abs().median().item()
+    return 100 * residuals(scale / depth, scale, matches).abs().median().item()
 
 
 @dataclass(frozen=True)
@@ -428,22 +403,15 @@ def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
     return ids[..., 1:] == ids[..., :-1], ids[..., 1:, :] == ids[..., :-1, :]
 
 
-def same_segment_matches(
-    m: Matches, scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor
-) -> Matches:
-    """Keep the matches that land on their source's segment (nearest pixel in j).
+def same_segment_matches(m: Matches, ids: Tensor) -> Matches:
+    """Keep the matches whose pixel q in j carries their source's segment.
 
     A pixel without a segment has nothing to gate on and keeps its matches.
     """
-    _, h, w = d0.shape
-    depth = scale / d0.reshape(-1)[m.src]
-    u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
-    col = u.round().long().clamp(0, w - 1)
-    row = v.round().long().clamp(0, h - 1)
     flat = ids.reshape(-1)
     source = flat[m.src]
-    keep = (source < 0) | (source == flat[(m.dst * h + row) * w + col])
-    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
+    keep = (source < 0) | (source == flat[m.pixel])
+    return Matches(*(getattr(m, f)[keep] for f in m.__dataclass_fields__))
 
 
 def robust(u: Tensor, k: float) -> tuple[Tensor, Tensor]:
@@ -547,9 +515,7 @@ def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tenso
         assert p.dsine is not None, "E_t needs DSINE's normals"
         out["E_t"] = tangent_residuals(d, p.scale, p.scene.rays, p.dsine, cfg.lambda_t)
     if cfg.lambda_mv > 0:
-        out["E_mv"] = math.sqrt(cfg.lambda_mv) * residuals(
-            d, p.scale, p.scene, p.matches
-        )
+        out["E_mv"] = math.sqrt(cfg.lambda_mv) * residuals(d, p.scale, p.matches)
     return {k: v.flatten() for k, v in out.items()}
 
 
@@ -583,7 +549,7 @@ def energy_maps(d: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tensor]:
                 wf * (af * dz + gf).square() + wb * (ab * dz + gb).square(), side
             )
         maps["E_n"] = cfg.lambda_n * cost
-    r = residuals(d, p.scale, p.scene, p.matches)
+    r = residuals(d, p.scale, p.matches)
     maps["E_mv"] = cfg.lambda_mv * torch.zeros(
         d.numel(), dtype=d.dtype, device=d.device
     ).index_add(0, p.matches.src, r.square()).view_as(d)
@@ -683,7 +649,7 @@ def normal_equations(
     gradient = grid_t(r_grid)[0].flatten()
     cols = vals = None
     if r_mv is not None:
-        cols, vals = match_jacobian(d, p.scale, p.scene, p.matches)
+        cols, vals = match_jacobian(d, p.scale, p.matches)
         vals = math.sqrt(cfg.lambda_mv) * vals
         diag = diag.index_add(0, cols.flatten(), vals.square().flatten())
         gradient = gradient.index_add(0, cols.flatten(), (vals * r_mv).flatten())
@@ -836,7 +802,7 @@ def build_problem(
             ],
         )
     matches = find_matches(scene, d0, scale, cfg.neighbors)
-    matches = same_segment_matches(matches, scene, d0, scale, ids)
+    matches = same_segment_matches(matches, ids)
     dsine = normals if cfg.lambda_t > 0 else None
     return Problem(scene, scale, d0, w, terms, matches, dsine)
 
