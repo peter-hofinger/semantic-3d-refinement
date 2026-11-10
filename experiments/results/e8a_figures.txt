@@ -1,0 +1,5 @@
+ai_006_007_cam_00, all 20 views, Off minus SAM 3: mean -0.0363 cm, pixels changed by > 0.5 cm 0.1050
+ai_006_007_cam_00, all 20 views, GT minus SAM 3: mean -0.0293 cm, pixels changed by > 0.5 cm 0.0873
+ai_006_007_cam_00, all 20 views, permuted minus SAM 3: mean +0.1950 cm, pixels changed by > 0.5 cm 0.3255
+ai_006_007_cam_00, all 20 views, shifted minus SAM 3: mean -0.0003 cm, pixels changed by > 0.5 cm 0.0697
+wrote experiments/figures/e8a_bedroom.jpg

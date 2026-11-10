@@ -72,6 +72,7 @@ Metrics:
 | E42 | E_n as the angle between DSINE's normals and the closer-neighbor normals of the depth (Peter's proposal), 3 weights | λ_a 4e-4 passes dev (accuracy +0.010, completeness -0.229, Chamfer -0.110 cm vs BiNI) but fails val on accuracy (+0.090, worse on 10 of 11) while completeness is better on 11 of 11 and Chamfer -0.187; the λ_mv / λ_δ trade again, so BiNI stays; adopting it is a choice of metric, left open |
 | E43 | The normal term as tangent residuals (n_DSINE . t / \|t\| for the closer-neighbor tangents), E42's simpler form | λ_t 4e-4 passes dev (+0.025 / -0.249 / -0.112 cm vs BiNI) and fails val on accuracy (+0.102, worse on 10 of 11; completeness -0.506, Chamfer -0.202): within a few thousandths of E42's angle term on dev, the same trade; BiNI stays |
 | E44 | E_mv reads the other view at its nearest pixel, as u does (no interpolation, no 1 px border, no four-corner check) | dev ties (+0.011 / -0.016 / -0.002 cm), 1.9 -> 1.4 s per scene; val worse on all three (+0.048 / +0.105 / +0.077, median scene +0.015 / +0.051 / +0.026), so reverted: E_mv stays bilinear |
+| E8a | Segment ablation (issue #8): the joint refiner given no, SAM 3's, Hypersim GT, per-view permuted and 4 px shifted segments, one run, dev + val + stress | the segments only filter E_mv's matches: completeness follows the share kept (per-scene Spearman 1.00 dev, 0.90 val); Chamfer vs no segments: SAM 3 -0.069 / -0.119 cm (dev / val), GT -0.021 / -0.043, permuted -0.249 / -0.346; GT gains least and scrambled ids most, so SAM 3 is not the bottleneck and the gain is not semantic; every refined variant stays worse than Déjà View on Chamfer |
 
 ## Reference table (current scorer, E11)
 
@@ -2791,3 +2792,71 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   cluster (RTX 5090); dev and val both read, no test scene. One seed per corruption: if a corrupted variant
   lands within twice the floor of a decision, a second seed is run before concluding.
 - **Figure:** bedroom views 18, 0, 12, 6: distance to the GT for SAM 3, and Off / GT minus SAM 3 on a shared scale.
+
+## E8a: the segments act as a filter on E_mv's matches, not as semantics: GT gives less than SAM 3, scrambled ids give more (10.11.2026)
+- **Question, variants, reading:** as in the plan above (issue #8); run as planned, nothing changed after seeing
+  numbers.
+- **Commits:** 021f284 (`segments` per variant in `scene_eval`, tests), 33f9deb (plan, config), this commit
+  (`e8a_inputs.py`, `e8a_table.py`, `e8a_figures.py`, results, figure).
+- **Commands** (student cluster, RTX 5090, clean tree at 33f9deb, job 1669: input check 1:05, all six variants on
+  dev + val + stress 5:23): `experiments/scripts/e8a_inputs.py experiments/configs/e8a_segments.yaml --splits dev
+  val` -> `results/e8a_inputs.txt`; `scene_eval --cfg experiments/configs/e8a_segments.yaml --splits dev val
+  stress` (run `e8a_segments-20261110-130124`); then (CPU job 1670) `e8a_figures.py <run>` -> `results/e8a_figures.txt`, `figures/e8a_bedroom.jpg`; here, from the copied run.yaml,
+  `e8a_table.py <run>/run.yaml results/e8a_inputs.txt` -> `results/e8a_table.txt`.
+- **What each variant hands the refiner** (mean over scenes; `e8a_inputs.txt`): share of E_mv's matches the
+  instance gate keeps / mean u on pixels with a segment.
+
+  | variant | dev | val |
+  |---|---|---|
+  | Off | 1.000 / 1 | 1.000 / 1 |
+  | GT | 0.978 / 0.857 | 0.976 / 0.835 |
+  | SAM 3 | 0.914 / 0.780 | 0.902 / 0.716 |
+  | shifted 4 px | 0.869 / 0.746 | 0.868 / 0.691 |
+  | permuted | 0.129 / 0.162 | 0.217 / 0.167 |
+
+  GT leaves pixels without a segment where Hypersim has no instance: 79% in ai_003_010 (no wall / floor / ceiling
+  labels, E34), 40% in ai_004_010, 38% in ai_005_005; there it gates nothing.
+- **Results, cm** (accuracy / completeness / Chamfer, lower is better; Δ against Off; floor 0.033 / 0.037 /
+  0.036; "worse" = scenes on which the variant is worse than Off):
+
+  | split | variant | aggregate | Δ vs Off | Δ median scene | scenes worse |
+  |---|---|---|---|---|---|
+  | dev (3) | Déjà View | 4.651 / 2.307 / 3.479 | +0.554 / -1.521 / -0.483 | +0.418 / -0.643 / -0.143 | 3 / 0 / 0 |
+  | | Off | 4.097 / 3.828 / 3.962 | | | |
+  | | SAM 3 | 4.167 / 3.620 / 3.893 | +0.070 / -0.208 / -0.069 | +0.044 / -0.113 / -0.035 | 3 / 0 / 0 |
+  | | GT | 4.146 / 3.737 / 3.941 | +0.049 / -0.091 / -0.021 | +0.014 / -0.074 / -0.027 | 2 / 0 / 0 |
+  | | permuted | 4.484 / 2.943 / 3.713 | +0.387 / -0.885 / -0.249 | +0.279 / -0.514 / -0.138 | 3 / 0 / 0 |
+  | | shifted | 4.160 / 3.536 / 3.848 | +0.062 / -0.292 / -0.115 | +0.041 / -0.115 / -0.037 | 3 / 0 / 0 |
+  | val (11) | Déjà View | 6.065 / 4.147 / 5.106 | +0.430 / -1.704 / -0.637 | +0.376 / -1.044 / -0.232 | 11 / 0 / 0 |
+  | | Off | 5.635 / 5.851 / 5.743 | | | |
+  | | SAM 3 | 5.688 / 5.559 / 5.624 | +0.053 / -0.292 / -0.119 | +0.057 / -0.114 / -0.026 | 8 / 0 / 5 |
+  | | GT | 5.722 / 5.678 / 5.700 | +0.087 / -0.173 / -0.043 | +0.050 / -0.087 / -0.010 | 9 / 0 / 4 |
+  | | permuted | 5.817 / 4.978 / 5.397 | +0.182 / -0.873 / -0.346 | +0.240 / -0.621 / -0.167 | 10 / 0 / 0 |
+  | | shifted | 5.677 / 5.557 / 5.617 | +0.042 / -0.294 / -0.126 | +0.038 / -0.123 / -0.026 | 10 / 0 / 2 |
+
+  Stress (3 tilt-shift scenes, per scene in `e8a_table.txt`) orders the same way. Labels are the same for every
+  variant (dev mIoU / PQ / AP 0.352 / 0.294 / 0.217, val 0.395 / 0.256 / 0.353). Refinement 0.9-1.7 s per scene.
+- **Completeness follows the share of matches kept,** whatever the segments are: over the five refined variants,
+  the per-scene Spearman correlation between kept share and completeness is median 1.00 (min 0.90) on dev and
+  0.90 (min 0.70) on val. Fewer matches -> less of E_mv's merging -> the result stays nearer Déjà View: better
+  completeness, worse accuracy, Chamfer better (it weighs completeness's large change more than accuracy's small
+  one). Every refined variant stays worse than Déjà View on Chamfer.
+- **Figure:** `figures/e8a_bedroom.jpg`, bedroom views 18, 0, 12, 6: SAM 3's segments, the distance to the GT
+  refined with them, and Off / GT / permuted minus SAM 3 on ±2 cm. Off and GT differ from SAM 3 in thin lines along
+  SAM 3's mask edges and at the bed frame (the matches the gate cuts), elsewhere within ±0.5 cm (bedroom, all 20
+  views: 10.5% / 8.7% of pixels change by > 0.5 cm, mean -0.036 / -0.029 cm). Permuted moves whole walls, doors
+  and the ceiling by up to 2 cm in both directions (32.6% of pixels, mean +0.195 cm on this scene): with E_mv
+  mostly gated off, each view keeps its own Déjà View layer.
+- **Reading, by the plan's rule:** GT ~ Off on Chamfer (dev -0.021 within the floor, val -0.043 just beyond it, 4
+  of 11 val scenes worse): the energy gains next to nothing from correct segments. SAM 3 beats GT (dev -0.048, val
+  -0.076 Chamfer), and both corruptions beat or tie SAM 3, permuted by far. So SAM 3 is not the bottleneck, and
+  "the segments help" does not hold in the sense the method claims: SAM 3's gain over Off comes from cutting
+  about 9% of E_mv's matches, and a scrambled segmentation that cuts 80-90% gains more. Claude.md's step 5
+  (shuffle the semantics; if the gain does not drop, semantics are not what helps) fails.
+- **Not separated here:** the gate and u move together (both read the same ids); E40 found removing u a tie, so the
+  gate is the likely carrier, not measured. The next step down is a control without semantics: Off with E_mv's
+  matches dropped at random at SAM 3's per-scene rate (not run; would need a match-dropout switch in the refiner).
+- **Conclusion:** in the current energy, segments are a way to switch off part of E_mv, and E_mv is the term that
+  trades accuracy for completeness (E40-E43). Making semantics matter needs a term that uses the identity for
+  something E_mv-pruning cannot do, or a refiner that gets nearer the GT than Déjà View at all; tuning which
+  segments to use cannot.
