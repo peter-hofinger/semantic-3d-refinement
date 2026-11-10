@@ -2555,3 +2555,37 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Conclusion:** the agreed budget is now the default, at half the time and within noise of the old one (better on
   every dev metric). u with the own view is the cleaner definition at no cost. λ_δ is not replaceable by the floor
   u now has: the energy it leaves is ill-conditioned, and converged it merges the views more.
+
+## Plan: E42 = E_n as the angle between DSINE's normals and the normals of the refined depth (10.11.2026)
+- **Goal (Peter's proposal):** replace BiNI's normal term by the angle between DSINE's normal and the normal
+  reconstructed from the current depth, the latter from each axis' closer neighbor (left or right, up or down,
+  whichever 3D point is nearer; `normals.closer_neighbor_normals`). At a clean occlusion step the closer neighbor
+  lies on the pixel's own surface, so the term needs no cut: if it ties, it removes E_n's occlusion cut (0.02), the
+  cut's 7 px window and its closing budget.
+- **Looked at first** (`scripts/e42_normals_figure.py` -> `figures/e42_normals_ai_006_007.jpg`,
+  `results/e42_normals_figure.txt`; bedroom views 18, 0, 12, 6, Déjà View's input depth): the two normal maps
+  agree in colour on every surface, so frame and orientation are right. The angle is 11.5° median over the 20
+  views (view 0: 17.9°), 18% of the pixels above 30°. Walls show a fine noise texture (per-pixel differences of
+  Déjà View's depth); every object outline is a band above 60°: Déjà View draws occlusion edges as 2-4 px ramps,
+  and on a ramp both neighbors lie on the ramp, so the closer one does not escape it. Thin structures (bed frame,
+  chair legs) are above 60° throughout.
+- **Energy:** E_a = λ_a mean_p (1 - cos θ_p), written as the residual √(λ_a / 2) (n_rec(d)_p - n_DSINE,p) (3 per
+  pixel; its square is λ_a (1 - cos θ) ≈ λ_a θ² / 2, smooth at θ = 0 where θ itself is not). The neighbor choice and
+  the facing flip are fixed at each linearization. No instance gating, no contour cut: the closer neighbor is the
+  edge handling. J is applied matrix-free by autograd (`torch.func.linearize` / `vjp`); the Jacobi diagonal of
+  J^T J exactly, by probing with the 5 colours of (y + 2x) mod 5, which give the 5-point stencil of every pixel
+  5 different colours.
+- **Weight, fixed before running:** BiNI's residuals are log-depth steps times the focal length, about the slope
+  error in radians, so a slope error θ costs about 2 λ_n θ² per pixel (two edges, two residuals each, weight 1/2);
+  E_a charges λ_a θ² / 2. Equal stiffness: λ_a = 4 λ_n = 4e-4. Coarse grid around it: 4e-5, 4e-4, 4e-3. The run logs
+  both terms' initial energy to check the match.
+- **Setting:** as E41 (dev for decisions, stress to look, RTX 3080, 5 x 10, u with the own view). Variants in one
+  run: Déjà View; Refined (BiNI E_n); E_n off (λ_n = 0); E_a at the three weights instead of E_n.
+- **Success:** an E_a variant passes if accuracy, completeness and Chamfer on dev each stay within E40's noise
+  floor (0.033 / 0.037 / 0.036 cm) of Refined, or get better; then it replaces BiNI (the simpler term on a tie:
+  three constants go) and is checked once on val. If E_n off also ties, neither normal term earns its place and the
+  entry says so.
+- **Expected, written before running:** E_a smooths the walls' texture as E_n does, but pulls ramp pixels toward
+  DSINE's facing normal, which either sharpens the ramp or drags the far surface forward; no guess at the sign.
+  The run time grows by the autograd products (one jvp and one vjp per CG iteration, 5 per Gauss-Newton step for
+  the diagonal).

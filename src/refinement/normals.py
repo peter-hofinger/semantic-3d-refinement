@@ -51,6 +51,48 @@ def normals_from_depth(depth: Tensor, rays: Tensor) -> Tensor:
     return torch.where(((n * rays[..., 3:]).sum(-1) > 0)[..., None], -n, n)
 
 
+def one_sided(step: Tensor, axis: int) -> tuple[Tensor, Tensor]:
+    """Forward differences along an axis (-3: y, -2: x) as each pixel's two tangents.
+
+    Returns (backward, forward), NaN where the neighbor lies outside the image.
+    """
+    pad = [0, 0, 0, 0] if axis == -2 else [0, 0, 0, 0, 0, 0]  # noqa: PLR2004
+    pad_after, pad_before = pad.copy(), pad.copy()
+    k = 2 * (-1 - axis)  # pad's pairs run from the last dimension
+    pad_after[k + 1], pad_before[k] = 1, 1
+    nan = float("nan")
+    return (
+        torch.nn.functional.pad(step, pad_before, value=nan),
+        torch.nn.functional.pad(step, pad_after, value=nan),
+    )
+
+
+def closer_neighbor_normals(points: Tensor) -> Tensor:
+    """Return unit normals (..., H, W, 3) of camera points, closer neighbor per axis.
+
+    Peter's proposal (E42): along x the tangent goes to the left or the right neighbor,
+    whichever point is closer in 3D, along y to the upper or the lower one; the normal
+    is their cross product, facing the camera at the origin (n . x < 0). At an occlusion
+    edge the closer neighbor lies on the pixel's own surface, so the normal does not see
+    the jump. A neighbor outside the image never wins.
+    """
+    assert points.shape[-1] == 3 and min(points.shape[-3:-1]) >= 2  # noqa: PLR2004
+    tangents = []
+    for axis, step in (
+        (-2, points[..., 1:, :] - points[..., :-1, :]),
+        (-3, points[..., 1:, :, :] - points[..., :-1, :, :]),
+    ):
+        back, fwd = one_sided(step, axis)
+        lb = back.square().sum(-1, keepdim=True).nan_to_num(torch.inf)
+        lf = fwd.square().sum(-1, keepdim=True).nan_to_num(torch.inf)
+        tangents.append(torch.where(lb < lf, back, fwd))
+    n = torch.linalg.cross(*tangents, dim=-1)
+    n = n / n.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+    out = torch.where((n * points).sum(-1, keepdim=True) > 0, -n, n)
+    assert out.isfinite().all()
+    return out
+
+
 def neighbor_terms(
     normals: Tensor, rays: Tensor
 ) -> tuple[Tensor, list[tuple[Tensor, Tensor, Tensor, Tensor]]]:

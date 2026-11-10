@@ -5,6 +5,7 @@ import torch
 
 from src.refinement.normals import (
     close_cuts,
+    closer_neighbor_normals,
     crack_tips,
     cut_weights,
     neighbor_terms,
@@ -97,3 +98,18 @@ def test_close_cuts_bridges_a_gap_along_the_edge_and_leaves_a_fading_edge_open()
     cut_x, cut_y = close_cuts([cut_x, cut_y], [step_x, step_y], budget=7.0)
     assert cut_y[5].all() and cut_x[1:3, 5].all() and cut_x.sum() == 2
     assert crack_tips(cut_x, cut_y).sum() == 2
+
+
+def test_closer_neighbor_normals_are_exact_on_a_plane_and_ignore_a_jump() -> None:
+    rays = pinhole_rays()
+    n = torch.tensor([0.3, -0.2, -1.0], dtype=torch.float64)
+    n = n / n.norm()
+    depth = -2 / (rays[..., 3:] @ n)  # the plane n . x = -2, in front of the camera
+    points = depth[..., None] * rays[..., 3:]
+    torch.testing.assert_close(closer_neighbor_normals(points), n.expand(H, W, 3))
+    stepped = depth.clone()
+    stepped[:, W // 2 :] *= 1.5  # the parallel plane n . x = -3 behind the right half
+    points = stepped[..., None] * rays[..., 3:]
+    got = closer_neighbor_normals(points)
+    # the columns next to the jump take their tangent from their own side
+    torch.testing.assert_close(got, n.expand(H, W, 3), rtol=0, atol=1e-6)
