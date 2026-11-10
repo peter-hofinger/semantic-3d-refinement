@@ -12,6 +12,7 @@ from src.refinement.multiview import (
     Problem,
     RefineConfig,
     Scene,
+    angle_residuals,
     bilinear,
     build_problem,
     consistency,
@@ -34,6 +35,7 @@ from src.refinement.multiview import (
     scene_energy,
     scene_from_geometry,
     scene_residuals,
+    stencil_diagonal,
 )
 from src.refinement.normals import NormalTerm, normal_term, normals_from_depth
 from src.segmentation.base import Segmentation
@@ -485,3 +487,65 @@ def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
     shifted[1] = torch.roll(shifted[1], 20, dims=1)  # view 1's boundary elsewhere
     kept = same_segment_matches(m, scene, d0, scale, shifted)
     assert 0.2 * len(m.src) < len(kept.src) < 0.9 * len(m.src)
+
+
+def small_scene_with_normals() -> tuple[Scene, torch.Tensor]:
+    """A 12 x 16 corner of `two_views` (bumped, float64), normals 3 % off its depth.
+
+    The corner keeps pixel indices, so the full image's K still projects it.
+    """
+    scene, _ = two_views(bump=0.03)
+    crop = (slice(None), slice(0, 12), slice(0, 16))
+    scene = Scene(
+        scene.depth[crop].double(),
+        scene.rays[crop].double(),
+        scene.conf[crop].double(),
+        *(getattr(scene, f).double() for f in ("k", "rotation", "center")),
+    )
+    normals = torch.stack(
+        [normals_from_depth(scene.depth[i] * 1.03, scene.rays[i]) for i in range(2)]
+    )
+    return scene, normals
+
+
+def test_stencil_diagonal_is_the_exact_diagonal_of_the_angle_term() -> None:
+    scene, normals = small_scene_with_normals()
+    scale = scene.depth.median()
+    noise = torch.rand(
+        scene.depth.shape,
+        generator=torch.Generator().manual_seed(0),
+        dtype=torch.float64,
+    )
+    d = scale / scene.depth * (1 + 0.02 * noise)
+
+    def f(x: torch.Tensor) -> torch.Tensor:
+        return angle_residuals(x, scale, scene.rays, normals, 0.3)
+
+    dense = torch.func.jacfwd(f)(d).reshape(-1, d.numel())
+    torch.testing.assert_close(
+        stencil_diagonal(lambda v: torch.func.jvp(f, (d,), (v,))[1], d),
+        dense.square().sum(0),
+    )
+
+
+def test_angle_term_gradient_and_products_match_autograd() -> None:
+    scene, normals = small_scene_with_normals()
+    cfg = RefineConfig(lambda_n=0.0, lambda_a=0.3, device="cpu")
+    p = build_problem(scene, cfg, normals, None)
+    assert p.dsine is not None
+    x = 0.01 * torch.randn(
+        p.d0.shape, generator=torch.Generator().manual_seed(1), dtype=torch.float64
+    )
+    v = torch.randn(
+        p.d0.shape, generator=torch.Generator().manual_seed(2), dtype=torch.float64
+    )
+
+    def r(y: torch.Tensor) -> torch.Tensor:
+        return torch.cat(list(scene_residuals(y, cfg, p).values()))
+
+    gradient, hv, _ = normal_equations(x, cfg, p)
+    exact = torch.func.grad(lambda y: 0.5 * r(y).square().sum())(x)
+    torch.testing.assert_close(gradient, exact.flatten())
+    _, jv = torch.func.jvp(r, (x,), (v,))
+    _, vjp = torch.func.vjp(r, x)
+    torch.testing.assert_close(hv(v.flatten()), vjp(jv)[0].flatten())
