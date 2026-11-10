@@ -66,6 +66,7 @@ Metrics:
 | E41 | After E40's review: Gauss-Newton 5 x 10 (chosen in #10, never applied), u counting the pixel's own view, λ_δ = 0 tried | own-view u changes no score by more than 0.007 cm; λ_δ = 0 looks better at 5 x 10 only because 4 of 6 solves stop early, converged it is worse (dev completeness +0.46 cm), so λ_δ stays; dev Chamfer 3.953 -> 3.928, val 5.723 -> 5.643 (ai_009_009 -0.81 cm; without it -0.006) |
 | E42 | E_n as the angle between DSINE's normals and the closer-neighbor normals of the depth (Peter's proposal), 3 weights | λ_a 4e-4 passes dev (accuracy +0.010, completeness -0.229, Chamfer -0.110 cm vs BiNI) but fails val on accuracy (+0.090, worse on 10 of 11) while completeness is better on 11 of 11 and Chamfer -0.187; the λ_mv / λ_δ trade again, so BiNI stays; adopting it is a choice of metric, left open |
 | E43 | The normal term as tangent residuals (n_DSINE . t / \|t\| for the closer-neighbor tangents), E42's simpler form | λ_t 4e-4 passes dev (+0.025 / -0.249 / -0.112 cm vs BiNI) and fails val on accuracy (+0.102, worse on 10 of 11; completeness -0.506, Chamfer -0.202): within a few thousandths of E42's angle term on dev, the same trade; BiNI stays |
+| E44 | E_mv reads the other view at its nearest pixel, as u does (no interpolation, no 1 px border, no four-corner check) | dev ties (+0.011 / -0.016 / -0.002 cm), 1.9 -> 1.4 s per scene; val worse on all three (+0.048 / +0.105 / +0.077, median scene +0.015 / +0.051 / +0.026), so reverted: E_mv stays bilinear |
 
 ## Reference table (current scorer, E11)
 
@@ -2726,3 +2727,32 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   adopted, since it removes a constant and a check; then val once. `disagreement_pct`, a diagnostic, changes
   meaning with it (nearest pixel, not interpolated) and is not compared across the change.
 - **Figure:** bedroom views 18, 0, 12, 6: each pixel's distance to the GT, after minus before.
+
+## E44: E_mv at the nearest pixel -> ties dev, loses val; reverted (10.11.2026)
+- **Goal, change, rule:** as in the plan above; run as planned.
+- **Commits:** 9e46516 (plan), d7cbef4 (the change, tests), f5530f5 (results, figure, `e44_figures.py`;
+  `e40_check.py` skips splits a run lacks), fe1f299 (revert of d7cbef4).
+- **Commands** (RTX 3080, clean tree at d7cbef4): `scene_eval --cfg configs/eval_hypersim.yaml --splits dev stress`
+  (`eval_hypersim-20261110-101625`), then `--splits val` (`eval_hypersim-20261110-101721`) -> `e40_check.py` against
+  E41's run at 150db44 (`eval_hypersim-20261110-093140`, bilinear) -> `results/e44_check.txt`;
+  `e44_figures.py runs/eval_hypersim-20261110-093140 runs/eval_hypersim-20261110-101625` ->
+  `results/e44_figures.txt`, `figures/e44_bedroom.jpg`.
+- **Results, nearest pixel minus bilinear, cm** (accuracy / completeness / Chamfer; floor 0.033 / 0.037 / 0.036):
+
+  | split | aggregate | median scene | scenes worse | without ai_009_009 |
+  |---|---|---|---|---|
+  | dev (3) | +0.011 / -0.016 / -0.002 | -0.015 / -0.014 / -0.016 | 1 / 0 / 1 | (not in dev) |
+  | val (11) | +0.048 / +0.105 / +0.077 | +0.015 / +0.051 / +0.026 | 7 / 8 / 7 | +0.012 / +0.044 / +0.028 |
+
+  Stress moves by at most 0.07 cm per scene (conference room completeness +0.069). E_mv matches 1-3 % more
+  pixels per scene (the former border and the pixels whose four corners disagreed); the solve is faster, 1.4
+  instead of 1.9 s per dev scene (two Jacobian entries per match instead of five). Labels unchanged.
+- **Figure:** `figures/e44_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: distance to the GT with
+  bilinear E_mv, and nearest minus bilinear on ±2 cm. The change is not at edges: whole wall and furniture
+  patches move by ±0.5-1 cm in both directions, most in views 12 and 6; over the bedroom's 20 views the mean is
+  -0.016 cm.
+- **Conclusion:** dev cannot tell the two readings apart, val can, and it prefers bilinear: the half-pixel reading
+  error and the extra matches (pixels at occlusion edges that the four-corner check used to drop are the likely
+  ones, not measured separately) cost completeness. Reverted: E_mv reads j bilinearly again, with its 1 px border
+  and four-corner check, whose reasons stand (`MATCH_BORDER`). u keeps its nearest pixel; it only reads a label,
+  for which interpolation has no meaning.
