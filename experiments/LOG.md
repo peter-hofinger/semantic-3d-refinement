@@ -2333,3 +2333,54 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   10 batches) and 3.8 s the image encoder; more would need larger batches (memory) or fewer prompts, both out of
   this issue's scope. The trial and run masks (`-e35oldA`, `-e35oldB`, `-e35b4`, `-e35new`) stay in the git-ignored
   scene folders; the eval's own cache is unchanged.
+
+## Plan: E40 = remove or justify every hand-set constant in the energy (10.11.2026)
+- **Goal (issue #28, follow-up to point 2 of #13):** every row of the issue's table gets a decision: **remove**
+  the setting, **derive** it from the data (as Otsu's threshold did for E_mv's occlusion tolerance), or **keep** it
+  with a one-sentence reason. On a tie the simpler energy wins: remove over derive over keep. Out of scope and
+  left as they are: E_n's λ_n and normal estimator (#21), the Gauss-Newton / CG budget (#10).
+- **Setting:** Hypersim dev (living room `ai_010_007`, bedroom `ai_006_007`, lobby `ai_044_001`) on the cached
+  inputs of `configs/eval_hypersim.yaml` (20 views at 504x378, Déjà View K=16, DSINE, linked SAM 3 masks, nyu40
+  at t0.3), the default `configs/refine.yaml`, this machine's RTX 3080. Unchanged: the evaluation, the inputs, the
+  solver budget (10 Gauss-Newton steps x 20 CG iterations, tol 1e-3).
+- **Method:** each setting is varied alone from the current default (one change per variant), all variants in one
+  `scene_eval` run so they share a GPU and inputs (`experiments/configs/e40_sweep.yaml`). Then the chosen
+  decisions are combined and the combination is compared once more with the unchanged refiner on dev; if it falls
+  outside the noise floor although every part passed alone, step back one decision at a time in reverse table
+  order. Decided on dev only.
+
+  | row | setting now | variants (each alone) | remove / derive candidate |
+  |---|---|---|---|
+  | E_d Huber threshold | 0.05 | quadratic (no Huber); k = the scene's Otsu occlusion threshold; 0.02, 0.1 to read the slope | remove: quadratic; derive: Otsu's tol, the scene's same-surface noise level in log depth |
+  | E_d weight | c^p u, p = 1 | u removed (w = c) | confidence: **E37's result reused**, not rerun; u: kept on a tie (agreed 10.11, see below) |
+  | E_mv neighbors | 4 | 2, 8, all 19 | remove: match every overlapping pair |
+  | E_mv border margin | 1 px | 0 px (the bilinear support, u in [0, W-1]) | remove the extra pixel |
+  | E_n occlusion cut | 0.02 | 0.01, 0.05; the scene's Otsu occlusion threshold | derive: the same Otsu threshold E_mv uses (both are log-depth departures) |
+  | E_n mid-depth window | 7 px | 3, 5, 11 px | none found before running; keep or not by the sweep |
+  | E_n contour closing budget | = window | 0 (no closing), 2 x window | remove: no closing, which deletes `close_cuts` |
+  | λ_δ | 1 | 0.3, 3 | none: λ_δ = 0 is singular on stress (module docstring) |
+  | λ_d, λ_mv | 1, 1 | λ_mv 0.3, 3 | λ_d: remove as a parameter, E's overall scale does not change its minimizer, so one weight is fixed to 1 by definition |
+
+  A value from a grid (0.3, 3, 0.02, ...) is adopted only if it beats the default by more than the noise floor
+  on dev; it then stays as "keep, chosen on the dev grid". The grid values themselves are not new constants.
+- **E37 reused:** E_d without the confidence (p = 0) against p = 1 on dev (RTX 5090): accuracy 4.18 / 4.18,
+  completeness 3.66 / 3.63, Chamfer 3.92 / 3.91 cm, completeness better on 2 of 3 dev scenes. A tie or better,
+  so by this issue's rule the confidence leaves E_d and `conf_power` goes; it is not rerun alone here, only as
+  part of the final combination.
+- **Consistency u (decided with Peter before running):** u is one of the energy's semantic parts; removing it is
+  adopted only if dev is better beyond noise. On a tie it stays: whether semantics help is its own ablation
+  (Claude.md step 5), not a constant to tidy away.
+- **Check:** the final configuration on val (11 scenes) once, with the unchanged refiner in the same run. Val's
+  inputs are prepared on this machine first (`hypersim-download`, `hypersim-prepare`, `dejaview-predict`,
+  `sam3-segment --prompts configs/prompts/nyu40.txt --threshold 0.3`, `dsine-predict`, E34's settings). No test
+  scene.
+- **Noise floor:** the unchanged refiner twice (two variants in one run, and a second process). If that gives 0
+  (deterministic on one GPU), the floor is the dev difference of the unchanged refiner between two GPUs: this
+  run's numbers against E34's addendum (RTX 5090, job 994: accuracy 4.178, completeness 3.657, Chamfer 3.917 cm),
+  per metric on the dev aggregate. Fixed here, before any variant runs.
+- **Success:** a change passes if accuracy, completeness and Chamfer on the dev aggregate each stay within the
+  noise floor of the unchanged refiner, or get better. Per-scene numbers are reported, not used to decide.
+- **Report per change:** accuracy, completeness and Chamfer on dev, per scene and aggregate; the bedroom
+  (`ai_006_007`, views 18, 0, 12, 6) refined depth of the final configuration against the unchanged refiner.
+  mIoU, PQ^sc and AP once at the end (labels do not move with refinement).
+- **Cost:** ~25 variants x 3 dev scenes at ~4 s each, plus scoring, ~10 min; val prep ~30 min, val run ~5 min.
