@@ -23,9 +23,9 @@ from src.refinement.multiview import (
     normal_equations,
     occlusion_threshold,
     points_from_rays,
+    project,
     refine_scene,
     residuals,
-    robust,
     same_instance_edges,
     same_segment_matches,
     scene_energy,
@@ -235,13 +235,11 @@ def test_linear_operators_match_the_exact_jacobian() -> None:
         w,
         stacked,
         find_matches(scene, d0, scale, 4, 0.05)[0],
-        0.01,  # half the pixels of delta lie on Huber's linear branch
     )
     cfg = RefineConfig(
         lambda_mv=2.0,
         lambda_n=0.5,
         lambda_delta=0.1,
-        huber=0.01,  # half the pixels of delta lie on Huber's linear branch
         device="cpu",
     )
     delta = 0.01 * torch.randn(
@@ -310,15 +308,6 @@ def test_normals_do_not_join_two_instances() -> None:
     assert (y_forward[..., W // 2] > 0).float().mean() > 0.9
 
 
-def test_robust_residual_squares_to_huber_and_its_slope_is_exact() -> None:
-    u = torch.linspace(-0.2, 0.2, 401, dtype=torch.float64)
-    r, slope = robust(u, 0.05)
-    huber = torch.where(u.abs() <= 0.05, u.square() / 2, 0.05 * u.abs() - 0.05**2 / 2)
-    torch.testing.assert_close(r.square() / 2, huber)
-    _, exact = torch.func.jvp(lambda x: robust(x, 0.05)[0], (u,), (torch.ones_like(u),))
-    torch.testing.assert_close(slope, exact)
-
-
 def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
@@ -335,26 +324,56 @@ def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
     assert (consistency(scene, d0, scale, unmasked) == 1).all()
 
 
-def test_anchor_weight_is_confidence_to_the_power_times_consistency() -> None:
-    scene, _ = two_views()
+def test_anchor_weight_is_the_consistency_whatever_the_confidence() -> None:
+    scene, _ = two_views(bump=0.03, noise=0.01)
     conf = torch.rand(2, H, W, generator=torch.Generator().manual_seed(0)) + 0.1
-    scene = dataclasses.replace(scene, conf=conf)
-    c = conf / conf.mean(dim=(1, 2), keepdim=True)
+    other = dataclasses.replace(scene, conf=conf)
     scale = scene.depth.median()
     u = consistency(scene, scale / scene.depth, scale, halves())
-    for power, expected in [(1.0, c * u), (0.5, c.sqrt() * u), (0.0, u)]:
-        cfg = RefineConfig(lambda_n=0.0, conf_power=power, device="cpu")
-        p = build_problem(scene, cfg, None, halves())
-        torch.testing.assert_close(p.w, expected)
-
-
-def test_uniform_confidence_makes_the_power_irrelevant() -> None:
-    scene, _ = two_views(bump=0.03, noise=0.01)
-    depths = [
-        refine_scene(scene, RefineConfig(lambda_n=0.0, conf_power=p, device="cpu"))[0]
-        for p in (1.0, 0.0)
-    ]
+    cfg = RefineConfig(lambda_n=0.0, device="cpu")
+    torch.testing.assert_close(build_problem(other, cfg, None, halves()).w, u)
+    depths = [refine_scene(sc, cfg, None, halves())[0] for sc in (scene, other)]
     assert torch.equal(depths[0], depths[1])
+
+
+def test_normal_term_is_cut_at_the_occlusion_threshold_of_the_matches() -> None:
+    scene, _ = two_views(noise=0.01)
+    normals = torch.stack(
+        [normals_from_depth(scene.depth[i], scene.rays[i]) for i in range(2)]
+    )
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    _, tol = find_matches(scene, d0, scale, 4)
+    p = build_problem(scene, RefineConfig(device="cpu"), normals, None)
+    assert p.normals is not None
+    for i in range(2):
+        expected = normal_term(normals[i], scene.rays[i], d0[i], tol)
+        for got, want in zip(p.normals.weights, expected.weights, strict=True):
+            torch.testing.assert_close(got[0][i], want[0])
+            torch.testing.assert_close(got[1][i], want[1])
+    # the plate's edge is cut in both views as a fixed 0.02 cuts it in the noise-free
+    # view 0; in view 1, 0.02 also cuts its 1 % depth noise, the threshold does not
+    cuts = [int((got[0] == 0).sum()) for got in p.normals.weights]
+    fixed = [
+        [int((w[0] == 0).sum()) for w in normal_term(n, r, d, 0.02).weights]
+        for n, r, d in zip(normals, scene.rays, d0, strict=True)
+    ]
+    assert cuts[1] == 0 and cuts[0] == 2 * fixed[0][0] > 0  # the plate's vertical edge
+    assert sum(fixed[1]) > 5 * fixed[0][0]
+
+
+def test_matches_use_the_whole_bilinear_support() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    m, _ = find_matches(scene, d0, scale, 4, 0.05)
+    depth = scale / d0.reshape(-1)[m.src]
+    u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
+    assert (u >= 0).all() and (u <= W - 1).all() and (v >= 0).all()
+    assert (v <= H - 1).all()
+    assert ((u < 1) | (u > W - 2) | (v < 1) | (v > H - 2)).any()  # the former margin
+    _, maxmin = bilinear(d0, m.dst, u, v)
+    assert maxmin.isfinite().all()
 
 
 def test_energy_maps_add_up_to_the_energy() -> None:
@@ -363,7 +382,7 @@ def test_energy_maps_add_up_to_the_energy() -> None:
     normals = torch.stack(
         [normals_from_depth(scene.depth[i] * 1.01, scene.rays[i]) for i in range(2)]
     )
-    cfg = RefineConfig(lambda_delta=0.0, huber=0.01, device="cpu")
+    cfg = RefineConfig(lambda_delta=0.0, device="cpu")
     p = build_problem(scene, cfg, normals, halves())
     x = 0.02 * torch.randn(
         p.d0.shape, generator=torch.Generator().manual_seed(0), dtype=torch.float64
