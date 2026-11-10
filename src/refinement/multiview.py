@@ -66,7 +66,7 @@ from src.geometry import Geometry
 from src.loaders.views import Views
 from src.refinement.normals import (
     NormalTerm,
-    closer_neighbor_normals,
+    closer_tangents,
     dsine_normals,
     normal_term,
     to_world,
@@ -98,8 +98,8 @@ class RefineConfig:
     lambda_n: float = 1e-4
     # 0 leaves pixels without match or edge singular; 0.3 / 3 trade as λ_mv does
     lambda_delta: float = 1.0
-    # E42 trial: E_n as the angle to DSINE's normals (`angle_residuals`); 0 is off
-    lambda_a: float = 0.0
+    # E43 trial: the normal term as tangent residuals (`tangent_residuals`); 0 is off
+    lambda_t: float = 0.0
     # only 0.3-0.9 % of dev pixels pass it, and removing it tied on dev, but it failed
     # E40's val check in combination; large corrections (Déjà View's failures) need it
     huber: float = 0.05  # E_d's Huber threshold on d - d0
@@ -116,7 +116,7 @@ class RefineConfig:
 
     def __post_init__(self) -> None:
         """Check ranges."""
-        assert min(self.lambda_mv, self.lambda_n, self.lambda_delta, self.lambda_a) >= 0
+        assert min(self.lambda_mv, self.lambda_n, self.lambda_delta, self.lambda_t) >= 0
         assert self.huber > 0 and self.edge_tol > 0
         assert self.neighbors >= 1
         assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
@@ -417,7 +417,7 @@ class Problem:
     w: Tensor
     normals: NormalTerm | None
     matches: Matches
-    dsine: Tensor | None = None  # (V, H, W, 3) DSINE's normals, rays' frame: E_a
+    dsine: Tensor | None = None  # (V, H, W, 3) DSINE's normals, rays' frame: E_t
 
 
 def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
@@ -461,16 +461,21 @@ def robust(u: Tensor, k: float) -> tuple[Tensor, Tensor]:
     return r, torch.where(outside, k / r.abs().clamp_min(k), 1.0)
 
 
-def angle_residuals(
+def tangent_residuals(
     d: Tensor, scale: Tensor, rays: Tensor, dsine: Tensor, weight: float
 ) -> Tensor:
-    """Return √(λ_a / 2) (n_rec - n_DSINE), flat; n_rec of the depth s / d (E42).
+    """Return √(λ_t / 2) n_DSINE . t / |t| for both closer tangents, flat (E43).
 
-    n_rec is `closer_neighbor_normals` of the points relative to their camera; the
-    squared residual of a pixel is λ_a (1 - cos θ), θ the angle between the normals.
+    t from `closer_tangents` of the depth s / d. Each residual is the sine of the angle
+    between a tangent and DSINE's tangent plane: both vanish exactly when the depth's
+    normal is parallel to DSINE's, whatever DSINE's sign, and neither exceeds 1.
     """
     points = (scale / d)[..., None] * rays[..., 3:]
-    return (math.sqrt(weight / 2) * (closer_neighbor_normals(points) - dsine)).flatten()
+    r = [
+        (dsine * t).sum(-1) / t.norm(dim=-1).clamp_min(1e-12)
+        for t in closer_tangents(points)
+    ]
+    return (math.sqrt(weight / 2) * torch.stack(r, -1)).flatten()
 
 
 def jvp_at(f: Callable[[Tensor], Tensor], at: Tensor, v: Tensor) -> Tensor:
@@ -492,7 +497,7 @@ def shifted(t: Tensor, dy: int, dx: int) -> Tensor:
 
 
 def stencil_diagonal(jvp: Callable[[Tensor], Tensor], d: Tensor) -> Tensor:
-    """Diagonal of J^T J (flat) for residuals (V, H, W, 3) that read `STENCIL` only.
+    """Diagonal of J^T J (flat) for residuals (V, H, W, k) that read `STENCIL` only.
 
     Colour (y + 2x) mod 5 gives the five pixels of every stencil five colours, so J
     applied to one colour's indicator holds, at each residual, its derivative by the one
@@ -508,7 +513,7 @@ def stencil_diagonal(jvp: Callable[[Tensor], Tensor], d: Tensor) -> Tensor:
     diag = torch.zeros_like(d)
     for k in range(5):
         probe = (colour == k).to(d.dtype).expand_as(d)
-        s = jvp(probe).view(*d.shape, 3).square().sum(-1)
+        s = jvp(probe).view(*d.shape, -1).square().sum(-1)
         for dy, dx in STENCIL:
             diag = diag + shifted(s * ((colour + dy + 2 * dx) % 5 == k), dy, dx)
     return diag.flatten()
@@ -538,9 +543,9 @@ def scene_residuals(x: Tensor, cfg: RefineConfig, p: Problem) -> dict[str, Tenso
                 (cfg.lambda_n * wb).sqrt() * (ab * dz + gb),
             ]
         out["E_n"] = torch.cat([r.flatten() for r in parts])
-    if cfg.lambda_a > 0:
-        assert p.dsine is not None, "E_a needs DSINE's normals"
-        out["E_a"] = angle_residuals(d, p.scale, p.scene.rays, p.dsine, cfg.lambda_a)
+    if cfg.lambda_t > 0:
+        assert p.dsine is not None, "E_t needs DSINE's normals"
+        out["E_t"] = tangent_residuals(d, p.scale, p.scene.rays, p.dsine, cfg.lambda_t)
     if cfg.lambda_mv > 0:
         out["E_mv"] = math.sqrt(cfg.lambda_mv) * residuals(
             d, p.scale, p.scene, p.matches
@@ -667,7 +672,7 @@ def normal_equations(
     parts = scene_residuals(x, cfg, p)
     r_mv = parts.pop("E_mv", None)
     r_delta = parts.pop("E_delta", None)
-    r_a = parts.pop("E_a", None)
+    r_t = parts.pop("E_t", None)
     r_grid = torch.cat(list(parts.values()))
     grid = grid_operator(d, cfg, p)
     _, grid_t = torch.func.vjp(grid, torch.zeros_like(d))
@@ -685,20 +690,20 @@ def normal_equations(
     if r_delta is not None:
         gradient = gradient + math.sqrt(cfg.lambda_delta) * r_delta
         diag = diag + cfg.lambda_delta
-    j_a = jt_a = None
-    if r_a is not None:
+    j_t = jt_t = None
+    if r_t is not None:
         assert p.dsine is not None
         f = partial(
-            angle_residuals,
+            tangent_residuals,
             scale=p.scale,
             rays=p.scene.rays,
             dsine=p.dsine,
-            weight=cfg.lambda_a,
+            weight=cfg.lambda_t,
         )
-        j_a = partial(jvp_at, f, d)
-        _, jt_a = torch.func.vjp(f, d)
-        gradient = gradient + jt_a(r_a)[0].flatten()
-        diag = diag + stencil_diagonal(j_a, d)
+        j_t = partial(jvp_at, f, d)
+        _, jt_t = torch.func.vjp(f, d)
+        gradient = gradient + jt_t(r_t)[0].flatten()
+        diag = diag + stencil_diagonal(j_t, d)
 
     def hv(v: Tensor) -> Tensor:
         out = grid_t(grid(v.view_as(d)))[0].flatten()
@@ -707,8 +712,8 @@ def normal_equations(
             out = out.index_add(0, cols.flatten(), (vals * jv).flatten())
         if r_delta is not None:
             out = out + cfg.lambda_delta * v
-        if j_a is not None and jt_a is not None:
-            out = out + jt_a(j_a(v.view_as(d)))[0].flatten()
+        if j_t is not None and jt_t is not None:
+            out = out + jt_t(j_t(v.view_as(d)))[0].flatten()
         return out
 
     return gradient, hv, diag
@@ -800,7 +805,7 @@ def build_problem(
     edges stay within one instance; E_mv keeps the matches that land on their source's
     instance.
     """
-    assert normals is not None or cfg.lambda_n == cfg.lambda_a == 0, "E_n needs normals"
+    assert normals is not None or cfg.lambda_n == cfg.lambda_t == 0, "E_n needs normals"
     ids = (
         torch.full(scene.depth.shape, -1, dtype=torch.long)
         if segments is None
@@ -832,7 +837,7 @@ def build_problem(
         )
     matches = find_matches(scene, d0, scale, cfg.neighbors)
     matches = same_segment_matches(matches, scene, d0, scale, ids)
-    dsine = normals if cfg.lambda_a > 0 else None
+    dsine = normals if cfg.lambda_t > 0 else None
     return Problem(scene, scale, d0, w, terms, matches, dsine)
 
 
@@ -893,7 +898,7 @@ class JointRefiner:
 
     def __post_init__(self) -> None:
         """Check that E_n has normals to work with."""
-        normal_terms = self.cfg.lambda_n > 0 or self.cfg.lambda_a > 0
+        normal_terms = self.cfg.lambda_n > 0 or self.cfg.lambda_t > 0
         assert not normal_terms or self.dsine_repo is not None, "E_n: DSINE"
 
     @classmethod
@@ -915,7 +920,7 @@ class JointRefiner:
         device = torch.device("cuda" if cuda else "cpu")
         scene = scene_from_geometry(geometry).to(device)
         normals = None
-        if self.cfg.lambda_n > 0 or self.cfg.lambda_a > 0:
+        if self.cfg.lambda_n > 0 or self.cfg.lambda_t > 0:
             assert self.dsine_repo is not None
             camera = dsine_normals(views.images, geometry.intrinsics, self.dsine_repo)
             normals = scene_normals(camera, geometry, scene)

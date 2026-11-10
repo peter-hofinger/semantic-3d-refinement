@@ -12,7 +12,6 @@ from src.refinement.multiview import (
     Problem,
     RefineConfig,
     Scene,
-    angle_residuals,
     bilinear,
     build_problem,
     consistency,
@@ -36,6 +35,7 @@ from src.refinement.multiview import (
     scene_from_geometry,
     scene_residuals,
     stencil_diagonal,
+    tangent_residuals,
 )
 from src.refinement.normals import NormalTerm, normal_term, normals_from_depth
 from src.segmentation.base import Segmentation
@@ -508,7 +508,7 @@ def small_scene_with_normals() -> tuple[Scene, torch.Tensor]:
     return scene, normals
 
 
-def test_stencil_diagonal_is_the_exact_diagonal_of_the_angle_term() -> None:
+def test_stencil_diagonal_is_the_exact_diagonal_of_the_tangent_term() -> None:
     scene, normals = small_scene_with_normals()
     scale = scene.depth.median()
     noise = torch.rand(
@@ -519,7 +519,7 @@ def test_stencil_diagonal_is_the_exact_diagonal_of_the_angle_term() -> None:
     d = scale / scene.depth * (1 + 0.02 * noise)
 
     def f(x: torch.Tensor) -> torch.Tensor:
-        return angle_residuals(x, scale, scene.rays, normals, 0.3)
+        return tangent_residuals(x, scale, scene.rays, normals, 0.3)
 
     dense = torch.func.jacfwd(f)(d).reshape(-1, d.numel())
     torch.testing.assert_close(
@@ -528,9 +528,9 @@ def test_stencil_diagonal_is_the_exact_diagonal_of_the_angle_term() -> None:
     )
 
 
-def test_angle_term_gradient_and_products_match_autograd() -> None:
+def test_tangent_term_gradient_and_products_match_autograd() -> None:
     scene, normals = small_scene_with_normals()
-    cfg = RefineConfig(lambda_n=0.0, lambda_a=0.3, device="cpu")
+    cfg = RefineConfig(lambda_n=0.0, lambda_t=0.3, device="cpu")
     p = build_problem(scene, cfg, normals, None)
     assert p.dsine is not None
     x = 0.01 * torch.randn(
@@ -549,3 +549,22 @@ def test_angle_term_gradient_and_products_match_autograd() -> None:
     _, jv = torch.func.jvp(r, (x,), (v,))
     _, vjp = torch.func.vjp(r, x)
     torch.testing.assert_close(hv(v.flatten()), vjp(jv)[0].flatten())
+
+
+def test_tangent_residuals_vanish_on_the_plane_for_either_sign_and_stay_bounded() -> (
+    None
+):
+    scene, _ = two_views()
+    rays = scene.rays.double()
+    n = NORMAL / NORMAL.norm()
+    depth = (2 - rays[..., :3] @ NORMAL) / (rays[..., 3:] @ NORMAL)  # the plane alone
+    scale = depth.median()
+    d = scale / depth
+    for sign in (1.0, -1.0):
+        dsine = (sign * n).expand(*depth.shape, 3)
+        r = tangent_residuals(d, scale, rays, dsine, 2.0)
+        assert r.abs().max() < 1e-9
+    other = torch.randn(*depth.shape, 3, generator=torch.Generator().manual_seed(0))
+    other = (other / other.norm(dim=-1, keepdim=True)).double()
+    r = tangent_residuals(d, scale, rays, other, 2.0)  # √(λ/2) = 1: plain sines
+    assert r.abs().max() <= 1 + 1e-12 and r.abs().mean() > 0.3

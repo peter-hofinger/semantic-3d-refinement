@@ -1,6 +1,7 @@
 # E42 (experiments/LOG.md): BiNI's E_n against the angle-based E_a (Peter's proposal) at
 # three weights around λ_a = 4 λ_n, and E_n off; configs/refine.yaml otherwise (5 x 10).
 # Dev decides, stress is looked at: `--splits dev stress`.
+# `lambda_a` exists up to 83571a1 (E43 replaced the angle term): run it there.
 # Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
 # configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
 # K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3

@@ -67,14 +67,13 @@ def one_sided(step: Tensor, axis: int) -> tuple[Tensor, Tensor]:
     )
 
 
-def closer_neighbor_normals(points: Tensor) -> Tensor:
-    """Return unit normals (..., H, W, 3) of camera points, closer neighbor per axis.
+def closer_tangents(points: Tensor) -> tuple[Tensor, Tensor]:
+    """Return each pixel's tangents (..., H, W, 3) along x and y to the closer neighbor.
 
     Peter's proposal (E42): along x the tangent goes to the left or the right neighbor,
-    whichever point is closer in 3D, along y to the upper or the lower one; the normal
-    is their cross product, facing the camera at the origin (n . x < 0). At an occlusion
-    edge the closer neighbor lies on the pixel's own surface, so the normal does not see
-    the jump. A neighbor outside the image never wins.
+    whichever point is closer in 3D, along y to the upper or the lower one. At an
+    occlusion edge the closer neighbor lies on the pixel's own surface, so the tangents
+    do not see the jump. A neighbor outside the image never wins.
     """
     assert points.shape[-1] == 3 and min(points.shape[-3:-1]) >= 2  # noqa: PLR2004
     tangents = []
@@ -86,11 +85,20 @@ def closer_neighbor_normals(points: Tensor) -> Tensor:
         lb = back.square().sum(-1, keepdim=True).nan_to_num(torch.inf)
         lf = fwd.square().sum(-1, keepdim=True).nan_to_num(torch.inf)
         tangents.append(torch.where(lb < lf, back, fwd))
-    n = torch.linalg.cross(*tangents, dim=-1)
+    tx, ty = tangents
+    assert tx.isfinite().all() and ty.isfinite().all()
+    return tx, ty
+
+
+def closer_neighbor_normals(points: Tensor) -> Tensor:
+    """Return unit normals (..., H, W, 3) of camera points from `closer_tangents`.
+
+    The cross product of the two tangents, facing the camera at the origin (n . x < 0).
+    Used for figures; the energy compares the tangents themselves (`tangent_residuals`).
+    """
+    n = torch.linalg.cross(*closer_tangents(points), dim=-1)
     n = n / n.norm(dim=-1, keepdim=True).clamp_min(1e-12)
-    out = torch.where((n * points).sum(-1, keepdim=True) > 0, -n, n)
-    assert out.isfinite().all()
-    return out
+    return torch.where((n * points).sum(-1, keepdim=True) > 0, -n, n)
 
 
 def neighbor_terms(
