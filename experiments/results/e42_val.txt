@@ -1,0 +1,67 @@
+run runs/e42_val-20261110-094828/run.yaml, git 79b553fad0b1f9538119bd08ef3173e80dd48a6d-dirty, split val
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_003_010_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.638 | 3.280 | 2.959 | +0.316 -0.502 -0.093
+Refined | 2.322 | 3.782 | 3.052 | +0.000 +0.000 +0.000
+angle 4e-4 | 2.378 | 3.715 | 3.046 | +0.056 -0.067 -0.006
+
+ai_004_003_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 7.768 | 10.468 | 9.118 | -0.034 -1.608 -0.821
+Refined | 7.802 | 12.075 | 9.939 | +0.000 +0.000 +0.000
+angle 4e-4 | 7.835 | 11.826 | 9.831 | +0.033 -0.249 -0.108
+
+ai_004_004_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 3.045 | 1.521 | 2.283 | +0.187 -0.677 -0.245
+Refined | 2.858 | 2.198 | 2.528 | +0.000 +0.000 +0.000
+angle 4e-4 | 2.886 | 2.062 | 2.474 | +0.028 -0.135 -0.054
+
+ai_004_010_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.254 | 1.405 | 1.829 | +0.265 -0.252 +0.006
+Refined | 1.989 | 1.657 | 1.823 | +0.000 +0.000 +0.000
+angle 4e-4 | 2.020 | 1.590 | 1.805 | +0.031 -0.067 -0.018
+
+ai_005_005_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 6.497 | 2.387 | 4.442 | +0.784 -0.930 -0.073
+Refined | 5.712 | 3.317 | 4.514 | +0.000 +0.000 +0.000
+angle 4e-4 | 6.096 | 3.118 | 4.607 | +0.384 -0.199 +0.093
+
+ai_007_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 4.751 | 2.273 | 3.512 | +0.660 -1.154 -0.247
+Refined | 4.091 | 3.428 | 3.759 | +0.000 +0.000 +0.000
+angle 4e-4 | 4.255 | 3.333 | 3.794 | +0.164 -0.094 +0.035
+
+ai_009_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 5.655 | 2.390 | 4.023 | +0.445 -0.828 -0.191
+Refined | 5.211 | 3.218 | 4.214 | +0.000 +0.000 +0.000
+angle 4e-4 | 5.411 | 2.812 | 4.111 | +0.201 -0.406 -0.103
+
+ai_009_009_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 20.632 | 12.084 | 16.358 | +0.060 -6.405 -3.173
+Refined | 20.572 | 18.489 | 19.531 | +0.000 +0.000 +0.000
+angle 4e-4 | 20.446 | 15.728 | 18.087 | -0.127 -2.761 -1.444
+
+ai_031_004_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 4.638 | 4.650 | 4.644 | +0.182 -0.830 -0.324
+Refined | 4.456 | 5.480 | 4.968 | +0.000 +0.000 +0.000
+angle 4e-4 | 4.461 | 5.081 | 4.771 | +0.005 -0.399 -0.197
+
+ai_044_003_cam_01: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 5.137 | 2.805 | 3.971 | +0.639 -1.717 -0.539
+Refined | 4.498 | 4.522 | 4.510 | +0.000 +0.000 +0.000
+angle 4e-4 | 4.633 | 4.102 | 4.367 | +0.135 -0.420 -0.143
+
+ai_050_002_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 3.657 | 2.304 | 2.980 | +0.456 -0.963 -0.254
+Refined | 3.201 | 3.267 | 3.234 | +0.000 +0.000 +0.000
+angle 4e-4 | 3.281 | 2.957 | 3.119 | +0.080 -0.310 -0.115
+
+val aggregate: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined | passes
+Déjà View | 6.061 | 4.142 | 5.102 | +0.360 -1.442 -0.541 | no
+Refined | 5.701 | 5.585 | 5.643 | +0.000 +0.000 +0.000 | yes
+angle 4e-4 | 5.791 | 5.120 | 5.456 | +0.090 -0.464 -0.187 | no
+
+refinement time per scene (s), mean over scenes
+Déjà View | 0.00
+Refined | 2.17
+angle 4e-4 | 3.68

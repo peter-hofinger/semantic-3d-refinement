@@ -1,0 +1,6 @@
+ai_006_007_cam_00, all 20 views: angle to DSINE (deg) median / 90% / > 30°
+Déjà View: 11.5 / 47.8 / 0.177
+BiNI E_n: 6.0 / 36.7 / 0.128
+angle E_a: 3.4 / 19.2 / 0.059
+distance to GT, E_a minus BiNI: mean +0.0466 cm, pixels changed by > 0.5 cm: 0.1062
+wrote experiments/figures/e42_bedroom.jpg

@@ -64,6 +64,7 @@ Metrics:
 | E39 | Faster panoptic labeling (issue #29): prompts encoded once, detector batched 4 prompts at a time, overlaps on the GPU, association in torch | bedroom on an RTX 3080: SAM 3 29.7 -> 16.6 s, association 1.94 -> 0.57 s, pipeline 37.1 -> 22.6 s; dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 unchanged; 99.85-99.98% of pixels keep their mask (bf16 rounding of the batched detector), linked ids from the torch association bit-identical |
 | E40 | Remove or justify every hand-set constant in the energy (issue #28): one-at-a-time dev sweep, val check | λ_d and conf_power removed (no-ops); no Huber, no border margin and E_n cut at Otsu's threshold each tie on dev, but combined they lost 0.5 cm in val's ai_009_009 (val means beyond noise), so all three stay with that reason; λ_mv, λ_δ, neighbors and the cut window stay (alternatives trade accuracy for completeness); refiner unchanged within run-to-run spread |
 | E41 | After E40's review: Gauss-Newton 5 x 10 (chosen in #10, never applied), u counting the pixel's own view, λ_δ = 0 tried | own-view u changes no score by more than 0.007 cm; λ_δ = 0 looks better at 5 x 10 only because 4 of 6 solves stop early, converged it is worse (dev completeness +0.46 cm), so λ_δ stays; dev Chamfer 3.953 -> 3.928, val 5.723 -> 5.643 (ai_009_009 -0.81 cm; without it -0.006) |
+| E42 | E_n as the angle between DSINE's normals and the closer-neighbor normals of the depth (Peter's proposal), 3 weights | λ_a 4e-4 passes dev (accuracy +0.010, completeness -0.229, Chamfer -0.110 cm vs BiNI) but fails val on accuracy (+0.090, worse on 10 of 11) while completeness is better on 11 of 11 and Chamfer -0.187; the λ_mv / λ_δ trade again, so BiNI stays; adopting it is a choice of metric, left open |
 
 ## Reference table (current scorer, E11)
 
@@ -2589,3 +2590,48 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   DSINE's facing normal, which either sharpens the ramp or drags the far surface forward; no guess at the sign.
   The run time grows by the autograd products (one jvp and one vjp per CG iteration, 5 per Gauss-Newton step for
   the diagonal).
+
+## E42: E_n as an angle to DSINE's normals -> better Chamfer, worse accuracy on dev and val; BiNI stays (10.11.2026)
+- **Goal, energy, weights, rule:** as in the plan above; run as planned.
+- **Commits:** 0c9d35d (plan, `closer_neighbor_normals`, the look-first figure), 55e91bc (`angle_residuals`,
+  `stencil_diagonal`, `RefineConfig.lambda_a`, tests), the two config commits, this commit (results, figure).
+- **Commands** (RTX 3080, clean tree): `scene_eval --cfg experiments/configs/e42_angle.yaml --splits dev stress`
+  (`e42_angle-20261110-094442`) -> `e40_table.py` -> `results/e42_dev.txt`, `results/e42_stress.txt`;
+  `e42_figures.py runs/e42_angle-20261110-094442` -> `results/e42_figures.txt`, `figures/e42_bedroom.jpg`;
+  `scene_eval --cfg experiments/configs/e42_val.yaml --splits val` (`e42_val-20261110-094828`) -> `results/e42_val.txt`.
+- **Dev aggregate, cm** (Δ against BiNI's E_n, the refiner of E41; floor 0.033 / 0.037 / 0.036):
+
+  | variant | accuracy | completeness | Chamfer | Δ | passes | s per scene |
+  |---|---|---|---|---|---|---|
+  | BiNI E_n (λ_n 1e-4) | 4.199 | 3.658 | 3.928 | - | - | 1.9 |
+  | no normal term | 4.266 | 3.451 | 3.858 | +0.067 / -0.207 / -0.070 | no | 1.9 |
+  | E_a, λ_a 4e-5 | 4.243 | 3.497 | 3.870 | +0.044 / -0.161 / -0.059 | no | 3.7 |
+  | E_a, λ_a 4e-4 | 4.208 | 3.429 | 3.819 | +0.010 / -0.229 / -0.110 | yes | 3.4 |
+  | E_a, λ_a 4e-3 | 4.271 | 2.863 | 3.567 | +0.073 / -0.795 / -0.361 | no | 3.2 |
+
+  Per scene, λ_a 4e-4 is worse in accuracy in the living room (+0.017) and the bedroom (+0.061) and better in the
+  lobby (-0.049); stress, all three scenes: accuracy +0.05 to +0.16, completeness -0.12 to -0.64, Chamfer -0.04 to
+  -0.24. Every solve took all 5 Gauss-Newton steps (no early stop, unlike E41's λ_δ = 0). Labels unchanged.
+- **The weight did not match as planned:** at x = 0, E_a at 4e-4 is 1.5-3 % of BiNI's E_n (e.g. bedroom 4.4e-5 vs
+  4.6e-3), not equal. BiNI's start energy is dominated by large residuals where an edge ramp is not cut: its cost
+  grows without bound with the step, while E_a's is bounded (|n_rec - n_DSINE| <= 2), so E_a acts like a robust,
+  bounded normal prior. The small-angle argument of the plan holds only where both are small.
+- **Val, once** (λ_a 4e-4 against BiNI, `results/e42_val.txt`): accuracy 5.701 -> 5.791 (+0.090, worse on 10 of
+  11), completeness 5.585 -> 5.120 (-0.465, better on 11 of 11), Chamfer 5.643 -> 5.456 (-0.187, better on 9 of 11);
+  without ai_009_009 +0.112 / -0.235 / -0.061. Fails the rule on accuracy.
+- **Figure:** `figures/e42_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: the angle between DSINE's
+  normals and the closer-neighbor normals of Déjà View's, BiNI's and E_a's depth (0-60°), and each pixel's distance
+  to the GT, E_a minus BiNI (±2 cm). Over the 20 views the angle's median is 11.5° (Déjà View), 6.0° (BiNI), 3.4°
+  (E_a); that is the quantity E_a minimizes, so it says nothing about the geometry. Against BiNI, E_a moves points
+  further from the GT on the walls of views 18 and 6 (+0.5 to +1 cm) and on the bed frame, closer on some furniture
+  edges in view 12; on view 0's right wall, where Déjà View's surface and DSINE disagree by about 60° about its
+  orientation, the change is a striped ±1 cm pattern (not investigated). Mean over the bedroom +0.047 cm.
+- **Conclusion:**
+  - The angle term is the same trade E40 found for λ_mv, λ_δ and the neighbor count: completeness and Chamfer
+    better, accuracy worse; here on both dev (inside the floor) and val (beyond it). Under this issue's rule
+    (all three metrics) BiNI stays; under a Chamfer-only rule E_a at 4e-4 would win on dev and val (-0.110 /
+    -0.187 cm), and dropping the normal term entirely would already give most of the dev gain (-0.070). Which
+    metric decides is the open question E40 raised.
+  - If adopted, it would remove E_n's occlusion cut, the cut window and the closing budget, and cost 1.5 s more
+    per scene (autograd products).
+  - The trial term stays in the code, off (λ_a = 0), until that choice is made; if BiNI stays for good it goes.
