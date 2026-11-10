@@ -2860,3 +2860,25 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   trades accuracy for completeness (E40-E43). Making semantics matter needs a term that uses the identity for
   something E_mv-pruning cannot do, or a refiner that gets nearer the GT than Déjà View at all; tuning which
   segments to use cannot.
+
+## Plan: E8b = is SAM 3's gain over no segments only the number of matches it cuts (issue #8, 10.11.2026)
+- **Question:** E8a found completeness ordered by the share of E_mv's matches the segments keep, whatever the
+  segments are, and left two things unseparated: (1) does a gate that cuts the same number of matches at random,
+  with no segments anywhere else, do what SAM 3 does; (2) of SAM 3's three uses (u in E_d, E_mv's gate, E_n's
+  edges), is the gate the one that moves the scores. Same run setup as E8a (refiner, weights, budget, alignment,
+  scored labels).
+- **Variants:**
+  1. Déjà View, no refinement. 2. **Off:** no segments. 3. **SAM 3:** as now (u, gate and E_n edges).
+  4. **random @ SAM 3:** Off, then E_mv keeps a uniform random subset of its matches, as many per scene as SAM 3's
+     gate keeps (`keep_like: sam3`, dev 0.91, val 0.90 mean), seeds 0 and 1.
+  5. **gate only:** SAM 3's ids gate E_mv's matches, nothing else (`segments: none`, `gate: sam3`: u = 1, E_n
+     ungated).
+  6. **random @ permuted:** as 4, at the count the per-view permuted ids keep (dev 0.13, val 0.22 mean), seed 0:
+     whether E8a's largest gain is also just the count.
+- **Reading** (floor 0.033 / 0.037 / 0.036 cm as in E8a): random @ SAM 3 within the floor of SAM 3 on all three
+  scores -> SAM 3's gain is match pruning, the identity adds nothing (confirmed, stated plainly). SAM 3 better
+  than random by more than the floor -> which matches SAM 3 cuts matters; gate only vs SAM 3 then says whether
+  the gate carries it or u and E_n do. Random @ permuted near permuted -> the same for the corrupted ids.
+- **Setting:** `experiments/configs/e8b_dropout.yaml`, `scene_eval --splits dev val stress`, student cluster RTX
+  5090, one job (~6 min, as E8a's). The two seeds of 4 give the seed spread; if it exceeds the floor, it is the
+  floor for this comparison.
