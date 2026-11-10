@@ -10,8 +10,10 @@ unlabeled pixels one more segment) and `gt` (Hypersim's instances, the upper bou
 
 Each fit is least squares on the pixels valid in both, refitted once without the pixels whose
 residual exceeds 10 % of d. A segment with fewer than `MIN_PIXELS` such pixels, a degenerate
-fit or a <= 0 takes its view's fit; pixels MoGe-3 marks invalid, or whose fitted inverse
-depth is not positive, keep Deja View's depth. Cameras, rays and confidence stay Deja
+fit or a <= 0 takes its view's fit. A pixel keeps Deja View's depth where MoGe-3 marks it
+invalid, or where the fitted inverse depth departs from d by more than the same 10 % (the
+fit's own inlier band): without that guard a fit that lands just above zero inverse depth
+put single pixels hundreds of metres away (E20a's first run). Cameras, rays and confidence stay Deja
 View's, so `scene_eval` scores the result as a backbone: `e20a-<variant>_<views>.npz`.
 
   uv run python experiments/scripts/e20a_fuse.py --splits dev val
@@ -80,7 +82,7 @@ def fuse_view(
     a, b = np.where(ok, a, a0[0]), np.where(ok, b, b0[0])
     inv = np.full(depth.shape, np.nan)
     inv[valid] = a[labels[valid]] * m + b[labels[valid]]
-    use = valid & (inv > 0)
+    use = valid & (np.abs(np.where(valid, inv, 0) - 1 / depth) <= TRIM / depth)
     out = np.where(use, 1 / np.where(use, inv, 1), depth).astype(np.float32)
     assert out.shape == depth.shape, out.shape
     assert np.all(np.isfinite(out))
