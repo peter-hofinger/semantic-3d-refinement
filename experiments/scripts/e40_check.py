@@ -42,6 +42,8 @@ def main() -> None:
         run = load(path)
         print(f"\n{path} (git {run['git'][:7]})")
         for split in ("dev", "val"):
+            if split not in run["splits"]:
+                continue
             scenes = run["splits"][split]["scenes"]
             names = list(scenes)
             deltas = np.array(

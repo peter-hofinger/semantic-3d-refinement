@@ -1,0 +1,33 @@
+reference runs/eval_hypersim-20261110-093140 (git 150db44); Δ = run - reference, cm
+dev reference Déjà View: accuracy_cm 4.675 completeness_cm 2.324 chamfer_cm 3.500 miou 0.360 pq 0.292 ap 0.216
+dev reference Refined: accuracy_cm 4.199 completeness_cm 3.658 chamfer_cm 3.928 miou 0.360 pq 0.292 ap 0.216
+val reference Déjà View: accuracy_cm 6.061 completeness_cm 4.142 chamfer_cm 5.102 miou 0.397 pq 0.258 ap 0.345
+val reference Refined: accuracy_cm 5.701 completeness_cm 5.585 chamfer_cm 5.643 miou 0.397 pq 0.258 ap 0.345
+
+runs/eval_hypersim-20261110-101625 (git d7cbef4)
+dev ai_010_007_cam_00: -0.0154 -0.0235 -0.0195
+dev ai_006_007_cam_00: -0.0173 -0.0142 -0.0157
+dev ai_044_001_cam_00: +0.0663 -0.0100 +0.0282
+dev aggregate: +0.0112 -0.0159 -0.0023
+dev median over scenes: -0.0154 -0.0142 -0.0157
+dev scenes worse: +1.0000 +0.0000 +1.0000
+dev mean without ai_009_009_cam_00: +0.0112 -0.0159 -0.0023
+dev labels: miou 0.360 pq 0.292 ap 0.216
+
+runs/eval_hypersim-20261110-101721 (git d7cbef4)
+val ai_003_010_cam_00: +0.0418 +0.0099 +0.0258
+val ai_004_003_cam_00: -0.0452 -0.0758 -0.0605
+val ai_004_004_cam_00: -0.0110 +0.0050 -0.0030
+val ai_004_010_cam_00: +0.0039 -0.0041 -0.0001
+val ai_005_005_cam_00: +0.0666 +0.1307 +0.0987
+val ai_007_001_cam_00: -0.0629 -0.0682 -0.0655
+val ai_009_007_cam_00: +0.0146 +0.0714 +0.0430
+val ai_009_009_cam_00: +0.4050 +0.7206 +0.5628
+val ai_031_004_cam_00: -0.0141 +0.0508 +0.0183
+val ai_044_003_cam_01: +0.0274 +0.1324 +0.0799
+val ai_050_002_cam_00: +0.0986 +0.1872 +0.1429
+val aggregate: +0.0477 +0.1054 +0.0766
+val median over scenes: +0.0146 +0.0508 +0.0258
+val scenes worse: +7.0000 +8.0000 +7.0000
+val mean without ai_009_009_cam_00: +0.0120 +0.0439 +0.0279
+val labels: miou 0.397 pq 0.258 ap 0.345
