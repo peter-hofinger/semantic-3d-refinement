@@ -45,7 +45,7 @@ its normal term by CG (Cao et al. 2022): each step solves the normal equations J
 -J^T r by Jacobi-preconditioned CG. J is never formed for the per-view terms, which are
 stencils on the pixel grid, robust in δ (E_d) or linear in log depth (E_n); E_mv's J has
 five entries per match, the source pixel and j's four interpolated pixels. On 20 views
-of 504 x 378 a solve takes about 4 s on an RTX 3080.
+of 504 x 378 a solve (5 steps of 10 CG iterations) takes about 2 s on an RTX 3080.
 """
 
 import logging
@@ -98,8 +98,9 @@ class RefineConfig:
     edge_tol: float = 0.02  # E_n's occlusion cut (log depth, `normals.cut_weights`)
     # all 19 exceed 10 GB; 2 / 8 trade accuracy and completeness as λ_mv does
     neighbors: int = 4  # views each view is matched with, the ones it overlaps most
-    gn_iters: int = 10
-    cg_iters: int = 20
+    # 5 x 10 is where Gauss-Newton levels off on dev (issue #10): 4.2 -> 1.9 s per scene
+    gn_iters: int = 5
+    cg_iters: int = 10
     cg_tol: float = 1e-3
     device: str = "cuda"
 

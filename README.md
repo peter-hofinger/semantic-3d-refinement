@@ -147,7 +147,7 @@ against a noise floor of 0.033 / 0.037 / 0.036 cm (accuracy / completeness / Cha
 | E_n cut window, closing budget | 7 px | spans Déjà View's 2-4 px edge ramps; 3-11 px tie, no closing loses 0.05 cm |
 | E_d weight | c × u | dropping c ties on dev (E37); combined with the three above, accuracy got worse on all 11 val scenes, and on dev restoring c recovered most of it |
 | λ_n, DSINE | 1e-4 | issue #21 |
-| Gauss-Newton × CG, CG tol | 10 × 20, 1e-3 | issue #10 |
+| Gauss-Newton × CG, CG tol | 5 × 10, 1e-3 | issue #10: where Gauss-Newton levels off, 4.2 → 1.9 s per scene |
 
 On dev, removing Huber, the border margin and the fixed cut each tie. Combined, they cost 0.5 cm
 in one val scene (ai_009_009, where Déjà View fails), which put the val means beyond noise, so
