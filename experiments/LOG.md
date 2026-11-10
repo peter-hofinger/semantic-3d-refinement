@@ -65,6 +65,7 @@ Metrics:
 | E40 | Remove or justify every hand-set constant in the energy (issue #28): one-at-a-time dev sweep, val check | λ_d and conf_power removed (no-ops); no Huber, no border margin and E_n cut at Otsu's threshold each tie on dev, but combined they lost 0.5 cm in val's ai_009_009 (val means beyond noise), so all three stay with that reason; λ_mv, λ_δ, neighbors and the cut window stay (alternatives trade accuracy for completeness); refiner unchanged within run-to-run spread |
 | E41 | After E40's review: Gauss-Newton 5 x 10 (chosen in #10, never applied), u counting the pixel's own view, λ_δ = 0 tried | own-view u changes no score by more than 0.007 cm; λ_δ = 0 looks better at 5 x 10 only because 4 of 6 solves stop early, converged it is worse (dev completeness +0.46 cm), so λ_δ stays; dev Chamfer 3.953 -> 3.928, val 5.723 -> 5.643 (ai_009_009 -0.81 cm; without it -0.006) |
 | E42 | E_n as the angle between DSINE's normals and the closer-neighbor normals of the depth (Peter's proposal), 3 weights | λ_a 4e-4 passes dev (accuracy +0.010, completeness -0.229, Chamfer -0.110 cm vs BiNI) but fails val on accuracy (+0.090, worse on 10 of 11) while completeness is better on 11 of 11 and Chamfer -0.187; the λ_mv / λ_δ trade again, so BiNI stays; adopting it is a choice of metric, left open |
+| E43 | The normal term as tangent residuals (n_DSINE . t / \|t\| for the closer-neighbor tangents), E42's simpler form | λ_t 4e-4 passes dev (+0.025 / -0.249 / -0.112 cm vs BiNI) and fails val on accuracy (+0.102, worse on 10 of 11; completeness -0.506, Chamfer -0.202): within a few thousandths of E42's angle term on dev, the same trade; BiNI stays |
 
 ## Reference table (current scorer, E11)
 
@@ -2669,3 +2670,38 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   180°), i.e. at the ramps, where E42's speckle sat. No guess at which is better there.
 - **Figures:** bedroom views 18, 0, 12, 6: the closer-neighbor normals of BiNI's, E42's and E_t's depth next to
   DSINE's; each pixel's distance to the GT, E_t minus BiNI.
+
+## E43: the normal term as tangent residuals -> same as E42's angle term, simpler; the same trade, BiNI stays (10.11.2026)
+- **Goal, energy, weights, rule:** as in the plan above; run as planned.
+- **Commits:** 9802e84 (plan), 33d3b17 (tangent residuals, `closer_tangents`, tests), 1bf6af2 and 3f8c120 (configs),
+  this commit (results, figure).
+- **Commands** (RTX 3080, clean tree): `scene_eval --cfg experiments/configs/e43_tangent.yaml --splits dev stress`
+  (`e43_tangent-20261110-100804`) -> `e40_table.py` -> `results/e43_{dev,stress}.txt`; `scene_eval --cfg
+  experiments/configs/e43_val.yaml --splits val` (`e43_val-20261110-101022`) -> `results/e43_val.txt`;
+  `e43_figures.py runs/e42_angle-20261110-094442 runs/e43_tangent-20261110-100804` -> `results/e43_figures.txt`,
+  `figures/e43_bedroom.jpg`.
+- **Dev aggregate, cm** (Δ against BiNI, the refiner of E41: 4.199 / 3.658 / 3.928; E42's angle term at the same
+  weight for comparison):
+
+  | weight | tangent E_t: Δ acc / comp / Chamfer | passes | angle E_a (E42) |
+  |---|---|---|---|
+  | 4e-5 | +0.047 / -0.173 / -0.063 | no | +0.044 / -0.161 / -0.059 |
+  | 4e-4 | +0.025 / -0.249 / -0.112 | yes | +0.010 / -0.229 / -0.110 |
+  | 4e-3 | +0.088 / -0.746 / -0.329 | no | +0.073 / -0.795 / -0.361 |
+
+  Every solve took all 5 steps; 3.3-3.5 s per scene (BiNI 1.9). E_t's start energy at 4e-4 is 1.8-6.9e-5, as
+  E42's (the small-angle match holds between the two bounded terms).
+- **Val, once** (λ_t 4e-4 against BiNI): accuracy 5.701 -> 5.803 (+0.102, worse on 10 of 11), completeness 5.585 ->
+  5.079 (-0.506, better on 11 of 11), Chamfer 5.643 -> 5.441 (-0.202, better on 9 of 11); without ai_009_009
+  +0.117 / -0.260 / -0.072. Fails on accuracy, as E42 did (+0.090 / -0.465 / -0.187).
+- **Figure:** `figures/e43_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: DSINE's normals and the
+  closer-neighbor normals of BiNI's, E42's and E43's depth; distance to the GT, E_t minus BiNI. The angle and
+  tangent columns look alike (angle to DSINE over the 20 views: median 3.4° both, > 30° on 5.9 % vs 6.7 % of the
+  pixels; BiNI 6.0°, 12.8 %). The one visible difference is view 0's right wall, where Déjà View and DSINE
+  disagree about the wall's orientation: E43 leaves vertical streaks where E42 left speckle. Distance to the GT
+  +0.050 cm against BiNI over the bedroom (E42: +0.047).
+- **Conclusion:** the tangent form is the simpler implementation of the same term (no cross product, no
+  normalization of the normal, no facing flip, no dependence on DSINE's sign) and scores within a few thousandths
+  of the angle form. It shares its trade: completeness and Chamfer better than BiNI on dev and val, accuracy worse
+  on val beyond noise. BiNI stays the default (issue #21 owns that choice); E_t stays in the code, off, as the
+  candidate if the team decides by Chamfer. The angle term is not kept.
