@@ -3010,3 +3010,44 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   their own curves beyond noise (confidence at every q <= 0.9, outlier at q = 0.9-0.6, every scene), but only at
   completeness of 5 cm and more, and those curves stay under voxel density alone. Voxel density without the
   refiner remains the best accuracy-completeness trade on dev. Not checked: stress and val (Peter stopped them).
+
+## Plan: E45, third arm = voxel fusion: bin the points, keep dense voxels, average each into one point (10.11.2026)
+- **Goal (Peter, after the second arm):** E45's voxel density only filters: it scores each pixel by the number of
+  the scene's points in its voxel and drops the low ones, but moves no point. Peter's variant also fuses: the
+  points of a kept voxel are averaged into one, as voxel-grid downsampling does (Open3D's `voxel_down_sample`).
+  Does fusing the kept points lie above or below voxel density's curve, and how does it stand against the refiner,
+  at equal completeness? Two parts are separated: the voxel's **score** (what decides it is kept) and the
+  **averaging** (what happens to its points).
+- **Per-pixel form, so the protocol scores it as is:** every kept pixel's point is replaced by the mean of the
+  kept points in its voxel (`filters.voxel_means`); removed pixels are NaN. Each pixel still has one point, so
+  Umeyama runs on the kept pixel pairs as for every other arm. A voxel's points all land on one location; the
+  protocol counts it once per pixel for accuracy and once as a nearest neighbor for completeness.
+- **Variants** (voxel side = the scene's median pixel footprint D / f, E45's, unless stated; cut = the top fraction
+  q of the pixels by the score, pooled over the 20 views, ties by E45's fixed permutation):
+
+  | variant | score of a pixel (its voxel's) | points |
+  |---|---|---|
+  | count (E45's voxel density) | number of points | kept as they are (E45's curve, reused) |
+  | count + mean | number of points | averaged |
+  | Σ confidence | sum of Déjà View's confidence | kept as they are |
+  | Σ confidence + mean | sum of Déjà View's confidence | averaged |
+  | instance count | points of the pixel's own linked instance in the voxel | kept as they are |
+  | instance count + instance mean | points of the pixel's own linked instance in the voxel | averaged per (voxel, instance), so objects do not blend |
+  | count + mean, 2 x / 4 x footprint | number of points in a voxel of twice / four times the side | averaged |
+
+  2 x and 4 x read the slope of the voxel size, as E40's grids did; no value is adopted from them. Pixels without
+  an instance id count as one instance.
+- **Setting:** dev only (Peter, as for the second arm), the E45 run `eval_hypersim-20261110-110027`, CPU only (no
+  solve). Grid q = 1, 0.95, ..., 0.05.
+- **Readout:** per scene, each variant is solved by bisection to the refiner's completeness (E45's `sweep`, gap
+  below 0.0005 cm), and its accuracy and Chamfer there are compared with the refiner's and with voxel density
+  alone's (E45's matches); the split's numbers are means over scenes. Curves per variant against voxel density's.
+- **Rule, fixed before running:** E40's floor, 0.033 / 0.036 cm (accuracy / Chamfer). Against voxel density
+  alone at the refiner's completeness: **above** if both are lower by more than the floor, **below** if both are
+  higher by more, else a tie.
+- **Expected, written before running:** averaging footprint-sized voxels moves each point by less than a voxel
+  side, so count + mean ties voxel density alone; at 2 x and 4 x averaging merges layers as E_mv does, and E38
+  predicts the completeness cost: below voxel density's curve, more so at 4 x. Σ confidence ties count (confidence
+  and density rank the same points, E45: both lead). Instance count is below count where SAM 3's masks bleed,
+  since a bled pixel's voxel holds few points of its own instance; no guess at the sign.
+- **Cost:** 7 sweeps x 3 scenes x about 38 scorings of 2 s, in 6 processes: about 10 min.
