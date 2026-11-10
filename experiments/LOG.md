@@ -80,6 +80,8 @@ Metrics:
 | E8b | Controls for E8a (issue #8): E_mv's matches cut at random to SAM 3's per-scene count, SAM 3's ids gating E_mv alone, a random cut at the permuted ids' count | a random cut of SAM 3's size acts like no cut (Chamfer vs Off -0.016 / -0.015 cm, dev / val), so E8a's "the gain is the count" is wrong; SAM 3 cuts the matches with the largest residuals (12.7% / 15.8% of E_mv's energy in 8.6% / 9.8% of matches), 2x as often at mask edges, and whole regions linked inconsistently; the gate alone carries about a third of SAM 3's gain over the random cut; still the same accuracy-for-completeness trade, nothing near Déjà View's Chamfer |
 | E8c | Residual test for E8b (issue #8): E_mv keeps the matches of smallest initial absolute residual at SAM 3's and the permuted ids' per-scene counts, no segments | residual @ SAM 3 = gate only on completeness and Chamfer (Chamfer +0.011 / -0.003 cm, dev / val; accuracy +0.042 / +0.025) while sharing only 15% / 18% of SAM 3's cut and removing 4x its share of E_mv's energy; at the permuted count it gets 98% / 84% of permuted's Chamfer gain; the scores do not care which non-random cut, so the segments are one of several equivalent ways to do less E_mv |
 | E11a | E36's learned refiner on the 11 val scenes with 3 seeds, with and without masks (issue #11) | val Chamfer 5.102 -> 5.057 with masks, 5.062 without (noise floor 0.036), by trading accuracy (+0.11) for completeness (-0.19); dev 3.50 -> 3.27 / 3.35; masks help on dev only |
+| E21a | BiNI's E_n weight λ_n swept (0, 1e-5 to 1e-3) and E_n off checked on val (issue #21) | no weight improves all three scores; off: dev Chamfer 3.928 -> 3.858 but accuracy +0.067, val 5.643 -> 5.420, accuracy +0.126; λ_n = 1e-4 stays |
+| E21b | MoGe-3's normals in place of DSINE's in E_n (issues #21, #20) | dev accuracy / completeness / Chamfer -0.020 / -0.023 / -0.021 cm, inside the noise floor; still 3.91 against Deja View's 3.50 |
 
 ## Reference table (current scorer, E11)
 
@@ -3425,3 +3427,63 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - The masks help on dev (every seed with masks beats every seed without on Chamfer) but not on val (5.057 vs
     5.062). E36's dev gain was mostly the lobby (-0.61 of the -0.23 mean).
   - Seeds move dev Chamfer by up to 0.12 cm, so a single seed on three scenes, as in E36, cannot decide.
+
+## E21a: BiNI's E_n weight swept and E_n off -> the same accuracy-for-completeness trade; λ_n = 1e-4 stays (10.11.2026)
+- **Goal:** issue #21, the parts E42/E43 did not cover: does any weight of BiNI's E_n (λ_n, set to 1e-4 only to fix
+  its units) beat the current one, and does E_n off (E42's "no normal term") hold on val.
+- **Setting:** `configs/refine.yaml` (5 x 10, u with the own view), only λ_n changed: 0, 1e-5, 3e-5, 1e-4, 3e-4,
+  1e-3. Rule as E40-E43: a variant passes if accuracy, completeness and Chamfer are all within the noise floor
+  (0.033 / 0.037 / 0.036 cm, E40) or better on dev; a pass is checked once on val. E_n off goes to val regardless.
+- **Commits:** 66c24ad (configs `experiments/configs/e21a_sweep.yaml`, `e21a_val.yaml`), run at 499bd18 (adds
+  E21b's `normals` option, default `dsine`, so the same inputs). Workstation, RTX 3080, clean tree.
+- **Commands:** `scene_eval --cfg experiments/configs/e21a_sweep.yaml --splits dev` (`e21a_sweep-20261110-202136`),
+  `scene_eval --cfg experiments/configs/e21a_val.yaml --splits val` (`e21a_val-20261110-202253`). Stress was
+  planned but not run: Hypersim's server breaks off the download of ai_015_001 at the same file on every try
+  (13 of 504 files missing, `ChunkedEncodingError`), and stress decides nothing.
+- **Dev aggregate, cm** (Δ against λ_n = 1e-4):
+
+  | λ_n | accuracy | completeness | Chamfer | Δ acc / comp / Chamfer | passes |
+  |---|---|---|---|---|---|
+  | Deja View (no refiner) | 4.675 | 2.324 | 3.500 | | |
+  | 1e-4 (current) | 4.199 | 3.658 | 3.928 | - | - |
+  | 0 (E_n off) | 4.266 | 3.451 | 3.858 | +0.067 / -0.207 / -0.070 | no |
+  | 1e-5 | 4.244 | 3.602 | 3.923 | +0.045 / -0.056 / -0.005 | no |
+  | 3e-5 | 4.218 | 3.635 | 3.926 | +0.019 / -0.023 / -0.002 | tie |
+  | 3e-4 | 4.200 | 3.623 | 3.912 | +0.001 / -0.035 / -0.016 | tie |
+  | 1e-3 | 4.245 | 3.508 | 3.876 | +0.045 / -0.150 / -0.052 | no |
+
+  E_n off reproduces E42's "no normal term" row to the last digit. Labels are unchanged (mIoU 0.360).
+- **Val, E_n off against λ_n = 1e-4:** accuracy 5.701 -> 5.827 (+0.126), completeness 5.585 -> 5.014 (-0.571),
+  Chamfer 5.643 -> 5.420 (-0.223); Deja View 6.061 / 4.142 / 5.102.
+- **Conclusion:** no weight improves all three scores: away from 1e-4 in either direction the refiner trades
+  accuracy for completeness, as E40 and E42 found for the other settings, and 3e-5 and 3e-4 tie within the floor.
+  λ_n = 1e-4 stays. Turning E_n off gives the largest Chamfer gain on dev and val by the same trade, and every
+  variant stays far above Deja View's Chamfer.
+
+## E21b: MoGe-3's normals in place of DSINE's -> all three scores 0.02 cm better, inside the noise floor (10.11.2026)
+- **Goal:** issues #21 and #20: is E_n limited by DSINE's normals? MoGe-3 (Wang et al. 2026, arXiv 2607.17967,
+  MIT) is a newer single-image geometry model that also predicts normals.
+- **Setting:** `experiments/scripts/e21b_moge_normals.py` runs MoGe-3 ViT-L (`Ruicheng/moge-3-vitl`, 3 sparse
+  refinement steps) on each view with Deja View's field of view and caches its camera-frame normals as
+  `moge3_<views>.npz`; `scene_eval` reads them through the new config key `normals: moge3` (default `dsine`,
+  so every other config is unchanged). MoGe-3 runs in its own environment (`data/third_party/MoGe` @ 74fbce0,
+  `uv sync` there): it needs Triton, so not on macOS. `to_world` fits the normals' axis signs to the depth, as for DSINE (which convention it picked
+  was not logged).
+  The refiner is otherwise E21a's λ_n = 1e-4. Rule as E21a.
+- **Commits:** 499bd18 (script, `normals` key, `experiments/configs/e21b_moge.yaml`). RTX 3080, clean tree.
+- **Commands:** `uv run --project data/third_party/MoGe python experiments/scripts/e21b_moge_normals.py <dev views>`
+  (188 s for the 3 dev scenes incl. the model download and load), then `scene_eval --cfg
+  experiments/configs/e21b_moge.yaml --splits dev` (`e21b_moge-20261110-202806`).
+- **Dev aggregate, cm:**
+
+  | normals | accuracy | completeness | Chamfer |
+  |---|---|---|---|
+  | Deja View (no refiner) | 4.675 | 2.324 | 3.500 |
+  | DSINE (E21a, current) | 4.199 | 3.658 | 3.928 |
+  | MoGe-3 | 4.179 | 3.635 | 3.907 |
+  | Δ | -0.020 | -0.023 | -0.021 |
+
+- **Conclusion:** MoGe-3's normals are better than DSINE's by all three scores, but each difference is inside the
+  noise floor, so it does not pass and was not taken to val. Better normals are not what limits the energy: with
+  either, the refiner stays at Chamfer 3.9 cm against Deja View's 3.5. MoGe-3 may still help as a depth or detail
+  input elsewhere (#20).

@@ -1,7 +1,8 @@
 """Score pipeline variants on the scenes of Hypersim's splits, all in the same way.
 
-Per scene the inputs are cached: views, ground truth, backbone geometry, DSINE normals
-(`dsine-predict`) and per-view SAM 3 masks, linked across views on the backbone
+Per scene the inputs are cached: views, ground truth, backbone geometry, normals
+(DSINE's from `dsine-predict`, or another source's `<normals>_<views>.npz` that the
+config names, e.g. MoGe-3's in E21b) and per-view SAM 3 masks, linked across views on the backbone
 geometry exactly as `run-pipeline` does. Every variant then refines the same backbone
 geometry (`refiner: joint`, with the variant's overrides of `configs/refine.yaml`) or
 keeps it (`refiner: none`), and its output, a labeled point per input pixel in the
@@ -112,7 +113,7 @@ def input_paths(raw: dict, name: str) -> dict[str, Path]:
         "gt": folder / f"gt_{raw['views']}.npz",
         "geometry": folder / f"{raw['backbone']}_{raw['views']}.npz",
         "masks": folder / f"{raw['segmentation']}_{raw['views']}.npz",
-        "normals": folder / f"dsine_{raw['views']}.npz",
+        "normals": folder / f"{raw.get('normals', 'dsine')}_{raw['views']}.npz",
     }
 
 
