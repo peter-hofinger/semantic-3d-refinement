@@ -35,10 +35,10 @@ Refine inverse depth per pixel: d̂_i(p) = d⁰_i(p) + δ_i(p), minimizing by Ga
 Scope: joint refinement of all views of a scene (`src/refinement/multiview.py`, Gauss-Newton + Jacobi-preconditioned
 CG, matrix-free), the pipeline's refiner (`JointRefiner`, `run-pipeline --refiner joint`, `configs/refine.yaml`):
 Pouya's stages (Views -> Déjà View -> SAM 3 + linking (Mircea) -> refiner -> labeled PLY) all run end to end. The
-energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the other
-views that agree on the pixel's instance id); E_mv and E_n only within one instance; E_n is BiNI's normal term on
-DSINE normals (`src/refinement/normals.py`, part of the method). Every weight is 1; weights are set later, on
-validation scenes. Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim's splits
+energy is the one above with E_pr left out: E_d Huber, weighted by confidence × consistency u (share of the
+views seeing the point, its own included, that agree on its instance id); E_mv and E_n only within one instance;
+E_n is BiNI's normal term on DSINE normals (`src/refinement/normals.py`, part of the method). Every weight is 1
+(E40 checked each against alternatives on dev). Evaluation protocol: `src/analysis/scene_eval.py` on Hypersim's splits
 (`configs/eval_hypersim.yaml`), scored by `src/evaluation/labeled.py`. The method's output is a labeled point per input
 pixel, aligned onto the ground truth by one Umeyama Sim(3) on the pixel pairs; the protocol is in the README.
 

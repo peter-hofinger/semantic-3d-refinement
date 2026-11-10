@@ -321,18 +321,20 @@ def test_robust_residual_squares_to_huber_and_its_slope_is_exact() -> None:
     torch.testing.assert_close(slope, exact)
 
 
-def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
+def test_consistency_is_the_share_of_views_that_agree_on_the_id_own_included() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
     d0 = scale / scene.depth
     same = torch.zeros(2, H, W, dtype=torch.long)
     u = consistency(scene, d0, scale, same)
-    assert (u == 1).all()  # agrees where seen, 1 where unseen
+    assert (u == 1).all()  # every view that sees the point agrees
     split = same.clone()
     split[1] = 7  # view 1 calls everything another object
     u = consistency(scene, d0, scale, split)
     seen = u[0] < 1
-    assert seen.sum() > 0.5 * H * W and (u[0][seen] == 0).all() and (u[1] == 0).any()
+    # seen by both views, only its own agrees: 1 of 2; seen by view 0 alone: 1 of 1
+    assert seen.sum() > 0.5 * H * W and (u[0][seen] == 0.5).all()
+    assert (u[0][~seen] == 1).all() and (u[1] == 0.5).any()
     unmasked = torch.full((2, H, W), -1, dtype=torch.long)
     assert (consistency(scene, d0, scale, unmasked) == 1).all()
 

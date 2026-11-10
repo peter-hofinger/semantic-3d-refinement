@@ -12,10 +12,11 @@ the other weights are relative to it. Every constant that stays was checked on H
 dev in E40 (issue #28, `experiments/LOG.md`); its reason is where it is set.
 
 - E_d = w h(d - d0): Huber's cost h (`robust`) anchors to the prediction, weighted by
-  w = c u: c the confidence (mean one per view) times the consistency u: the share of
-  the other views a pixel lands in whose pixel there carries the same instance id
-  (`consistency`). Where views disagree on the object, at bleeding edges and flying
-  pixels, the anchor lets go.
+  w = c u: c the confidence (mean one per view) times the consistency u: of the views
+  a pixel's point lands in, its own included, the share whose pixel there carries the
+  same instance id (`consistency`). Where views disagree on the object, at bleeding
+  edges and flying pixels, the anchor weakens, down to 1 / (views seen) when no other
+  view agrees.
 - E_mv: each pixel p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into
   each neighboring view j (the `neighbors` views it overlaps most); the residual is
   log z_j(x) + log d_j(π_j(x)) - log s, the log ratio of the two depths, d_j bilinear
@@ -30,12 +31,12 @@ dev in E40 (issue #28, `experiments/LOG.md`); its reason is where it is set.
   one count as one), and cut on the input's occlusion contours: a wall's pixels
   do not shape the table in front of it. E_n is the only shape term; a smoothness
   term on top of it changed the F-score at 5 cm by at most 0.002 on Hypersim.
-- λ_δ ‖δ‖² anchors every pixel to the prediction, also where E_d lets go: about 8-10 %
-  of the pixels on Hypersim's tilt-shift scenes have E_d's weight 0 (no other view
-  agrees on their instance), and 1,300-2,700 of them per scene have no normal edge or
-  match either, so without it the normal equations are singular there and the solve
-  stalls. It also limits how far E_n carries a correction from matched pixels into
-  unmatched ones: a few pixels
+- λ_δ ‖δ‖² anchors every pixel to the prediction, also where E_d is weak. With u
+  counting the own view, E_d's weight is never 0 (Déjà View's confidence is at least
+  0.015 of its view's mean on Hypersim), but it falls to ~4e-4 and the solve is then
+  so ill-conditioned that Gauss-Newton stops after 3-4 steps; converged without λ_δ,
+  dev completeness is 0.46 cm worse (E41). It also limits how far E_n carries a
+  correction from matched pixels into unmatched ones: a few pixels
   (`test_normals_carry_a_correction_a_few_pixels_beyond_the_matches`). The proposal's
   per-segment scale and shift of inverse depth (a, b) would carry it across the
   instance, but on Hypersim the F-score at 5 cm is equal or better without them.
@@ -672,11 +673,12 @@ def refine_scene(
 
 @torch.no_grad()
 def consistency(scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor) -> Tensor:
-    """Consistency u (V, H, W): of the other views a pixel lands in, the share agreeing.
+    """Consistency u (V, H, W): the share of the views seeing a pixel's point agreeing.
 
     Each pixel is lifted on the input depth and projected into every other view; a view
     agrees if its nearest pixel there carries the pixel's linked instance id (the class
-    does not matter). Pixels without an id, or that land in no other view, keep u = 1.
+    does not matter). The pixel's own view counts as one that agrees, so u is the vote
+    of all views that see the point, in (0, 1]. Pixels without an id keep u = 1.
     """
     n, h, w = d0.shape
     seen, agree = torch.zeros_like(d0), torch.zeros_like(d0)
@@ -698,9 +700,8 @@ def consistency(scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor) -> Tensor:
             there = ids[j].reshape(-1)[row.clamp(0, h - 1) * w + col.clamp(0, w - 1)]
             seen[i] += inside.view(h, w)
             agree[i] += (inside & (there == own)).view(h, w)
-    u = torch.where(seen > 0, agree / seen.clamp_min(1), 1.0)
-    out = torch.where(ids >= 0, u, 1.0)
-    assert ((out >= 0) & (out <= 1)).all()
+    out = torch.where(ids >= 0, (agree + 1) / (seen + 1), 1.0)
+    assert ((out > 0) & (out <= 1)).all()
     return out
 
 
