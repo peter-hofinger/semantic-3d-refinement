@@ -1,8 +1,12 @@
+from pathlib import Path
+
 import numpy as np
 import torch
 
 from src.geometry import Geometry
+from src.loaders.hypersim.config import load_config
 from src.refinement.learned import (
+    LearnedConfig,
     Refiner,
     boundaries,
     features,
@@ -59,3 +63,11 @@ def test_log_error_ignores_global_scale() -> None:
 def test_loss_is_zero_at_the_target() -> None:
     t = torch.randn(2, 16, 16)
     assert float(loss(t, t, torch.ones_like(t), 0.5)) == 0
+
+
+def test_config_reads_prediction_scenes_from_the_splits() -> None:
+    cfg = LearnedConfig.load(Path("configs/e11a_learned.yaml"))
+    split = load_config(Path("configs/hypersim.yaml"))
+    expected = split.scenes(["dev", "val"])
+    assert cfg.predict == [f"{s}_{c}" for s, c in expected.items()]
+    assert cfg.seeds == [0, 1, 2]
