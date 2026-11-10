@@ -1,0 +1,23 @@
+# E20a (issue #20, experiments/LOG.md): Deja View's depth replaced by MoGe-3's, fitted onto it in inverse
+# depth with one fit per view, no segments (the control) (experiments/scripts/e20a_fuse.py, e20a-view_<views>.npz),
+# scored as a backbone without refinement: `--splits dev val`.
+# Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
+# configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
+# K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3
+# (all NYU40 classes but the three catch-alls, which still count in the scores), linked with
+# the working association. Each output, a labeled point per pixel, aligned onto the ground
+# truth by Umeyama on the pixels: accuracy, completeness, Chamfer, mIoU, PQ, AP, for the
+# scene and per class (src/evaluation/labeled.py).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
+views: views_n20_uniform_504
+backbone: e20a-view
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
+refine: configs/refine.yaml          # unused: no variant refines
+variants:
+  - name: MoGe-3 fitted, view
+    refiner: none
