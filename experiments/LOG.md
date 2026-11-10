@@ -79,6 +79,7 @@ Metrics:
 | E8a | Segment ablation (issue #8): the joint refiner given no, SAM 3's, Hypersim GT, per-view permuted and 4 px shifted segments, one run, dev + val + stress | the segments only filter E_mv's matches: completeness follows the share kept (per-scene Spearman 1.00 dev, 0.90 val); Chamfer vs no segments: SAM 3 -0.069 / -0.119 cm (dev / val), GT -0.021 / -0.043, permuted -0.249 / -0.346; GT gains least and scrambled ids most, so SAM 3 is not the bottleneck and the gain is not semantic; every refined variant stays worse than Déjà View on Chamfer |
 | E8b | Controls for E8a (issue #8): E_mv's matches cut at random to SAM 3's per-scene count, SAM 3's ids gating E_mv alone, a random cut at the permuted ids' count | a random cut of SAM 3's size acts like no cut (Chamfer vs Off -0.016 / -0.015 cm, dev / val), so E8a's "the gain is the count" is wrong; SAM 3 cuts the matches with the largest residuals (12.7% / 15.8% of E_mv's energy in 8.6% / 9.8% of matches), 2x as often at mask edges, and whole regions linked inconsistently; the gate alone carries about a third of SAM 3's gain over the random cut; still the same accuracy-for-completeness trade, nothing near Déjà View's Chamfer |
 | E8c | Residual test for E8b (issue #8): E_mv keeps the matches of smallest initial absolute residual at SAM 3's and the permuted ids' per-scene counts, no segments | residual @ SAM 3 = gate only on completeness and Chamfer (Chamfer +0.011 / -0.003 cm, dev / val; accuracy +0.042 / +0.025) while sharing only 15% / 18% of SAM 3's cut and removing 4x its share of E_mv's energy; at the permuted count it gets 98% / 84% of permuted's Chamfer gain; the scores do not care which non-random cut, so the segments are one of several equivalent ways to do less E_mv |
+| E20a | MoGe-3's depth fitted onto Deja View's in inverse depth, per view, per SAM 3 segment or per GT instance (issue #20) | no variant beats Deja View (val Chamfer 5.102 vs 6.192 / 5.196 / 5.142); per segment gains on completeness, loses more on accuracy; MoGe-3 alone has 2.7-6.6x Deja View's median depth error per scene |
 
 ## Reference table (current scorer, E11)
 
@@ -3383,3 +3384,48 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   barely care which non-random cut: segment edges, inconsistent ids and large residuals all buy the same small
   completeness gain. For issue #8: the segments act on the joint refiner as one of several equivalent ways to do
   less of E_mv's merging, not as semantics that move the surface towards the GT.
+
+## E20a: MoGe-3's depth fitted onto Deja View's, per view or per segment -> no variant beats Deja View (10.11.2026)
+- **Goal:** issue #20: Deja View places the surface, MoGe-3 (Wang et al. 2026, arXiv 2607.17967, MIT) shapes it.
+  Mircea's E35 puts about half of Deja View's in-domain error at depth edges, where single-image models are sharp.
+  Do the segments decide where MoGe-3's shape may be rescaled, and does that beat Deja View?
+- **Setting:** `experiments/scripts/e20a_moge_depth.py` runs MoGe-3 ViT-L (`Ruicheng/moge-3-vitl`, 3 sparse
+  refinement steps, Deja View's field of view) per view, in MoGe's own environment (`data/third_party/MoGe` @
+  74fbce0). `experiments/scripts/e20a_fuse.py` fits MoGe-3's inverse depth onto Deja View's, d ≈ a m + b, by least
+  squares refitted once without residuals above 10 % of d, and replaces d with the fit, one (a, b) per view
+  (`view`, the control), per per-view SAM 3 segment (`sam3`) or per Hypersim instance (`gt`, the upper bound);
+  segments under 200 valid pixels take the view's fit. Cameras, rays and confidence stay Deja View's, and each
+  variant is scored as a backbone without refinement (`experiments/configs/e20a_<variant>.yaml`).
+- **Checks before running:** with MoGe-3's depth set to Deja View's the output is bit for bit Deja View's; with
+  a random (a, b) per SAM 3 segment applied to Deja View's inverse depth, the per-segment fit recovers it exactly
+  (relative error 0.0) and the per-view fit leaves 4.2 % (bedroom, view 0).
+- **First run (f90aae2), not a result:** a fit that lands just above zero inverse depth put single pixels
+  hundreds of metres away (up to 2497 m against Deja View's at most 5 m), and three val scenes scored 17 to 140 cm
+  Chamfer. bfd8a10 keeps Deja View's depth wherever the fit departs from d by more than the fit's own 10 % inlier
+  band; the identity check still holds. MoGe-3 was not rerun.
+- **Commands** (RTX 3080, clean tree, bfd8a10): `uv run --project data/third_party/MoGe python
+  experiments/scripts/e20a_moge_depth.py <dev and val views>` (196 s for 14 scenes, valid on 98.3-100 % of pixels),
+  `uv run python experiments/scripts/e20a_fuse.py --splits dev val`, then `scene_eval --splits dev val` per
+  variant (`e20a_view-20261110-225640`, `e20a_sam3-20261110-225744`, `e20a_gt-20261110-225847`). Deja View's
+  numbers are E11a's `eval_hypersim-20261110-181811` (same machine and inputs).
+- **MoGe-3 alone is less accurate than Deja View here:** per view, median relative depth error after one scale
+  per scene is 1.6-4.4 % for MoGe-3 against 0.5-1.6 % for Deja View, on every dev and val scene.
+- **Aggregates, cm:**
+
+  | variant | dev acc / comp | dev Chamfer | val acc / comp | val Chamfer |
+  |---|---|---|---|---|
+  | Deja View | 4.675 / 2.324 | 3.500 | 6.061 / 4.142 | 5.102 |
+  | MoGe-3 fitted per view | 8.276 / 2.290 | 5.283 | 8.705 / 3.679 | 6.192 |
+  | MoGe-3 fitted per SAM 3 segment | 5.179 / 2.170 | 3.675 | 6.628 / 3.765 | 5.196 |
+  | MoGe-3 fitted per GT instance | 5.958 / 2.110 | 4.034 | 6.696 / 3.588 | 5.142 |
+
+  The guard keeps Deja View's depth on 0.8-2.2 % of the pixels (living room, per-segment and per-view fits).
+  Labels are unchanged (mIoU 0.36 dev, 0.40 val).
+- **Conclusion:**
+  - No variant beats Deja View: each improves completeness a little and loses accuracy by more (per SAM 3 segment
+    +0.50 / +0.57 cm on dev / val), the trade every refiner so far makes.
+  - The segments matter here (per segment instead of per view: Chamfer -1.61 / -1.00 cm), but only because
+    MoGe-3's own shape is worse than Deja View's on Hypersim: the per-segment fit pulls MoGe-3 back towards Deja
+    View rather than adding detail Deja View lacks. GT instances are no better than SAM 3's masks on dev.
+  - MoGe-2 trained on Hypersim and MoGe-3 starts from it, so this is not a domain gap in Deja View's favour.
+    MoGe-3 stays useful as a normal source (E21b ties DSINE) and as a baseline, not as a depth to fuse.
