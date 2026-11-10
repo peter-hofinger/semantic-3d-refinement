@@ -394,7 +394,7 @@ def render_cameras(
 
 def render_figure(
     inputs: SceneInputs,
-    points: dict[str, np.ndarray],
+    points: dict[str, np.ndarray | tuple[np.ndarray, np.ndarray]],
     views: tuple[int, ...],
     name: str,
     out: Path,
@@ -403,12 +403,16 @@ def render_figure(
 
     All pixels of all views, the ground truth's from its own depth; each point covers
     its source pixel's patch of surface (`render.splat`). The dollhouse view leaves out
-    the ceiling.
+    the ceiling. A cloud given as (points, keep) draws only the pixels kept, shaded by
+    the normals of all its points: a removed neighbor does not blank a kept pixel.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     truth = ground_truth_points(inputs)
     clouds = {"ground truth": (truth, inputs.gt.depth > 0)}
-    clouds |= {k: (p, np.isfinite(p).all(-1)) for k, p in points.items()}
+    clouds |= {
+        k: v if isinstance(v, tuple) else (v, np.isfinite(v).all(-1))
+        for k, v in points.items()
+    }
     centers = inputs.views.cam_to_world[:, None, None, :3, 3]
     focal = inputs.views.intrinsics[:, None, None, 0, 0]
     ceiling = np.percentile(inputs.truth.points[:, 2], 98) - CEILING_CUT
