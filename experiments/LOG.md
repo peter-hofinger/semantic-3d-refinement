@@ -72,6 +72,7 @@ Metrics:
 | E42 | E_n as the angle between DSINE's normals and the closer-neighbor normals of the depth (Peter's proposal), 3 weights | λ_a 4e-4 passes dev (accuracy +0.010, completeness -0.229, Chamfer -0.110 cm vs BiNI) but fails val on accuracy (+0.090, worse on 10 of 11) while completeness is better on 11 of 11 and Chamfer -0.187; the λ_mv / λ_δ trade again, so BiNI stays; adopting it is a choice of metric, left open |
 | E43 | The normal term as tangent residuals (n_DSINE . t / \|t\| for the closer-neighbor tangents), E42's simpler form | λ_t 4e-4 passes dev (+0.025 / -0.249 / -0.112 cm vs BiNI) and fails val on accuracy (+0.102, worse on 10 of 11; completeness -0.506, Chamfer -0.202): within a few thousandths of E42's angle term on dev, the same trade; BiNI stays |
 | E44 | E_mv reads the other view at its nearest pixel, as u does (no interpolation, no 1 px border, no four-corner check) | dev ties (+0.011 / -0.016 / -0.002 cm), 1.9 -> 1.4 s per scene; val worse on all three (+0.048 / +0.105 / +0.077, median scene +0.015 / +0.051 / +0.026), so reverted: E_mv stays bilinear |
+| E45 | The refiner against ten filters of Déjà View's points (confidence, depth gradient, both, u, MoGe's depth edge, PCL's statistical outlier, MVS consistency, voxel density, grazing angle, random), each cut at the scene's own quantiles to the refiner's completeness (issue #27) | at equal completeness the refiner lies below four filter curves beyond noise: voxel density (dev accuracy 3.09 vs 4.20 cm, better on 3 of 3 dev and 3 of 3 stress scenes), confidence (3.52), confidence + gradient (3.68), statistical outlier (3.80); above depth gradient, MoGe's edge, u, grazing angle and random, and above MVS consistency by 0.13 cm; second arm, filter first and then refine (dev only): below voxel density's own curve down to q = 0.5, above confidence's and the outlier filter's but only at completeness >= 5 cm, and nothing beats voxel density alone; third arm, voxel fusion (dev only): averaging a voxel's points never helped; the best of its seven variants is a filter, instance voxel density (own-instance count per voxel), 3.000 cm against voxel density's 3.090, beyond the floor only in the lobby; val and the later arms' stress not run |
 
 ## Reference table (current scorer, E11)
 
@@ -2761,3 +2762,337 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   ones, not measured separately) cost completeness. Reverted: E_mv reads j bilinearly again, with its 1 px border
   and four-corner check, whose reasons stand (`MATCH_BORDER`). u keeps its nearest pixel; it only reads a label,
   for which interpolation has no meaning.
+
+## Plan: E45 = the refiner against filters of Déjà View's points at equal completeness (10.11.2026)
+- **Goal (issue #27):** the refiner lowers accuracy error and raises completeness error (dev, E41: 4.65 -> 4.20 /
+  2.31 -> 3.66 cm). Dropping points does the same. So the question is whether the refiner beats the obvious
+  baseline: Déjà View's points, filtered until they are exactly as complete as the refiner's output. Is accuracy
+  (and Chamfer) then better or worse than the refiner's, beyond noise?
+- **Setting:** Hypersim dev (3) for the answer, stress (3) for a second look, val (11) once as a check. Cached
+  inputs of `configs/eval_hypersim.yaml`, the default refiner on main (E41's: 5 x 10, u counting the own view,
+  BiNI E_n), this machine's RTX 3080 for one `scene_eval --splits dev val stress` run. That run gives the refined
+  depth and Déjà View's; the filters run on its stored Déjà View depth, on the CPU. No test scene.
+- **Scoring (the protocol as is, nothing new):** a filtered output is Déjà View's per-pixel cloud with the removed
+  pixels set to NaN. The protocol scores such an output as it stands: Umeyama on the pixels that remain, then
+  accuracy over the remaining points and completeness over every GT point (`score_output`'s surface part, shared
+  through one function, not copied). Labels do not move and are not scored again.
+- **Filters:** each is one score per pixel, higher means keep. The cut keeps the top fraction q of the scene's
+  pixels (all 20 views pooled, as VGGT's demo takes its confidence percentile over all frames). Ties are broken by
+  one fixed random permutation (seed 0): within a tie the filter has no preference. Scores use Déjà View's own
+  outputs (depth, confidence, rays, the linked SAM 3 ids, DSINE's normals), never the GT.
+
+  | filter | score (keep high) | source |
+  |---|---|---|
+  | confidence | C | Déjà View's confidence, as DUSt3R / VGGT clouds are cut (VGGT demo: a percentile of C) |
+  | depth gradient | -\|∇ log D\| (central differences) | flying pixels sit on steep depth; log makes it scale-free |
+  | both | min of the two scores' ranks | kept at q only if it passes both cuts at the same level |
+  | u | the refiner's consistency u | E_d's semantic weight: share of views agreeing on the instance |
+  | depth edge | -log(max / min D in the 3 x 3 window) | MoGe's point-cloud export (`utils3d.depth_edge`, rtol cut) |
+  | statistical outlier | -mean distance to the k = 20 nearest points of the scene | Rusu et al. 2008 (PCL); k = Open3D's documented default |
+  | multi-view consistency | number of other views whose depth agrees | MVS fusion (COLMAP, Schönberger et al. 2016; MVSNet, Yao et al. 2018); agree = E_mv's own test (Otsu's threshold, bilinear, four corners) |
+  | voxel density | points of the scene in the pixel's voxel | issue #27; voxel side = the scene's median pixel footprint D / f (no GT scale) |
+  | grazing angle | \|cos\| between the view ray and DSINE's normal | Curless & Levoy 1996 weight range samples by this cosine |
+  | random | a uniform random number (seed 0) | the floor any filter must beat |
+  | refined + confidence | C on the refined depth | not a baseline: the refiner's own curve |
+
+  Their constants are the cited ones (k = 20, the 3 x 3 window, seed 0); the cut itself is a quantile, and the
+  grid of q is the curve's resolution, not a threshold: q = 1, 0.95, ..., 0.05 on dev and stress, 1, 0.9, ..., 0.1
+  on val (only the equal-completeness point is read there).
+- **Equal completeness:** per scene, q is solved so that the filter's completeness equals the refiner's on that
+  scene: linear interpolation between the two grid points around it, then two secant steps, each scored exactly.
+  The residual gap is reported. Accuracy and Chamfer there, per scene; the split's numbers are means over scenes,
+  as the protocol aggregates.
+- **Noise floor and rule, fixed before running:** E40's cross-GPU floor, 0.033 / 0.037 / 0.036 cm (accuracy /
+  completeness / Chamfer, dev aggregate). At equal completeness, the refiner lies **above** a filter's curve
+  (better) if its accuracy is lower by more than 0.033 cm and Chamfer by more than 0.036; **below** (worse) if
+  higher by more than that; otherwise a tie. Filters on Déjà View's cached depth are deterministic; the floor is
+  the refiner's own.
+- **Expected, written before running:** E38 found that the refiner's completeness loss is mostly the views no
+  longer covering for each other, not points moving off the GT. A filter removes the worst points without moving
+  the rest, so the confidence and multi-view filters should reach the refiner's accuracy at its completeness or
+  beat it, i.e. the refiner lies on or below their curves on dev. Random lies far below the refiner. No guess for
+  the others.
+- **Report:** accuracy-completeness curves per filter with the refiner as one point, per scene and dev aggregate,
+  then stress; each filter's accuracy and Chamfer at the refiner's completeness (dev, stress, val); the bedroom
+  (`ai_006_007`, views 18, 0, 12, 6): which pixels the best filter removes, each pixel's distance to the GT, and
+  the clouds rendered from the same cameras (`scene_figures.render_figure`), refiner next to the best filter.
+- **Cost:** one GPU run, ~5 min. Each scoring takes about 2 s (3.8M points); 11 filters x (6 scenes x 24 + 11 x 14
+  scorings), about 1.8 h of CPU in one process, split over processes to fit about 30 min.
+- **Amendment after the first dev / stress pass (10.11.2026):** the planned solve (interpolation, then two
+  secant steps) left completeness gaps up to 2.65 cm (MVS consistency on the lobby; voxel density, u and
+  confidence up to 0.82 cm), against a floor of 0.037 cm: where completeness rises steeply as q falls, two steps do
+  not converge. Those matches were looked at and are not used. Replaced, before val ran, by bisection of the same
+  bracketing grid step until the gap is below 0.0005 cm (half the last printed digit of every score) or the
+  bracket is one pixel wide. Dev and stress keep their grid curves (`--reuse`, the same code scores them) and
+  are solved again; val runs once, with the bisection.
+
+## E45: the refiner against filters of Déjà View's points at equal completeness -> below four filters, beyond noise (10.11.2026)
+- **Goal, setting, filters, rule:** as in the plan entry and its amendment above (issue #27): dev decides, stress is a
+  second look, RTX 3080, the refiner on main (E41's). Run as planned, except **val was not run**: it was stopped
+  twice, once by GPU memory taken by another job and once at Peter's request because it took too long (CPU shared
+  with the second arm's sweep). No val number is reported; a partial file of 3 val scenes stays local and unread.
+- **Commits:** 26454fc (plan), bc7fb38 (`align_output`, `match_candidates`, no behaviour change), 87d133e (filters,
+  tests, sweep), 536ec1f (amendment: bisection), 2823884 (per-scene checkpoints), 8c18a86 (`render_figure` draws a
+  filtered cloud), this commit (`e45_figures.py`, results, figures).
+- **Commands** (this machine; `runs/` stays local):
+  - `scene_eval --cfg configs/eval_hypersim.yaml --splits dev val stress` at 26454fc, clean
+    (`eval_hypersim-20261110-110027`): dev 4.199 / 3.658 / 3.928 cm, val 5.701 / 5.585 / 5.643, E41's numbers to the
+    third decimal.
+  - `e45_filters.py runs/eval_hypersim-20261110-110027 --splits dev stress --step 0.05` (grid curves, at 87d133e's
+    code), then `--reuse` at 536ec1f (the bisection; the grid scores come from the same function) ->
+    `results/e45_dev_stress.txt`, 14 min for the re-solve.
+  - `e45_figures.py runs/eval_hypersim-20261110-110027` -> `results/e45_figures.txt` and the figures below.
+- **Checks:** at q = 1 every filter reproduces the run's Déjà View scores to 0.000000 cm on all 6 scenes. Every
+  equal-completeness match is within 0.0005 cm of the refiner's completeness except 12 of 60, which stop at one
+  pixel of q with gaps up to 0.0144 cm (confidence, lobby), all below the 0.037 cm floor.
+- **Results, at the refiner's completeness on every scene, mean over the split's scenes** (cm; Δ = refiner minus
+  filter, > 0: the refiner is worse; floor 0.033 accuracy, 0.036 Chamfer; "scenes" = scenes on which the refiner's
+  accuracy is better):
+
+  | filter | dev q | dev accuracy | dev Chamfer | dev Δ acc / Chamfer | scenes | stress Δ acc / Chamfer | scenes | verdict (dev) |
+  |---|---|---|---|---|---|---|---|---|
+  | voxel density | 0.574 | 3.090 | 3.373 | +1.109 / +0.555 | 0 of 3 | +4.303 / +2.151 | 0 of 3 | refiner below |
+  | confidence | 0.911 | 3.523 | 3.593 | +0.675 / +0.335 | 1 of 3 | +3.824 / +1.912 | 0 of 3 | refiner below |
+  | confidence + gradient | 0.872 | 3.675 | 3.666 | +0.524 / +0.262 | 1 of 3 | +2.912 / +1.456 | 0 of 3 | refiner below |
+  | statistical outlier (PCL) | 0.920 | 3.796 | 3.727 | +0.403 / +0.201 | 0 of 3 | +2.528 / +1.264 | 0 of 3 | refiner below |
+  | **joint refiner** | 1 | **4.199** | **3.928** | - | - | - | - | - |
+  | multi-view consistency (MVS) | 0.939 | 4.330 | 3.993 | -0.131 / -0.065 | 3 of 3 | +2.108 / +1.053 | 0 of 3 | refiner above |
+  | depth edge (MoGe) | 0.813 | 4.590 | 4.124 | -0.391 / -0.195 | 3 of 3 | +0.938 / +0.469 | 0 of 3 | refiner above |
+  | random | 0.166 | 4.680 | 4.169 | -0.481 / -0.241 | 3 of 3 | -0.312 / -0.156 | 3 of 3 | refiner above |
+  | depth gradient | 0.807 | 4.729 | 4.194 | -0.531 / -0.266 | 3 of 3 | +0.686 / +0.343 | 1 of 3 | refiner above |
+  | u | 0.773 | 4.954 | 4.306 | -0.755 / -0.378 | 3 of 3 | -0.218 / -0.109 | 1 of 3 | refiner above |
+  | grazing angle | 0.827 | 5.543 | 4.600 | -1.344 / -0.672 | 3 of 3 | -1.641 / -0.821 | 3 of 3 | refiner above |
+
+  Relative to Déjà View on dev (4.675 / 2.324 / 3.500): every row has completeness 3.658 (+57%); the refiner gains
+  10.2% accuracy and loses 12.2% Chamfer, voxel density gains 33.9% accuracy and Chamfer 3.6%, confidence 24.6% and
+  -2.7%. Chamfer moves by half of accuracy's Δ, as it must at equal completeness.
+- **Per scene, the means hide a skew.** The dev means are dominated by the lobby (ai_044_001, accuracy ~9 cm against
+  ~2 cm in the other two), the stress means by the conference room (ai_047_009, ~16 cm). In the living room
+  (ai_010_007) the refiner's point lies below the confidence curve (1.79 against ~2.06 cm at completeness 1.40), so
+  confidence beats it on 2 of 3 dev scenes, not all. Voxel density and statistical outlier removal beat it on every
+  dev and stress scene. On the conference room, cutting about 5% of the points by confidence takes accuracy from
+  16.6 to 10 cm at almost no completeness: Déjà View's failure scene has a few very far points, which a cut removes
+  and the refiner keeps.
+- **Refine, then cut** (the refiner's own confidence curve, `refined + confidence`): cutting the refined cloud loses
+  completeness much faster than cutting Déjà View's (5% of its points take dev completeness 3.66 -> 4.47 cm), as E38
+  predicts: the merged views no longer cover for each other. Read off the curves, it beats confidence on Déjà View at
+  lower completeness on dev (accuracy 3.17 against 3.45 cm at completeness 6.1) and ties on stress, but never
+  reaches voxel density's curve.
+- **Figures** (in `experiments/figures/`):
+  - `e45_curves_dev.jpg`, `e45_curves_stress.jpg`: per filter (rows) and scene (columns, then the mean at each q)
+    the filter's curve, random removal, the refiner's own confidence curve and the refiner's point.
+    Gradient, MoGe's edge, u and grazing angle bend upward (worse) after their first few percent. A reading, not
+    measured: past the flying pixels they remove correct geometry (edges that are steep in the GT too, walls seen
+    at grazing angles).
+  - `e45_equal_completeness.jpg`: the table's Δ for dev and stress against the floor.
+  - `e45_bedroom.jpg`: bedroom views 18, 0, 12, 6, voxel density cut to the refiner's completeness there (q = 0.47):
+    the pixels it removes, distance to the GT of the kept points and of the refiner. It keeps 47% of the bedroom's
+    pixels, but unevenly: 73% of view 0 and 33-40% of views 18, 12, 6, whose walls become sparse speckle. The kept
+    points' mean distance to the GT is 1.77 cm, the refiner's 2.20 cm over all pixels.
+  - `e45_ai_006_007_render.jpg`: GT, refiner and voxel density rendered from the dollhouse and the four views pulled
+    back. The refiner keeps the flying pixels at occlusion edges as long streaks across the room (dollhouse, shaded);
+    voxel density has none of them, its cloud is thinner and grainier but holds the room's layout.
+- **Conclusion:**
+  - Done as the issue asks: at equal completeness the refiner lies **below** the curves of voxel density, confidence,
+    confidence + gradient and statistical outlier removal on dev, beyond noise (by 0.40-1.11 cm accuracy, 0.20-0.56
+    cm Chamfer) and on stress by more; **above** depth gradient, MoGe's edge, u, grazing angle, random and, narrowly
+    (0.13 cm), MVS consistency on dev. Dropping Déjà View's points by density or confidence buys more accuracy per
+    unit of completeness than the refinement does.
+  - The expectation held for confidence and random and failed for MVS consistency, which loses to the refiner by
+    0.13 cm on dev. A likely reason, not measured: the count of agreeing views is an integer (19 at most), so most
+    of its cut falls to the random tie-break within one band.
+  - Why the protocol lets half the cloud go (E38): 20 overlapping per-pixel layers cover most GT points several
+    times, so removing the least supported points costs little completeness. Voxel density keeps exactly the points
+    where many layers coincide. This is as much a property of scoring a 20-layer cloud as of surface quality, and
+    the bedroom figure shows it: equal completeness, but views reduced to speckle.
+  - Filter first, then refine: the second arm below. Not tested: the same comparison on val (11 scenes), deferred
+    for time.
+## Plan: E45, second arm = filter Déjà View's points first, then refine what remains (10.11.2026)
+- **Numbering:** planned and run as E46 in its own session (branch `peter/e46-filter-then-refine`, merged in
+  c1be9d6), then folded into E45, whose question it answers in the opposite order. Its files were renamed from
+  `e46_*` to `e45_filter_refine*` in the fold; the commands below name them as they are now.
+- **Goal (Peter, after E45's first arm):** at the refiner's completeness on dev (3.658 cm), filters of Déjà View's points are
+  more accurate than the refiner (voxel density 3.09, confidence 3.52, statistical outlier 3.80, refiner 4.20 cm),
+  and E38 traced the refiner's completeness loss to E_mv merging the views' layers. The opposite order is open:
+  drop the low-scoring points first, then refine only what remains, so E_mv's consensus is not pulled by them.
+  Does filter + refine lie above or below the same filter's own curve (accuracy against completeness), beyond
+  noise?
+- **Change (one):** a per-pixel keep mask in the refiner (`build_problem` / `refine_scene`). Removed pixels are no
+  unknowns of the solve: they stay at the input and come out NaN. Matches whose source pixel or one of the target
+  view's four interpolated pixels is removed are dropped; E_n's edges touching a removed pixel are cut; E_d and
+  λ_δ act only on kept pixels. What the refiner derives from the input as a whole stays as it is (the scale s,
+  Otsu's threshold, each view's neighbors, u, the occlusion contours): the mask only removes pixels from E. An
+  all-true mask returns the unmasked solve bit for bit (CPU test).
+- **Setting:** the refiner on main (E41's: 5 x 10, u with the own view, BiNI E_n, every weight 1), this machine's
+  RTX 3080, the cached inputs of `configs/eval_hypersim.yaml`. Filters: E45's three best on dev, voxel density,
+  confidence and statistical outlier, scored on Déjà View's input exactly as in E45 (`src/analysis/filters.py`,
+  pooled over the 20 views, ties by the fixed permutation). Each keeps the top fraction q, then the refiner runs
+  on the kept pixels; the output is scored by the protocol as is (Umeyama on the kept pixels, accuracy over them,
+  completeness over every GT point), as E45 scores a filter. Grid q = 1, 0.9, ..., 0.1 on dev and stress (q = 1
+  is the refiner itself: it must repeat E45's run); val once as a check at q = 1, 0.8, 0.6, 0.4, 0.2. No test
+  scene. No new constant: the cut is a quantile, the grid is the curve's resolution.
+- **Equal completeness:** per scene and grid point, the same filter without refinement is solved to the
+  completeness filter + refine reached (E45's bisection, `e45_filters.sweep`, to a gap below 0.0005 cm), and
+  accuracy and Chamfer are compared there. The split's numbers are means over scenes. E45's curves without
+  refinement (same run, same code) are reused for dev and stress.
+- **Rule, fixed before running:** E40's cross-GPU floor, 0.033 / 0.037 / 0.036 cm (accuracy / completeness /
+  Chamfer, dev aggregate). At a grid point, filter + refine lies **above** the filter's curve if its accuracy is
+  lower by more than 0.033 cm and its Chamfer by more than 0.036; **below** if both are higher by more than that;
+  otherwise a tie. The answer per filter is the verdict over the grid on dev, stress as a second look, val as a
+  check.
+- **Expected, written before running:** the refiner alone (q = 1) lies far below every filter's curve (E45), and
+  removing a filter's worst points does not change the refiner's trade, which E38 traced to merging good layers,
+  not to outliers pulling them. So voxel density + refine lies below voxel density's curve at every q. For
+  confidence, E45 found refine-then-cut above confidence alone at low completeness; in the other order I expect
+  the same crossing: below near q = 1, above or a tie at low q. Statistical outlier: below, as voxel density.
+- **Report:** curves per filter (with and without refinement, E45's refine-then-cut for reference) per scene and
+  as dev / stress means; the Δ at equal completeness per grid point; the bedroom (`ai_006_007`, views 18, 0, 12,
+  6): the best filter alone next to filter + refine at the same q, rendered from the same cameras
+  (`scene_figures.render_figure`).
+- **Cost:** about 3 s per refinement on the RTX 3080: 3 filters x (6 x 10 + 11 x 5) = 345 refinements, about 18
+  min of GPU; the bisections run meanwhile on the CPU in 6 processes, about 25 min in all.
+- **Amendment after a smoke run (dev, q = 1 and 0.5; 10.11.2026):** q = 1 repeats E45's refiner to 0.000000 cm
+  on all three dev scenes. The bisections, though, took 14 min for 18 points while E45's val sweep shared the
+  CPU, so the grid is cut to q = 1, 0.9, ..., 0.3 on dev and stress, and val to q = 1, 0.7, 0.4. At q = 0.5
+  the smoke run's completeness was already 7-49 cm (dev means), far beyond any operating point. Nothing else
+  changes. The smoke run's numbers are not reported.
+
+## E45, second arm: filter first, then refine -> below voxel density's curve, above confidence's and the outlier filter's; none beats voxel density alone (10.11.2026)
+- **Goal, change, rule:** as in the plan above, dev only. Stress and val were not run: Peter stopped them for now
+  (val takes too long), so the verdicts below are dev's alone, 3 scenes.
+- **Commits:** c450183 (plan), a2a421b (keep mask, tests), 7ea7f1b (sweep), cda39f6 (amended grid), 8e115de (results, figures), the fold commit (renamed files, figures redrawn under
+  E45's name with the same numbers).
+- **Commands** (RTX 3080, clean tree at 7ea7f1b): `e45_filter_refine.py runs/eval_hypersim-20261110-110027 --splits dev
+  --grid 1 0.9 0.8 0.7 0.6 0.5 0.4 0.3` -> `results/e45_filter_refine_dev.txt` (33 min, the CPU shared with E45's val sweep);
+  `e45_filter_refine_figures.py` on the same run -> `results/e45_filter_refine_figures.txt`,
+  `figures/e45_filter_refine_{curves,curves_scenes,bedroom}`.
+- **Checks:** q = 1 repeats E45's refiner to 0.000000 cm on all three scenes. The filter alone was matched to
+  filter + refine's completeness within 0.0005 cm on 40 of 72 points; the largest gap is 0.091 cm
+  (statistical outlier, lobby, q = 0.3), small next to every Δ that decides a verdict.
+- **Dev means, cm** (Δ = filter + refine minus the filter alone at the same completeness, per scene and then
+  averaged; floor 0.033 accuracy / 0.036 Chamfer):
+
+  | q | voxel density: acc / comp, Δ acc / Δ Ch | confidence: acc / comp, Δ acc / Δ Ch | statistical outlier: acc / comp, Δ acc / Δ Ch |
+  |---|---|---|---|
+  | 1 (refiner) | 4.199 / 3.658, +1.109 / +0.555 below | 4.199 / 3.658, +0.675 / +0.335 below | 4.199 / 3.658, +0.403 / +0.201 below |
+  | 0.9 | 4.079 / 3.423, +0.956 / +0.478 below | 3.151 / 5.987, -0.267 / -0.130 above | 3.440 / 5.340, -0.211 / -0.106 above |
+  | 0.8 | 3.929 / 3.149, +0.723 / +0.362 below | 2.886 / 11.467, -0.296 / -0.148 above | 3.268 / 10.447, -0.127 / -0.054 above |
+  | 0.7 | 3.705 / 3.058, +0.435 / +0.218 below | 2.625 / 23.108, -0.272 / -0.137 above | 3.137 / 12.938, -0.095 / -0.048 above |
+  | 0.6 | 3.382 / 3.133, +0.164 / +0.082 below | 2.324 / 33.757, -0.203 / -0.100 above | 2.940 / 16.538, -0.086 / -0.043 above |
+  | 0.5 | 2.918 / 7.363, +0.067 / +0.048 below | 2.069 / 48.758, -0.145 / -0.073 above | 2.642 / 26.959, -0.076 / -0.032 tie |
+  | 0.4 | 2.634 / 8.191, +0.001 / +0.001 tie | 1.851 / 62.134, -0.100 / -0.050 above | 2.340 / 63.977, -0.058 / -0.030 tie |
+  | 0.3 | 2.247 / 13.527, -0.014 / -0.007 tie | 1.470 / 81.583, -0.085 / -0.046 above | 2.007 / 93.927, -0.053 / -0.013 tie |
+
+- **Per scene:** with confidence and the outlier filter, filter + refine is more accurate than the filter alone
+  on all 3 scenes at every q <= 0.9. With voxel density it depends on the scene: the living room
+  (ai_010_007) is more accurate from q = 0.7 on (-0.06 to -0.08 cm), the bedroom ties from q = 0.5 on, and the
+  lobby (ai_044_001) is below down to q = 0.4 (+2.59 cm at q = 1, +0.49 at q = 0.6) and decides the mean.
+- **Against the best curve:** read off the dev means (linear interpolation between E45's grid points, so rough),
+  no point of filter + refine beats voxel density alone at its completeness. The closest is confidence + refine at
+  q = 0.9: 3.15 cm accuracy at 5.99 cm completeness, against about 3.05 for voxel density alone there.
+- **Two side observations:** voxel density + refine is both more accurate and more complete than the refiner
+  alone at q = 0.9-0.6 (3.705 / 3.058 cm at q = 0.7 against 4.199 / 3.658): with the scattered points gone, the
+  refiner loses less completeness, as E38's account predicts. And refining before the confidence cut (E45's
+  "refined + confidence", gray in the curves) and after it (red) trace nearly the same curve on dev.
+- **Figure:** `figures/e45_filter_refine_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: the same 70 % of the pixels
+  kept by voxel density without and with refinement, each kept pixel's distance to the GT and the change. Over the
+  bedroom's kept pixels the refiner moves the mean distance from 2.219 to 2.101 cm (-0.119); 14.6 % of them move
+  closer by more than 0.5 cm and 8.6 % farther. That is at the same q, so not at equal completeness (at equal
+  completeness the bedroom's q = 0.7 is +0.163 cm, below). In views 18 and 12 the back walls and the door move
+  away from the GT (red), and the upper left of view 6 moves toward it (blue). The protocol's render was left out:
+  its shading takes normals from neighboring pixels, NaN next to most removed ones.
+- **Against the expectation:** voxel density below and confidence crossing from below (q = 1) to above (q <= 0.9)
+  came as written; the statistical-outlier filter was expected below, as voxel density, and lies above at
+  q = 0.9-0.6. What removing the worst points does to the refiner depends on which points the filter removes.
+- **Conclusion:** the opposite order has a split answer on dev. Refining what voxel density keeps lies below
+  voxel density's own curve at every q down to 0.5 and ties at 0.4 and 0.3; the refiner still costs accuracy at fixed
+  completeness, driven by the lobby. Refining what confidence or the statistical-outlier filter keeps lies above
+  their own curves beyond noise (confidence at every q <= 0.9, outlier at q = 0.9-0.6, every scene), but only at
+  completeness of 5 cm and more, and those curves stay under voxel density alone. Voxel density without the
+  refiner remains the best accuracy-completeness trade on dev. Not checked: stress and val (Peter stopped them).
+
+## Plan: E45, third arm = voxel fusion: bin the points, keep dense voxels, average each into one point (10.11.2026)
+- **Goal (Peter, after the second arm):** E45's voxel density only filters: it scores each pixel by the number of
+  the scene's points in its voxel and drops the low ones, but moves no point. Peter's variant also fuses: the
+  points of a kept voxel are averaged into one, as voxel-grid downsampling does (Open3D's `voxel_down_sample`).
+  Does fusing the kept points lie above or below voxel density's curve, and how does it stand against the refiner,
+  at equal completeness? Two parts are separated: the voxel's **score** (what decides it is kept) and the
+  **averaging** (what happens to its points).
+- **Per-pixel form, so the protocol scores it as is:** every kept pixel's point is replaced by the mean of the
+  kept points in its voxel (`filters.voxel_means`); removed pixels are NaN. Each pixel still has one point, so
+  Umeyama runs on the kept pixel pairs as for every other arm. A voxel's points all land on one location; the
+  protocol counts it once per pixel for accuracy and once as a nearest neighbor for completeness.
+- **Variants** (voxel side = the scene's median pixel footprint D / f, E45's, unless stated; cut = the top fraction
+  q of the pixels by the score, pooled over the 20 views, ties by E45's fixed permutation):
+
+  | variant | score of a pixel (its voxel's) | points |
+  |---|---|---|
+  | count (E45's voxel density) | number of points | kept as they are (E45's curve, reused) |
+  | count + mean | number of points | averaged |
+  | Σ confidence | sum of Déjà View's confidence | kept as they are |
+  | Σ confidence + mean | sum of Déjà View's confidence | averaged |
+  | instance count | points of the pixel's own linked instance in the voxel | kept as they are |
+  | instance count + instance mean | points of the pixel's own linked instance in the voxel | averaged per (voxel, instance), so objects do not blend |
+  | count + mean, 2 x / 4 x footprint | number of points in a voxel of twice / four times the side | averaged |
+
+  2 x and 4 x read the slope of the voxel size, as E40's grids did; no value is adopted from them. Pixels without
+  an instance id count as one instance.
+- **Setting:** dev only (Peter, as for the second arm), the E45 run `eval_hypersim-20261110-110027`, CPU only (no
+  solve). Grid q = 1, 0.95, ..., 0.05.
+- **Readout:** per scene, each variant is solved by bisection to the refiner's completeness (E45's `sweep`, gap
+  below 0.0005 cm), and its accuracy and Chamfer there are compared with the refiner's and with voxel density
+  alone's (E45's matches); the split's numbers are means over scenes. Curves per variant against voxel density's.
+- **Rule, fixed before running:** E40's floor, 0.033 / 0.036 cm (accuracy / Chamfer). Against voxel density
+  alone at the refiner's completeness: **above** if both are lower by more than the floor, **below** if both are
+  higher by more, else a tie.
+- **Expected, written before running:** averaging footprint-sized voxels moves each point by less than a voxel
+  side, so count + mean ties voxel density alone; at 2 x and 4 x averaging merges layers as E_mv does, and E38
+  predicts the completeness cost: below voxel density's curve, more so at 4 x. Σ confidence ties count (confidence
+  and density rank the same points, E45: both lead). Instance count is below count where SAM 3's masks bleed,
+  since a bled pixel's voxel holds few points of its own instance; no guess at the sign.
+- **Cost:** 7 sweeps x 3 scenes x about 38 scorings of 2 s, in 6 processes: about 10 min.
+- **Amendment before running (Peter, 10.11.2026):** only one method is reported, not the seven variants: the
+  variant with the lowest mean dev accuracy at the refiner's completeness (E45's rule for its best filter) becomes
+  "voxel fusion". All seven stay in the raw output (`results/e45_voxel_fusion_dev.txt`) for traceability. It is
+  chosen on the same three dev scenes it is reported on, which flatters it; val, the check for that, was not run.
+
+## E45, third arm: voxel fusion -> averaging never helps; the best variant is instance voxel density, a filter (10.11.2026)
+- **Goal, variants, rule:** as in the plan and its amendment above, dev only. One method is reported: the variant
+  with the lowest mean dev accuracy at the refiner's completeness of the seven.
+- **Commits:** 9f6d287 (plan), 7afd2de (`voxel_sums`, `voxel_means`, `sweep`'s fuse step, tests), 0cf1cec
+  (amendment), this commit (`e45_voxel_fusion_figures.py`, results, figures).
+- **Commands** (this machine, CPU; git 0cf1cec clean): `e45_voxel_fusion.py runs/eval_hypersim-20261110-110027
+  --splits dev` -> `results/e45_voxel_fusion_dev.txt` (all seven variants, per scene; 14.5 min);
+  `e45_voxel_fusion_figures.py` on the same run -> `results/e45_voxel_fusion_figures.txt` and the figures below.
+- **Checks:** unfused at q = 1, every variant reproduces the run's Déjà View scores to 0.000000 cm on the three
+  scenes; every match is within 0.0005 cm of the refiner's completeness.
+- **The chosen variant is not a fusion.** The lowest mean accuracy belongs to **instance count**, which keeps the
+  points as they are: a pixel's score is the number of points of its own linked SAM 3 instance in its voxel.
+  It is reported as **instance voxel density**. Averaging, the part of the idea that fuses, made every variant
+  less accurate than the same score without it (count +0.049, Σ confidence +0.012, instance count +0.055 cm at the
+  refiner's completeness). At twice and four times the footprint the averaged cloud never reaches the refiner's
+  completeness: with every point kept it is already worse (living room 1.675 and 2.792 cm against the refiner's
+  1.398), as E38 predicts for merging the views' layers.
+- **Instance voxel density at the refiner's completeness, dev** (cm; floor 0.033 / 0.036):
+
+  | method | accuracy | Chamfer | living room | bedroom | lobby |
+  |---|---|---|---|---|---|
+  | voxel density (first arm) | 3.090 | 3.373 | 1.492 | 1.772 | 6.005 |
+  | **instance voxel density** | **3.000** | **3.329** | 1.477 | 1.758 | 5.765 |
+  | joint refiner | 4.199 | 3.928 | 1.790 | 2.208 | 8.597 |
+
+  Against voxel density: -0.090 / -0.045 cm, above its curve beyond the floor, better on 3 of 3 scenes, but only
+  the lobby by more than the floor (-0.241); the living room (-0.015) and the bedroom (-0.014) tie. Against the
+  refiner: -1.199 / -0.600 cm, better on every scene.
+- **Chosen on the reported scenes:** it is the best of seven on the same three dev scenes, which flatters it; with
+  a margin of 0.09 cm carried by one scene, it may not hold on val, which was not run.
+- **Figures** (in `experiments/figures/`): `e45_voxel_fusion_curves.jpg` (per dev scene and the mean: the two
+  curves coincide on the steep part and separate only at completeness above ~1.7 cm in the bedroom and ~6.5 cm in
+  the lobby, where instance voxel density is lower); `e45_voxel_fusion_bedroom.jpg` (views 18, 0, 12, 6, both cut
+  to the refiner's completeness: q = 0.471 and 0.450, kept points 1.770 and 1.755 cm from the GT on average; the
+  maps look alike).
+- **Conclusion:** the fusion idea does not help: averaging a voxel's points costs completeness and accuracy, at the
+  footprint and more so with larger voxels, because the protocol rewards the scattered layers that averaging
+  merges. What helps a little is the semantic version of the score: counting only the points of the pixel's own
+  instance, so a voxel that two objects share (a bleeding edge) counts less. Its gain over voxel density is within
+  noise on two of three dev scenes; worth checking on val before calling it better.

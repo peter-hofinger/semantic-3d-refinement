@@ -1,0 +1,24 @@
+dev: filter minus refiner at equal completeness (accuracy / Chamfer, cm)
+  confidence: -0.675 / -0.335
+  depth gradient: +0.531 / +0.266
+  confidence + gradient: -0.524 / -0.262
+  u: +0.755 / +0.378
+  depth edge (MoGe): +0.391 / +0.195
+  statistical outlier (PCL): -0.403 / -0.201
+  multi-view consistency (MVS): +0.131 / +0.065
+  voxel density: -1.109 / -0.555
+  grazing angle: +1.344 / +0.672
+  random: +0.481 / +0.241
+stress: filter minus refiner at equal completeness (accuracy / Chamfer, cm)
+  confidence: -3.824 / -1.912
+  depth gradient: -0.686 / -0.343
+  confidence + gradient: -2.912 / -1.456
+  u: +0.218 / +0.109
+  depth edge (MoGe): -0.938 / -0.469
+  statistical outlier (PCL): -2.528 / -1.264
+  multi-view consistency (MVS): -2.108 / -1.053
+  voxel density: -4.303 / -2.151
+  grazing angle: +1.641 / +0.821
+  random: +0.312 / +0.156
+best filter on dev (accuracy at equal completeness): voxel density
+bedroom: voxel density at q = 0.471 keeps 0.471 of the pixels; mean distance to GT over kept pixels 1.770 cm, refiner over all 2.195 cm
