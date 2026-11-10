@@ -1,6 +1,6 @@
-"""E36: how far two SAM 3 mask sets of the same scenes differ, before any association.
+"""E39: how far two SAM 3 mask sets of the same scenes differ, before any association.
 
-    uv run python experiments/scripts/e36_compare_masks.py <tag a> <tag b> <scene folder>...
+    uv run python experiments/scripts/e39_compare_masks.py <tag a> <tag b> <scene folder>...
 
 A tag names `sam3image-nyu40-t0.3-<tag>_<views>.npz`; `cache` is the eval's own file.
 Per scene: identical pixels (same view-local id, ids compared after mapping each mask

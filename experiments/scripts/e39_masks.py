@@ -1,6 +1,6 @@
-"""E36: SAM 3 masks of the eval protocol under a new name, to score code versions apart.
+"""E39: SAM 3 masks of the eval protocol under a new name, to score code versions apart.
 
-    uv run python experiments/scripts/e36_masks.py <tag> <scene folder>...
+    uv run python experiments/scripts/e39_masks.py <tag> <scene folder>...
 
 Runs the protocol's SAM 3 (nyu40 prompts, threshold 0.3) of the checked-out code on
 each scene's views and writes `sam3image-nyu40-t0.3-<tag>_<views>.npz` next to them; the

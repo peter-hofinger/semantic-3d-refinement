@@ -81,7 +81,7 @@ class Sam3ImageSegmenter:
         with torch.no_grad():
             # the processor pads every prompt to the same 32 tokens; the encoder runs
             # once per prompt and scene: batched, its bf16 output rounds differently,
-            # one at a time it is bit for bit the old per-view encoding (E36)
+            # one at a time it is bit for bit the old per-view encoding (E39)
             text = processor(text=list(self.prompts), return_tensors="pt").to("cuda")
             embeds = torch.cat(
                 [
