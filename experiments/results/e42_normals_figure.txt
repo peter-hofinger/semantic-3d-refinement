@@ -1,0 +1,8 @@
+ai_006_007_cam_00: angle between DSINE and reconstructed normals (deg)
+view | median | 75% | 90% | share > 30 deg
+18 | 13.2 | 24.9 | 61.0 | 0.209
+0 | 17.9 | 42.8 | 76.5 | 0.349
+12 | 13.8 | 25.4 | 53.3 | 0.209
+6 | 10.3 | 24.3 | 51.2 | 0.196
+all | 11.5 | 22.2 | 47.8 | 0.177
+wrote experiments/figures/e42_normals_ai_006_007.jpg

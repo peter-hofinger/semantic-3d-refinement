@@ -29,6 +29,10 @@ from src.geometry import Geometry
 from src.loaders.views import Views
 
 DSINE_REPO = Path("data/third_party/dsine_hub")  # hugoycj/DSINE-hub @ a6b7d25
+# px, window of the local mid-depth and budget for closing a contour: spans Déjà View's
+# 2-4 px occlusion ramps on both sides (fc6c3c4); 3-11 px score the same on dev, and no
+# closing loses 0.05 cm of accuracy (E40)
+CUT_WINDOW = 7
 
 
 def normals_from_depth(depth: Tensor, rays: Tensor) -> Tensor:
@@ -45,6 +49,56 @@ def normals_from_depth(depth: Tensor, rays: Tensor) -> Tensor:
     )[0].permute(1, 2, 0)
     n = n / n.norm(dim=-1, keepdim=True).clamp_min(1e-12)
     return torch.where(((n * rays[..., 3:]).sum(-1) > 0)[..., None], -n, n)
+
+
+def one_sided(step: Tensor, axis: int) -> tuple[Tensor, Tensor]:
+    """Forward differences along an axis (-3: y, -2: x) as each pixel's two tangents.
+
+    Returns (backward, forward), NaN where the neighbor lies outside the image.
+    """
+    pad = [0, 0, 0, 0] if axis == -2 else [0, 0, 0, 0, 0, 0]  # noqa: PLR2004
+    pad_after, pad_before = pad.copy(), pad.copy()
+    k = 2 * (-1 - axis)  # pad's pairs run from the last dimension
+    pad_after[k + 1], pad_before[k] = 1, 1
+    nan = float("nan")
+    return (
+        torch.nn.functional.pad(step, pad_before, value=nan),
+        torch.nn.functional.pad(step, pad_after, value=nan),
+    )
+
+
+def closer_tangents(points: Tensor) -> tuple[Tensor, Tensor]:
+    """Return each pixel's tangents (..., H, W, 3) along x and y to the closer neighbor.
+
+    Peter's proposal (E42): along x the tangent goes to the left or the right neighbor,
+    whichever point is closer in 3D, along y to the upper or the lower one. At an
+    occlusion edge the closer neighbor lies on the pixel's own surface, so the tangents
+    do not see the jump. A neighbor outside the image never wins.
+    """
+    assert points.shape[-1] == 3 and min(points.shape[-3:-1]) >= 2  # noqa: PLR2004
+    tangents = []
+    for axis, step in (
+        (-2, points[..., 1:, :] - points[..., :-1, :]),
+        (-3, points[..., 1:, :, :] - points[..., :-1, :, :]),
+    ):
+        back, fwd = one_sided(step, axis)
+        lb = back.square().sum(-1, keepdim=True).nan_to_num(torch.inf)
+        lf = fwd.square().sum(-1, keepdim=True).nan_to_num(torch.inf)
+        tangents.append(torch.where(lb < lf, back, fwd))
+    tx, ty = tangents
+    assert tx.isfinite().all() and ty.isfinite().all()
+    return tx, ty
+
+
+def closer_neighbor_normals(points: Tensor) -> Tensor:
+    """Return unit normals (..., H, W, 3) of camera points from `closer_tangents`.
+
+    The cross product of the two tangents, facing the camera at the origin (n . x < 0).
+    Used for figures; the energy compares the tangents themselves (`tangent_residuals`).
+    """
+    n = torch.linalg.cross(*closer_tangents(points), dim=-1)
+    n = n / n.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+    return torch.where((n * points).sum(-1, keepdim=True) > 0, -n, n)
 
 
 def neighbor_terms(
@@ -94,7 +148,7 @@ def diffs(z: Tensor) -> tuple[Tensor, Tensor]:
 
 
 def cut_weights(
-    z0: Tensor, terms: list, tol: float, window: int = 7
+    z0: Tensor, terms: list, tol: float, window: int = CUT_WINDOW
 ) -> list[tuple[Tensor, Tensor]]:
     """Weights that cut the prior's occlusion edges along closed contours; else 0.5.
 

@@ -1,0 +1,23 @@
+run runs/e43_tangent-20261110-100804/run.yaml, git 1bf6af26a5c3f76b178e55a12c8148eecd3da045, split stress
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_015_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.985 | 1.348 | 2.166 | +0.215 -0.631 -0.208
+Refined | 2.770 | 1.980 | 2.375 | +0.000 +0.000 +0.000
+tangent 4e-5 | 2.827 | 1.882 | 2.354 | +0.057 -0.098 -0.020
+tangent 4e-4 | 2.820 | 1.857 | 2.339 | +0.050 -0.122 -0.036
+tangent 4e-3 | 2.835 | 1.683 | 2.259 | +0.066 -0.296 -0.115
+
+ai_047_009_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 16.634 | 13.946 | 15.290 | +0.355 -1.631 -0.638
+Refined | 16.278 | 15.577 | 15.928 | +0.000 +0.000 +0.000
+tangent 4e-5 | 16.421 | 14.858 | 15.639 | +0.142 -0.718 -0.288
+tangent 4e-4 | 16.445 | 12.693 | 14.569 | +0.166 -2.884 -1.359
+tangent 4e-3 | 16.465 | 11.997 | 14.231 | +0.186 -3.580 -1.697
+
+ai_052_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 5.476 | 2.495 | 3.986 | +0.412 -1.121 -0.355
+Refined | 5.064 | 3.617 | 4.340 | +0.000 +0.000 +0.000
+tangent 4e-5 | 5.219 | 3.344 | 4.282 | +0.155 -0.273 -0.059
+tangent 4e-4 | 5.195 | 3.280 | 4.237 | +0.131 -0.336 -0.103
+tangent 4e-3 | 5.226 | 2.923 | 4.075 | +0.162 -0.693 -0.266

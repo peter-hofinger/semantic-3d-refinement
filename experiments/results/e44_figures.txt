@@ -1,0 +1,2 @@
+ai_006_007_cam_00, all 20 views: distance to GT, nearest minus bilinear: mean -0.0160 cm, pixels changed by > 0.5 cm: 0.0789
+wrote experiments/figures/e44_bedroom.jpg

@@ -62,6 +62,11 @@ Metrics:
 | E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
 | E35 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | dev Chamfer 3.50 -> 3.20 cm with masks (3.29 without), better on all 3 scenes in accuracy and completeness; old protocol read it as no gain (F-score 0.844 -> 0.845); one seed, val not run |
 | E39 | Faster panoptic labeling (issue #29): prompts encoded once, detector batched 4 prompts at a time, overlaps on the GPU, association in torch | bedroom on an RTX 3080: SAM 3 29.7 -> 16.6 s, association 1.94 -> 0.57 s, pipeline 37.1 -> 22.6 s; dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 unchanged; 99.85-99.98% of pixels keep their mask (bf16 rounding of the batched detector), linked ids from the torch association bit-identical |
+| E40 | Remove or justify every hand-set constant in the energy (issue #28): one-at-a-time dev sweep, val check | λ_d and conf_power removed (no-ops); no Huber, no border margin and E_n cut at Otsu's threshold each tie on dev, but combined they lost 0.5 cm in val's ai_009_009 (val means beyond noise), so all three stay with that reason; λ_mv, λ_δ, neighbors and the cut window stay (alternatives trade accuracy for completeness); refiner unchanged within run-to-run spread |
+| E41 | After E40's review: Gauss-Newton 5 x 10 (chosen in #10, never applied), u counting the pixel's own view, λ_δ = 0 tried | own-view u changes no score by more than 0.007 cm; λ_δ = 0 looks better at 5 x 10 only because 4 of 6 solves stop early, converged it is worse (dev completeness +0.46 cm), so λ_δ stays; dev Chamfer 3.953 -> 3.928, val 5.723 -> 5.643 (ai_009_009 -0.81 cm; without it -0.006) |
+| E42 | E_n as the angle between DSINE's normals and the closer-neighbor normals of the depth (Peter's proposal), 3 weights | λ_a 4e-4 passes dev (accuracy +0.010, completeness -0.229, Chamfer -0.110 cm vs BiNI) but fails val on accuracy (+0.090, worse on 10 of 11) while completeness is better on 11 of 11 and Chamfer -0.187; the λ_mv / λ_δ trade again, so BiNI stays; adopting it is a choice of metric, left open |
+| E43 | The normal term as tangent residuals (n_DSINE . t / \|t\| for the closer-neighbor tangents), E42's simpler form | λ_t 4e-4 passes dev (+0.025 / -0.249 / -0.112 cm vs BiNI) and fails val on accuracy (+0.102, worse on 10 of 11; completeness -0.506, Chamfer -0.202): within a few thousandths of E42's angle term on dev, the same trade; BiNI stays |
+| E44 | E_mv reads the other view at its nearest pixel, as u does (no interpolation, no 1 px border, no four-corner check) | dev ties (+0.011 / -0.016 / -0.002 cm), 1.9 -> 1.4 s per scene; val worse on all three (+0.048 / +0.105 / +0.077, median scene +0.015 / +0.051 / +0.026), so reverted: E_mv stays bilinear |
 
 ## Reference table (current scorer, E11)
 
@@ -2333,3 +2338,421 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   10 batches) and 3.8 s the image encoder; more would need larger batches (memory) or fewer prompts, both out of
   this issue's scope. The trial and run masks (`-e35oldA`, `-e35oldB`, `-e35b4`, `-e35new`) stay in the git-ignored
   scene folders; the eval's own cache is unchanged.
+
+## Plan: E40 = remove or justify every hand-set constant in the energy (10.11.2026)
+- **Goal (issue #28, follow-up to point 2 of #13):** every row of the issue's table gets a decision: **remove**
+  the setting, **derive** it from the data (as Otsu's threshold did for E_mv's occlusion tolerance), or **keep** it
+  with a one-sentence reason. On a tie the simpler energy wins: remove over derive over keep. Out of scope and
+  left as they are: E_n's λ_n and normal estimator (#21), the Gauss-Newton / CG budget (#10).
+- **Setting:** Hypersim dev (living room `ai_010_007`, bedroom `ai_006_007`, lobby `ai_044_001`) on the cached
+  inputs of `configs/eval_hypersim.yaml` (20 views at 504x378, Déjà View K=16, DSINE, linked SAM 3 masks, nyu40
+  at t0.3), the default `configs/refine.yaml`, this machine's RTX 3080. Unchanged: the evaluation, the inputs, the
+  solver budget (10 Gauss-Newton steps x 20 CG iterations, tol 1e-3).
+- **Method:** each setting is varied alone from the current default (one change per variant), all variants in one
+  `scene_eval` run so they share a GPU and inputs (`experiments/configs/e40_sweep.yaml`). Then the chosen
+  decisions are combined and the combination is compared once more with the unchanged refiner on dev; if it falls
+  outside the noise floor although every part passed alone, step back one decision at a time in reverse table
+  order. Decided on dev only.
+
+  | row | setting now | variants (each alone) | remove / derive candidate |
+  |---|---|---|---|
+  | E_d Huber threshold | 0.05 | quadratic (no Huber); k = the scene's Otsu occlusion threshold; 0.02, 0.1 to read the slope | remove: quadratic; derive: Otsu's tol, the scene's same-surface noise level in log depth |
+  | E_d weight | c^p u, p = 1 | u removed (w = c) | confidence: **E37's result reused**, not rerun; u: kept on a tie (agreed 10.11, see below) |
+  | E_mv neighbors | 4 | 2, 8, all 19 | remove: match every overlapping pair |
+  | E_mv border margin | 1 px | 0 px (the bilinear support, u in [0, W-1]) | remove the extra pixel |
+  | E_n occlusion cut | 0.02 | 0.01, 0.05; the scene's Otsu occlusion threshold | derive: the same Otsu threshold E_mv uses (both are log-depth departures) |
+  | E_n mid-depth window | 7 px | 3, 5, 11 px | none found before running; keep or not by the sweep |
+  | E_n contour closing budget | = window | 0 (no closing), 2 x window | remove: no closing, which deletes `close_cuts` |
+  | λ_δ | 1 | 0.3, 3 | none: λ_δ = 0 is singular on stress (module docstring) |
+  | λ_d, λ_mv | 1, 1 | λ_mv 0.3, 3 | λ_d: remove as a parameter, E's overall scale does not change its minimizer, so one weight is fixed to 1 by definition |
+
+  A value from a grid (0.3, 3, 0.02, ...) is adopted only if it beats the default by more than the noise floor
+  on dev; it then stays as "keep, chosen on the dev grid". The grid values themselves are not new constants.
+- **E37 reused:** E_d without the confidence (p = 0) against p = 1 on dev (RTX 5090): accuracy 4.18 / 4.18,
+  completeness 3.66 / 3.63, Chamfer 3.92 / 3.91 cm, completeness better on 2 of 3 dev scenes. A tie or better,
+  so by this issue's rule the confidence leaves E_d and `conf_power` goes; it is not rerun alone here, only as
+  part of the final combination.
+- **Consistency u (decided with Peter before running):** u is one of the energy's semantic parts; removing it is
+  adopted only if dev is better beyond noise. On a tie it stays: whether semantics help is its own ablation
+  (Claude.md step 5), not a constant to tidy away.
+- **Check:** the final configuration on val (11 scenes) once, with the unchanged refiner in the same run. Val's
+  inputs are prepared on this machine first (`hypersim-download`, `hypersim-prepare`, `dejaview-predict`,
+  `sam3-segment --prompts configs/prompts/nyu40.txt --threshold 0.3`, `dsine-predict`, E34's settings). No test
+  scene.
+- **Noise floor:** the unchanged refiner twice (two variants in one run, and a second process). If that gives 0
+  (deterministic on one GPU), the floor is the dev difference of the unchanged refiner between two GPUs: this
+  run's numbers against E34's addendum (RTX 5090, job 994: accuracy 4.178, completeness 3.657, Chamfer 3.917 cm),
+  per metric on the dev aggregate. Fixed here, before any variant runs.
+- **Success:** a change passes if accuracy, completeness and Chamfer on the dev aggregate each stay within the
+  noise floor of the unchanged refiner, or get better. Per-scene numbers are reported, not used to decide.
+- **Report per change:** accuracy, completeness and Chamfer on dev, per scene and aggregate; the bedroom
+  (`ai_006_007`, views 18, 0, 12, 6) refined depth of the final configuration against the unchanged refiner.
+  mIoU, PQ^sc and AP once at the end (labels do not move with refinement).
+- **Cost:** ~25 variants x 3 dev scenes at ~4 s each, plus scoring, ~10 min; val prep ~30 min, val run ~5 min.
+- **Amendment before any score (10.11.2026):** the first sweep run stopped with CUDA out of memory and wrote no
+  scores. A probe (refiner alone, peak allocated memory) found the cause: matching all 19 views does not fit on the
+  RTX 3080's 10 GB in the living room (neighbors 4 / 8: 16.1M / 26.1M matches, 4.8 / 7.2 GB; 19: out of memory;
+  bedroom 19: 14.0M matches, 4.3 GB; lobby 19: 26.2M, 7.2 GB). "neighbors all" is dropped from the sweep, so the
+  remove option of that row cannot be tested on this machine; 2 and 8 stay.
+
+## E40: remove or justify every hand-set constant in the energy -> two removed, the rest kept: dev cannot tell three candidates apart, val can (10.11.2026)
+- **Goal, setting, method, noise floor and success rule:** as in the plan above (issue #28); RTX 3080, torch
+  2.14.1+cu130, Hypersim dev for every decision, val as the check, no test scene. Out of scope, unchanged: λ_n and
+  the normal estimator (#21), the Gauss-Newton / CG budget (#10).
+- **Commits:** d8675a5 (sweep knobs), ce36225 (plan), 0de7b92 (amendment), caea80c (`e40_table.py`), 954bfc1 (first
+  final energy), a97064a (confidence kept), 679291c (final: back to the refiner before E40 but for λ_d and
+  conf_power), this commit (`e40_check.py`, `e40_figures.py`, `e40_attribution.yaml`, results, figure).
+- **Commands** (this machine; `runs/` stays local):
+  - `uv run python -m src.analysis.scene_eval --cfg experiments/configs/e40_sweep.yaml --splits dev` at caea80c's
+    code (run `e40_sweep-20261110-081852`; it records git 50d6117, the same tree before a lint fix of
+    `e40_table.py` was folded in) -> `e40_table.py <run> --split dev --floor 0.033 0.037 0.036 --labels` ->
+    `results/e40_sweep.txt` (every variant per scene and aggregate).
+  - Val inputs, prepared here with E34's settings: `hypersim-download --splits val` and `hypersim-prepare` (~25
+    min, network-bound), `dejaview-predict` (1:09 for all 11), `sam3-segment --prompts configs/prompts/nyu40.txt
+    --threshold 0.3` (3:26), `dsine-predict` (0:42), `HF_HUB_OFFLINE=1`.
+  - `scene_eval --cfg configs/eval_hypersim.yaml --splits dev val` at caea80c (refiner before E40, run
+    `eval_hypersim-20261110-083124`, a git worktree), 954bfc1 (`-083337`), a97064a (`-083934`) and 679291c
+    (`-084435`) -> `e40_check.py <caea80c run> <the three others>` -> `results/e40_check.txt`.
+  - `scene_eval --cfg experiments/configs/e40_attribution.yaml --splits dev` at caea80c (`e40_attribution-20261110-083642`)
+    -> `results/e40_attribution.txt`.
+  - `uv run python experiments/scripts/e40_figures.py runs/e40_sweep-20261110-081852 runs/eval_hypersim-20261110-083337
+    runs/eval_hypersim-20261110-083934 runs/eval_hypersim-20261110-084435` -> `results/e40_figures.txt`,
+    `figures/e40_bedroom.jpg`.
+- **Noise floor:** the unchanged refiner twice in one process, in a second process and in a third: dev aggregates
+  equal to 0.00002 cm, per val scene to 0.0006 cm. The depth maps themselves are not bit-identical between
+  repeats (3-14% of the pixels differ in the four scenes checked, a few by up to 10%: `index_add`'s atomic sums reorder on the GPU), but the
+  scores agree to the third decimal, so, as planned, the floor is the cross-GPU difference against E34's
+  addendum (RTX 5090): **0.033 / 0.037 / 0.036 cm** (accuracy / completeness / Chamfer, dev aggregate).
+- **Sweep, dev aggregate, cm** (refiner before E40: 4.211 / 3.694 / 3.953; Δ = variant - that; per scene in
+  `results/e40_sweep.txt`). "neighbors all" (19) did not fit on 10 GB (amendment above).
+
+  | row | variant | Δ accuracy | Δ completeness | Δ Chamfer | within floor |
+  |---|---|---|---|---|---|
+  | E_d Huber | quadratic (none) | +0.000 | +0.000 | +0.000 | yes |
+  | | Otsu's threshold | -0.000 | -0.000 | -0.000 | yes |
+  | | 0.02 / 0.1 | -0.001 / -0.000 | +0.000 / -0.000 | -0.000 / -0.000 | yes |
+  | E_d weight | u removed (w = c) | +0.001 | -0.011 | -0.005 | yes |
+  | E_mv neighbors | 2 | +0.097 | -0.260 | -0.081 | no |
+  | | 8 | -0.014 | +0.228 | +0.107 | no |
+  | E_mv border | 0 px | +0.000 | -0.004 | -0.002 | yes |
+  | E_n cut | 0.01 / 0.05 | -0.009 / +0.030 | -0.017 / +0.026 | -0.013 / +0.028 | yes / yes |
+  | | Otsu's threshold | +0.005 | +0.005 | +0.005 | yes |
+  | E_n window | 3 / 5 / 11 px | +0.006 / -0.002 / +0.003 | -0.005 / -0.001 / +0.005 | +0.001 / -0.002 / +0.004 | yes |
+  | E_n closing budget | 0 (no closing) | +0.050 | +0.030 | +0.040 | no |
+  | | 2 x window | -0.006 | -0.007 | -0.007 | yes |
+  | λ_δ | 0.3 / 3 | -0.043 / +0.062 | +0.184 / -0.279 | +0.070 / -0.108 | no / no |
+  | λ_mv | 0.3 / 3 | +0.058 / -0.021 | -0.323 / +0.245 | -0.132 / +0.112 | no / no |
+
+  Labels do not move (mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 for every variant). Huber's threshold binds on only
+  0.3 / 0.9 / 0.3% of the pixels (living room / bedroom / lobby, |δ| > 0.05 after refinement), which is why
+  removing it changes nothing on dev.
+- **Val check 1** (Huber removed, border 0 px, E_n cut at Otsu's threshold, confidence removed per E37, λ_d
+  removed; 954bfc1): dev +0.018 / -0.027 / -0.005 (passes); val **+0.074** / -0.008 / +0.033: accuracy worse on
+  11 of 11 val scenes, beyond the floor. ai_009_009 (Déjà View's failure hall) +0.469 cm; without it +0.034.
+- **Attribution, on dev only** (the combination with one change undone at a time, `results/e40_attribution.txt`):
+  the knob version of the combination reproduces 954bfc1's dev scores exactly; undoing the confidence removal
+  recovers the most accuracy (-0.013 cm; Huber -0.010, but only once the confidence is gone; E_n cut -0.004;
+  border 0). The confidence removal was the one change taken from E37 rather than tested alone here, so it was
+  stepped back (a97064a).
+- **Val check 2** (the same, confidence kept; a97064a): dev +0.005 / -0.000 / +0.002; val **+0.051 / +0.042 /
+  +0.046**, all beyond the floor, while the median scene moves by +0.001 / +0.001 / +0.002 and the mean without
+  ai_009_009 is +0.007 / -0.011 / -0.002. ai_009_009 alone: +0.486 / +0.575 / +0.530 cm, against a run-to-run
+  spread of 0.0001 cm there, so it is an effect, not noise. Otsu's threshold is 0.024-0.037 on dev but
+  0.023-0.067 on val (ai_009_009: 0.048), so the derived cut runs where dev never tested (dev's sweep: 0.05
+  already +0.03 cm), and Huber's linear branch acts where corrections are large, as in a failed scene.
+- **Second val run, stated plainly:** the plan said one val run. Val was run twice to check a configuration, plus
+  once at 679291c as an identity check; no value was chosen among alternatives on val. Which of the three changes
+  carries ai_009_009's loss is not known: finding out would mean choosing on val.
+- **Decisions:**
+
+  | row | decision | reason | dev Δ (acc / comp / Chamfer, cm) |
+  |---|---|---|---|
+  | λ_d | **remove** | E's scale does not move its minimizer (test: scaling every weight by 7 scales E by 7, same x) | 0 (identical) |
+  | E_d weight: confidence exponent (`conf_power`) | **remove**, w = c u | the exponent stays 1, so the knob is dead code; dropping c itself tied on dev (E37) but carried the accuracy loss of val check 1 | 0 |
+  | E_d weight: consistency u | **keep** | ties without it (-0.005 Chamfer); semantics stay unless better beyond noise (agreed before running) | +0.001 / -0.011 / -0.005 without |
+  | E_d Huber 0.05 | **keep** | removing it ties on dev, but the combination with it lost 0.5 cm in val's failure scene, where corrections are large | 0.000 without |
+  | E_mv neighbors 4 | **keep** | 2 and 8 trade accuracy against completeness beyond noise; all 19 exceed 10 GB | see table |
+  | E_mv border 1 px | **keep** (`MATCH_BORDER`) | 0 px ties on dev, but failed val in combination; the margin keeps the four bilinear corners in the image when a step moves the projection | -0.002 Chamfer at 0 px |
+  | E_n cut 0.02 | **keep** | Otsu's threshold ties on dev, but spans 0.023-0.067 on val, beyond what dev tested, and failed val in combination | +0.005 at Otsu |
+  | E_n window 7 px | **keep** (`CUT_WINDOW`) | spans Déjà View's 2-4 px occlusion ramps on both sides (fc6c3c4); 3-11 px tie on dev | within ±0.006 |
+  | E_n closing budget = window | **keep** | no closing loses accuracy beyond noise; twice the window ties | +0.050 without |
+  | λ_δ 1 | **keep** | 0 is singular; 0.3 / 3 trade accuracy against completeness beyond noise | see table |
+  | λ_mv 1 | **keep** | 0.3 / 3 trade as λ_δ does | see table |
+  | λ_n, normal estimator | out of scope | issue #21 | - |
+  | Gauss-Newton x CG, CG tol | out of scope | issue #10 | - |
+
+- **Final refiner** (679291c): the one before E40 within the run-to-run spread (dev aggregate 4.211 / 3.694 /
+  3.953 cm, val 5.755 / 5.690 / 5.723, every scene within 0.0006 cm), so the README's numbers stand. Labels
+  rechecked once: dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216, val 0.397 / 0.258 / 0.345 (val differs from E34's
+  0.395 / 0.256 / 0.353, most likely because SAM 3 ran here with E39's batched code, not on the RTX 5090;
+  not checked further).
+- **Figure:** `figures/e40_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: each pixel's distance to
+  the nearest GT point before E40, and its change under each change that passed dev, both val-checked
+  combinations and the final energy, on one ±2 cm scale. Every change is local to object edges (bed-frame bars,
+  chair backs, the vanity); no surface moves as a whole. Combination 1 adds red along the thin bed bars of view 18
+  (mean +0.006 cm over the bedroom's 20 views); the final column is blank (fewer than 0.01% of
+  the pixels move by more than 0.5 cm).
+- **Conclusion:**
+  - Two settings went: λ_d (a gauge, by definition) and the confidence exponent (dead at 1). Every other
+    constant stays, now with its reason where it is set and listed in the README.
+  - Three candidates (no Huber, no border margin, the E_n cut derived from Otsu) are each indistinguishable from
+    the current value on dev, yet together they lose 0.5 cm in one val scene. Three dev scenes cannot separate
+    settings that only act on failures and edge cases; the "prefer the simpler energy on a tie" rule is only as
+    good as the scenes the tie is measured on.
+  - Every weight in the sweep (λ_mv, λ_δ, neighbors) trades accuracy against completeness, the trade E38 explained
+    (the merge of the views' spread). None improves both, so no weight search over them can pass this issue's rule;
+    a Chamfer-only rule would pick λ_mv 0.3 (-0.132 cm) or λ_δ 3 (-0.108 cm) on dev. That is a choice of metric,
+    left open.
+  - Not tested, next candidates: the three candidates one at a time on a split not yet used (train scenes, or
+    test with the team's consent); whether the derived cut works if Otsu's threshold is computed per view pair
+    instead of per scene.
+
+## E41: after E40's review: Gauss-Newton 5 x 10, u counting the own view, λ_δ = 0 -> two adopted, λ_δ stays (10.11.2026)
+- **Why:** Peter's review of E40. (1) The solver budget 5 x 10 had been chosen in issue #10 (week 2 slides:
+  4.2 -> 1.9 s per dev scene, Chamfer 3.95 -> 3.93 cm) but `configs/refine.yaml` still ran 10 x 20. (2) u should
+  count the pixel's own view: the vote of all views that see the point, which also keeps E_d's weight above 0
+  wherever the confidence is, so (3) λ_δ might no longer be needed.
+- **No plan entry first:** (2) and (3) were run as a trial while answering the review, with a switch in the working
+  tree (runs `-dirty` at f16c915, E40's report, with the budget set per variant); the switch was then removed
+  and the adopted changes committed (4722b2a, 150db44). Decided on dev, stress as a second look; val once at the end.
+- **Commands** (RTX 3080): `scene_eval --splits dev stress` with two trial configs (5 x 10; variants: 10 x 20,
+  5 x 10, λ_δ = 0, own view, own view + λ_δ = 0; then converged budgets 5 x 100 and 20 x 100), runs
+  `u_own-20261110-090929`, `u_own_converged-20261110-091217` -> `e40_table.py` -> `results/e41_trials.txt`;
+  at 150db44 (clean) `scene_eval --splits dev val stress` (`eval_hypersim-20261110-093140`) -> `e40_check.py` against
+  E40's final refiner (`eval_hypersim-20261110-083124`) -> `results/e41_check.txt`; `scene_eval --splits dev stress`
+  (`eval_hypersim-20261110-093416`) and `scene_figures` -> `figures/eval_hypersim-20261110-093416/` (replaces
+  `eval_hypersim-20261105-104445`; `scene_figures` cannot draw val's 11 scenes, its palette has 4 colours).
+- **Trial, dev aggregate, cm** (accuracy / completeness / Chamfer; per scene and stress in `results/e41_trials.txt`):
+
+  | variant | dev | Gauss-Newton steps taken (of 5) |
+  |---|---|---|
+  | 10 x 20 (before) | 4.211 / 3.694 / 3.953 | 10 of 10 |
+  | 5 x 10 | 4.198 / 3.659 / 3.929 | 5, all scenes |
+  | 5 x 10, u with own view | 4.199 / 3.658 / 3.928 | 5, all scenes |
+  | 5 x 10, λ_δ = 0 | 4.395 / 2.653 / 3.524 | 0-4 (conference room 0: no step accepted) |
+  | 5 x 10, own view, λ_δ = 0 | 4.154 / 3.579 / 3.866 | 3-5 (lobby 3, bedroom 4, conference room 4) |
+  | 5 x 100, own view, λ_δ = 0 | 4.181 / 4.114 / 4.148 | 4-5 |
+  | 20 x 100, own view, λ_δ = 0 | 4.181 / 4.116 / 4.149 | 3-20 |
+  | 20 x 100 (with λ_δ) | 4.216 / 3.701 / 3.958 | 9-20 |
+
+  u with the own view moves no dev or stress score by more than 0.007 cm. With λ_δ = 0 the normal equations are no
+  longer singular (Déjà View's confidence is at least 0.015 of its view's mean on all 17 prepared scenes, so
+  E_d's weight is at least ~4e-4), but they are ill-conditioned: at 5 x 10 the line search finds no decrease after
+  3-4 steps on 4 of 6 scenes. The 5 x 10 "gain" is that early stop (as week 2's "stopped early: 1 x 5" point);
+  converged (5 x 100 and 20 x 100 agree to 0.002 cm), completeness is 0.46 cm and Chamfer 0.22 cm worse than
+  with λ_δ. Removing λ_δ leaves E_d alone as the anchor, about a third of the stiffness (E37), so the views merge
+  more (E38).
+- **Adopted** (4722b2a, 150db44): 5 x 10 and u counting the own view, u = (agreeing others + 1) / (views seeing the
+  point + 1). λ_δ stays, with this reason in the docstring.
+- **Check, refiner before E41 -> after** (`results/e41_check.txt`):
+
+  | split | accuracy | completeness | Chamfer | scenes worse (acc / comp / Chamfer) |
+  |---|---|---|---|---|
+  | dev (3) | 4.211 -> 4.199 | 3.694 -> 3.658 | 3.953 -> 3.928 | 1 / 0 / 0 |
+  | val (11) | 5.755 -> 5.701 | 5.690 -> 5.585 | 5.723 -> 5.643 | 5 / 3 / 3 |
+
+  Most of val's change is ai_009_009 (-0.79 / -0.84 / -0.81 cm), the scene that carried E40's val loss; without
+  it +0.019 / -0.032 / -0.006, within the noise floor. Labels unchanged (dev 0.360 / 0.292 / 0.216, val
+  0.397 / 0.258 / 0.345). Against Déjà View nothing changes in kind: dev Chamfer 3.50 -> 3.93, val 5.10 -> 5.64 (worse
+  on 10 of 11 val scenes). The bedroom figures (`figures/eval_hypersim-20261110-093416/presentation/`) look as before.
+- **Conclusion:** the agreed budget is now the default, at half the time and within noise of the old one (better on
+  every dev metric). u with the own view is the cleaner definition at no cost. λ_δ is not replaceable by the floor
+  u now has: the energy it leaves is ill-conditioned, and converged it merges the views more.
+
+## Plan: E42 = E_n as the angle between DSINE's normals and the normals of the refined depth (10.11.2026)
+- **Goal (Peter's proposal):** replace BiNI's normal term by the angle between DSINE's normal and the normal
+  reconstructed from the current depth, the latter from each axis' closer neighbor (left or right, up or down,
+  whichever 3D point is nearer; `normals.closer_neighbor_normals`). At a clean occlusion step the closer neighbor
+  lies on the pixel's own surface, so the term needs no cut: if it ties, it removes E_n's occlusion cut (0.02), the
+  cut's 7 px window and its closing budget.
+- **Looked at first** (`scripts/e42_normals_figure.py` -> `figures/e42_normals_ai_006_007.jpg`,
+  `results/e42_normals_figure.txt`; bedroom views 18, 0, 12, 6, Déjà View's input depth): the two normal maps
+  agree in colour on every surface, so frame and orientation are right. The angle is 11.5° median over the 20
+  views (view 0: 17.9°), 18% of the pixels above 30°. Walls show a fine noise texture (per-pixel differences of
+  Déjà View's depth); every object outline is a band above 60°: Déjà View draws occlusion edges as 2-4 px ramps,
+  and on a ramp both neighbors lie on the ramp, so the closer one does not escape it. Thin structures (bed frame,
+  chair legs) are above 60° throughout.
+- **Energy:** E_a = λ_a mean_p (1 - cos θ_p), written as the residual √(λ_a / 2) (n_rec(d)_p - n_DSINE,p) (3 per
+  pixel; its square is λ_a (1 - cos θ) ≈ λ_a θ² / 2, smooth at θ = 0 where θ itself is not). The neighbor choice and
+  the facing flip are fixed at each linearization. No instance gating, no contour cut: the closer neighbor is the
+  edge handling. J is applied matrix-free by autograd (`torch.func.linearize` / `vjp`); the Jacobi diagonal of
+  J^T J exactly, by probing with the 5 colours of (y + 2x) mod 5, which give the 5-point stencil of every pixel
+  5 different colours.
+- **Weight, fixed before running:** BiNI's residuals are log-depth steps times the focal length, about the slope
+  error in radians, so a slope error θ costs about 2 λ_n θ² per pixel (two edges, two residuals each, weight 1/2);
+  E_a charges λ_a θ² / 2. Equal stiffness: λ_a = 4 λ_n = 4e-4. Coarse grid around it: 4e-5, 4e-4, 4e-3. The run logs
+  both terms' initial energy to check the match.
+- **Setting:** as E41 (dev for decisions, stress to look, RTX 3080, 5 x 10, u with the own view). Variants in one
+  run: Déjà View; Refined (BiNI E_n); E_n off (λ_n = 0); E_a at the three weights instead of E_n.
+- **Success:** an E_a variant passes if accuracy, completeness and Chamfer on dev each stay within E40's noise
+  floor (0.033 / 0.037 / 0.036 cm) of Refined, or get better; then it replaces BiNI (the simpler term on a tie:
+  three constants go) and is checked once on val. If E_n off also ties, neither normal term earns its place and the
+  entry says so.
+- **Expected, written before running:** E_a smooths the walls' texture as E_n does, but pulls ramp pixels toward
+  DSINE's facing normal, which either sharpens the ramp or drags the far surface forward; no guess at the sign.
+  The run time grows by the autograd products (one jvp and one vjp per CG iteration, 5 per Gauss-Newton step for
+  the diagonal).
+
+## E42: E_n as an angle to DSINE's normals -> better Chamfer, worse accuracy on dev and val; BiNI stays (10.11.2026)
+- **Goal, energy, weights, rule:** as in the plan above; run as planned.
+- **Commits:** 0c9d35d (plan, `closer_neighbor_normals`, the look-first figure), 55e91bc (`angle_residuals`,
+  `stencil_diagonal`, `RefineConfig.lambda_a`, tests), the two config commits, this commit (results, figure).
+- **Commands** (RTX 3080, clean tree): `scene_eval --cfg experiments/configs/e42_angle.yaml --splits dev stress`
+  (`e42_angle-20261110-094442`) -> `e40_table.py` -> `results/e42_dev.txt`, `results/e42_stress.txt`;
+  `e42_figures.py runs/e42_angle-20261110-094442` -> `results/e42_figures.txt`, `figures/e42_bedroom.jpg`;
+  `scene_eval --cfg experiments/configs/e42_val.yaml --splits val` (`e42_val-20261110-094828`) -> `results/e42_val.txt`.
+- **Dev aggregate, cm** (Δ against BiNI's E_n, the refiner of E41; floor 0.033 / 0.037 / 0.036):
+
+  | variant | accuracy | completeness | Chamfer | Δ | passes | s per scene |
+  |---|---|---|---|---|---|---|
+  | BiNI E_n (λ_n 1e-4) | 4.199 | 3.658 | 3.928 | - | - | 1.9 |
+  | no normal term | 4.266 | 3.451 | 3.858 | +0.067 / -0.207 / -0.070 | no | 1.9 |
+  | E_a, λ_a 4e-5 | 4.243 | 3.497 | 3.870 | +0.044 / -0.161 / -0.059 | no | 3.7 |
+  | E_a, λ_a 4e-4 | 4.208 | 3.429 | 3.819 | +0.010 / -0.229 / -0.110 | yes | 3.4 |
+  | E_a, λ_a 4e-3 | 4.271 | 2.863 | 3.567 | +0.073 / -0.795 / -0.361 | no | 3.2 |
+
+  Per scene, λ_a 4e-4 is worse in accuracy in the living room (+0.017) and the bedroom (+0.061) and better in the
+  lobby (-0.049); stress, all three scenes: accuracy +0.05 to +0.16, completeness -0.12 to -0.64, Chamfer -0.04 to
+  -0.24. Every solve took all 5 Gauss-Newton steps (no early stop, unlike E41's λ_δ = 0). Labels unchanged.
+- **The weight did not match as planned:** at x = 0, E_a at 4e-4 is 1.5-3 % of BiNI's E_n (e.g. bedroom 4.4e-5 vs
+  4.6e-3), not equal. BiNI's start energy is dominated by large residuals where an edge ramp is not cut: its cost
+  grows without bound with the step, while E_a's is bounded (|n_rec - n_DSINE| <= 2), so E_a acts like a robust,
+  bounded normal prior. The small-angle argument of the plan holds only where both are small.
+- **Val, once** (λ_a 4e-4 against BiNI, `results/e42_val.txt`): accuracy 5.701 -> 5.791 (+0.090, worse on 10 of
+  11), completeness 5.585 -> 5.120 (-0.465, better on 11 of 11), Chamfer 5.643 -> 5.456 (-0.187, better on 9 of 11);
+  without ai_009_009 +0.112 / -0.235 / -0.061. Fails the rule on accuracy.
+- **Figure:** `figures/e42_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: the angle between DSINE's
+  normals and the closer-neighbor normals of Déjà View's, BiNI's and E_a's depth (0-60°), and each pixel's distance
+  to the GT, E_a minus BiNI (±2 cm). Over the 20 views the angle's median is 11.5° (Déjà View), 6.0° (BiNI), 3.4°
+  (E_a); that is the quantity E_a minimizes, so it says nothing about the geometry. Against BiNI, E_a moves points
+  further from the GT on the walls of views 18 and 6 (+0.5 to +1 cm) and on the bed frame, closer on some furniture
+  edges in view 12; on view 0's right wall, where Déjà View's surface and DSINE disagree by about 60° about its
+  orientation, the change is a striped ±1 cm pattern (not investigated). Mean over the bedroom +0.047 cm.
+- **Figure, normals after refinement (asked for after the report):** `figures/e42_normals_after_ai_006_007.jpg`
+  (`scripts/e42_normals_after.py runs/e42_angle-20261110-094442`), bedroom views 18, 0, 12, 6: DSINE's normals and
+  the closer-neighbor normals of Déjà View's, BiNI-refined and E_a-refined depth, one colouring. Déjà View's are
+  noisy everywhere and multicoloured along every outline. BiNI smooths the noise but leaves low-frequency blotches
+  on the walls (view 18's back wall, view 0's left wall) and keeps the multicoloured outlines: its edges are cut
+  there, so the ramp pixels are not shaped. E_a's are the closest to DSINE: walls and floor nearly uniform, outlines
+  one or two pixels wide, the bed frame's bars readable in views 18 and 12. What it leaves is isolated speckle
+  (single pixels whose closer neighbor flips), densest on view 0's right wall and the ceiling corner above it,
+  where the distance map shows the striped ±1 cm change. Smoother normals did not mean closer points: the same
+  depth is +0.047 cm further from the GT in the bedroom than BiNI's.
+- **Conclusion:**
+  - The angle term is the same trade E40 found for λ_mv, λ_δ and the neighbor count: completeness and Chamfer
+    better, accuracy worse; here on both dev (inside the floor) and val (beyond it). Under this issue's rule
+    (all three metrics) BiNI stays; under a Chamfer-only rule E_a at 4e-4 would win on dev and val (-0.110 /
+    -0.187 cm), and dropping the normal term entirely would already give most of the dev gain (-0.070). Which
+    metric decides is the open question E40 raised.
+  - If adopted, it would remove E_n's occlusion cut, the cut window and the closing budget, and cost 1.5 s more
+    per scene (autograd products).
+  - The trial term stays in the code, off (λ_a = 0), until that choice is made; if BiNI stays for good it goes.
+
+## Plan: E43 = the normal term as tangent residuals (10.11.2026)
+- **Goal:** a simpler form of E42's angle term, from the review of E42 (Peter): instead of reconstructing the
+  depth's normal and comparing it with DSINE's, ask that each pixel's two chosen tangents lie in DSINE's tangent
+  plane. Per pixel, r_x = n_DSINE . t_x / |t_x| and r_y = n_DSINE . t_y / |t_y|, t_x and t_y the tangents to the
+  closer neighbor along each axis, as in E42. Both vanish exactly when the reconstructed normal is parallel to
+  DSINE's. This drops the cross product, the normal's normalization and the facing flip, and it does not depend on
+  DSINE's sign convention. Each residual is the sine of the angle between a tangent and DSINE's plane, so it is
+  bounded by 1, a robust term as E42's was. `closer_neighbor_normals` stays for figures.
+- **Scope:** a trial next to BiNI's E_n, which stays the default (issue #21 owns E_n's choice). E42's angle residual
+  is replaced by this one in the code; E42 stays reproducible at 83571a1.
+- **Energy and weight:** E_t = λ_t mean_p (r_x² + r_y²) / 2. For a normal tilted by a small θ and orthogonal
+  tangents, r_x² + r_y² ≈ θ², so E_t ≈ λ_t θ² / 2, the small-angle stiffness of E42's λ_a (1 - cos θ): the same grid
+  4e-5, 4e-4, 4e-3 compares directly with E42's. Jacobian by autograd, exact Jacobi diagonal by the 5-colour
+  probing of E42 (the residuals read the same 5-pixel stencil).
+- **Setting, rule:** as E42: dev decides, stress is looked at, RTX 3080, 5 x 10, u with the own view; variants
+  Déjà View, Refined (BiNI), E_t at the three weights. Success as before against BiNI (all three metrics within
+  0.033 / 0.037 / 0.036 cm or better); a weight that passes is checked once on val. E42's angle term at the same
+  weights is the second reference (its dev numbers, same GPU and inputs).
+- **Expected, written before running:** close to E42 at each weight, since both are bounded and equal for small
+  angles; they differ for large ones (a tangent residual saturates at 90° of its own tangent, the angle term's at
+  180°), i.e. at the ramps, where E42's speckle sat. No guess at which is better there.
+- **Figures:** bedroom views 18, 0, 12, 6: the closer-neighbor normals of BiNI's, E42's and E_t's depth next to
+  DSINE's; each pixel's distance to the GT, E_t minus BiNI.
+
+## E43: the normal term as tangent residuals -> same as E42's angle term, simpler; the same trade, BiNI stays (10.11.2026)
+- **Goal, energy, weights, rule:** as in the plan above; run as planned.
+- **Commits:** 9802e84 (plan), 33d3b17 (tangent residuals, `closer_tangents`, tests), 1bf6af2 and 3f8c120 (configs),
+  this commit (results, figure).
+- **Commands** (RTX 3080, clean tree): `scene_eval --cfg experiments/configs/e43_tangent.yaml --splits dev stress`
+  (`e43_tangent-20261110-100804`) -> `e40_table.py` -> `results/e43_{dev,stress}.txt`; `scene_eval --cfg
+  experiments/configs/e43_val.yaml --splits val` (`e43_val-20261110-101022`) -> `results/e43_val.txt`;
+  `e43_figures.py runs/e42_angle-20261110-094442 runs/e43_tangent-20261110-100804` -> `results/e43_figures.txt`,
+  `figures/e43_bedroom.jpg`.
+- **Dev aggregate, cm** (Δ against BiNI, the refiner of E41: 4.199 / 3.658 / 3.928; E42's angle term at the same
+  weight for comparison):
+
+  | weight | tangent E_t: Δ acc / comp / Chamfer | passes | angle E_a (E42) |
+  |---|---|---|---|
+  | 4e-5 | +0.047 / -0.173 / -0.063 | no | +0.044 / -0.161 / -0.059 |
+  | 4e-4 | +0.025 / -0.249 / -0.112 | yes | +0.010 / -0.229 / -0.110 |
+  | 4e-3 | +0.088 / -0.746 / -0.329 | no | +0.073 / -0.795 / -0.361 |
+
+  Every solve took all 5 steps; 3.3-3.5 s per scene (BiNI 1.9). E_t's start energy at 4e-4 is 1.8-6.9e-5, as
+  E42's (the small-angle match holds between the two bounded terms).
+- **Val, once** (λ_t 4e-4 against BiNI): accuracy 5.701 -> 5.803 (+0.102, worse on 10 of 11), completeness 5.585 ->
+  5.079 (-0.506, better on 11 of 11), Chamfer 5.643 -> 5.441 (-0.202, better on 9 of 11); without ai_009_009
+  +0.117 / -0.260 / -0.072. Fails on accuracy, as E42 did (+0.090 / -0.465 / -0.187).
+- **Figure:** `figures/e43_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: DSINE's normals and the
+  closer-neighbor normals of BiNI's, E42's and E43's depth; distance to the GT, E_t minus BiNI. The angle and
+  tangent columns look alike (angle to DSINE over the 20 views: median 3.4° both, > 30° on 5.9 % vs 6.7 % of the
+  pixels; BiNI 6.0°, 12.8 %). The one visible difference is view 0's right wall, where Déjà View and DSINE
+  disagree about the wall's orientation: E43 leaves vertical streaks where E42 left speckle. Distance to the GT
+  +0.050 cm against BiNI over the bedroom (E42: +0.047).
+- **Conclusion:** the tangent form is the simpler implementation of the same term (no cross product, no
+  normalization of the normal, no facing flip, no dependence on DSINE's sign) and scores within a few thousandths
+  of the angle form. It shares its trade: completeness and Chamfer better than BiNI on dev and val, accuracy worse
+  on val beyond noise. BiNI stays the default (issue #21 owns that choice); E_t stays in the code, off, as the
+  candidate if the team decides by Chamfer. The angle term is not kept.
+
+## Plan: E44 = E_mv reads the other view at its nearest pixel, as u does (10.11.2026)
+- **Goal (Peter):** one rule for "where does a pixel land in another view". u already takes the nearest pixel of
+  the projection, with no border and no window; E_mv's instance gate does too, but E_mv's depth comparison
+  interpolates j's inverse depth bilinearly from the four pixels around the projection, and for that it needs
+  the 1 px border (`MATCH_BORDER`, so the four stay in the image when a step moves the projection) and a check
+  that the four agree within the occlusion threshold (else the interpolation would mix two surfaces).
+- **Change:** each match stores j's nearest pixel at the input, fixed as the matches are; the residual is
+  log z_j(x) + log d_j(q) - log s with q that pixel. A projection counts if its nearest pixel lies in the image,
+  as for u. Removed: `bilinear`, `corners`, `MATCH_BORDER`, the four-corner check; E_mv's Jacobian has two entries
+  per match instead of five; the instance gate reads q directly.
+- **What it costs, before running:** j's depth is read up to half a pixel from where x projects, so on a surface
+  slanted to j the residual carries a quantization error of up to half a pixel's depth step (a few tenths of a
+  percent on Hypersim's walls), and E_mv pulls the views toward that slightly stair-stepped reading. q is fixed on
+  the input, so the energy stays smooth.
+- **Setting, rule:** as E41-E43 (dev decides, stress looked at, RTX 3080, BiNI E_n, 5 x 10, u with the own view).
+  Reference: the refiner before E44, whose scores on this GPU are on record (E41/E43 runs: dev 4.199 / 3.658 /
+  3.928, val 5.701 / 5.585 / 5.643; the same GPU repeats to 0.00005 cm). A tie or better on dev (E40's floor) is
+  adopted, since it removes a constant and a check; then val once. `disagreement_pct`, a diagnostic, changes
+  meaning with it (nearest pixel, not interpolated) and is not compared across the change.
+- **Figure:** bedroom views 18, 0, 12, 6: each pixel's distance to the GT, after minus before.
+
+## E44: E_mv at the nearest pixel -> ties dev, loses val; reverted (10.11.2026)
+- **Goal, change, rule:** as in the plan above; run as planned.
+- **Commits:** 9e46516 (plan), d7cbef4 (the change, tests), f5530f5 (results, figure, `e44_figures.py`;
+  `e40_check.py` skips splits a run lacks), fe1f299 (revert of d7cbef4).
+- **Commands** (RTX 3080, clean tree at d7cbef4): `scene_eval --cfg configs/eval_hypersim.yaml --splits dev stress`
+  (`eval_hypersim-20261110-101625`), then `--splits val` (`eval_hypersim-20261110-101721`) -> `e40_check.py` against
+  E41's run at 150db44 (`eval_hypersim-20261110-093140`, bilinear) -> `results/e44_check.txt`;
+  `e44_figures.py runs/eval_hypersim-20261110-093140 runs/eval_hypersim-20261110-101625` ->
+  `results/e44_figures.txt`, `figures/e44_bedroom.jpg`.
+- **Results, nearest pixel minus bilinear, cm** (accuracy / completeness / Chamfer; floor 0.033 / 0.037 / 0.036):
+
+  | split | aggregate | median scene | scenes worse | without ai_009_009 |
+  |---|---|---|---|---|
+  | dev (3) | +0.011 / -0.016 / -0.002 | -0.015 / -0.014 / -0.016 | 1 / 0 / 1 | (not in dev) |
+  | val (11) | +0.048 / +0.105 / +0.077 | +0.015 / +0.051 / +0.026 | 7 / 8 / 7 | +0.012 / +0.044 / +0.028 |
+
+  Stress moves by at most 0.07 cm per scene (conference room completeness +0.069). E_mv matches 1-3 % more
+  pixels per scene (the former border and the pixels whose four corners disagreed); the solve is faster, 1.4
+  instead of 1.9 s per dev scene (two Jacobian entries per match instead of five). Labels unchanged.
+- **Figure:** `figures/e44_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: distance to the GT with
+  bilinear E_mv, and nearest minus bilinear on ±2 cm. The change is not at edges: whole wall and furniture
+  patches move by ±0.5-1 cm in both directions, most in views 12 and 6; over the bedroom's 20 views the mean is
+  -0.016 cm.
+- **Conclusion:** dev cannot tell the two readings apart, val can, and it prefers bilinear: the half-pixel reading
+  error and the extra matches (pixels at occlusion edges that the four-corner check used to drop are the likely
+  ones, not measured separately) cost completeness. Reverted: E_mv reads j bilinearly again, with its 1 px border
+  and four-corner check, whose reasons stand (`MATCH_BORDER`). u keeps its nearest pixel; it only reads a label,
+  for which interpolation has no meaning.

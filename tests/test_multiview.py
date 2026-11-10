@@ -7,6 +7,7 @@ import torch
 
 from src.loaders.views import Views
 from src.refinement.multiview import (
+    MATCH_BORDER,
     JointRefiner,
     Problem,
     RefineConfig,
@@ -17,12 +18,14 @@ from src.refinement.multiview import (
     energy_maps,
     find_matches,
     fit_pinhole,
+    gauss_newton,
     geometry_from_scene,
     grid_operator,
     match_jacobian,
     normal_equations,
     occlusion_threshold,
     points_from_rays,
+    project,
     refine_scene,
     residuals,
     robust,
@@ -31,6 +34,8 @@ from src.refinement.multiview import (
     scene_energy,
     scene_from_geometry,
     scene_residuals,
+    stencil_diagonal,
+    tangent_residuals,
 )
 from src.refinement.normals import NormalTerm, normal_term, normals_from_depth
 from src.segmentation.base import Segmentation
@@ -318,42 +323,71 @@ def test_robust_residual_squares_to_huber_and_its_slope_is_exact() -> None:
     torch.testing.assert_close(slope, exact)
 
 
-def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
+def test_consistency_is_the_share_of_views_that_agree_on_the_id_own_included() -> None:
     scene, _ = two_views()
     scale = scene.depth.median()
     d0 = scale / scene.depth
     same = torch.zeros(2, H, W, dtype=torch.long)
     u = consistency(scene, d0, scale, same)
-    assert (u == 1).all()  # agrees where seen, 1 where unseen
+    assert (u == 1).all()  # every view that sees the point agrees
     split = same.clone()
     split[1] = 7  # view 1 calls everything another object
     u = consistency(scene, d0, scale, split)
     seen = u[0] < 1
-    assert seen.sum() > 0.5 * H * W and (u[0][seen] == 0).all() and (u[1] == 0).any()
+    # seen by both views, only its own agrees: 1 of 2; seen by view 0 alone: 1 of 1
+    assert seen.sum() > 0.5 * H * W and (u[0][seen] == 0.5).all()
+    assert (u[0][~seen] == 1).all() and (u[1] == 0.5).any()
     unmasked = torch.full((2, H, W), -1, dtype=torch.long)
     assert (consistency(scene, d0, scale, unmasked) == 1).all()
 
 
-def test_anchor_weight_is_confidence_to_the_power_times_consistency() -> None:
+def test_anchor_weight_is_confidence_times_consistency() -> None:
     scene, _ = two_views()
     conf = torch.rand(2, H, W, generator=torch.Generator().manual_seed(0)) + 0.1
     scene = dataclasses.replace(scene, conf=conf)
     c = conf / conf.mean(dim=(1, 2), keepdim=True)
     scale = scene.depth.median()
     u = consistency(scene, scale / scene.depth, scale, halves())
-    for power, expected in [(1.0, c * u), (0.5, c.sqrt() * u), (0.0, u)]:
-        cfg = RefineConfig(lambda_n=0.0, conf_power=power, device="cpu")
-        p = build_problem(scene, cfg, None, halves())
-        torch.testing.assert_close(p.w, expected)
+    p = build_problem(scene, RefineConfig(lambda_n=0.0, device="cpu"), None, halves())
+    torch.testing.assert_close(p.w, c * u)
 
 
-def test_uniform_confidence_makes_the_power_irrelevant() -> None:
+def test_scaling_every_weight_leaves_the_minimizer_so_e_d_needs_none() -> None:
     scene, _ = two_views(bump=0.03, noise=0.01)
-    depths = [
-        refine_scene(scene, RefineConfig(lambda_n=0.0, conf_power=p, device="cpu"))[0]
-        for p in (1.0, 0.0)
-    ]
-    assert torch.equal(depths[0], depths[1])
+    scene = Scene(*(getattr(scene, f).double() for f in scene.__dataclass_fields__))
+    normals = torch.stack(
+        [normals_from_depth(scene.depth[i] * 1.01, scene.rays[i]) for i in range(2)]
+    )
+    # few steps: near the minimum E's decrease is at rounding level, and whether a
+    # step is accepted there is not scale invariant in floating point
+    cfg = RefineConfig(
+        lambda_mv=2.0, lambda_n=0.01, lambda_delta=0.5, gn_iters=3, device="cpu"
+    )
+    p = build_problem(scene, cfg, normals, halves())
+    k = 7.0
+    scaled = dataclasses.replace(
+        cfg,
+        lambda_mv=k * cfg.lambda_mv,
+        lambda_n=k * cfg.lambda_n,
+        lambda_delta=k * cfg.lambda_delta,
+    )
+    x, log, _ = gauss_newton(p, cfg)
+    x_k, log_k, _ = gauss_newton(dataclasses.replace(p, w=k * p.w), scaled)
+    assert len(log) == len(log_k) == cfg.gn_iters + 1
+    torch.testing.assert_close(x_k, x, rtol=1e-6, atol=1e-9)
+    torch.testing.assert_close(log_k[-1]["E"], k * log[-1]["E"], rtol=1e-6, atol=0)
+
+
+def test_matches_keep_the_border_margin() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    m = find_matches(scene, d0, scale, 4, 0.05)
+    depth = scale / d0.reshape(-1)[m.src]
+    u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
+    b = MATCH_BORDER
+    assert (u >= b).all() and (u <= W - 1 - b).all()
+    assert (v >= b).all() and (v <= H - 1 - b).all()
 
 
 def test_energy_maps_add_up_to_the_energy() -> None:
@@ -453,3 +487,84 @@ def test_same_segment_keeps_only_matches_that_land_on_the_same_id() -> None:
     shifted[1] = torch.roll(shifted[1], 20, dims=1)  # view 1's boundary elsewhere
     kept = same_segment_matches(m, scene, d0, scale, shifted)
     assert 0.2 * len(m.src) < len(kept.src) < 0.9 * len(m.src)
+
+
+def small_scene_with_normals() -> tuple[Scene, torch.Tensor]:
+    """A 12 x 16 corner of `two_views` (bumped, float64), normals 3 % off its depth.
+
+    The corner keeps pixel indices, so the full image's K still projects it.
+    """
+    scene, _ = two_views(bump=0.03)
+    crop = (slice(None), slice(0, 12), slice(0, 16))
+    scene = Scene(
+        scene.depth[crop].double(),
+        scene.rays[crop].double(),
+        scene.conf[crop].double(),
+        *(getattr(scene, f).double() for f in ("k", "rotation", "center")),
+    )
+    normals = torch.stack(
+        [normals_from_depth(scene.depth[i] * 1.03, scene.rays[i]) for i in range(2)]
+    )
+    return scene, normals
+
+
+def test_stencil_diagonal_is_the_exact_diagonal_of_the_tangent_term() -> None:
+    scene, normals = small_scene_with_normals()
+    scale = scene.depth.median()
+    noise = torch.rand(
+        scene.depth.shape,
+        generator=torch.Generator().manual_seed(0),
+        dtype=torch.float64,
+    )
+    d = scale / scene.depth * (1 + 0.02 * noise)
+
+    def f(x: torch.Tensor) -> torch.Tensor:
+        return tangent_residuals(x, scale, scene.rays, normals, 0.3)
+
+    dense = torch.func.jacfwd(f)(d).reshape(-1, d.numel())
+    torch.testing.assert_close(
+        stencil_diagonal(lambda v: torch.func.jvp(f, (d,), (v,))[1], d),
+        dense.square().sum(0),
+    )
+
+
+def test_tangent_term_gradient_and_products_match_autograd() -> None:
+    scene, normals = small_scene_with_normals()
+    cfg = RefineConfig(lambda_n=0.0, lambda_t=0.3, device="cpu")
+    p = build_problem(scene, cfg, normals, None)
+    assert p.dsine is not None
+    x = 0.01 * torch.randn(
+        p.d0.shape, generator=torch.Generator().manual_seed(1), dtype=torch.float64
+    )
+    v = torch.randn(
+        p.d0.shape, generator=torch.Generator().manual_seed(2), dtype=torch.float64
+    )
+
+    def r(y: torch.Tensor) -> torch.Tensor:
+        return torch.cat(list(scene_residuals(y, cfg, p).values()))
+
+    gradient, hv, _ = normal_equations(x, cfg, p)
+    exact = torch.func.grad(lambda y: 0.5 * r(y).square().sum())(x)
+    torch.testing.assert_close(gradient, exact.flatten())
+    _, jv = torch.func.jvp(r, (x,), (v,))
+    _, vjp = torch.func.vjp(r, x)
+    torch.testing.assert_close(hv(v.flatten()), vjp(jv)[0].flatten())
+
+
+def test_tangent_residuals_vanish_on_the_plane_for_either_sign_and_stay_bounded() -> (
+    None
+):
+    scene, _ = two_views()
+    rays = scene.rays.double()
+    n = NORMAL / NORMAL.norm()
+    depth = (2 - rays[..., :3] @ NORMAL) / (rays[..., 3:] @ NORMAL)  # the plane alone
+    scale = depth.median()
+    d = scale / depth
+    for sign in (1.0, -1.0):
+        dsine = (sign * n).expand(*depth.shape, 3)
+        r = tangent_residuals(d, scale, rays, dsine, 2.0)
+        assert r.abs().max() < 1e-9
+    other = torch.randn(*depth.shape, 3, generator=torch.Generator().manual_seed(0))
+    other = (other / other.norm(dim=-1, keepdim=True)).double()
+    r = tangent_residuals(d, scale, rays, other, 2.0)  # √(λ/2) = 1: plain sines
+    assert r.abs().max() <= 1 + 1e-12 and r.abs().mean() > 0.3

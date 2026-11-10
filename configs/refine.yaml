@@ -1,18 +1,17 @@
 # The pipeline's joint refiner (run-pipeline --refiner joint, src/refinement/multiview.py):
-# E_d + E_mv + E_n + λ_δ‖δ‖² over all views by Gauss-Newton + CG. The linked SAM 3
-# instances gate E_d (consistency u) and confine E_n and E_mv to one instance. Every
-# weight is 1 (λ_n 1e-4 for E_n's units): none is tuned yet.
+# E_d + λ_mv E_mv + λ_n E_n + λ_δ‖δ‖² over all views by Gauss-Newton + CG. The linked SAM 3
+# instances gate E_d (consistency u) and confine E_n and E_mv to one instance. E_d's weight
+# is 1 by definition: E's scale does not move its minimizer. Every value below was checked
+# on Hypersim dev in E40 (issue #28, experiments/LOG.md); none was tuned to a better one.
 refine:
-  lambda_d: 1.0
   lambda_mv: 1.0
-  lambda_n: 1.0e-4  # E_n's residuals are log-depth steps times the focal length
+  lambda_n: 1.0e-4  # E_n's residuals are log-depth steps times the focal length (#21)
   lambda_delta: 1.0
   huber: 0.05      # E_d's Huber threshold on the change of inverse depth (relative)
-  conf_power: 1.0  # E_d's weight: Déjà View's confidence to this power, times u
   edge_tol: 0.02   # E_n's occlusion cut on the input's log depth
   neighbors: 4     # views each view is matched with, the ones it overlaps most
-  gn_iters: 10     # Gauss-Newton steps of 20 CG iterations
-  cg_iters: 20
+  gn_iters: 5      # Gauss-Newton steps of 10 CG iterations, chosen in #10
+  cg_iters: 10
   cg_tol: 0.001
   device: cuda     # falls back to the CPU without a GPU
 # DSINE for E_n: non-commercial licence, so code and weights stay outside git.

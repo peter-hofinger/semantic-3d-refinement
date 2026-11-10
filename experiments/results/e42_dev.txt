@@ -1,0 +1,50 @@
+run runs/e42_angle-20261110-094442/run.yaml, git e2cb0586c2a8d8aa3ea17dfe32f6177f00f1504f, split dev
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_010_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.194 | 1.007 | 1.601 | +0.404 -0.392 +0.006
+Refined | 1.790 | 1.398 | 1.594 | +0.000 +0.000 +0.000
+no normal term | 1.828 | 1.362 | 1.595 | +0.038 -0.036 +0.001
+angle 4e-5 | 1.819 | 1.369 | 1.594 | +0.028 -0.029 -0.000
+angle 4e-4 | 1.807 | 1.338 | 1.573 | +0.017 -0.060 -0.022
+angle 4e-3 | 1.833 | 1.154 | 1.493 | +0.043 -0.245 -0.101
+
+ai_006_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.520 | 1.172 | 1.846 | +0.312 -0.539 -0.113
+Refined | 2.208 | 1.710 | 1.959 | +0.000 +0.000 +0.000
+no normal term | 2.291 | 1.623 | 1.957 | +0.083 -0.087 -0.002
+angle 4e-5 | 2.281 | 1.673 | 1.977 | +0.073 -0.037 +0.018
+angle 4e-4 | 2.269 | 1.635 | 1.952 | +0.061 -0.075 -0.007
+angle 4e-3 | 2.308 | 1.393 | 1.851 | +0.100 -0.317 -0.109
+
+ai_044_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 9.312 | 4.795 | 7.053 | +0.715 -3.070 -1.178
+Refined | 8.597 | 7.865 | 8.231 | +0.000 +0.000 +0.000
+no normal term | 8.678 | 7.368 | 8.023 | +0.081 -0.497 -0.208
+angle 4e-5 | 8.628 | 7.447 | 8.038 | +0.031 -0.418 -0.194
+angle 4e-4 | 8.548 | 7.314 | 7.931 | -0.049 -0.552 -0.300
+angle 4e-3 | 8.672 | 6.041 | 7.357 | +0.075 -1.824 -0.874
+
+dev aggregate: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined | passes
+Déjà View | 4.675 | 2.324 | 3.500 | +0.477 -1.333 -0.428 | no
+Refined | 4.199 | 3.658 | 3.928 | +0.000 +0.000 +0.000 | yes
+no normal term | 4.266 | 3.451 | 3.858 | +0.067 -0.207 -0.070 | no
+angle 4e-5 | 4.243 | 3.497 | 3.870 | +0.044 -0.161 -0.059 | no
+angle 4e-4 | 4.208 | 3.429 | 3.819 | +0.010 -0.229 -0.110 | yes
+angle 4e-3 | 4.271 | 2.863 | 3.567 | +0.073 -0.795 -0.361 | no
+
+dev labels: variant | miou | pq | ap
+Déjà View | 0.360 | 0.292 | 0.216
+Refined | 0.360 | 0.292 | 0.216
+no normal term | 0.360 | 0.292 | 0.216
+angle 4e-5 | 0.360 | 0.292 | 0.216
+angle 4e-4 | 0.360 | 0.292 | 0.216
+angle 4e-3 | 0.360 | 0.292 | 0.216
+
+refinement time per scene (s), mean over scenes
+Déjà View | 0.00
+Refined | 1.94
+no normal term | 1.94
+angle 4e-5 | 3.65
+angle 4e-4 | 3.38
+angle 4e-3 | 3.24

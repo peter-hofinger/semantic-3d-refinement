@@ -1,0 +1,26 @@
+run runs/e42_angle-20261110-094442/run.yaml, git e2cb0586c2a8d8aa3ea17dfe32f6177f00f1504f, split stress
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_015_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.985 | 1.348 | 2.166 | +0.215 -0.631 -0.208
+Refined | 2.770 | 1.980 | 2.375 | +0.000 +0.000 +0.000
+no normal term | 2.832 | 1.856 | 2.344 | +0.062 -0.124 -0.031
+angle 4e-5 | 2.826 | 1.885 | 2.356 | +0.056 -0.094 -0.019
+angle 4e-4 | 2.815 | 1.864 | 2.339 | +0.045 -0.116 -0.035
+angle 4e-3 | 2.830 | 1.688 | 2.259 | +0.060 -0.292 -0.116
+
+ai_047_009_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 16.634 | 13.946 | 15.290 | +0.355 -1.631 -0.638
+Refined | 16.278 | 15.577 | 15.928 | +0.000 +0.000 +0.000
+no normal term | 16.418 | 14.579 | 15.498 | +0.139 -0.998 -0.429
+angle 4e-5 | 16.417 | 14.849 | 15.633 | +0.139 -0.728 -0.295
+angle 4e-4 | 16.440 | 14.933 | 15.686 | +0.162 -0.644 -0.241
+angle 4e-3 | 16.470 | 14.132 | 15.301 | +0.191 -1.445 -0.627
+
+ai_052_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 5.476 | 2.495 | 3.986 | +0.412 -1.121 -0.355
+Refined | 5.064 | 3.617 | 4.340 | +0.000 +0.000 +0.000
+no normal term | 5.229 | 3.261 | 4.245 | +0.165 -0.355 -0.095
+angle 4e-5 | 5.219 | 3.356 | 4.287 | +0.155 -0.261 -0.053
+angle 4e-4 | 5.186 | 3.300 | 4.243 | +0.122 -0.316 -0.097
+angle 4e-3 | 5.201 | 2.953 | 4.077 | +0.137 -0.664 -0.263

@@ -119,11 +119,13 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 at once, per pixel as d = d⁰ + δ, cameras fixed, by Gauss-Newton with matrix-free
 conjugate gradients:
 
-E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 for now and λ_n = 1e-4 for E_n's units
-(`configs/refine.yaml`).
+E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 and λ_n = 1e-4 for E_n's units
+(`configs/refine.yaml`). E_d's weight is 1 by definition, since E's scale does not move its
+minimizer.
 
 - **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
-  of other views that agree on the pixel's instance, so it lets go where views disagree.
+  of views (its own included) that agree on the pixel's instance, so it weakens where views
+  disagree.
 - **E_mv**: overlapping views must agree on depth, only between pixels of one instance and
   not where one view's surface hides the other's: a gap counts as occluded above Otsu's
   threshold on the scene's gaps (about 4 % on Hypersim), so there is no tolerance to set.
@@ -131,6 +133,27 @@ E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 for now and λ_n = 1e-4 f
   shape term: only between pixels of one instance and cut on the input's occlusion
   contours. DSINE is non-commercial and stays outside git
   (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
+
+**Hand-set constants (E40, issue #28).** Each was varied alone on the three dev scenes,
+against a noise floor of 0.033 / 0.037 / 0.036 cm (accuracy / completeness / Chamfer). Only
+λ_d and the confidence exponent were removed. The rest stay, for these reasons:
+
+| Constant | Value | Why it stays |
+|---|---|---|
+| λ_mv, λ_δ | 1, 1 | 0.3 and 3 trade accuracy for completeness beyond noise on dev; λ_δ = 0 is singular |
+| E_mv neighbours | 4 | 2 and 8 trade the same way; all 19 views exceed 10 GB |
+| E_d Huber threshold | 0.05 | removing it ties on dev, but failed the val check (see below) |
+| E_mv border margin | 1 px | keeps the four bilinear corners in the image; 0 px failed the same val check |
+| E_n occlusion cut | 0.02 | Otsu's per-scene threshold ties on dev, but on val reaches 0.067, beyond what dev tested |
+| E_n cut window, closing budget | 7 px | spans Déjà View's 2-4 px edge ramps; 3-11 px tie, no closing loses 0.05 cm |
+| E_d weight | c × u | dropping c ties on dev (E37); combined with the three above, accuracy got worse on all 11 val scenes, and on dev restoring c recovered most of it |
+| λ_n, DSINE | 1e-4 | issue #21 |
+| Gauss-Newton × CG, CG tol | 5 × 10, 1e-3 | issue #10: where Gauss-Newton levels off, 4.2 → 1.9 s per scene |
+
+On dev, removing Huber, the border margin and the fixed cut each tie. Combined, they cost 0.5 cm
+in one val scene (ai_009_009, where Déjà View fails), which put the val means beyond noise, so
+all three stay. Three dev scenes cannot separate settings that only matter on failures. Details
+are in E40 in `experiments/LOG.md`.
 
 ```bash
 D=data/processed/scannetpp/5ee7c22ba0
@@ -184,15 +207,15 @@ uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --spli
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Every energy weight 1, none tuned (`figures/eval_hypersim-20261105-104445`; 1.2 min for both
-splits on an RTX 3080). Its `presentation/` folder holds the shared bedroom at the views of
+Every energy weight 1, none tuned, Gauss-Newton 5 × 10 (`figures/eval_hypersim-20261110-093416`;
+about 1 min for both splits on an RTX 3080, refinement 2 s per scene). Its `presentation/` folder holds the shared bedroom at the views of
 issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 
 | cm, ↓ | dev aggregate | living room | bedroom | lobby |
 |---|---|---|---|---|
-| accuracy | 4.68 → 4.21 | 2.19 → 1.79 | 2.52 → 2.20 | 9.31 → 8.63 |
-| completeness | 2.32 → 3.69 | 1.01 → 1.41 | 1.17 → 1.72 | 4.80 → 7.96 |
-| Chamfer | 3.50 → 3.95 | 1.60 → 1.60 | 1.85 → 1.96 | 7.05 → 8.30 |
+| accuracy | 4.68 → 4.20 | 2.19 → 1.79 | 2.52 → 2.21 | 9.31 → 8.60 |
+| completeness | 2.32 → 3.66 | 1.01 → 1.40 | 1.17 → 1.71 | 4.80 → 7.87 |
+| Chamfer | 3.50 → 3.93 | 1.60 → 1.59 | 1.85 → 1.96 | 7.05 → 8.23 |
 
 | labels (both variants) | dev aggregate | living room | bedroom | lobby |
 |---|---|---|---|---|
@@ -200,21 +223,23 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 | PQ^sc | 0.292 | 0.286 | 0.269 | 0.321 |
 | AP | 0.216 | 0.228 | 0.276 | 0.145 |
 
-- **Refinement does not improve Chamfer on any dev scene:** it is 3.50 → 3.95 cm on dev,
-  unchanged in the living room and worse elsewhere. Accuracy improves on every scene and
-  disagreement between overlapping views falls 6-8×, but the refined surfaces are thinner
+- **Refinement does not improve Chamfer on dev:** it is 3.50 → 3.93 cm, 0.01 cm better in
+  the living room and worse elsewhere. Accuracy improves on every scene and
+  disagreement between overlapping views falls 6-7×, but the refined surfaces are thinner
   than Déjà View's scatter, so completeness loses more than accuracy gains, most in the
-  large lobby. Setting the weights is the next step.
+  large lobby. No weight improves both: λ_mv, λ_δ and the neighbour count each trade
+  accuracy against completeness on dev (E40).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
-  the kitchen, 15.29 → 15.91 in the conference room, 3.99 → 4.36 in the restaurant.
+  the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
   SAM 3 finds but the scene lacks (4-5 per dev scene) as 0. The dev mIoU is pooled over 29
   classes (0.360); the mean of its scenes would be 0.405.
-- **Noise:** GPU sums are not bitwise reproducible, and the spread of these scores is not
-  measured yet.
-- **Val** (11 scenes no choice was made on, `--splits val`, RTX 5090, 2.2 min) confirms it:
-  accuracy 6.07 → 5.75 cm (better on 9 of 11), completeness 4.15 → 5.67 cm (worse on all
-  11), Chamfer 5.11 → 5.71 cm (worse on 10 of 11). Per scene: E34 in `experiments/LOG.md`.
+- **Noise:** GPU sums are not bitwise reproducible; repeated runs on one GPU agree to
+  0.00002 cm on the dev aggregate, two GPUs to about 0.035 cm (E40).
+- **Val** (11 scenes no value was chosen on; E40 used it to reject three changes, `--splits
+  val`, RTX 3080) confirms it: accuracy 6.06 → 5.70 cm (better on 10 of 11), completeness
+  4.14 → 5.58 cm (worse on all 11), Chamfer 5.10 → 5.64 cm (worse on 10 of 11). Per scene:
+  E41 in `experiments/LOG.md`.
 - `test` runs with the same command once its inputs are cached; it has not been run.
 
 ## Layout
