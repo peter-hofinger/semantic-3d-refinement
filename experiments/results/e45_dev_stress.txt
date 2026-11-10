@@ -1,0 +1,125 @@
+run runs/eval_hypersim-20261110-110027 (git 26454fcb9e910f5fe6e2cd0f4010effea86d67e7), this script at 536ec1fd1a98fa622d9d83429753f4bede962698, grid q = 1 .. 0.05
+check ai_010_007_cam_00: q = 1 against the run's Déjà View, 0.000000 cm
+check ai_006_007_cam_00: q = 1 against the run's Déjà View, 0.000000 cm
+check ai_044_001_cam_00: q = 1 against the run's Déjà View, 0.000000 cm
+
+== dev: each filter at the refiner's completeness (cm) ==
+
+ai_010_007_cam_00: refiner 1.790 / 1.398 / 1.594, Déjà View (q = 1) 2.194 / 1.007 / 1.601
+filter | q | accuracy | Chamfer | completeness gap | Δ acc | Δ Chamfer
+confidence | 0.961 | 1.821 | 1.609 | -0.0003 | -0.030 | -0.015
+depth gradient | 0.912 | 2.000 | 1.699 | +0.0007 | -0.209 | -0.105
+confidence + gradient | 0.939 | 1.814 | 1.606 | -0.0016 | -0.024 | -0.011
+u | 0.902 | 2.079 | 1.739 | +0.0005 | -0.288 | -0.144
+depth edge (MoGe) | 0.907 | 1.985 | 1.691 | -0.0013 | -0.194 | -0.096
+statistical outlier (PCL) | 0.943 | 1.734 | 1.566 | +0.0000 | +0.057 | +0.028
+multi-view consistency (MVS) | 0.963 | 1.953 | 1.676 | -0.0003 | -0.163 | -0.081
+voxel density | 0.721 | 1.492 | 1.443 | -0.0040 | +0.299 | +0.151
+grazing angle | 0.895 | 2.267 | 1.833 | -0.0001 | -0.476 | -0.238
+random | 0.298 | 2.190 | 1.794 | -0.0001 | -0.400 | -0.200
+refined + confidence | its own curve
+
+ai_006_007_cam_00: refiner 2.208 / 1.710 / 1.959, Déjà View (q = 1) 2.520 / 1.172 / 1.846
+filter | q | accuracy | Chamfer | completeness gap | Δ acc | Δ Chamfer
+confidence | 0.885 | 2.071 | 1.891 | +0.0001 | +0.137 | +0.068
+depth gradient | 0.802 | 2.384 | 2.047 | +0.0003 | -0.176 | -0.088
+confidence + gradient | 0.842 | 2.120 | 1.915 | +0.0004 | +0.088 | +0.044
+u | 0.788 | 2.308 | 2.009 | -0.0003 | -0.100 | -0.050
+depth edge (MoGe) | 0.809 | 2.355 | 2.033 | -0.0001 | -0.147 | -0.074
+statistical outlier (PCL) | 0.899 | 2.117 | 1.914 | +0.0013 | +0.091 | +0.045
+multi-view consistency (MVS) | 0.929 | 2.241 | 1.975 | -0.0011 | -0.033 | -0.016
+voxel density | 0.471 | 1.772 | 1.741 | -0.0001 | +0.436 | +0.218
+grazing angle | 0.851 | 2.655 | 2.182 | -0.0004 | -0.447 | -0.223
+random | 0.137 | 2.513 | 2.112 | +0.0005 | -0.305 | -0.153
+refined + confidence | its own curve
+
+ai_044_001_cam_00: refiner 8.597 / 7.865 / 8.231, Déjà View (q = 1) 9.312 / 4.795 / 7.053
+filter | q | accuracy | Chamfer | completeness gap | Δ acc | Δ Chamfer
+confidence | 0.888 | 6.678 | 7.279 | +0.0144 | +1.919 | +0.952
+depth gradient | 0.708 | 9.804 | 8.835 | +0.0004 | -1.207 | -0.604
+confidence + gradient | 0.834 | 7.090 | 7.478 | -0.0000 | +1.507 | +0.754
+u | 0.629 | 10.475 | 9.170 | -0.0002 | -1.878 | -0.939
+depth edge (MoGe) | 0.724 | 9.429 | 8.647 | +0.0003 | -0.832 | -0.416
+statistical outlier (PCL) | 0.918 | 7.536 | 7.702 | +0.0014 | +1.061 | +0.530
+multi-view consistency (MVS) | 0.924 | 8.795 | 8.330 | -0.0009 | -0.198 | -0.098
+voxel density | 0.529 | 6.005 | 6.936 | +0.0017 | +2.592 | +1.295
+grazing angle | 0.735 | 11.706 | 9.786 | +0.0001 | -3.109 | -1.555
+random | 0.063 | 9.335 | 8.600 | +0.0005 | -0.738 | -0.369
+refined + confidence | its own curve
+
+dev mean of 3 scenes: refiner 4.199 / 3.658 / 3.928
+filter | q (mean) | accuracy | Chamfer | Δ acc (refiner - filter) | Δ Chamfer | verdict | scenes refiner better (acc)
+confidence | 0.911 | 3.523 | 3.593 | +0.675 | +0.335 | refiner below | 1 of 3
+depth gradient | 0.807 | 4.729 | 4.194 | -0.531 | -0.266 | refiner above | 3 of 3
+confidence + gradient | 0.872 | 3.675 | 3.666 | +0.524 | +0.262 | refiner below | 1 of 3
+u | 0.773 | 4.954 | 4.306 | -0.755 | -0.378 | refiner above | 3 of 3
+depth edge (MoGe) | 0.813 | 4.590 | 4.124 | -0.391 | -0.195 | refiner above | 3 of 3
+statistical outlier (PCL) | 0.920 | 3.796 | 3.727 | +0.403 | +0.201 | refiner below | 0 of 3
+multi-view consistency (MVS) | 0.939 | 4.330 | 3.993 | -0.131 | -0.065 | refiner above | 3 of 3
+voxel density | 0.574 | 3.090 | 3.373 | +1.109 | +0.555 | refiner below | 0 of 3
+grazing angle | 0.827 | 5.543 | 4.600 | -1.344 | -0.672 | refiner above | 3 of 3
+random | 0.166 | 4.680 | 4.169 | -0.481 | -0.241 | refiner above | 3 of 3
+refined + confidence | not reached on every scene
+wrote runs/eval_hypersim-20261110-110027/e45_dev.json
+check ai_015_001_cam_00: q = 1 against the run's Déjà View, 0.000000 cm
+check ai_047_009_cam_00: q = 1 against the run's Déjà View, 0.000000 cm
+check ai_052_001_cam_00: q = 1 against the run's Déjà View, 0.000000 cm
+
+== stress: each filter at the refiner's completeness (cm) ==
+
+ai_015_001_cam_00: refiner 2.770 / 1.980 / 2.375, Déjà View (q = 1) 2.985 / 1.348 / 2.166
+filter | q | accuracy | Chamfer | completeness gap | Δ acc | Δ Chamfer
+confidence | 0.785 | 1.866 | 1.923 | -0.0000 | +0.904 | +0.452
+depth gradient | 0.721 | 2.824 | 2.402 | +0.0001 | -0.054 | -0.027
+confidence + gradient | 0.738 | 2.019 | 1.999 | -0.0000 | +0.750 | +0.375
+u | 0.739 | 2.489 | 2.234 | +0.0001 | +0.281 | +0.140
+depth edge (MoGe) | 0.734 | 2.753 | 2.366 | -0.0005 | +0.016 | +0.008
+statistical outlier (PCL) | 0.898 | 2.557 | 2.268 | -0.0010 | +0.212 | +0.107
+multi-view consistency (MVS) | 0.871 | 2.557 | 2.268 | -0.0003 | +0.213 | +0.107
+voxel density | 0.476 | 1.868 | 1.924 | +0.0004 | +0.902 | +0.451
+grazing angle | 0.805 | 3.189 | 2.584 | -0.0003 | -0.419 | -0.209
+random | 0.108 | 2.989 | 2.484 | -0.0001 | -0.219 | -0.109
+refined + confidence | its own curve
+
+ai_047_009_cam_00: refiner 16.278 / 15.577 / 15.928, Déjà View (q = 1) 16.634 / 13.946 / 15.290
+filter | q | accuracy | Chamfer | completeness gap | Δ acc | Δ Chamfer
+confidence | 0.838 | 6.997 | 11.287 | -0.0001 | +9.282 | +4.641
+depth gradient | 0.644 | 14.246 | 14.911 | -0.0005 | +2.033 | +1.017
+confidence + gradient | 0.873 | 9.578 | 12.577 | +0.0005 | +6.701 | +3.350
+u | 0.426 | 17.663 | 16.620 | +0.0002 | -1.385 | -0.693
+depth edge (MoGe) | 0.640 | 13.696 | 14.637 | +0.0004 | +2.582 | +1.291
+statistical outlier (PCL) | 0.904 | 9.993 | 12.785 | -0.0001 | +6.285 | +3.143
+multi-view consistency (MVS) | 0.805 | 10.646 | 13.111 | -0.0001 | +5.632 | +2.816
+voxel density | 0.433 | 6.195 | 10.886 | -0.0005 | +10.083 | +5.042
+grazing angle | 0.764 | 19.665 | 17.621 | +0.0004 | -3.386 | -1.693
+random | 0.059 | 16.569 | 16.073 | +0.0000 | -0.290 | -0.145
+refined + confidence | its own curve
+
+ai_052_001_cam_00: refiner 5.064 / 3.617 / 4.340, Déjà View (q = 1) 5.476 / 2.495 / 3.986
+filter | q | accuracy | Chamfer | completeness gap | Δ acc | Δ Chamfer
+confidence | 0.884 | 3.778 | 3.697 | -0.0001 | +1.286 | +0.643
+depth gradient | 0.694 | 4.984 | 4.301 | +0.0003 | +0.080 | +0.040
+confidence + gradient | 0.842 | 3.779 | 3.698 | -0.0000 | +1.285 | +0.642
+u | 0.619 | 4.614 | 4.115 | -0.0000 | +0.451 | +0.225
+depth edge (MoGe) | 0.709 | 4.847 | 4.232 | +0.0002 | +0.217 | +0.108
+statistical outlier (PCL) | 0.922 | 3.976 | 3.797 | +0.0002 | +1.088 | +0.544
+multi-view consistency (MVS) | 0.870 | 4.586 | 4.106 | +0.0083 | +0.478 | +0.235
+voxel density | 0.463 | 3.140 | 3.379 | +0.0004 | +1.924 | +0.962
+grazing angle | 0.804 | 6.182 | 4.900 | +0.0004 | -1.118 | -0.559
+random | 0.113 | 5.490 | 4.554 | +0.0001 | -0.426 | -0.213
+refined + confidence | its own curve
+
+stress mean of 3 scenes: refiner 8.037 / 7.058 / 7.548
+filter | q (mean) | accuracy | Chamfer | Δ acc (refiner - filter) | Δ Chamfer | verdict | scenes refiner better (acc)
+confidence | 0.836 | 4.214 | 5.636 | +3.824 | +1.912 | refiner below | 0 of 3
+depth gradient | 0.687 | 7.351 | 7.205 | +0.686 | +0.343 | refiner below | 1 of 3
+confidence + gradient | 0.818 | 5.126 | 6.092 | +2.912 | +1.456 | refiner below | 0 of 3
+u | 0.595 | 8.255 | 7.657 | -0.218 | -0.109 | refiner above | 1 of 3
+depth edge (MoGe) | 0.694 | 7.099 | 7.078 | +0.938 | +0.469 | refiner below | 0 of 3
+statistical outlier (PCL) | 0.908 | 5.509 | 6.283 | +2.528 | +1.264 | refiner below | 0 of 3
+multi-view consistency (MVS) | 0.849 | 5.930 | 6.495 | +2.108 | +1.053 | refiner below | 0 of 3
+voxel density | 0.457 | 3.735 | 5.396 | +4.303 | +2.151 | refiner below | 0 of 3
+grazing angle | 0.791 | 9.679 | 8.368 | -1.641 | -0.821 | refiner above | 3 of 3
+random | 0.093 | 8.349 | 7.703 | -0.312 | -0.156 | refiner above | 3 of 3
+refined + confidence | not reached on every scene
+wrote runs/eval_hypersim-20261110-110027/e45_stress.json
