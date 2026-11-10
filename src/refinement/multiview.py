@@ -41,6 +41,12 @@ dev in E40 (issue #28, `experiments/LOG.md`); its reason is where it is set.
   per-segment scale and shift of inverse depth (a, b) would carry it across the
   instance, but on Hypersim the F-score at 5 cm is equal or better without them.
 
+A keep mask (E45) refines only the pixels a filter keeps: the others are no unknowns
+of the solve (`gauss_newton_step` holds them at the input) and come out NaN, and every
+term that reads one is dropped (`kept_matches`, `kept_edges`), so E_d and λ_δ, zero at
+δ = 0, act only on kept pixels. What is derived from the input as a whole stays as it
+is: the scale s, Otsu's threshold, each view's neighbors, u and the occlusion contours.
+
 E is a sum of squared residuals, so it is minimized by Gauss-Newton, as BiNI minimizes
 its normal term by CG (Cao et al. 2022): each step solves the normal equations J^T J s =
 -J^T r by Jacobi-preconditioned CG. J is never formed for the per-view terms, which are
@@ -340,19 +346,18 @@ def occlusion_threshold(gaps: Tensor) -> float:
 
 
 @torch.no_grad()
-def find_matches(
-    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
-) -> Matches:
-    """Match each view with its neighbors where the input agrees within tol (log).
+def match_candidates(
+    scene: Scene, d0: Tensor, scale: Tensor
+) -> dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]]:
+    """Per view pair (i, j), i's pixels that land in j: flat index, log gap, log spread.
 
-    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
-    Both the gap and the spread of j's four interpolated pixels must stay below it. A
-    view's neighbors are the `neighbors` views it shares the most matches with; a pair
-    counts if either side picks the other, and is matched both ways.
+    A pixel lands if it projects in front of j and at least `MATCH_BORDER` inside its
+    border; the gap is log(z_j d_j / s), > 0 behind j's surface; the spread is the max /
+    min ratio of j's four interpolated pixels.
     """
     n, h, w = d0.shape
     flat = torch.arange(h * w, device=d0.device)
-    candidates: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
+    candidates = {}
     for i in range(n):
         for j in range(n):
             if i == j:
@@ -365,8 +370,24 @@ def find_matches(
             dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
             b = MATCH_BORDER
             inside = (z > 0) & (u >= b) & (u <= w - 1 - b) & (v >= b) & (v <= h - 1 - b)
-            gap = (z.clamp_min(1e-6) * dj / scale).log()  # > 0: behind j's surface
+            gap = (z.clamp_min(1e-6) * dj / scale).log()
             candidates[i, j] = (flat[inside], gap[inside], spread[inside].log())
+    return candidates
+
+
+@torch.no_grad()
+def find_matches(
+    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
+) -> Matches:
+    """Match each view with its neighbors where the input agrees within tol (log).
+
+    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
+    Both the gap and the spread of j's four interpolated pixels must stay below it. A
+    view's neighbors are the `neighbors` views it shares the most matches with; a pair
+    counts if either side picks the other, and is matched both ways.
+    """
+    n, h, w = d0.shape
+    candidates = match_candidates(scene, d0, scale)
     if tol is None:
         tol = occlusion_threshold(torch.cat([g for _, g, _ in candidates.values()]))
         log_info("occlusion threshold: %.4f (log depth)", tol)
@@ -418,6 +439,7 @@ class Problem:
     normals: NormalTerm | None
     matches: Matches
     dsine: Tensor | None = None  # (V, H, W, 3) DSINE's normals, rays' frame: E_t
+    keep: Tensor | None = None  # (V, H, W) bool, the pixels that are unknowns (E45)
 
 
 def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
@@ -426,6 +448,28 @@ def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
     Pixels without an instance (-1) count as one, so E_n still shapes them.
     """
     return ids[..., 1:] == ids[..., :-1], ids[..., 1:, :] == ids[..., :-1, :]
+
+
+def kept_edges(keep: Tensor) -> tuple[Tensor, Tensor]:
+    """Masks (V, H, W-1), (V, H-1, W) of the x and y edges between two kept pixels."""
+    return keep[..., 1:] & keep[..., :-1], keep[..., 1:, :] & keep[..., :-1, :]
+
+
+def kept_matches(
+    m: Matches, scene: Scene, d0: Tensor, scale: Tensor, keep: Tensor
+) -> Matches:
+    """Keep the matches whose source and four interpolated pixels in j are all kept.
+
+    The four are those at the input, where the matches are fixed. A step that moves a
+    projection onto a removed pixel reads it at its input depth, as a constant.
+    """
+    _, h, w = d0.shape
+    depth = scale / d0.reshape(-1)[m.src]
+    u, v, _ = project(m.offset + depth[:, None] * m.direction, scene.k[m.dst])
+    index, _ = corners(m.dst, u, v, h, w)
+    flat = keep.reshape(-1)
+    ok = flat[m.src] & flat[index].all(0)
+    return Matches(m.src[ok], m.dst[ok], m.offset[ok], m.direction[ok])
 
 
 def same_segment_matches(
@@ -756,20 +800,36 @@ def normal_equations(
     return gradient, hv, diag
 
 
+def restricted(hv: Callable[[Tensor], Tensor], free: Tensor, v: Tensor) -> Tensor:
+    """Return P H P v, P the diagonal 0/1 projection onto the free unknowns."""
+    return hv(v * free) * free
+
+
 def gauss_newton_step(x: Tensor, cfg: RefineConfig, p: Problem) -> tuple[Tensor, int]:
-    """Solve J^T J s = -J^T r at x by preconditioned CG; return s and CG iterations."""
+    """Solve J^T J s = -J^T r at x by preconditioned CG; return s and CG iterations.
+
+    With a keep mask the system is restricted to the kept pixels: the others' rows and
+    columns are zero, so CG never moves them.
+    """
     gradient, hv, diag = normal_equations(x, cfg, p)
+    free = torch.ones_like(gradient) if p.keep is None else p.keep.flatten().to(x)
     step, used = conjugate_gradient(
-        hv, -gradient, 1 / diag.clamp_min(1e-12), cfg.cg_iters, cfg.cg_tol
+        partial(restricted, hv, free),
+        -gradient * free,
+        free / diag.clamp_min(1e-12),
+        cfg.cg_iters,
+        cfg.cg_tol,
     )
     return step.view_as(x), used
 
 
-def refine_scene(
+def refine_scene(  # noqa: PLR0913 - three optional pixel maps + the ablation's selection
     scene: Scene,
     cfg: RefineConfig,
     normals: Tensor | None = None,
     segments: Tensor | None = None,
+    keep: Tensor | None = None,
+    *,
     select: MatchSelection | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], dict[str, int]]:
     """Gauss-Newton on all views at once; return depth (V, H, W), energy log, counts.
@@ -779,9 +839,10 @@ def refine_scene(
     E decreases and no depth grows tenfold (the logs clamp d at 1e-6, so E alone would
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
     rays, enable E_n. Segments (V, H, W) are linked instance ids, -1 for none (default:
-    no pixel has one). Select changes which of E_mv's matches are used.
+    no pixel has one). Keep (V, H, W, bool) refines only those pixels; the others are
+    NaN (default: all are refined). Select changes which of E_mv's matches are used.
     """
-    p = build_problem(scene, cfg, normals, segments, select)
+    p = build_problem(scene, cfg, normals, segments, keep, select=select)
     x, log, cg_total = gauss_newton(p, cfg)
     depth_hat = p.scale / (p.d0 + x)
     assert (
@@ -789,6 +850,8 @@ def refine_scene(
         and depth_hat.isfinite().all()
         and (depth_hat > 0).all()
     )
+    if p.keep is not None:
+        depth_hat = torch.where(p.keep, depth_hat, torch.nan)
     assert log[-1]["E"] <= log[0]["E"] + 1e-9, (log[0], log[-1])
     return (
         depth_hat,
@@ -831,18 +894,21 @@ def consistency(scene: Scene, d0: Tensor, scale: Tensor, ids: Tensor) -> Tensor:
     return out
 
 
-def build_problem(
+def build_problem(  # noqa: PLR0913 - three optional pixel maps + the ablation's selection
     scene: Scene,
     cfg: RefineConfig,
     normals: Tensor | None = None,
     segments: Tensor | None = None,
+    keep: Tensor | None = None,
+    *,
     select: MatchSelection | None = None,
 ) -> Problem:
     """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
 
     E_d's weight is the confidence (mean one per view) times u; E_n's
     edges stay within one instance; E_mv keeps the matches that land on their source's
-    instance, unless select says otherwise (`MatchSelection`).
+    instance, unless select says otherwise (`MatchSelection`). A keep mask (V, H, W,
+    bool) also drops the edges and matches that touch a removed pixel.
     """
     assert normals is not None or cfg.lambda_n == cfg.lambda_t == 0, "E_n needs normals"
     ids = (
@@ -855,6 +921,14 @@ def build_problem(
     d0 = scale / scene.depth
     w = scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)
     w = w * consistency(scene, d0, scale, ids)
+    if keep is not None:
+        assert cfg.lambda_t == 0, "E_t reads neighbors the mask does not cut"
+        keep = keep.to(scene.depth.device)
+        assert keep.shape == scene.depth.shape and keep.dtype == torch.bool, keep.shape
+        assert keep.any(), "a mask keeps some pixels"
+    edges = same_instance_edges(ids)
+    if keep is not None:
+        edges = tuple(e & k for e, k in zip(edges, kept_edges(keep), strict=True))
     terms = None
     if normals is not None:
         per_view = [
@@ -871,7 +945,7 @@ def build_problem(
                     same * torch.stack([t.weights[a][k] for t in per_view])
                     for k in range(2)
                 )
-                for a, same in enumerate(same_instance_edges(ids))
+                for a, same in enumerate(edges)
             ],
         )
     matches = find_matches(scene, d0, scale, cfg.neighbors)
@@ -879,13 +953,15 @@ def build_problem(
     gate = ids if select.gate is None else select.gate.to(ids.device)
     assert gate.shape == ids.shape, gate.shape
     matches = same_segment_matches(matches, scene, d0, scale, gate)
+    if keep is not None:
+        matches = kept_matches(matches, scene, d0, scale, keep)
     if select.keep is not None and select.by == "random":
         matches = random_matches(matches, select.keep, select.seed)
     elif select.keep is not None:
         r = residuals(d0, scale, scene, matches)
         matches = smallest_residual_matches(matches, select.keep, r)
     dsine = normals if cfg.lambda_t > 0 else None
-    return Problem(scene, scale, d0, w, terms, matches, dsine)
+    return Problem(scene, scale, d0, w, terms, matches, dsine, keep)
 
 
 def gauss_newton(

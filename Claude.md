@@ -98,6 +98,10 @@ Climb in order; when something fails, step back down instead of tuning blindly.
 5. Shuffle or corrupt the semantics: if the gain doesn't drop, semantics aren't what helps.
 6. Only then tune weights, coarse grid first.
 
+Naming: an experiment is E<issue><letter>, after the GitHub issue it works on and the order of the experiments on
+that issue (E8a, E8b, ..., E8z, E8aa), so numbers never collide between branches. Work without an issue gets one
+first. Files named after an experiment use its id (`e8a_figures.py`). E1-E45 keep the numbers they had.
+
 Smallest scene, resolution and view count that could work. One change per run; time every stage.
 Fixed scenes, metrics, alignment and seeds; never tune on test scenes, and say so when a value was.
 

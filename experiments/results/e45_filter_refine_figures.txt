@@ -1,0 +1,3 @@
+ai_006_007_cam_00, voxel density alone, q = 0.7: mean distance of the kept pixels to the nearest GT point 2.219 cm (capped at 30)
+ai_006_007_cam_00, voxel density then refined, q = 0.7: mean distance of the kept pixels to the nearest GT point 2.101 cm (capped at 30)
+refined minus alone: mean -0.119 cm, kept pixels closer by > 0.5 cm 0.146, farther 0.086

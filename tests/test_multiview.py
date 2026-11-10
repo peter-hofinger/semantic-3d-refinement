@@ -5,6 +5,7 @@ import dataclasses
 import numpy as np
 import torch
 
+from src.analysis.filters import consistent_views
 from src.loaders.views import Views
 from src.refinement.multiview import (
     MATCH_BORDER,
@@ -20,8 +21,10 @@ from src.refinement.multiview import (
     find_matches,
     fit_pinhole,
     gauss_newton,
+    gauss_newton_step,
     geometry_from_scene,
     grid_operator,
+    match_candidates,
     match_jacobian,
     normal_equations,
     occlusion_threshold,
@@ -641,3 +644,72 @@ def test_smallest_residual_matches_keeps_the_n_smallest_in_order() -> None:
     picked = (kept.dst * scene.depth.numel() + kept.src).tolist()
     positions = [index.index(key) for key in picked]
     assert positions == sorted(set(positions))  # distinct, original order
+
+
+def test_consistent_views_count_the_views_that_agree() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    count = consistent_views(scene, d0, scale, 0.05)
+    seen = match_candidates(scene, d0, scale)[0, 1][0]
+    assert len(seen) > 0.5 * H * W
+    # where view 0 lands in view 1, they agree (the plate occludes, so not everywhere)
+    assert (count.view(2, -1)[0, seen] == 1).float().mean() > 0.9
+    assert count.max() <= 1
+    bumped, _ = two_views(bump=0.3)
+    bumped_count = consistent_views(bumped, scale / bumped.depth, scale, 0.05)
+    assert bumped_count[1, 24, 32] == 0 and count[1, 24, 32] == 1
+
+
+def masked_inputs() -> tuple[Scene, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Two noisy views with a bump in view 1, normals of the truth, one instance."""
+    scene, truth = two_views(bump=0.03, noise=0.01)
+    normals = torch.stack(
+        [normals_from_depth(truth[i].float(), scene.rays[i]) for i in range(2)]
+    )
+    return scene, truth, normals, torch.zeros(2, H, W, dtype=torch.long)
+
+
+def test_an_all_true_mask_returns_the_unmasked_solve_bit_for_bit() -> None:
+    scene, _, normals, ids = masked_inputs()
+    cfg = RefineConfig(lambda_n=6.4e-3, device="cpu")
+    plain, log, counts = refine_scene(scene, cfg, normals, ids)
+    keep = torch.ones(2, H, W, dtype=torch.bool)
+    masked, log_masked, counts_masked = refine_scene(scene, cfg, normals, ids, keep)
+    assert torch.equal(plain, masked)
+    assert log == log_masked and counts == counts_masked
+
+
+def test_removed_pixels_are_nan_frozen_and_read_by_no_term() -> None:
+    scene, _, normals, ids = masked_inputs()
+    cfg = RefineConfig(lambda_n=6.4e-3, device="cpu")
+    keep = torch.rand(2, H, W, generator=torch.Generator().manual_seed(0)) > 0.3
+    p = build_problem(scene, cfg, normals, ids, keep)
+    flat = keep.flatten()
+    cols, _ = match_jacobian(p.d0, p.scale, scene, p.matches)
+    assert len(p.matches.src) > 0 and flat[cols].all()
+    assert p.normals is not None
+    both_kept = (keep[..., 1:] & keep[..., :-1], keep[..., 1:, :] & keep[..., :-1, :])
+    for (wf, wb), kept in zip(p.normals.weights, both_kept, strict=True):
+        assert (wf[~kept] == 0).all() and (wb[~kept] == 0).all()
+        assert (wf[kept] > 0).any()
+    step, _ = gauss_newton_step(torch.zeros_like(p.d0), cfg, p)
+    assert (step[~keep] == 0).all() and (step[keep] != 0).any()
+    depth, _, _ = refine_scene(scene, cfg, normals, ids, keep)
+    assert depth[~keep].isnan().all() and depth[keep].isfinite().all()
+
+
+def test_removing_a_bump_stops_it_pulling_the_other_view() -> None:
+    scene, truth, normals, ids = masked_inputs()
+    cfg = RefineConfig(lambda_n=6.4e-3, gn_iters=10, cg_iters=50, device="cpu")
+    v, u = torch.meshgrid(torch.arange(H), torch.arange(W), indexing="ij")
+    keep = torch.ones(2, H, W, dtype=torch.bool)
+    keep[1] = (u - 32) ** 2 + (v - 24) ** 2 > 400  # view 1 without its bump
+    errors = [
+        (out[0] / truth[0].float()).log().abs().mean().item()
+        for out, _, _ in (
+            refine_scene(scene, cfg, normals, ids),
+            refine_scene(scene, cfg, normals, ids, keep),
+        )
+    ]
+    assert errors[1] < 0.5 * errors[0]

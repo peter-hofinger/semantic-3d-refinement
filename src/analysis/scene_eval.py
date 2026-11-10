@@ -290,7 +290,9 @@ def refine_variant(
         select = MatchSelection(
             gate, keep, variant.get("seed", 0), variant.get("keep_by", "random")
         )
-        depth, log, counts = refine_scene(scene, cfg, inputs.normals, segments, select)
+        depth, log, counts = refine_scene(
+            scene, cfg, inputs.normals, segments, select=select
+        )
         if depth.is_cuda:
             torch.cuda.synchronize()
         seconds = time.perf_counter() - t0

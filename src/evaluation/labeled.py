@@ -453,6 +453,24 @@ def label_metrics(
     }
 
 
+def align_output(
+    truth: LabeledCloud, points: np.ndarray
+) -> tuple[np.ndarray, float, np.ndarray]:
+    """Each GT pixel's output point aligned by Umeyama on the finite ones; s; s R | t.
+
+    points is per pixel (V, H, W, 3), NaN where the output has none; the aligned points
+    (N, 3) keep the NaN, the alignment is a (4, 4) matrix.
+    """
+    assert truth.pixels is not None
+    assert points.shape == (*truth.pixels.shape, 3), (points.shape, truth.pixels.shape)
+    pred = points[truth.pixels].astype(np.float64)
+    found = np.isfinite(pred).all(1)
+    s, rotation, t = umeyama(pred[found], truth.points[found])
+    align = np.eye(4)
+    align[:3, :3], align[:3, 3] = s * rotation, t
+    return s * pred @ rotation.T + t, s, align
+
+
 def score_output(
     truth: LabeledCloud, points: np.ndarray, labels: Segmentation, evaluated: list[str]
 ) -> dict:
@@ -460,14 +478,7 @@ def score_output(
 
     The alignment is returned under `align` as a (4, 4) matrix, s R | t.
     """
-    assert truth.pixels is not None
-    assert points.shape == (*truth.pixels.shape, 3), (points.shape, truth.pixels.shape)
-    pred = points[truth.pixels].astype(np.float64)
-    found = np.isfinite(pred).all(1)
-    s, rotation, t = umeyama(pred[found], truth.points[found])
-    pred = s * pred @ rotation.T + t
-    align = np.eye(4)
-    align[:3, :3], align[:3, 3] = s * rotation, t
+    pred, s, align = align_output(truth, points)
     ids = labels.instance_ids[truth.pixels].astype(np.int64)
     ids = np.where(ids >= 0, ids, NONE)
     return {

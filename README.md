@@ -229,6 +229,17 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   than Déjà View's scatter, so completeness loses more than accuracy gains, most in the
   large lobby. No weight improves both: λ_mv, λ_δ and the neighbour count each trade
   accuracy against completeness on dev (E40).
+- **Against simply dropping points** (E45, issue #27): Déjà View's points cut by a per-pixel score at the
+  scene's own quantiles until they are exactly as complete as the refiner's output (3.66 cm on dev), and scored by
+  the same protocol. Dev accuracy at that completeness: voxel density 3.09, confidence 3.52, PCL's statistical
+  outlier removal 3.80, the refiner 4.20 cm; depth gradient (4.73), MoGe's depth edge (4.59), random (4.68) and
+  multi-view consistency (4.33) do worse than the refiner. Voxel density beats it on all 3 dev and 3 stress scenes.
+  The refinement buys less accuracy per unit of completeness than dropping points does; val was not run.
+  Refining only the points a filter keeps does not change that: below voxel density's own curve, above
+  confidence's only where completeness is already 5 cm or worse (dev, 3 scenes).
+  Averaging each voxel's points into one (voxel fusion) does not help either; the best of seven voxel
+  variants counts only the points of the pixel's own SAM 3 instance (3.00 cm, dev; chosen on dev, gain over
+  voxel density beyond noise only in the lobby).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
   the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
