@@ -1,0 +1,38 @@
+# E42 (experiments/LOG.md): BiNI's E_n against the angle-based E_a (Peter's proposal) at
+# three weights around λ_a = 4 λ_n, and E_n off; configs/refine.yaml otherwise (5 x 10).
+# Dev decides, stress is looked at: `--splits dev stress`.
+# Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
+# configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
+# K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3
+# (all NYU40 classes but the three catch-alls, which still count in the scores), linked with
+# the working association, DSINE normals on Déjà View's intrinsics (dsine-predict). Each
+# output, a labeled point per pixel, aligned onto the ground truth by Umeyama on the
+# pixels: accuracy, completeness, Chamfer, mIoU, PQ, AP, for the scene and per class
+# (src/evaluation/labeled.py).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
+refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: Refined
+    refiner: joint
+  - name: no normal term
+    refiner: joint
+    refine: {lambda_n: 0.0}
+  - name: angle 4e-5
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_a: 4.0e-5}
+  - name: angle 4e-4
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_a: 4.0e-4}
+  - name: angle 4e-3
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_a: 4.0e-3}
