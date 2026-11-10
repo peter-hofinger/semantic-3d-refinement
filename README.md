@@ -95,7 +95,9 @@ view (text prompts, default ScanNet++'s top-100 classes from
 links the per-view masks across views by reprojecting them with the backbone's depth
 and cameras (`src/segmentation/associate.py`). Settings and how they were chosen:
 `experiments/LOG.md` (E9-E17). Needs access to the gated `facebook/sam3` weights
-(`uv run hf auth login`); ~1-2 min per 20-view scene on an RTX 5090, ~2 GB GPU memory.
+(`uv run hf auth login`). With the 37 `configs/prompts/nyu40.txt` prompts of the evaluation, a
+20-view scene takes ~17 s for SAM 3 and ~0.6 s for the association on an RTX 3080, ~2.9 GB
+GPU memory (`experiments/LOG.md`, E39).
 
 ```bash
 uv run run-pipeline data/processed/scannetpp/7b6477cb95/views_n20_uniform_504.npz     --geometry data/processed/scannetpp/7b6477cb95/dejaview_k16_views_n20_uniform_504.npz     --segmenter sam3 --out outputs/7b6477cb95/cloud.ply

@@ -61,6 +61,7 @@ Metrics:
 | E31 | Rank the 20 bedroom views (Hypersim ai_006_007) by Déjà View's bleeding at GT depth edges, to choose the shared visual views | bleeding pixels 0.7-6.4% of the image; top views 18, 19, 0, 12; median error near edges 1.8-3.0% vs 0.3-0.9% far (as E18 / ETH3D). Bleeding sits on thin structures in front of distant surfaces (ornate bed frame, vanity mirror frame, chair and stool legs); planes stay below 1%. Visual views: frames 94, 0, 62 + 31 (overview) |
 | E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
 | E35 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | dev Chamfer 3.50 -> 3.20 cm with masks (3.29 without), better on all 3 scenes in accuracy and completeness; old protocol read it as no gain (F-score 0.844 -> 0.845); one seed, val not run |
+| E39 | Faster panoptic labeling (issue #29): prompts encoded once, detector batched 4 prompts at a time, overlaps on the GPU, association in torch | bedroom on an RTX 3080: SAM 3 29.7 -> 16.6 s, association 1.94 -> 0.57 s, pipeline 37.1 -> 22.6 s; dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 unchanged; 99.85-99.98% of pixels keep their mask (bf16 rounding of the batched detector), linked ids from the torch association bit-identical |
 
 ## Reference table (current scorer, E11)
 
@@ -2229,3 +2230,106 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   Without masks it gains less (3.29), and on the bedroom nothing (1.85). The joint refiner on top loses
   completeness again, as it does on raw Deja View. One seed, three scenes: the val split and more seeds come
   before any claim, also on whether the masks help.
+
+## Plan: E39 = faster panoptic labeling (SAM 3 + association), same labels (09.11.2026)
+- **Numbering:** written as E35; renumbered E36 because main's E35 (learned refiner, PR #24) merged meanwhile, then
+  E39 before the PR because main took E35-E38 meanwhile (failure analysis, PR #30; the learned refiner moved to E36).
+  Commit messages up to 622aaad, the mask tags (`-e35oldA`, `-e35oldB`, `-e35b4`, `-e35new`) and the run names
+  (`e35_oldA-*`, `e35_new-*`) keep the old number; every cited commit hash is unchanged. The scripts and result
+  files were renamed `e35_*` -> `e39_*` with their content unchanged but for the number.
+- **Goal (issue #29):** quality of life, not research: SAM 3 + association were estimated at ~80% of the
+  pipeline's runtime, mostly Python on the CPU. Make them faster without changing what they output.
+- **Setting:** Hypersim `dev` split (living room `ai_010_007`, bedroom `ai_006_007`, lobby `ai_044_001`) on the
+  cached inputs of `configs/eval_hypersim.yaml` (20 views at 504x378, Déjà View K=16, DSINE, `nyu40` prompts at
+  t0.3, working association xc0.7 vf0.25 kl0.5); this machine, one RTX 3080 (10 GB), 16 CPU threads. Unchanged:
+  the evaluation, prompts, thresholds, views, resolution, association rule.
+- **Step 1, profile before:** one dev scene (the bedroom, the shared visual scene) through every pipeline stage
+  with warm models: Déjà View forward, SAM 3 per-view masks, association, DSINE, joint refiner. Weight loading is
+  timed separately; each stage runs 3 times, the median is reported. SAM 3 is split further (image encoder, text
+  encoder, detector + mask decoder, post-processing, painting) to see where its time goes.
+- **Decision rule:** if SAM 3 + association are not the bulk of the runtime (< 50% of the stages above), log
+  that, skip step 2, and report the profile only.
+- **Step 2, change (as the issue proposes, nothing else):** encode each prompt once per scene (`text_embeds`),
+  run all prompts of a view as one batch, resolve mask overlaps (higher score wins) on the GPU; the
+  association's reprojection of all 380 view pairs in torch on the GPU. CPU tests show each new path matches
+  the old one on random inputs before the old code is deleted.
+- **Step 3, profile after:** as step 1.
+- **Labels:** SAM 3 is run on the three dev scenes three times: twice with the current code (old A, old B) and
+  once with the new code. Each set of masks is written under its own name (the eval's cache stays untouched) and
+  scored by `scene_eval` on `dev` through a config copy that changes only `segmentation:`.
+- **Noise floor:** bf16 kernels may be bit-identical between two runs on one GPU; then old A vs old B says
+  nothing. The floor is therefore the larger of |old A - old B| and |old A - the cached masks| (same code, made
+  on another GPU, the cross-GPU difference E34 already treats as noise), per metric on the dev aggregate.
+- **Success:** mIoU, PQ^sc and AP on dev (and Chamfer of the refined variant, which uses the labels) of the new
+  code differ from old A by no more than the noise floor, or are better. Otherwise the change is not merged as
+  is: find which part changes the masks first.
+- **Amendment before any new-code run (09.11.2026):** the planned noise floor is 0. The old code is deterministic
+  on this GPU: old A, old B and the eval's cached masks are bit-identical on all three dev scenes (same ids, same
+  scores; `e39_compare_masks.py`), so the cache was made here with the same code and is no second reference.
+  Batching prompts changes the shapes of SAM 3's bf16 matmuls, so the GPU may pick other kernels that round
+  differently, which is the same kind of difference as running on another GPU. The floor is therefore the
+  dev difference between the same code's masks from two GPUs, already on record: README run
+  `eval_hypersim-20261105-104445` (this RTX 3080) vs E34's addendum (RTX 5090, job 994): mIoU 0.360 vs 0.352,
+  PQ^sc 0.292 vs 0.294, AP 0.216 vs 0.217, i.e. |Δ| 0.008 / 0.002 / 0.001. Success: new vs old A within these,
+  or better; bit-identical masks pass trivially. The comparison of the masks themselves (identical pixels,
+  matched score differences) is reported as well.
+
+## E39: faster panoptic labeling -> SAM 3 + association 31.6 s -> 17.1 s per scene, same dev scores (09.11.2026)
+- **Goal, setting:** as in the plan above (issue #29); RTX 3080, torch 2.14.1+cu130, transformers 5.20.2, SAM 3
+  weights from the local Hugging Face cache (`HF_HUB_OFFLINE=1`: the gated repo needs no token then).
+- **Commits:** before = 066d620 (old code), after = 79538a1 (cc79b76: SAM 3; 79538a1: association). The same
+  scripts measure both: `experiments/scripts/e39_profile.py`, `e39_masks.py`, `e39_compare_masks.py`,
+  `e39_association_check.py`, run at each commit; outputs in `results/e39_*.txt`.
+- **Commands:** `HF_HUB_OFFLINE=1 uv run python experiments/scripts/e39_profile.py
+  data/processed/hypersim/ai_006_007_cam_00 [--breakdown]` at each commit; `e39_masks.py <tag> <3 dev folders>`
+  writes `sam3image-nyu40-t0.3-<tag>` masks (old A, old B at cf45970 = 066d620's code; new at 79538a1);
+  `python -m src.analysis.scene_eval --splits dev --cfg <copy>` with `configs/eval_hypersim.yaml` changed only in
+  `segmentation: sam3image-nyu40-t0.3-e35oldA` (at 066d620, run `e35_oldA-20261109-205226`) or `-e35new` (at
+  79538a1, run `e35_new-20261109-205640`); both clean.
+- **Profile before** (bedroom, warm models, median of 3; runs within 0.1 s of each other; weight loading 1.0 / 1.1 /
+  0.7 s for Déjà View / SAM 3 / DSINE, not in the total): SAM 3 + association were 85% of the stages, so the change
+  went ahead. Under cProfile with blocking launches, 42 of SAM 3's 47 s were its 740 single-prompt forward passes
+  (20 views x 37 prompts), 9.6 s of them re-encoding the prompt; image features 3.7 s; post-processing and the
+  CPU painting together < 1 s. The issue's guess that CPU painting dominates did not hold: the GPU work was
+  launched in batches of one. Association: 1.9 s, nearly all the 380 numpy reprojections.
+- **Change:** each prompt encoded once per scene (one at a time: a batched encoder rounds differently in bf16,
+  one at a time it is bit-identical to before), the detector run on 4 prompts per pass, overlap resolution and id
+  compaction on the GPU; the association projects each view into all 19 others in one batch of torch ops. Checks
+  on the way: with the detector at batch 1 the new SAM 3 path reproduces the old masks bit for bit (bedroom);
+  batch 1 / 4 / 8 / 16 / 37 took 23.6 / 16.4 / 15.1 / 14.9 / 18.9 s at 2.1 / 2.9 / 3.8 / 5.7 / 7.6 GB peak (with a
+  batched text encoder), so batch 4 is the largest under `sam3-segment`'s 3.5 GB default cap.
+- **Results, time per stage** (bedroom ai_006_007, RTX 3080, warm, median of 3):
+
+  | stage | before (s) | after (s) |
+  |---|---|---|
+  | Déjà View | 1.10 | 1.11 |
+  | SAM 3 (per-view masks) | 29.70 | **16.57** |
+  | association | 1.94 | **0.57** |
+  | DSINE | 1.11 | 1.09 |
+  | joint refiner | 3.24 | 3.24 |
+  | total | 37.09 | 22.57 |
+  | SAM 3 + association | 31.64 (85%) | 17.14 (76%) |
+
+  SAM 3 alone on the three dev scenes: 29.1-29.7 s before, 16.5-16.9 s after, peak 2.1 -> 2.9 GB.
+- **Results, labels** (dev aggregate, labels identical for both variants as the protocol intends):
+
+  | | mIoU | PQ^sc | AP | Chamfer Refined (cm) |
+  |---|---|---|---|---|
+  | before (old A) | 0.360 | 0.292 | 0.216 | 3.953 |
+  | after | 0.360 | 0.292 | 0.216 | 3.954 |
+  | noise floor (amendment) | 0.008 | 0.002 | 0.001 | - |
+
+  Per scene the only change at 3 decimals is the lobby's PQ^sc 0.321 -> 0.322 (Refined Chamfer 8.295 -> 8.301 cm,
+  completeness 7.955 -> 7.965). Masks: 467 / 575 / 1776 -> 466 / 578 / 1786; 99.98 / 99.97 / 99.85% of pixels keep
+  the mask they shared most pixels with. The association alone (old vs new on the cached masks): the same
+  18029 / 8252 / 54878 directed pairs, linked ids bit-identical on all three scenes, largest share difference
+  1.5e-4 (lobby, one float64 rounding flip at a pixel edge); 2.90 / 1.97 / 2.63 s -> 0.62 / 0.56 / 0.62 s.
+- **Noise:** old A, old B and the eval's cached masks are bit-identical on all three scenes (results
+  `e39_compare_masks.txt`), so the floor is the recorded cross-GPU difference set in the amendment.
+- **Conclusion:** passes: SAM 3 + association take 46% less time (31.6 -> 17.1 s per 20-view scene, whole
+  pipeline 37.1 -> 22.6 s), the dev label scores are unchanged to 3 decimals, and the remaining difference
+  is bf16 rounding from batching the detector, smaller than what the same code shows between two GPUs. SAM 3 is
+  still 73% of the pipeline: under blocking launches 16.9 of its 21.6 s are the 200 detector passes (20 views x
+  10 batches) and 3.8 s the image encoder; more would need larger batches (memory) or fewer prompts, both out of
+  this issue's scope. The trial and run masks (`-e35oldA`, `-e35oldB`, `-e35b4`, `-e35new`) stay in the git-ignored
+  scene folders; the eval's own cache is unchanged.

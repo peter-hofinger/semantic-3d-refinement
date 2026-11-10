@@ -1,0 +1,8 @@
+git cf45970, NVIDIA GeForce RTX 3080
+ai_010_007_cam_00: 467 masks, 29.1 s, peak GPU 2.10 GB -> sam3image-nyu40-t0.3-e35oldA_views_n20_uniform_504.npz
+ai_006_007_cam_00: 575 masks, 29.1 s, peak GPU 2.11 GB -> sam3image-nyu40-t0.3-e35oldA_views_n20_uniform_504.npz
+ai_044_001_cam_00: 1776 masks, 29.7 s, peak GPU 2.14 GB -> sam3image-nyu40-t0.3-e35oldA_views_n20_uniform_504.npz
+git cf45970, NVIDIA GeForce RTX 3080
+ai_010_007_cam_00: 467 masks, 29.6 s, peak GPU 2.10 GB -> sam3image-nyu40-t0.3-e35oldB_views_n20_uniform_504.npz
+ai_006_007_cam_00: 575 masks, 29.4 s, peak GPU 2.11 GB -> sam3image-nyu40-t0.3-e35oldB_views_n20_uniform_504.npz
+ai_044_001_cam_00: 1776 masks, 30.1 s, peak GPU 2.14 GB -> sam3image-nyu40-t0.3-e35oldB_views_n20_uniform_504.npz

@@ -13,12 +13,6 @@ view into one object. An object takes the class covering most of its pixels.
 With detection scores, low-score masks can be dropped before linking, or kept only
 if they end up linked to a mask in another view (false detections rarely reappear
 at the same 3D place).
-
-Alternative overlap ("cloud", after Replicate Any Scene, arXiv 2604.10789, Eqs. 1-2):
-lift each mask to a point cloud and compare the clouds in 3D, with no projection
-and no visibility test. a -> b is the share of a's points whose nearest point of b
-lies within tau_a = 3 x the mean nearest-neighbour distance inside a's own cloud.
-The linking rule above (both directions, classes, greedy, one mask per view) stays.
 """
 
 from __future__ import annotations
@@ -31,11 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from src.geometry import Geometry
 from src.loaders import Views
 from src.loaders.ground_truth import GroundTruth
-from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation, count_pairs
+from src.segmentation.base import ID_STRIDE, NO_INSTANCE, Segmentation
 
 log = logging.getLogger(__name__)
 
@@ -53,120 +48,67 @@ class Associator:
     min_visible_fraction: float = 0.0
     # overlap needed to link masks of different classes; None: never link them
     cross_class_overlap: float | None = None
+    device: str | None = None  # where overlaps are computed; None: CUDA if available
     # scores as in SAM 3's threshold: a mask passes if its score is above the value
     min_score: float = 0.0  # masks not passing are dropped before linking
     # masks not passing are kept only if linked to a mask in another view
     keep_linked_below: float = 0.0
-    # "reproject": project into the other view; "cloud": 3D point-cloud distance
-    overlap_rule: str = "reproject"
-    cloud_tau_factor: float = 3.0  # tau = factor x mean nearest-neighbour distance
-    cloud_samples: int = 1000  # points of a per pair that estimate a -> b
-    # "min": both directions must overlap (ours); "max": either direction (RAS)
-    direction_rule: str = "min"
 
     def overlaps(
         self, seg: Segmentation, geometry: Geometry
     ) -> dict[tuple[int, int], float]:
-        """Directed overlap a -> b for every pair of masks in different views."""
-        if self.overlap_rule == "cloud":
-            return self.cloud_overlaps(seg, geometry)
-        assert self.overlap_rule == "reproject", self.overlap_rule  # noqa: S101
+        """Directed overlap a -> b for every pair of masks in different views.
+
+        Each view's labeled pixels are projected into all other views at once, in
+        torch on `device` (CUDA if available), in float64 as the depth's lift is.
+        """
+        device = torch.device(
+            self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        )
         num, height, width = seg.instance_ids.shape
-        points = geometry.world_points()
-        world_to_cam = np.linalg.inv(geometry.cam_to_world)
+        ids = torch.from_numpy(seg.instance_ids).to(device)
+        depth = torch.from_numpy(geometry.depth).to(device, torch.float64)
+        points = torch.from_numpy(geometry.world_points()).to(device, torch.float64)
+        world_to_cam = torch.from_numpy(np.linalg.inv(geometry.cam_to_world))
+        world_to_cam = world_to_cam.to(device, torch.float64)
+        k = torch.from_numpy(geometry.intrinsics).to(device, torch.float64)
+        stride = num * ID_STRIDE + 1  # ids + 1 of any view, NO_INSTANCE -> 0
         overlap: dict[tuple[int, int], float] = {}
         for i in range(num):
-            labeled = (seg.instance_ids[i] >= 0) & (geometry.depth[i] > 0)
-            src_ids = seg.instance_ids[i][labeled]
-            src_pts = points[i][labeled]
-            for j in range(num):
-                if i == j:
-                    continue
-                cam = src_pts @ world_to_cam[j, :3, :3].T + world_to_cam[j, :3, 3]
-                z = cam[:, 2]
-                k = geometry.intrinsics[j]
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    u = np.floor(k[0, 0] * cam[:, 0] / z + k[0, 2]).astype(np.int64)
-                    v = np.floor(k[1, 1] * cam[:, 1] / z + k[1, 2]).astype(np.int64)
-                inside = (z > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
-                u, v, z, ids = u[inside], v[inside], z[inside], src_ids[inside]
-                target_depth = geometry.depth[j][v, u]
-                known = target_depth > 0
-                in_ids, in_count = np.unique(ids[known], return_counts=True)
-                in_frame = dict(zip(in_ids.tolist(), in_count.tolist(), strict=True))
-                visible = (
-                    np.abs(z - target_depth) <= self.depth_tolerance * target_depth
-                )
-                ids, landed = ids[visible], seg.instance_ids[j][v[visible], u[visible]]
-                a_ids, a_inv, a_count = np.unique(
-                    ids, return_inverse=True, return_counts=True
-                )
-                sources, targets, n = count_pairs(a_inv, landed)
-                enough = (a_count >= self.min_visible) & (
-                    a_count
-                    >= self.min_visible_fraction
-                    * np.array([in_frame[m] for m in a_ids.tolist()])
-                )
-                for a, b, c in zip(sources, targets, n, strict=True):
-                    if b != NO_INSTANCE and enough[a]:
-                        overlap[int(a_ids[a]), int(b)] = c / a_count[a]
-        return overlap
-
-    def cloud_overlaps(
-        self, seg: Segmentation, geometry: Geometry
-    ) -> dict[tuple[int, int], float]:
-        """Directed 3D point-cloud overlap a -> b (RAS rule), masks in different views.
-
-        Masks with fewer than `min_visible` lifted points get no overlaps. The share
-        is estimated on a fixed random sample of a's points (`cloud_samples`).
-        """
-        from scipy.spatial import cKDTree  # noqa: PLC0415
-
-        points = geometry.world_points()
-        rng = np.random.default_rng(0)
-        masks: list[int] = []
-        trees, samples, taus, lows, highs = [], [], [], [], []
-        for i, view_ids in enumerate(seg.instance_ids):
-            valid = (
-                (view_ids >= 0)
-                & (geometry.depth[i] > 0)
-                & np.isfinite(points[i]).all(-1)
+            labeled = (ids[i] >= 0) & (depth[i] > 0)
+            src_ids, src_pts = ids[i][labeled].long(), points[i][labeled]
+            others = torch.tensor([j for j in range(num) if j != i], device=device)
+            rot = world_to_cam[others, :3, :3]
+            cam = src_pts @ rot.transpose(1, 2) + world_to_cam[others, None, :3, 3]
+            z, kj = cam[..., 2], k[others, :, :, None]
+            u = torch.floor(kj[:, 0, 0] * cam[..., 0] / z + kj[:, 0, 2])
+            v = torch.floor(kj[:, 1, 1] * cam[..., 1] / z + kj[:, 1, 2])
+            inside = (z > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
+            row, pixel = inside.nonzero(as_tuple=True)
+            j, u, v = others[row], u[row, pixel].long(), v[row, pixel].long()
+            target = depth[j, v, u]
+            # (target view, source mask) as one key; and with the mask landed on
+            source = j * stride + src_ids[pixel] + 1
+            known = target > 0
+            visible = (z[row, pixel] - target).abs() <= self.depth_tolerance * target
+            landed = ids[j, v, u].long() + 1
+            in_keys, in_frame = torch.unique(source[known], return_counts=True)
+            a_keys, a_count = torch.unique(source[visible], return_counts=True)
+            pair_keys, n = torch.unique(
+                source[visible] * stride + landed[visible], return_counts=True
             )
-            ids, pts = view_ids[valid], points[i][valid]
-            order = np.argsort(ids, kind="stable")
-            ids, pts = ids[order], pts[order]
-            starts = np.flatnonzero(np.r_[True, ids[1:] != ids[:-1]])
-            for m, cloud in zip(ids[starts], np.split(pts, starts[1:]), strict=True):
-                if len(cloud) < self.min_visible:
-                    continue
-                tree = cKDTree(cloud)
-                nn = tree.query(cloud, k=2, workers=-1)[0][:, 1]
-                pick = rng.choice(
-                    len(cloud), min(self.cloud_samples, len(cloud)), replace=False
-                )
-                masks.append(int(m))
-                trees.append(tree)
-                samples.append(cloud[pick])
-                taus.append(self.cloud_tau_factor * float(nn.mean()))
-                lows.append(cloud.min(0))
-                highs.append(cloud.max(0))
-        view = np.array(masks) // ID_STRIDE
-        low, high, tau = np.array(lows), np.array(highs), np.array(taus)
-        overlap: dict[tuple[int, int], float] = {}
-        for a in range(len(masks)):
-            # only clouds whose boxes come within tau_a can share points
-            near = (
-                (view != view[a])
-                & np.all(low[a] - tau[a] <= high, axis=1)
-                & np.all(high[a] + tau[a] >= low, axis=1)
+            at = torch.searchsorted(in_keys, a_keys)  # visible pixels are known ones
+            assert bool((in_keys[at] == a_keys).all())  # noqa: S101
+            frame = in_frame[at]
+            enough = (a_count >= self.min_visible) & (
+                a_count >= self.min_visible_fraction * frame
             )
-            for b in np.flatnonzero(near):
-                dist = trees[b].query(
-                    samples[a], distance_upper_bound=tau[a], workers=-1
-                )[0]
-                share = float(np.mean(dist < tau[a]))
-                if share > 0:
-                    overlap[masks[a], masks[b]] = share
+            a_of_pair = torch.searchsorted(a_keys, pair_keys // stride)
+            keep = (pair_keys % stride > 0) & enough[a_of_pair]
+            a = (pair_keys[keep] // stride % stride - 1).tolist()
+            b = (pair_keys[keep] % stride - 1).tolist()
+            shares = (n[keep].double() / a_count[a_of_pair[keep]]).tolist()
+            overlap.update(zip(zip(a, b, strict=True), shares, strict=True))
         return overlap
 
     def _needed(self, same_class: bool) -> float:  # noqa: FBT001
@@ -198,15 +140,12 @@ class Associator:
             assert np.all(local == i), f"ids in view {i} are not view-local"  # noqa: S101
         seg = self._drop_low(seg)
         overlap = self.overlaps(seg, geometry)
-        combine = {"min": min, "max": max}[self.direction_rule]
         pairs = {(min(a, b), max(a, b)) for a, b in overlap}
         edges = sorted(
             (
                 (score, a, b)
                 for a, b in pairs
-                if (
-                    score := combine(overlap.get((a, b), 0.0), overlap.get((b, a), 0.0))
-                )
+                if (score := min(overlap.get((a, b), 0.0), overlap.get((b, a), 0.0)))
                 >= self._needed(seg.classes.get(a) == seg.classes.get(b))
             ),
             reverse=True,
@@ -311,19 +250,6 @@ def main() -> None:
         help="keep masks scoring <= this only if linked to a mask in another view; "
         "output name gets kl<value>",
     )
-    parser.add_argument(
-        "--overlap",
-        choices=("reproject", "cloud"),
-        default="reproject",
-        help="'cloud': 3D point-cloud overlap after Replicate Any Scene; output name "
-        "gets pc",
-    )
-    parser.add_argument(
-        "--either-direction",
-        action="store_true",
-        help="link if either direction overlaps enough (RAS), not both; output name "
-        "gets or",
-    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -340,13 +266,7 @@ def main() -> None:
         min_visible_fraction=args.min_visible_fraction,
         min_score=args.min_score,
         keep_linked_below=args.keep_linked_below,
-        overlap_rule=args.overlap,
-        direction_rule="max" if args.either_direction else "min",
     ).associate(seg, geometry)
-    if args.either_direction:
-        tag = f"or-{tag}"
-    if args.overlap == "cloud":
-        tag = f"pc-{tag}"
     if args.keep_linked_below > 0:
         tag = f"kl{args.keep_linked_below:g}-{tag}"
     if args.min_score > 0:

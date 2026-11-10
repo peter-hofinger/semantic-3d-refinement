@@ -1,0 +1,6 @@
+NVIDIA GeForce RTX 3080
+scene | pairs numpy | pairs torch | max share diff | linked ids identical | numpy (s) | torch (s)
+---|---|---|---|---|---|---
+ai_010_007_cam_00 | 18029 | 18029 | 0.00e+00 | True | 2.90 | 0.62
+ai_006_007_cam_00 | 8252 | 8252 | 0.00e+00 | True | 1.97 | 0.56
+ai_044_001_cam_00 | 54878 | 54878 | 1.49e-04 | True | 2.63 | 0.62

@@ -1,0 +1,15 @@
+ai_006_007_cam_00: 20 views 504x378, git 79538a1, NVIDIA GeForce RTX 3080, torch 2.14.1+cu130
+
+weight loading (once, not in the total): Déjà View 1.0 s, SAM 3 1.1 s, DSINE 0.7 s
+
+stage | median of 3 (s) | runs (s) | share
+---|---|---|---
+Déjà View | 1.11 | 1.11, 1.11, 1.11 | 5%
+SAM 3 (per-view masks) | 16.57 | 16.55, 16.57, 16.57 | 73%
+association | 0.57 | 0.57, 0.57, 0.57 | 3%
+DSINE | 1.09 | 1.09, 1.09, 1.07 | 5%
+joint refiner | 3.24 | 3.24, 3.24, 3.23 | 14%
+total | 22.57 | | 100%
+
+SAM 3 + association: 17.14 s = 76% of the total
+peak GPU memory: 5.86 GB
