@@ -2819,3 +2819,45 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   bracketing grid step until the gap is below 0.0005 cm (half the last printed digit of every score) or the
   bracket is one pixel wide. Dev and stress keep their grid curves (`--reuse`, the same code scores them) and
   are solved again; val runs once, with the bisection.
+
+## Plan: E46 = filter Déjà View's points first, then refine what remains (10.11.2026)
+- **Goal (Peter, after E45):** at the refiner's completeness on dev (3.658 cm), filters of Déjà View's points are
+  more accurate than the refiner (voxel density 3.09, confidence 3.52, statistical outlier 3.80, refiner 4.20 cm),
+  and E38 traced the refiner's completeness loss to E_mv merging the views' layers. The opposite order is open:
+  drop the low-scoring points first, then refine only what remains, so E_mv's consensus is not pulled by them.
+  Does filter + refine lie above or below the same filter's own curve (accuracy against completeness), beyond
+  noise?
+- **Change (one):** a per-pixel keep mask in the refiner (`build_problem` / `refine_scene`). Removed pixels are no
+  unknowns of the solve: they stay at the input and come out NaN. Matches whose source pixel or one of the target
+  view's four interpolated pixels is removed are dropped; E_n's edges touching a removed pixel are cut; E_d and
+  λ_δ act only on kept pixels. What the refiner derives from the input as a whole stays as it is (the scale s,
+  Otsu's threshold, each view's neighbors, u, the occlusion contours): the mask only removes pixels from E. An
+  all-true mask returns the unmasked solve bit for bit (CPU test).
+- **Setting:** the refiner on main (E41's: 5 x 10, u with the own view, BiNI E_n, every weight 1), this machine's
+  RTX 3080, the cached inputs of `configs/eval_hypersim.yaml`. Filters: E45's three best on dev, voxel density,
+  confidence and statistical outlier, scored on Déjà View's input exactly as in E45 (`src/analysis/filters.py`,
+  pooled over the 20 views, ties by the fixed permutation). Each keeps the top fraction q, then the refiner runs
+  on the kept pixels; the output is scored by the protocol as is (Umeyama on the kept pixels, accuracy over them,
+  completeness over every GT point), as E45 scores a filter. Grid q = 1, 0.9, ..., 0.1 on dev and stress (q = 1
+  is the refiner itself: it must repeat E45's run); val once as a check at q = 1, 0.8, 0.6, 0.4, 0.2. No test
+  scene. No new constant: the cut is a quantile, the grid is the curve's resolution.
+- **Equal completeness:** per scene and grid point, the same filter without refinement is solved to the
+  completeness filter + refine reached (E45's bisection, `e45_filters.sweep`, to a gap below 0.0005 cm), and
+  accuracy and Chamfer are compared there. The split's numbers are means over scenes. E45's curves without
+  refinement (same run, same code) are reused for dev and stress.
+- **Rule, fixed before running:** E40's cross-GPU floor, 0.033 / 0.037 / 0.036 cm (accuracy / completeness /
+  Chamfer, dev aggregate). At a grid point, filter + refine lies **above** the filter's curve if its accuracy is
+  lower by more than 0.033 cm and its Chamfer by more than 0.036; **below** if both are higher by more than that;
+  otherwise a tie. The answer per filter is the verdict over the grid on dev, stress as a second look, val as a
+  check.
+- **Expected, written before running:** the refiner alone (q = 1) lies far below every filter's curve (E45), and
+  removing a filter's worst points does not change the refiner's trade, which E38 traced to merging good layers,
+  not to outliers pulling them. So voxel density + refine lies below voxel density's curve at every q. For
+  confidence, E45 found refine-then-cut above confidence alone at low completeness; in the other order I expect
+  the same crossing: below near q = 1, above or a tie at low q. Statistical outlier: below, as voxel density.
+- **Report:** curves per filter (with and without refinement, E45's refine-then-cut for reference) per scene and
+  as dev / stress means; the Δ at equal completeness per grid point; the bedroom (`ai_006_007`, views 18, 0, 12,
+  6): the best filter alone next to filter + refine at the same q, rendered from the same cameras
+  (`scene_figures.render_figure`).
+- **Cost:** about 3 s per refinement on the RTX 3080: 3 filters x (6 x 10 + 11 x 5) = 345 refinements, about 18
+  min of GPU; the bisections run meanwhile on the CPU in 6 processes, about 25 min in all.
