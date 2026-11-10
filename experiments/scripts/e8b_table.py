@@ -1,4 +1,4 @@
-"""E8b: the controls' surface scores, each variant against a reference variant.
+"""E8b (and E8c): the controls' surface scores, each variant against a reference.
 
 Reads the `run.yaml` of `experiments/configs/e8b_dropout.yaml`. Per split and reference
 (Off, and the random cut at SAM 3's size, seed 0): each variant's aggregate accuracy,
@@ -8,6 +8,8 @@ variant as a share of Off's, mean over scenes. Lower is better for all three sco
 
 uv run python experiments/scripts/e8b_table.py runs/<run>/run.yaml \
     > experiments/results/e8b_table.txt
+
+Further arguments replace the references; E8c passes `Off "gate only"`.
 """
 
 import sys
@@ -61,7 +63,7 @@ def main() -> None:
         if "aggregate" not in report:
             continue
         aggregate = {"variants": report["aggregate"]}
-        for ref in REFERENCES:
+        for ref in sys.argv[2:] or REFERENCES:
             print(f"\n## {split}: aggregate ({len(scenes)} scenes), Δ vs {ref}")
             print("variant | aggregate | Δ aggregate | Δ median scene | scenes worse")
             for v in variants:

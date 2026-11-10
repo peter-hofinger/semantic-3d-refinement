@@ -74,6 +74,7 @@ Metrics:
 | E44 | E_mv reads the other view at its nearest pixel, as u does (no interpolation, no 1 px border, no four-corner check) | dev ties (+0.011 / -0.016 / -0.002 cm), 1.9 -> 1.4 s per scene; val worse on all three (+0.048 / +0.105 / +0.077, median scene +0.015 / +0.051 / +0.026), so reverted: E_mv stays bilinear |
 | E8a | Segment ablation (issue #8): the joint refiner given no, SAM 3's, Hypersim GT, per-view permuted and 4 px shifted segments, one run, dev + val + stress | the segments only filter E_mv's matches: completeness follows the share kept (per-scene Spearman 1.00 dev, 0.90 val); Chamfer vs no segments: SAM 3 -0.069 / -0.119 cm (dev / val), GT -0.021 / -0.043, permuted -0.249 / -0.346; GT gains least and scrambled ids most, so SAM 3 is not the bottleneck and the gain is not semantic; every refined variant stays worse than Déjà View on Chamfer |
 | E8b | Controls for E8a (issue #8): E_mv's matches cut at random to SAM 3's per-scene count, SAM 3's ids gating E_mv alone, a random cut at the permuted ids' count | a random cut of SAM 3's size acts like no cut (Chamfer vs Off -0.016 / -0.015 cm, dev / val), so E8a's "the gain is the count" is wrong; SAM 3 cuts the matches with the largest residuals (12.7% / 15.8% of E_mv's energy in 8.6% / 9.8% of matches), 2x as often at mask edges, and whole regions linked inconsistently; the gate alone carries about a third of SAM 3's gain over the random cut; still the same accuracy-for-completeness trade, nothing near Déjà View's Chamfer |
+| E8c | Residual test for E8b (issue #8): E_mv keeps the matches of smallest initial absolute residual at SAM 3's and the permuted ids' per-scene counts, no segments | residual @ SAM 3 = gate only on completeness and Chamfer (Chamfer +0.011 / -0.003 cm, dev / val; accuracy +0.042 / +0.025) while sharing only 15% / 18% of SAM 3's cut and removing 4x its share of E_mv's energy; at the permuted count it gets 98% / 84% of permuted's Chamfer gain; the scores do not care which non-random cut, so the segments are one of several equivalent ways to do less E_mv |
 
 ## Reference table (current scorer, E11)
 
@@ -2973,3 +2974,68 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   Clearly better -> a plain residual test beats the segments at their own job.
 - **Setting:** `experiments/configs/e8c_residual.yaml`, `scene_eval --splits dev val stress`, student cluster RTX
   5090, one job (~6 min, as E8b's). Déjà View, Off, SAM 3, random and gate only must repeat E8b's scores.
+
+## E8c: a residual test of SAM 3's size does what SAM 3's gate does, while cutting mostly other matches (10.11.2026)
+- **Question, variants, reading:** as in the plan above (issue #8); run as planned, nothing changed after seeing
+  numbers.
+- **Commits:** da8dd77 (`MatchSelection.by`: `random` or `residual`, `keep_by` per variant in `scene_eval`, tests),
+  5f34a8d (plan, config), this commit (`e8c_overlap.py`, `e8c_figures.py`, `e8b_table.py` takes the references as
+  arguments, results, figure).
+- **Commands** (student cluster at 5f34a8d; the run is marked dirty only by the two untracked E8c scripts, which
+  `scene_eval` does not import and which match this commit's by md5): `scene_eval --cfg
+  experiments/configs/e8c_residual.yaml --splits dev val stress` (job 1700, RTX 5090, 6:18 for all seven variants;
+  run `e8c_residual-20261110-153920`); `e8c_overlap.py experiments/configs/e8c_residual.yaml --splits dev val` ->
+  `results/e8c_overlap.txt` and `e8c_figures.py <run>` -> `results/e8c_figures.txt`, `figures/e8c_bedroom.jpg`
+  (CPU job 1701); here, from the copied run.yaml, `e8b_table.py <run>/run.yaml Off "gate only"` ->
+  `results/e8c_table.txt`. Déjà View, Off, SAM 3, random @ SAM 3 and gate only repeat E8b's scores to the third
+  decimal on dev and val.
+- **Results, cm** (accuracy / completeness / Chamfer, lower is better; Δ against gate only; floor 0.033 / 0.037 /
+  0.036; "worse" = scenes on which the variant is worse than gate only). Matches kept, share of Off's: dev / val
+  0.914 / 0.902 for SAM 3, random, gate only and residual @ SAM 3; 0.130 / 0.217 for residual @ permuted.
+
+  | split | variant | aggregate | Δ vs gate only | Δ median scene | scenes worse |
+  |---|---|---|---|---|---|
+  | dev (3) | Déjà View | 4.651 / 2.307 / 3.479 | +0.539 / -1.434 / -0.447 | +0.414 / -0.586 / -0.121 | 3 / 0 / 0 |
+  | | Off | 4.097 / 3.828 / 3.962 | -0.015 / +0.087 / +0.036 | -0.015 / +0.058 / +0.021 | 0 / 3 / 2 |
+  | | SAM 3 | 4.167 / 3.620 / 3.893 | +0.054 / -0.121 / -0.033 | +0.028 / -0.055 / -0.013 | 3 / 0 / 0 |
+  | | random @ SAM 3, seed 0 | 4.100 / 3.792 / 3.946 | -0.012 / +0.051 / +0.020 | -0.014 / +0.039 / +0.013 | 0 / 2 / 2 |
+  | | gate only | 4.112 / 3.741 / 3.927 | | | |
+  | | residual @ SAM 3 | 4.154 / 3.720 / 3.937 | +0.042 / -0.020 / +0.011 | +0.021 / -0.012 / +0.016 | 3 / 1 / 3 |
+  | | residual @ permuted | 4.495 / 2.942 / 3.719 | +0.383 / -0.799 / -0.208 | +0.317 / -0.428 / -0.103 | 3 / 0 / 0 |
+  | | (E8a) permuted | 4.484 / 2.943 / 3.713 | | | |
+  | val (11) | Déjà View | 6.065 / 4.147 / 5.106 | +0.429 / -1.604 / -0.587 | +0.362 / -1.013 / -0.219 | 11 / 0 / 1 |
+  | | Off | 5.635 / 5.851 / 5.743 | -0.001 / +0.100 / +0.049 | -0.005 / +0.029 / +0.020 | 5 / 11 / 7 |
+  | | SAM 3 | 5.688 / 5.559 / 5.624 | +0.052 / -0.192 / -0.070 | +0.043 / -0.067 / -0.006 | 11 / 0 / 5 |
+  | | random @ SAM 3, seed 0 | 5.634 / 5.823 / 5.728 | -0.003 / +0.071 / +0.034 | -0.004 / +0.015 / +0.010 | 5 / 11 / 7 |
+  | | gate only | 5.636 / 5.751 / 5.694 | | | |
+  | | residual @ SAM 3 | 5.661 / 5.719 / 5.690 | +0.025 / -0.032 / -0.003 | +0.019 / -0.032 / -0.003 | 8 / 2 / 4 |
+  | | residual @ permuted | 5.818 / 5.085 / 5.451 | +0.182 / -0.666 / -0.242 | +0.200 / -0.569 / -0.166 | 9 / 0 / 0 |
+  | | (E8a) permuted | 5.817 / 4.978 / 5.397 | | | |
+
+  Stress orders the same way (`e8c_table.txt`, per scene only). Refinement takes 1.1-1.4 s per scene with the
+  residual cut (dev / val means), about as long as gate only.
+- **Residual @ SAM 3 = gate only** on completeness and Chamfer, within the floor on both splits (Chamfer +0.011 /
+  -0.003); accuracy is worse by +0.042 / +0.025, beyond the floor on dev. Against SAM 3 it is worse by +0.044 /
+  +0.066 Chamfer, the part E8b put on u and E_n's cut edges.
+- **They cut different matches** (`e8c_overlap.txt`, on the input, dev / val means): only 14.9% / 17.8% of SAM 3's
+  cut is also in the residual cut (8.6% / 9.8% expected at random). The residual cut carries 48.9% / 58.5% of E_mv's
+  initial energy against SAM 3's 12.7% / 15.8%, and lies less at mask edges (35.8% / 31.1% within 3 px of a SAM 3
+  boundary, against 58.1% / 44.0%). So the gate is not a residual detector: a test that cuts about four times
+  as much of E_mv's initial energy, mostly elsewhere, lands on the same scores.
+- **Residual @ permuted vs permuted:** at the permuted ids' count the residual cut gets 98% / 84% of permuted's
+  Chamfer gain over Off (dev / val), against 79% / 35% for the random cut there (E8b). E8a's largest gain is the
+  count plus a residual-like choice, not the ids.
+- **Figure:** `figures/e8c_bedroom.jpg`, bedroom views 18, 0, 12, 6: the share of each pixel's matches SAM 3's
+  gate and the residual test cut, the distance to the GT with the gate only, and residual @ SAM 3 / SAM 3 minus
+  gate only on ±2 cm. SAM 3 cuts thin mask edges and the inconsistently linked ceiling; the residual test cuts
+  whole patches of bed cover, floor and furniture. Residual minus gate only changes broad regions with both signs
+  (a wall patch in view 12 moves away from the GT); SAM 3 minus gate only changes edges. Bedroom, all 20 views:
+  mean +0.021 cm for residual @ SAM 3 (8.1% of pixels change by > 0.5 cm), +0.022 for SAM 3 (6.6%).
+- **Reading, by the plan's rule:** residual @ SAM 3 is within the floor of gate only on completeness and Chamfer,
+  so on those scores the segments' gate adds nothing a semantics-free residual test does not, though the two pick
+  mostly different matches. What SAM 3 adds beyond either is u and E_n's edges (E8b), and all of it stays the same
+  trade of accuracy for completeness, far from Déjà View's Chamfer.
+- **Conclusion:** how many of E_mv's matches are cut matters, and so does cutting non-randomly, but the scores
+  barely care which non-random cut: segment edges, inconsistent ids and large residuals all buy the same small
+  completeness gain. For issue #8: the segments act on the joint refiner as one of several equivalent ways to do
+  less of E_mv's merging, not as semantics that move the surface towards the GT.
