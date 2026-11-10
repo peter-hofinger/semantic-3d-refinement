@@ -2384,3 +2384,8 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   (`ai_006_007`, views 18, 0, 12, 6) refined depth of the final configuration against the unchanged refiner.
   mIoU, PQ^sc and AP once at the end (labels do not move with refinement).
 - **Cost:** ~25 variants x 3 dev scenes at ~4 s each, plus scoring, ~10 min; val prep ~30 min, val run ~5 min.
+- **Amendment before any score (10.11.2026):** the first sweep run stopped with CUDA out of memory and wrote no
+  scores. A probe (refiner alone, peak allocated memory) found the cause: matching all 19 views does not fit on the
+  RTX 3080's 10 GB in the living room (neighbors 4 / 8: 16.1M / 26.1M matches, 4.8 / 7.2 GB; 19: out of memory;
+  bedroom 19: 14.0M matches, 4.3 GB; lobby 19: 26.2M, 7.2 GB). "neighbors all" is dropped from the sweep, so the
+  remove option of that row cannot be tested on this machine; 2 and 8 stay.

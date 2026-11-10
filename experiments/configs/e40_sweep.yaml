@@ -47,9 +47,6 @@ variants:
   - name: neighbors 8
     refiner: joint
     refine: {neighbors: 8}
-  - name: neighbors all
-    refiner: joint
-    refine: {neighbors: 19}
   - name: border 0 px
     refiner: joint
     refine: {border: 0}
