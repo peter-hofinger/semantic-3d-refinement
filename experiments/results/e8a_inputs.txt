@@ -1,0 +1,70 @@
+ai_010_007_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_010_007_cam_00 |     SAM 3 | no segment 0.060 | ids   62 | mean u 0.852 | E_mv kept 0.974
+ai_010_007_cam_00 |        GT | no segment 0.012 | ids   37 | mean u 0.871 | E_mv kept 0.989
+ai_010_007_cam_00 |  permuted | no segment 0.060 | ids   62 | mean u 0.139 | E_mv kept 0.088
+ai_010_007_cam_00 |   shifted | no segment 0.068 | ids   62 | mean u 0.821 | E_mv kept 0.932
+ai_006_007_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_006_007_cam_00 |     SAM 3 | no segment 0.131 | ids  185 | mean u 0.756 | E_mv kept 0.903
+ai_006_007_cam_00 |        GT | no segment 0.046 | ids   86 | mean u 0.816 | E_mv kept 0.969
+ai_006_007_cam_00 |  permuted | no segment 0.131 | ids  185 | mean u 0.203 | E_mv kept 0.131
+ai_006_007_cam_00 |   shifted | no segment 0.138 | ids  185 | mean u 0.734 | E_mv kept 0.869
+ai_044_001_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_044_001_cam_00 |     SAM 3 | no segment 0.145 | ids  381 | mean u 0.732 | E_mv kept 0.864
+ai_044_001_cam_00 |        GT | no segment 0.147 | ids   65 | mean u 0.885 | E_mv kept 0.977
+ai_044_001_cam_00 |  permuted | no segment 0.145 | ids  381 | mean u 0.143 | E_mv kept 0.169
+ai_044_001_cam_00 |   shifted | no segment 0.152 | ids  380 | mean u 0.682 | E_mv kept 0.805
+ai_003_010_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_003_010_cam_00 |     SAM 3 | no segment 0.084 | ids  104 | mean u 0.815 | E_mv kept 0.931
+ai_003_010_cam_00 |        GT | no segment 0.793 | ids   53 | mean u 0.830 | E_mv kept 0.984
+ai_003_010_cam_00 |  permuted | no segment 0.084 | ids  104 | mean u 0.175 | E_mv kept 0.096
+ai_003_010_cam_00 |   shifted | no segment 0.092 | ids  104 | mean u 0.783 | E_mv kept 0.887
+ai_004_003_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_004_003_cam_00 |     SAM 3 | no segment 0.048 | ids   86 | mean u 0.791 | E_mv kept 0.896
+ai_004_003_cam_00 |        GT | no segment 0.016 | ids   25 | mean u 0.895 | E_mv kept 0.980
+ai_004_003_cam_00 |  permuted | no segment 0.048 | ids   86 | mean u 0.157 | E_mv kept 0.065
+ai_004_003_cam_00 |   shifted | no segment 0.056 | ids   86 | mean u 0.765 | E_mv kept 0.859
+ai_004_004_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_004_004_cam_00 |     SAM 3 | no segment 0.324 | ids   95 | mean u 0.609 | E_mv kept 0.897
+ai_004_004_cam_00 |        GT | no segment 0.236 | ids   35 | mean u 0.759 | E_mv kept 0.961
+ai_004_004_cam_00 |  permuted | no segment 0.324 | ids   95 | mean u 0.147 | E_mv kept 0.317
+ai_004_004_cam_00 |   shifted | no segment 0.329 | ids   95 | mean u 0.581 | E_mv kept 0.860
+ai_004_010_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_004_010_cam_00 |     SAM 3 | no segment 0.111 | ids   83 | mean u 0.817 | E_mv kept 0.928
+ai_004_010_cam_00 |        GT | no segment 0.404 | ids   19 | mean u 0.872 | E_mv kept 0.989
+ai_004_010_cam_00 |  permuted | no segment 0.111 | ids   83 | mean u 0.137 | E_mv kept 0.118
+ai_004_010_cam_00 |   shifted | no segment 0.117 | ids   82 | mean u 0.792 | E_mv kept 0.897
+ai_005_005_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_005_005_cam_00 |     SAM 3 | no segment 0.215 | ids  176 | mean u 0.682 | E_mv kept 0.876
+ai_005_005_cam_00 |        GT | no segment 0.384 | ids   36 | mean u 0.789 | E_mv kept 0.974
+ai_005_005_cam_00 |  permuted | no segment 0.215 | ids  176 | mean u 0.201 | E_mv kept 0.239
+ai_005_005_cam_00 |   shifted | no segment 0.221 | ids  175 | mean u 0.670 | E_mv kept 0.860
+ai_007_001_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_007_001_cam_00 |     SAM 3 | no segment 0.110 | ids   88 | mean u 0.789 | E_mv kept 0.953
+ai_007_001_cam_00 |        GT | no segment 0.000 | ids   23 | mean u 0.863 | E_mv kept 0.981
+ai_007_001_cam_00 |  permuted | no segment 0.110 | ids   88 | mean u 0.180 | E_mv kept 0.141
+ai_007_001_cam_00 |   shifted | no segment 0.118 | ids   88 | mean u 0.761 | E_mv kept 0.915
+ai_009_007_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_009_007_cam_00 |     SAM 3 | no segment 0.255 | ids  123 | mean u 0.699 | E_mv kept 0.849
+ai_009_007_cam_00 |        GT | no segment 0.240 | ids   15 | mean u 0.883 | E_mv kept 0.985
+ai_009_007_cam_00 |  permuted | no segment 0.255 | ids  123 | mean u 0.223 | E_mv kept 0.219
+ai_009_007_cam_00 |   shifted | no segment 0.261 | ids  123 | mean u 0.683 | E_mv kept 0.827
+ai_009_009_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_009_009_cam_00 |     SAM 3 | no segment 0.444 | ids  155 | mean u 0.570 | E_mv kept 0.861
+ai_009_009_cam_00 |        GT | no segment 0.000 | ids   16 | mean u 0.869 | E_mv kept 0.982
+ai_009_009_cam_00 |  permuted | no segment 0.444 | ids  155 | mean u 0.182 | E_mv kept 0.515
+ai_009_009_cam_00 |   shifted | no segment 0.449 | ids  154 | mean u 0.546 | E_mv kept 0.834
+ai_031_004_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_031_004_cam_00 |     SAM 3 | no segment 0.436 | ids  223 | mean u 0.598 | E_mv kept 0.906
+ai_031_004_cam_00 |        GT | no segment 0.054 | ids   86 | mean u 0.764 | E_mv kept 0.954
+ai_031_004_cam_00 |  permuted | no segment 0.436 | ids  223 | mean u 0.139 | E_mv kept 0.390
+ai_031_004_cam_00 |   shifted | no segment 0.440 | ids  223 | mean u 0.573 | E_mv kept 0.870
+ai_044_003_cam_01 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_044_003_cam_01 |     SAM 3 | no segment 0.146 | ids   78 | mean u 0.850 | E_mv kept 0.929
+ai_044_003_cam_01 |        GT | no segment 0.003 | ids   30 | mean u 0.929 | E_mv kept 0.976
+ai_044_003_cam_01 |  permuted | no segment 0.146 | ids   78 | mean u 0.132 | E_mv kept 0.164
+ai_044_003_cam_01 |   shifted | no segment 0.153 | ids   78 | mean u 0.819 | E_mv kept 0.890
+ai_050_002_cam_00 |       Off | no segment 1.000 | ids    1 | mean u nan | E_mv kept 1.000
+ai_050_002_cam_00 |     SAM 3 | no segment 0.128 | ids  213 | mean u 0.657 | E_mv kept 0.895
+ai_050_002_cam_00 |        GT | no segment 0.204 | ids  145 | mean u 0.735 | E_mv kept 0.972
+ai_050_002_cam_00 |  permuted | no segment 0.128 | ids  213 | mean u 0.166 | E_mv kept 0.120
+ai_050_002_cam_00 |   shifted | no segment 0.135 | ids  213 | mean u 0.633 | E_mv kept 0.850

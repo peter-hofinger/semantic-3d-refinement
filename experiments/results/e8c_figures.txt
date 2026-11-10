@@ -1,0 +1,6 @@
+ai_006_007_cam_00, all 20 views, residual @ SAM 3 minus gate only: mean +0.0208 cm, pixels changed by > 0.5 cm 0.0806
+ai_006_007_cam_00, all 20 views, SAM 3 minus gate only: mean +0.0221 cm, pixels changed by > 0.5 cm 0.0664
+ai_006_007_cam_00, all 20 views, Off minus gate only: mean -0.0142 cm, pixels changed by > 0.5 cm 0.0516
+ai_006_007_cam_00, all 20 views, random @ SAM 3, seed 0 minus gate only: mean -0.0132 cm, pixels changed by > 0.5 cm 0.0495
+ai_006_007_cam_00: matched pixels 0.884, of them with any match cut by SAM 3 0.180, by residual 0.225, by both 0.053
+wrote experiments/figures/e8c_bedroom.jpg

@@ -6,7 +6,14 @@ import numpy as np
 import pytest
 import yaml
 
-from src.analysis.scene_eval import HEADLINE, split_report, split_scenes, tiers
+from src.analysis.scene_eval import (
+    HEADLINE,
+    permute_per_view,
+    shift_per_view,
+    split_report,
+    split_scenes,
+    tiers,
+)
 from src.evaluation.labeled import (
     NONE,
     LabeledCloud,
@@ -17,7 +24,7 @@ from src.evaluation.labeled import (
     surface_metrics,
     umeyama,
 )
-from src.segmentation.base import Segmentation
+from src.segmentation.base import NO_INSTANCE, Segmentation
 
 EVALUATED = ["chair", "floor"]
 
@@ -313,3 +320,39 @@ def test_a_missing_input_stops_the_run_before_it_starts(tmp_path: Path) -> None:
     for name in ("views", "gt_views", "backbone_views", "masks_views", "dsine_views"):
         (folder / f"{name}.npz").touch()
     assert split_scenes(raw, ["dev"]) == {"dev": ["ai_000_000_cam_00"]}
+
+
+def ids_two_views() -> np.ndarray:
+    """Two 6 x 8 views with three instances and an unlabeled band."""
+    ids = np.full((2, 6, 8), NO_INSTANCE, dtype=np.int32)
+    ids[:, :, :3], ids[:, :, 3:6], ids[:, :3, 6:] = 4, 7, 9
+    return ids
+
+
+def test_permuting_per_view_keeps_each_views_grouping() -> None:
+    ids = ids_two_views()
+    out = permute_per_view(ids, np.random.default_rng(0))
+    assert ((out == NO_INSTANCE) == (ids == NO_INSTANCE)).all()
+    for view, view_ids in zip(out, ids, strict=True):
+        pairs = set(zip(view_ids.ravel().tolist(), view.ravel().tolist(), strict=True))
+        assert len(pairs) == len(np.unique(view_ids))  # a bijection on the view's ids
+        assert set(view.ravel().tolist()) == set(view_ids.ravel().tolist())
+
+
+def test_permuting_per_view_scrambles_identity_across_views() -> None:
+    ids = np.broadcast_to(np.arange(50, dtype=np.int32)[None, None], (2, 1, 50))
+    out = permute_per_view(ids.copy(), np.random.default_rng(0))
+    assert (out[0] != out[1]).mean() > 0.9
+
+
+def test_shifting_moves_every_mask_by_the_same_pixels() -> None:
+    ids = ids_two_views()
+    out = shift_per_view(ids, 2, np.random.default_rng(0))
+    for view, view_ids in zip(out, ids, strict=True):
+        moved = [
+            (dy, dx)
+            for dy, dx in ((2, 0), (-2, 0), (0, 2), (0, -2))
+            if (np.roll(view_ids, (dy, dx), axis=(0, 1)) == view)[2:-2, 2:-2].all()
+        ]
+        assert moved, view
+        assert (view == NO_INSTANCE).sum() >= 2 * min(view.shape)

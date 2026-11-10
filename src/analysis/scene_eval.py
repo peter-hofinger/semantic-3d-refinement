@@ -10,6 +10,10 @@ by Umeyama on the pixels, then surface and label scores, per scene and per class
 labels are the linked SAM 3 masks and are scored per pixel, so every variant has the
 same label scores; refinement shows in the surface scores. A segmenter that links its
 masks across views itself (SegVGGT) sets `linked: true`; its masks skip the association.
+A joint variant's `segments` picks what the refiner groups by, for the segment ablation
+(E8a): the linked masks (default), the ground truth's instances, none, or the linked
+masks with their identities or boundaries corrupted (`variant_segments`); the labels
+that are scored stay the linked masks.
 The config names the splits that get an aggregate (`split_scores`) and those that keep
 per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
@@ -52,7 +56,7 @@ from src.refinement.multiview import (
     scene_from_geometry,
     scene_normals,
 )
-from src.segmentation.base import Segmentation
+from src.segmentation.base import NO_INSTANCE, Segmentation
 from src.segmentation.linked import working_associator
 
 # A variant's scores have three tiers: `headline`, the paper's table; `supplementary`,
@@ -180,6 +184,72 @@ def summary_line(label: str, variant: str, scores: dict) -> str:
     return f"{label} | {variant} | {values} | {scores['refinement_s']:.1f} s"
 
 
+def permute_per_view(ids: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Relabel each view's instances by its own random permutation of its ids.
+
+    Grouping and boundaries within a view stay; which instance an id names across views
+    is scrambled (one permutation for all views would be a no-op). NO_INSTANCE stays.
+    """
+    assert ids.ndim == 3 and ids.dtype == np.int32, (ids.shape, ids.dtype)  # noqa: PLR2004
+    out = ids.copy()
+    for view, view_ids in zip(out, ids, strict=True):
+        labeled = view_ids != NO_INSTANCE
+        own, index = np.unique(view_ids[labeled], return_inverse=True)
+        view[labeled] = rng.permutation(own)[index]
+    assert ((out == NO_INSTANCE) == (ids == NO_INSTANCE)).all()
+    return out
+
+
+def shift_per_view(
+    ids: np.ndarray, pixels: int, rng: np.random.Generator
+) -> np.ndarray:
+    """Translate each view's id map by `pixels` along a random axis direction.
+
+    The masks keep their ids and shapes but sit off the image's edges by `pixels`; the
+    border they uncover gets NO_INSTANCE.
+    """
+    assert ids.ndim == 3 and ids.dtype == np.int32 and pixels > 0, ids.shape  # noqa: PLR2004
+    out = np.full_like(ids, NO_INSTANCE)
+    h, w = ids.shape[1:]
+    for view in range(len(ids)):
+        dy, dx = ((pixels, 0), (-pixels, 0), (0, pixels), (0, -pixels))[rng.integers(4)]
+        out[view, max(dy, 0) : h + min(dy, 0), max(dx, 0) : w + min(dx, 0)] = ids[
+            view, max(-dy, 0) : h + min(-dy, 0), max(-dx, 0) : w + min(-dx, 0)
+        ]
+    return out
+
+
+def variant_segments(inputs: SceneInputs, variant: dict) -> torch.Tensor | None:
+    """Return the refiner's segments: (V, H, W) int64 ids, -1 for none; None for off.
+
+    `segments` is `sam3` (the linked masks, default), `gt` (Hypersim's instances, the
+    unlabeled and no-mesh pixels as none), `none`, or the linked masks corrupted:
+    `permuted` (`permute_per_view`) or `shifted` by `shift_px` (`shift_per_view`), drawn
+    with the variant's `seed`.
+    """
+    kind = variant.get("segments", "sam3")
+    rng = np.random.default_rng(variant.get("seed", 0))
+    sam3 = inputs.labels.instance_ids
+    match kind:
+        case "none":
+            return None
+        case "sam3":
+            ids = sam3
+        case "gt":
+            ids = np.where(
+                inputs.gt.instance_ids < 0, NO_INSTANCE, inputs.gt.instance_ids
+            )
+        case "permuted":
+            ids = permute_per_view(sam3, rng)
+        case "shifted":
+            ids = shift_per_view(sam3, variant["shift_px"], rng)
+        case _:
+            msg = f"unknown segments: {kind}"
+            raise ValueError(msg)
+    assert ids.shape == inputs.scene.depth.shape, (ids.shape, inputs.scene.depth.shape)
+    return torch.from_numpy(ids.astype(np.int64))
+
+
 def refine_variant(
     inputs: SceneInputs, variant: dict, base: RefineConfig
 ) -> tuple[float, dict, np.ndarray, np.ndarray]:
@@ -189,7 +259,7 @@ def refine_variant(
     depth = scene.depth
     if variant["refiner"] == "joint":
         cfg = dataclasses.replace(base, **variant.get("refine", {}))
-        segments = torch.from_numpy(inputs.labels.instance_ids.astype(np.int64))
+        segments = variant_segments(inputs, variant)
         t0 = time.perf_counter()
         depth, log, counts = refine_scene(scene, cfg, inputs.normals, segments)
         if depth.is_cuda:

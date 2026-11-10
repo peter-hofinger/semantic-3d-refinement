@@ -1,0 +1,43 @@
+# E8b (experiments/LOG.md, issue #8): controls for E8a. No segments, but E_mv's matches
+# cut at random to the number SAM 3's (or the permuted ids') gate keeps on each scene
+# (`keep_like`), and SAM 3's ids gating E_mv alone (`gate`; u = 1, E_n ungated).
+# `--splits dev val stress`. Otherwise configs/eval_hypersim.yaml's protocol.
+# Runs at f115eaf only: its variant keys were removed after E8c (experiments/LOG.md).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: "Off"
+    refiner: joint
+    segments: none
+  - name: SAM 3
+    refiner: joint
+    segments: sam3
+  - name: random @ SAM 3, seed 0
+    refiner: joint
+    segments: none
+    keep_like: sam3
+    seed: 0
+  - name: random @ SAM 3, seed 1
+    refiner: joint
+    segments: none
+    keep_like: sam3
+    seed: 1
+  - name: gate only
+    refiner: joint
+    segments: none
+    gate: sam3
+  - name: random @ permuted
+    refiner: joint
+    segments: none
+    keep_like: permuted
+    seed: 0
