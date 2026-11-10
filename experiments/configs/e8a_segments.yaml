@@ -1,0 +1,36 @@
+# E8a (experiments/LOG.md, issue #8): the segment ablation. The same refiner on the same
+# scenes, given no segments, SAM 3's linked masks, Hypersim's GT instances, or the linked
+# masks with identities permuted per view or boundaries shifted by 4 px
+# (`variant_segments` in src/analysis/scene_eval.py). Scored labels stay SAM 3's.
+# `--splits dev val stress`. Otherwise configs/eval_hypersim.yaml's protocol.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: "Off"
+    refiner: joint
+    segments: none
+  - name: SAM 3
+    refiner: joint
+    segments: sam3
+  - name: GT
+    refiner: joint
+    segments: gt
+  - name: permuted
+    refiner: joint
+    segments: permuted
+    seed: 0
+  - name: shifted
+    refiner: joint
+    segments: shifted
+    shift_px: 4
+    seed: 0

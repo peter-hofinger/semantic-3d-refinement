@@ -2761,3 +2761,33 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   ones, not measured separately) cost completeness. Reverted: E_mv reads j bilinearly again, with its 1 px border
   and four-corner check, whose reasons stand (`MATCH_BORDER`). u keeps its nearest pixel; it only reads a label,
   for which interpolation has no meaning.
+
+## Plan: E8a = do the segments help the joint refiner, and is SAM 3 the bottleneck (issue #8, 10.11.2026)
+- **Question:** the refiner reads the segments in three places: u in E_d's weight, E_mv's gate (a match counts
+  only if it lands on its source's instance) and E_n's edges (only within one instance). Does any of that help,
+  and if the segments were perfect, would it help more? Prior hints only: E40 found removing u a tie; Peter's
+  dev table before the current protocol (05.11, not in this log) had semantics off vs on at completeness 3.86 vs
+  3.66 and Chamfer 4.00 vs 3.93 cm.
+- **Variants** (one run, every variant on the same scenes; refiner, weights, Gauss-Newton budget, alignment and
+  scored labels identical, so only accuracy, completeness and Chamfer can move):
+  1. Déjà View, no refinement.
+  2. **Off:** no segments: u = 1, E_mv and E_n ungated (`segments: none`, the refiner's default).
+  3. **SAM 3:** the linked masks, as now.
+  4. **GT:** Hypersim's instance ids, consistent across views by construction; unlabeled and no-mesh pixels have
+     none. Walls, floor and ceiling are one instance per class (E29), so GT is an upper bound on identity and
+     on object boundaries, not on the boundaries between walls.
+  5. **Corrupted SAM 3:** (a) **permuted:** each view's ids permuted among themselves, independently per view (one
+     permutation for all views would change nothing): grouping and boundaries within a view stay, cross-view
+     identity goes, so u and E_mv's gate break while E_n is unchanged. (b) **shifted:** each view's id map moved
+     4 px (about 1% of the width, past E35's 3 px edge band) along a random axis direction: identity stays,
+     boundaries move off the depth edges, which touches all three. Seed 0 for both.
+- **Reading:** GT ~ Off: the energy cannot use semantics, whatever their quality (stated plainly). GT > Off and
+  SAM 3 ~ Off: SAM 3 is the bottleneck. SAM 3 > Off and a corruption ~ Off: semantics help, and which corruption
+  takes the gain says whether identity or boundaries do it. "~" is E40's floor (0.033 / 0.037 / 0.036 cm,
+  accuracy / completeness / Chamfer, the dev difference of the unchanged refiner between two GPUs); all variants
+  run in one process on one GPU, which repeats to 0.00005 cm (E44). No single-surface metric until the team
+  decides on one (#25, #32): all three geometry scores are reported.
+- **Setting:** `experiments/configs/e8a_segments.yaml`, `scene_eval --splits dev val stress` on the student
+  cluster (RTX 5090); dev and val both read, no test scene. One seed per corruption: if a corrupted variant
+  lands within twice the floor of a decision, a second seed is run before concluding.
+- **Figure:** bedroom views 18, 0, 12, 6: distance to the GT for SAM 3, and Off / GT minus SAM 3 on a shared scale.
