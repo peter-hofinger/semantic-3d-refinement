@@ -2953,3 +2953,23 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   of E_mv's merging. That is still less E_mv, not semantics that bring the surface nearer the GT. A
   semantics-free check of the same idea is the next step down: cut the 9% of matches with the largest initial
   residual and see whether it lands on SAM 3 (not run).
+
+## Plan: E8c = is SAM 3's gate just a residual detector (issue #8, 10.11.2026)
+- **Question:** E8b found SAM 3's gate cuts the matches with the largest initial residuals (12.7% / 15.8% of E_mv's
+  energy in 8.6% / 9.8% of the matches, dev / val). Does a cut with no segments, of the same size, that drops the
+  matches with the largest initial |residual|, do what SAM 3 does? Same run setup as E8a / E8b (refiner, weights,
+  budget, alignment, scored labels).
+- **Variants:**
+  1. Déjà View, no refinement. 2. **Off:** no segments. 3. **SAM 3:** as now. 4. **random @ SAM 3,** seed 0
+     (E8b's control). 5. **gate only** (E8b): SAM 3's ids gate E_mv alone, the fair comparison for a cut that
+     touches only E_mv.
+  6. **residual @ SAM 3:** Off, then E_mv keeps the matches with the smallest |residual| on the input depth
+     (`residuals(d0, scale, scene, m)`, E_mv's own residual), as many per scene as SAM 3's gate keeps
+     (`keep_like: sam3`, `keep_by: residual`).
+  7. **residual @ permuted:** as 6, at the count the per-view permuted ids keep (dev 0.13, val 0.22 of Off's).
+- **Reading** (floor 0.033 / 0.037 / 0.036 cm as in E8a): residual @ SAM 3 within the floor of gate only (and of
+  SAM 3) on all three scores -> the segments add nothing beyond a residual test (stated plainly). Clearly worse
+  than gate only -> where the segments cut (edges, inconsistently linked regions) matters beyond residual size.
+  Clearly better -> a plain residual test beats the segments at their own job.
+- **Setting:** `experiments/configs/e8c_residual.yaml`, `scene_eval --splits dev val stress`, student cluster RTX
+  5090, one job (~6 min, as E8b's). Déjà View, Off, SAM 3, random and gate only must repeat E8b's scores.
