@@ -237,6 +237,9 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   The refinement buys less accuracy per unit of completeness than dropping points does; val was not run.
   Refining only the points a filter keeps does not change that: below voxel density's own curve, above
   confidence's only where completeness is already 5 cm or worse (dev, 3 scenes).
+  Averaging each voxel's points into one (voxel fusion) does not help either; the best of seven voxel
+  variants counts only the points of the pixel's own SAM 3 instance (3.00 cm, dev; chosen on dev, gain over
+  voxel density beyond noise only in the lobby).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
   the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes

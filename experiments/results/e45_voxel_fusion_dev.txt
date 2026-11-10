@@ -1,0 +1,41 @@
+run runs/eval_hypersim-20261110-110027 (git 26454fcb9e910f5fe6e2cd0f4010effea86d67e7), this script at 0cf1cec9508ea82f5e7c640764c1e6907c96c29f, grid q = 1 .. 0.05
+submitted ai_010_007_cam_00
+submitted ai_006_007_cam_00
+submitted ai_044_001_cam_00
+check ai_010_007_cam_00: unfused q = 1 against Déjà View, 0.000000 cm
+check ai_006_007_cam_00: unfused q = 1 against Déjà View, 0.000000 cm
+check ai_044_001_cam_00: unfused q = 1 against Déjà View, 0.000000 cm
+
+variant | scene | q | accuracy | Chamfer | gap | Δ acc vs alone | vs refiner
+count + mean | ai_010_007_cam_00 | 0.762 | 1.600 | 1.500 | +0.0001 | +0.109 | -0.190
+count + mean | ai_006_007_cam_00 | 0.483 | 1.805 | 1.757 | +0.0002 | +0.032 | -0.404
+count + mean | ai_044_001_cam_00 | 0.530 | 6.012 | 6.939 | +0.0001 | +0.007 | -2.585
+Σ confidence | ai_010_007_cam_00 | 0.957 | 1.791 | 1.595 | -0.0002 | +0.299 | +0.001
+Σ confidence | ai_006_007_cam_00 | 0.840 | 1.992 | 1.851 | +0.0002 | +0.220 | -0.216
+Σ confidence | ai_044_001_cam_00 | 0.891 | 6.817 | 7.341 | -0.0003 | +0.812 | -1.780
+Σ confidence + mean | ai_010_007_cam_00 | 0.968 | 1.809 | 1.604 | -0.0005 | +0.318 | +0.019
+Σ confidence + mean | ai_006_007_cam_00 | 0.851 | 2.003 | 1.857 | +0.0002 | +0.231 | -0.205
+Σ confidence + mean | ai_044_001_cam_00 | 0.893 | 6.822 | 7.344 | -0.0003 | +0.817 | -1.775
+instance count | ai_010_007_cam_00 | 0.705 | 1.477 | 1.437 | -0.0005 | -0.015 | -0.314
+instance count | ai_006_007_cam_00 | 0.450 | 1.758 | 1.734 | -0.0004 | -0.014 | -0.450
+instance count | ai_044_001_cam_00 | 0.494 | 5.765 | 6.815 | -0.0000 | -0.241 | -2.832
+instance count + instance mean | ai_010_007_cam_00 | 0.750 | 1.594 | 1.496 | -0.0005 | +0.103 | -0.196
+instance count + instance mean | ai_006_007_cam_00 | 0.461 | 1.790 | 1.750 | -0.0005 | +0.018 | -0.418
+instance count + instance mean | ai_044_001_cam_00 | 0.495 | 5.781 | 6.823 | -0.0005 | -0.224 | -2.816
+count + mean, 2 x footprint | ai_010_007_cam_00 | not reached
+count + mean, 2 x footprint | ai_006_007_cam_00 | 0.765 | 1.987 | 1.848 | -0.0004 | +0.215 | -0.221
+count + mean, 2 x footprint | ai_044_001_cam_00 | 0.754 | 6.832 | 7.349 | +0.0002 | +0.827 | -1.765
+count + mean, 4 x footprint | ai_010_007_cam_00 | not reached
+count + mean, 4 x footprint | ai_006_007_cam_00 | not reached
+count + mean, 4 x footprint | ai_044_001_cam_00 | 0.931 | 7.744 | 7.805 | +0.0002 | +1.739 | -0.853
+
+mean of 3 scenes at the refiner's completeness: refiner 4.199 / 3.928, voxel density alone 3.090 / 3.373
+variant | q (mean) | accuracy | Chamfer | Δ vs alone (acc / Ch) | verdict | Δ vs refiner (acc / Ch) | verdict | scenes better than alone (acc)
+count + mean | 0.592 | 3.139 | 3.399 | +0.049 / +0.025 | tie | -1.059 / -0.530 | above | 0 of 3
+Σ confidence | 0.896 | 3.533 | 3.596 | +0.444 / +0.222 | below | -0.665 / -0.333 | above | 0 of 3
+Σ confidence + mean | 0.904 | 3.545 | 3.601 | +0.455 / +0.228 | below | -0.654 / -0.327 | above | 0 of 3
+instance count | 0.550 | 3.000 | 3.329 | -0.090 / -0.045 | above | -1.199 / -0.600 | above | 3 of 3
+instance count + instance mean | 0.569 | 3.055 | 3.356 | -0.035 / -0.017 | tie | -1.143 / -0.572 | above | 1 of 3
+count + mean, 2 x footprint | not reached on every scene
+count + mean, 4 x footprint | not reached on every scene
+wrote runs/eval_hypersim-20261110-110027/e45_voxel_fusion_dev.json
