@@ -1,0 +1,4 @@
+p = 1 (as is): Hypersim dev +1.35, Hypersim val +1.52, Hypersim stress +1.17, ETH3D indoor +0.69, ETH3D outdoor +2.23
+p = 0 (no confidence): Hypersim dev +1.33, Hypersim val +1.49, Hypersim stress +1.15, ETH3D indoor +0.68, ETH3D outdoor +2.22
+ai_006_007_cam_00: p = 1 (as is): +0.54 cm overall, +0.50 on the lowest-confidence quarter; p = 0 (no confidence): +0.54 cm overall, +0.49 on the lowest-confidence quarter
+office: p = 1 (as is): +0.57 cm overall, +0.79 on the lowest-confidence quarter; p = 0 (no confidence): +0.57 cm overall, +0.77 on the lowest-confidence quarter

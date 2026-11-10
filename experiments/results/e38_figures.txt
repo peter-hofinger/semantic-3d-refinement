@@ -1,0 +1,7 @@
+Hypersim dev: ΔC_f +1.35 = ΔC_o +0.02 + (-ΔB) +1.33 cm
+Hypersim val: ΔC_f +1.52 = ΔC_o +0.62 + (-ΔB) +0.90 cm
+Hypersim stress: ΔC_f +1.17 = ΔC_o +0.37 + (-ΔB) +0.80 cm
+ETH3D indoor: ΔC_f +0.69 = ΔC_o +0.18 + (-ΔB) +0.52 cm
+ETH3D outdoor: ΔC_f +2.23 = ΔC_o +0.90 + (-ΔB) +1.33 cm
+ai_006_007_cam_00: view 18 ΔC_o +0.40, -ΔB +0.40; view 0 ΔC_o +0.18, -ΔB +0.38; view 12 ΔC_o +0.06, -ΔB +0.39; view 6 ΔC_o -0.69, -ΔB +1.16
+office: view 0 ΔC_o +0.02, -ΔB +0.70; view 5 ΔC_o +0.21, -ΔB +0.55; view 10 ΔC_o +0.25, -ΔB +0.56; view 15 ΔC_o -0.03, -ΔB +0.70

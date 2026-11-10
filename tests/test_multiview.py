@@ -334,6 +334,28 @@ def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
     assert (consistency(scene, d0, scale, unmasked) == 1).all()
 
 
+def test_anchor_weight_is_confidence_to_the_power_times_consistency() -> None:
+    scene, _ = two_views()
+    conf = torch.rand(2, H, W, generator=torch.Generator().manual_seed(0)) + 0.1
+    scene = dataclasses.replace(scene, conf=conf)
+    c = conf / conf.mean(dim=(1, 2), keepdim=True)
+    scale = scene.depth.median()
+    u = consistency(scene, scale / scene.depth, scale, halves())
+    for power, expected in [(1.0, c * u), (0.5, c.sqrt() * u), (0.0, u)]:
+        cfg = RefineConfig(lambda_n=0.0, conf_power=power, device="cpu")
+        p = build_problem(scene, cfg, None, halves())
+        torch.testing.assert_close(p.w, expected)
+
+
+def test_uniform_confidence_makes_the_power_irrelevant() -> None:
+    scene, _ = two_views(bump=0.03, noise=0.01)
+    depths = [
+        refine_scene(scene, RefineConfig(lambda_n=0.0, conf_power=p, device="cpu"))[0]
+        for p in (1.0, 0.0)
+    ]
+    assert torch.equal(depths[0], depths[1])
+
+
 def test_energy_maps_add_up_to_the_energy() -> None:
     scene, _ = two_views(bump=0.03)
     scene = Scene(*(getattr(scene, f).double() for f in scene.__dataclass_fields__))
