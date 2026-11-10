@@ -30,7 +30,8 @@ from src.loaders.views import Views
 
 DSINE_REPO = Path("data/third_party/dsine_hub")  # hugoycj/DSINE-hub @ a6b7d25
 # px, window of the local mid-depth and budget for closing a contour: spans Déjà View's
-# 2-4 px occlusion ramps on both sides (fc6c3c4); 3-11 px score the same on dev (E40)
+# 2-4 px occlusion ramps on both sides (fc6c3c4); 3-11 px score the same on dev, and no
+# closing loses 0.05 cm of accuracy (E40)
 CUT_WINDOW = 7
 
 
@@ -247,10 +248,7 @@ class NormalTerm:
 def normal_term(
     normals: Tensor, rays: Tensor, d0: Tensor, edge_tol: float
 ) -> NormalTerm:
-    """BiNI's residuals for the normals, cut on d0's occlusion contours (tol: log).
-
-    The refiner passes Otsu's occlusion threshold of the scene as edge_tol.
-    """
+    """BiNI's residuals for the normals, cut on d0's occlusion contours (tol: log)."""
     h, w = d0.shape
     assert normals.shape == (h, w, 3) and normals.isfinite().all(), normals.shape
     assert ((normals.norm(dim=-1) - 1).abs() < 1e-3).all()  # noqa: PLR2004
