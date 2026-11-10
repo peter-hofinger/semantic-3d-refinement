@@ -417,7 +417,12 @@ def train(
     semantics: bool,
     seed: int,
 ) -> tuple[VolumeRefiner, list[dict]]:
-    """Fit one refiner, one train scene per step; log the held-out error."""
+    """Fit one refiner, one train scene per step; keep the least held-out error state.
+
+    E41a's held-out error rose after the first few hundred steps (35 train scenes), so
+    the returned model is the one at the evaluation step where the held-out train scenes
+    fit best; no dev or val scene takes part in the choice.
+    """
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     fit, held = data[: -cfg.held_out], data[-cfg.held_out :]
@@ -429,11 +434,18 @@ def train(
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, cfg.lr, total_steps=cfg.steps)
     log: list[dict] = []
     t0 = time.perf_counter()
+    best, best_state = float("inf"), None
     for step in range(cfg.steps + 1):
         if step % (cfg.steps // 20) == 0:
             err = held_out_error(model, held, cfg, device)
             log.append({"step": step, "seconds": time.perf_counter() - t0, **err})
             print(f"step {step}: {log[-1]}", flush=True)  # noqa: T201
+            if err["abs_log_after"] < best:
+                best = err["abs_log_after"]
+                best_state = {
+                    k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+                }
+                log[-1]["best"] = True
         if step == cfg.steps:
             break
         model.train()
@@ -442,6 +454,8 @@ def train(
         value.backward()
         opt.step()
         sched.step()
+    assert best_state is not None
+    model.load_state_dict(best_state)
     return model, log
 
 

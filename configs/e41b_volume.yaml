@@ -8,7 +8,7 @@ backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
 split: configs/hypersim.yaml
 train_splits: [train, train_extra]
-held_out: 4                          # last train scenes, error only
+held_out: 8                          # last train scenes: error, and the kept step (least error)
 predict_splits: [dev, val]
 models:                              # name -> classes it sees: none, sam3 (per-view masks), gt (Hypersim)
   volume-none: none
