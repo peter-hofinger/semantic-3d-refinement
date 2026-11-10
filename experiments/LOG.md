@@ -4,6 +4,9 @@ Every experiment gets an entry: goal, code version, command, settings, results, 
 Raw script output is in `results/`, figures in `figures/`, one-off scripts in `scripts/`.
 Data, caches and model outputs stay local under `data/processed/scannetpp/<scene>/` (git-ignored).
 
+**Numbering:** E1-E45 are numbered in order. From 10.11.2026 on an experiment is named after the issue it works on
+plus a letter in run order (E8a, E8b, ...; Mircea's proposal, adopted 10.11.2026), as `Claude.md` says.
+
 **Common setup** unless stated otherwise:
 - Scenes (ScanNet++ `nvs_sem_val`, held out from Déjà View training): `5ee7c22ba0` kitchen, `7b6477cb95` office.
 - Views: 20 DSLR frames per scene, uniform over capture order, resized to 504x336
