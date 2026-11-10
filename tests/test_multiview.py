@@ -324,16 +324,15 @@ def test_consistency_is_the_share_of_views_that_agree_on_the_id() -> None:
     assert (consistency(scene, d0, scale, unmasked) == 1).all()
 
 
-def test_anchor_weight_is_the_consistency_whatever_the_confidence() -> None:
-    scene, _ = two_views(bump=0.03, noise=0.01)
+def test_anchor_weight_is_confidence_times_consistency() -> None:
+    scene, _ = two_views()
     conf = torch.rand(2, H, W, generator=torch.Generator().manual_seed(0)) + 0.1
-    other = dataclasses.replace(scene, conf=conf)
+    scene = dataclasses.replace(scene, conf=conf)
+    c = conf / conf.mean(dim=(1, 2), keepdim=True)
     scale = scene.depth.median()
     u = consistency(scene, scale / scene.depth, scale, halves())
-    cfg = RefineConfig(lambda_n=0.0, device="cpu")
-    torch.testing.assert_close(build_problem(other, cfg, None, halves()).w, u)
-    depths = [refine_scene(sc, cfg, None, halves())[0] for sc in (scene, other)]
-    assert torch.equal(depths[0], depths[1])
+    p = build_problem(scene, RefineConfig(lambda_n=0.0, device="cpu"), None, halves())
+    torch.testing.assert_close(p.w, c * u)
 
 
 def test_normal_term_is_cut_at_the_occlusion_threshold_of_the_matches() -> None:

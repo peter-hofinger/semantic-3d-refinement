@@ -10,14 +10,15 @@ pixel, d_i(p) = d0_i(p) + δ_i(p), minimizing
 E's overall scale does not move its minimizer, so E_d's weight is 1 by definition and
 the other weights are relative to it.
 
-- E_d = u δ² / 2 anchors to the prediction, weighted by the consistency u: the share of
-  the other views a pixel lands in whose pixel there carries the same instance id
-  (`consistency`). Where views disagree on the object, at bleeding edges and flying
-  pixels, the anchor lets go. E40 (issue #28) removed two settings here: a Huber
-  threshold (0.05; on dev only 0.3-0.9 % of the pixels moved beyond it, and the scores
-  were equal without it) and Déjà View's confidence as a factor of the weight (E37:
-  equal or better without it). With both gone, E_d and λ_δ ‖δ‖² are one quadratic
-  anchor of stiffness λ_δ + u / 2 per pixel.
+- E_d = w δ² / 2 anchors to the prediction, weighted by w = c u: c the confidence (mean
+  one per view) times the consistency u, the share of the other views a pixel lands in
+  whose pixel there carries the same instance id (`consistency`). Where views disagree
+  on the object, at bleeding edges and flying pixels, the anchor lets go. E40 (issue
+  #28) removed Huber's threshold (0.05): on dev only 0.3-0.9 % of the pixels moved
+  beyond it, and the scores were equal without it. Without c the dev scores tie (E37),
+  but in E40's combination it carried most of an accuracy loss that val confirmed on
+  11 of 11 scenes, so it stays. E_d and λ_δ ‖δ‖² are one quadratic anchor of
+  stiffness λ_δ + w / 2 per pixel.
 - E_mv: each pixel p of view i is lifted, x = o_i + D_i(p) r_i(p), and projected into
   each neighboring view j (the `neighbors` views it overlaps most); the residual is
   log z_j(x) + log d_j(π_j(x)) - log s, the log ratio of the two depths, d_j bilinear
@@ -387,7 +388,7 @@ def disagreement_pct(depth: Tensor, scene: Scene, matches: Matches) -> float:
 class Problem:
     """What stays fixed in the solve: scene, scale s, d0, weights, normals, matches.
 
-    w is E_d's weight per pixel, the consistency u. Normal terms are
+    w is E_d's weight per pixel, confidence times consistency. Normal terms are
     stacked over views: per axis (x, y), (a_p, g_p, a_q, g_q) and (w+, w-) as in
     `normals.NormalTerm`, the weights 0 between instances.
     """
@@ -688,9 +689,9 @@ def build_problem(
 ) -> Problem:
     """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
 
-    E_d's weight is the consistency u; E_n's edges stay within one instance and are cut
-    at Otsu's occlusion threshold, the one E_mv's matches use; E_mv keeps the matches
-    that land on their source's instance.
+    E_d's weight is the confidence (mean one per view) times u; E_n's edges stay within
+    one instance and are cut at Otsu's occlusion threshold, the one E_mv's matches use;
+    E_mv keeps the matches that land on their source's instance.
     """
     assert normals is not None or cfg.lambda_n == 0, "E_n needs normals"
     ids = (
@@ -701,7 +702,8 @@ def build_problem(
     assert ids.shape == scene.depth.shape, ids.shape
     scale = scene.depth.median()
     d0 = scale / scene.depth
-    w = consistency(scene, d0, scale, ids)
+    c = scene.conf / scene.conf.mean(dim=(1, 2), keepdim=True)
+    w = c * consistency(scene, d0, scale, ids)
     matches, tol = find_matches(scene, d0, scale, cfg.neighbors)
     matches = same_segment_matches(matches, scene, d0, scale, ids)
     terms = None

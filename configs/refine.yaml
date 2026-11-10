@@ -1,8 +1,8 @@
 # The pipeline's joint refiner (run-pipeline --refiner joint, src/refinement/multiview.py):
 # E_d + λ_mv E_mv + λ_n E_n + λ_δ‖δ‖² over all views by Gauss-Newton + CG. The linked
-# SAM 3 instances weight E_d (consistency u) and confine E_n and E_mv to one instance.
-# E_d's weight is 1 by definition (E's scale does not move its minimizer); E_n's occlusion
-# cut and E_mv's occlusion tolerance are Otsu's threshold of each scene. Every value below
+# SAM 3 instances weight E_d (confidence x consistency u) and confine E_n and E_mv to one
+# instance. λ_d is 1 by definition (E's scale does not move its minimizer); E_n's
+# occlusion cut and E_mv's occlusion tolerance are Otsu's threshold of each scene. Every value below
 # was checked on dev in E40 (experiments/LOG.md); the solver budget is issue #10's.
 refine:
   lambda_mv: 1.0     # 0.3 / 3 trade accuracy against completeness beyond noise (E40)
