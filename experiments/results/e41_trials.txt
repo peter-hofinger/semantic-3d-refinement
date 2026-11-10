@@ -1,0 +1,136 @@
+run runs/u_own-20261110-090929/run.yaml, git f16c915aa0ffb871676fadb56e68453ba4dea3bc-dirty, split dev
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_010_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.194 | 1.007 | 1.601 | +0.404 -0.392 +0.006
+Refined 10x20 | 1.794 | 1.410 | 1.602 | +0.004 +0.011 +0.007
+Refined | 1.790 | 1.399 | 1.595 | +0.000 +0.000 +0.000
+no lambda_delta | 1.741 | 1.374 | 1.557 | -0.050 -0.025 -0.037
+u with own view | 1.790 | 1.398 | 1.594 | +0.000 -0.000 -0.000
+u with own view, no lambda_delta | 1.725 | 1.572 | 1.648 | -0.065 +0.173 +0.054
+
+ai_006_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.520 | 1.172 | 1.846 | +0.312 -0.539 -0.114
+Refined 10x20 | 2.204 | 1.717 | 1.960 | -0.004 +0.006 +0.001
+Refined | 2.208 | 1.711 | 1.960 | +0.000 +0.000 +0.000
+no lambda_delta | 2.384 | 1.250 | 1.817 | +0.176 -0.461 -0.142
+u with own view | 2.208 | 1.710 | 1.959 | +0.000 -0.001 -0.000
+u with own view, no lambda_delta | 2.194 | 1.611 | 1.902 | -0.015 -0.100 -0.057
+
+ai_044_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 9.312 | 4.795 | 7.053 | +0.715 -3.072 -1.178
+Refined 10x20 | 8.635 | 7.955 | 8.295 | +0.038 +0.088 +0.063
+Refined | 8.597 | 7.867 | 8.232 | +0.000 +0.000 +0.000
+no lambda_delta | 9.059 | 5.333 | 7.196 | +0.463 -2.534 -1.035
+u with own view | 8.597 | 7.865 | 8.231 | +0.000 -0.002 -0.001
+u with own view, no lambda_delta | 8.545 | 7.553 | 8.049 | -0.052 -0.314 -0.183
+
+dev aggregate: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined | passes
+Déjà View | 4.675 | 2.324 | 3.500 | +0.477 -1.334 -0.429 | no
+Refined 10x20 | 4.211 | 3.694 | 3.953 | +0.013 +0.035 +0.024 | yes
+Refined | 4.198 | 3.659 | 3.929 | +0.000 +0.000 +0.000 | yes
+no lambda_delta | 4.395 | 2.653 | 3.524 | +0.197 -1.006 -0.405 | no
+u with own view | 4.199 | 3.658 | 3.928 | +0.000 -0.001 -0.000 | yes
+u with own view, no lambda_delta | 4.154 | 3.579 | 3.866 | -0.044 -0.080 -0.062 | yes
+
+refinement time per scene (s), mean over scenes
+Déjà View | 0.00
+Refined 10x20 | 4.04
+Refined | 1.93
+no lambda_delta | 1.76
+u with own view | 2.11
+u with own view, no lambda_delta | 2.01
+run runs/u_own_converged-20261110-091217/run.yaml, git f16c915aa0ffb871676fadb56e68453ba4dea3bc-dirty, split dev
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_010_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.194 | 1.007 | 1.601 | +0.404 -0.392 +0.006
+Refined | 1.790 | 1.399 | 1.595 | +0.000 +0.000 +0.000
+Refined 20x100 | 1.795 | 1.411 | 1.603 | +0.005 +0.012 +0.008
+own view, no lambda_delta 5x10 | 1.725 | 1.572 | 1.648 | -0.065 +0.173 +0.054
+own view, no lambda_delta 5x100 | 1.707 | 1.606 | 1.656 | -0.084 +0.207 +0.062
+own view, no lambda_delta 20x100 | 1.707 | 1.612 | 1.660 | -0.083 +0.213 +0.065
+
+ai_006_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.520 | 1.172 | 1.846 | +0.312 -0.539 -0.114
+Refined | 2.208 | 1.711 | 1.960 | +0.000 +0.000 +0.000
+Refined 20x100 | 2.204 | 1.717 | 1.961 | -0.004 +0.006 +0.001
+own view, no lambda_delta 5x10 | 2.194 | 1.611 | 1.902 | -0.015 -0.100 -0.057
+own view, no lambda_delta 5x100 | 2.136 | 1.865 | 2.000 | -0.072 +0.154 +0.041
+own view, no lambda_delta 20x100 | 2.136 | 1.865 | 2.000 | -0.072 +0.154 +0.041
+
+ai_044_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 9.312 | 4.795 | 7.053 | +0.715 -3.072 -1.178
+Refined | 8.597 | 7.867 | 8.232 | +0.000 +0.000 +0.000
+Refined 20x100 | 8.649 | 7.975 | 8.312 | +0.053 +0.108 +0.080
+own view, no lambda_delta 5x10 | 8.545 | 7.553 | 8.049 | -0.052 -0.314 -0.183
+own view, no lambda_delta 5x100 | 8.701 | 8.871 | 8.786 | +0.104 +1.004 +0.554
+own view, no lambda_delta 20x100 | 8.700 | 8.871 | 8.786 | +0.104 +1.004 +0.554
+
+dev aggregate: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined | passes
+Déjà View | 4.675 | 2.324 | 3.500 | +0.477 -1.334 -0.429 | no
+Refined | 4.198 | 3.659 | 3.929 | +0.000 +0.000 +0.000 | yes
+Refined 20x100 | 4.216 | 3.701 | 3.958 | +0.018 +0.042 +0.030 | no
+own view, no lambda_delta 5x10 | 4.154 | 3.579 | 3.866 | -0.044 -0.080 -0.062 | yes
+own view, no lambda_delta 5x100 | 4.181 | 4.114 | 4.148 | -0.017 +0.455 +0.219 | no
+own view, no lambda_delta 20x100 | 4.181 | 4.116 | 4.149 | -0.017 +0.457 +0.220 | no
+
+refinement time per scene (s), mean over scenes
+Déjà View | 0.00
+Refined | 1.94
+Refined 20x100 | 7.59
+own view, no lambda_delta 5x10 | 1.85
+own view, no lambda_delta 5x100 | 5.82
+own view, no lambda_delta 20x100 | 12.33
+run runs/u_own-20261110-090929/run.yaml, git f16c915aa0ffb871676fadb56e68453ba4dea3bc-dirty, split stress
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_015_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.985 | 1.348 | 2.166 | +0.215 -0.632 -0.208
+Refined 10x20 | 2.780 | 2.006 | 2.393 | +0.011 +0.026 +0.019
+Refined | 2.770 | 1.980 | 2.375 | +0.000 +0.000 +0.000
+no lambda_delta | 2.825 | 1.609 | 2.217 | +0.055 -0.371 -0.158
+u with own view | 2.770 | 1.980 | 2.375 | +0.000 -0.000 -0.000
+u with own view, no lambda_delta | 2.739 | 2.061 | 2.400 | -0.030 +0.081 +0.026
+
+ai_047_009_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 16.634 | 13.946 | 15.290 | +0.356 -1.632 -0.638
+Refined 10x20 | 16.206 | 15.612 | 15.909 | -0.072 +0.034 -0.019
+Refined | 16.278 | 15.578 | 15.928 | +0.000 +0.000 +0.000
+no lambda_delta | 16.634 | 13.946 | 15.290 | +0.356 -1.632 -0.638
+u with own view | 16.278 | 15.577 | 15.928 | +0.000 -0.001 -0.000
+u with own view, no lambda_delta | 16.358 | 14.281 | 15.320 | +0.080 -1.297 -0.608
+
+ai_052_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 5.476 | 2.495 | 3.986 | +0.415 -1.115 -0.350
+Refined 10x20 | 5.062 | 3.663 | 4.363 | +0.001 +0.053 +0.027
+Refined | 5.061 | 3.610 | 4.336 | +0.000 +0.000 +0.000
+no lambda_delta | 5.456 | 2.515 | 3.985 | +0.394 -1.095 -0.350
+u with own view | 5.064 | 3.617 | 4.340 | +0.003 +0.007 +0.005
+u with own view, no lambda_delta | 5.249 | 2.813 | 4.031 | +0.187 -0.797 -0.305
+run runs/u_own_converged-20261110-091217/run.yaml, git f16c915aa0ffb871676fadb56e68453ba4dea3bc-dirty, split stress
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_015_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.985 | 1.348 | 2.166 | +0.215 -0.632 -0.208
+Refined | 2.770 | 1.980 | 2.375 | +0.000 +0.000 +0.000
+Refined 20x100 | 2.781 | 2.006 | 2.394 | +0.012 +0.026 +0.019
+own view, no lambda_delta 5x10 | 2.739 | 2.061 | 2.400 | -0.030 +0.081 +0.026
+own view, no lambda_delta 5x100 | 2.687 | 2.207 | 2.447 | -0.082 +0.227 +0.072
+own view, no lambda_delta 20x100 | 2.672 | 2.206 | 2.439 | -0.098 +0.226 +0.064
+
+ai_047_009_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 16.634 | 13.946 | 15.290 | +0.356 -1.632 -0.638
+Refined | 16.278 | 15.578 | 15.928 | +0.000 +0.000 +0.000
+Refined 20x100 | 16.198 | 15.592 | 15.895 | -0.080 +0.014 -0.033
+own view, no lambda_delta 5x10 | 16.358 | 14.281 | 15.320 | +0.080 -1.297 -0.608
+own view, no lambda_delta 5x100 | 15.697 | 12.595 | 14.146 | -0.581 -2.983 -1.782
+own view, no lambda_delta 20x100 | 15.698 | 12.600 | 14.149 | -0.580 -2.978 -1.779
+
+ai_052_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 5.476 | 2.495 | 3.986 | +0.415 -1.115 -0.350
+Refined | 5.061 | 3.610 | 4.336 | +0.000 +0.000 +0.000
+Refined 20x100 | 5.070 | 3.675 | 4.372 | +0.008 +0.065 +0.037
+own view, no lambda_delta 5x10 | 5.249 | 2.813 | 4.031 | +0.187 -0.797 -0.305
+own view, no lambda_delta 5x100 | 5.149 | 3.041 | 4.095 | +0.088 -0.569 -0.241
+own view, no lambda_delta 20x100 | 5.149 | 3.041 | 4.095 | +0.088 -0.569 -0.240

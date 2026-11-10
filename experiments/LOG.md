@@ -63,6 +63,7 @@ Metrics:
 | E35 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | dev Chamfer 3.50 -> 3.20 cm with masks (3.29 without), better on all 3 scenes in accuracy and completeness; old protocol read it as no gain (F-score 0.844 -> 0.845); one seed, val not run |
 | E39 | Faster panoptic labeling (issue #29): prompts encoded once, detector batched 4 prompts at a time, overlaps on the GPU, association in torch | bedroom on an RTX 3080: SAM 3 29.7 -> 16.6 s, association 1.94 -> 0.57 s, pipeline 37.1 -> 22.6 s; dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 unchanged; 99.85-99.98% of pixels keep their mask (bf16 rounding of the batched detector), linked ids from the torch association bit-identical |
 | E40 | Remove or justify every hand-set constant in the energy (issue #28): one-at-a-time dev sweep, val check | λ_d and conf_power removed (no-ops); no Huber, no border margin and E_n cut at Otsu's threshold each tie on dev, but combined they lost 0.5 cm in val's ai_009_009 (val means beyond noise), so all three stay with that reason; λ_mv, λ_δ, neighbors and the cut window stay (alternatives trade accuracy for completeness); refiner unchanged within run-to-run spread |
+| E41 | After E40's review: Gauss-Newton 5 x 10 (chosen in #10, never applied), u counting the pixel's own view, λ_δ = 0 tried | own-view u changes no score by more than 0.007 cm; λ_δ = 0 looks better at 5 x 10 only because 4 of 6 solves stop early, converged it is worse (dev completeness +0.46 cm), so λ_δ stays; dev Chamfer 3.953 -> 3.928, val 5.723 -> 5.643 (ai_009_009 -0.81 cm; without it -0.006) |
 
 ## Reference table (current scorer, E11)
 
@@ -2502,3 +2503,55 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - Not tested, next candidates: the three candidates one at a time on a split not yet used (train scenes, or
     test with the team's consent); whether the derived cut works if Otsu's threshold is computed per view pair
     instead of per scene.
+
+## E41: after E40's review: Gauss-Newton 5 x 10, u counting the own view, λ_δ = 0 -> two adopted, λ_δ stays (10.11.2026)
+- **Why:** Peter's review of E40. (1) The solver budget 5 x 10 had been chosen in issue #10 (week 2 slides:
+  4.2 -> 1.9 s per dev scene, Chamfer 3.95 -> 3.93 cm) but `configs/refine.yaml` still ran 10 x 20. (2) u should
+  count the pixel's own view: the vote of all views that see the point, which also keeps E_d's weight above 0
+  wherever the confidence is, so (3) λ_δ might no longer be needed.
+- **No plan entry first:** (2) and (3) were run as a trial while answering the review, with a switch in the working
+  tree (runs `-dirty` at f16c915, E40's report, with the budget set per variant); the switch was then removed
+  and the adopted changes committed (4722b2a, 150db44). Decided on dev, stress as a second look; val once at the end.
+- **Commands** (RTX 3080): `scene_eval --splits dev stress` with two trial configs (5 x 10; variants: 10 x 20,
+  5 x 10, λ_δ = 0, own view, own view + λ_δ = 0; then converged budgets 5 x 100 and 20 x 100), runs
+  `u_own-20261110-090929`, `u_own_converged-20261110-091217` -> `e40_table.py` -> `results/e41_trials.txt`;
+  at 150db44 (clean) `scene_eval --splits dev val stress` (`eval_hypersim-20261110-093140`) -> `e40_check.py` against
+  E40's final refiner (`eval_hypersim-20261110-083124`) -> `results/e41_check.txt`; `scene_eval --splits dev stress`
+  (`eval_hypersim-20261110-093416`) and `scene_figures` -> `figures/eval_hypersim-20261110-093416/` (replaces
+  `eval_hypersim-20261105-104445`; `scene_figures` cannot draw val's 11 scenes, its palette has 4 colours).
+- **Trial, dev aggregate, cm** (accuracy / completeness / Chamfer; per scene and stress in `results/e41_trials.txt`):
+
+  | variant | dev | Gauss-Newton steps taken (of 5) |
+  |---|---|---|
+  | 10 x 20 (before) | 4.211 / 3.694 / 3.953 | 10 of 10 |
+  | 5 x 10 | 4.198 / 3.659 / 3.929 | 5, all scenes |
+  | 5 x 10, u with own view | 4.199 / 3.658 / 3.928 | 5, all scenes |
+  | 5 x 10, λ_δ = 0 | 4.395 / 2.653 / 3.524 | 0-4 (conference room 0: no step accepted) |
+  | 5 x 10, own view, λ_δ = 0 | 4.154 / 3.579 / 3.866 | 3-5 (lobby 3, bedroom 4, conference room 4) |
+  | 5 x 100, own view, λ_δ = 0 | 4.181 / 4.114 / 4.148 | 4-5 |
+  | 20 x 100, own view, λ_δ = 0 | 4.181 / 4.116 / 4.149 | 3-20 |
+  | 20 x 100 (with λ_δ) | 4.216 / 3.701 / 3.958 | 9-20 |
+
+  u with the own view moves no dev or stress score by more than 0.007 cm. With λ_δ = 0 the normal equations are no
+  longer singular (Déjà View's confidence is at least 0.015 of its view's mean on all 17 prepared scenes, so
+  E_d's weight is at least ~4e-4), but they are ill-conditioned: at 5 x 10 the line search finds no decrease after
+  3-4 steps on 4 of 6 scenes. The 5 x 10 "gain" is that early stop (as week 2's "stopped early: 1 x 5" point);
+  converged (5 x 100 and 20 x 100 agree to 0.002 cm), completeness is 0.46 cm and Chamfer 0.22 cm worse than
+  with λ_δ. Removing λ_δ leaves E_d alone as the anchor, about a third of the stiffness (E37), so the views merge
+  more (E38).
+- **Adopted** (4722b2a, 150db44): 5 x 10 and u counting the own view, u = (agreeing others + 1) / (views seeing the
+  point + 1). λ_δ stays, with this reason in the docstring.
+- **Check, refiner before E41 -> after** (`results/e41_check.txt`):
+
+  | split | accuracy | completeness | Chamfer | scenes worse (acc / comp / Chamfer) |
+  |---|---|---|---|---|
+  | dev (3) | 4.211 -> 4.199 | 3.694 -> 3.658 | 3.953 -> 3.928 | 1 / 0 / 0 |
+  | val (11) | 5.755 -> 5.701 | 5.690 -> 5.585 | 5.723 -> 5.643 | 5 / 3 / 3 |
+
+  Most of val's change is ai_009_009 (-0.79 / -0.84 / -0.81 cm), the scene that carried E40's val loss; without
+  it +0.019 / -0.032 / -0.006, within the noise floor. Labels unchanged (dev 0.360 / 0.292 / 0.216, val
+  0.397 / 0.258 / 0.345). Against Déjà View nothing changes in kind: dev Chamfer 3.50 -> 3.93, val 5.10 -> 5.64 (worse
+  on 10 of 11 val scenes). The bedroom figures (`figures/eval_hypersim-20261110-093416/presentation/`) look as before.
+- **Conclusion:** the agreed budget is now the default, at half the time and within noise of the old one (better on
+  every dev metric). u with the own view is the cleaner definition at no cost. λ_δ is not replaceable by the floor
+  u now has: the energy it leaves is ill-conditioned, and converged it merges the views more.

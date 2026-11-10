@@ -207,15 +207,15 @@ uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --spli
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Every energy weight 1, none tuned (`figures/eval_hypersim-20261105-104445`; 1.2 min for both
-splits on an RTX 3080). Its `presentation/` folder holds the shared bedroom at the views of
+Every energy weight 1, none tuned, Gauss-Newton 5 × 10 (`figures/eval_hypersim-20261110-093416`;
+about 1 min for both splits on an RTX 3080, refinement 2 s per scene). Its `presentation/` folder holds the shared bedroom at the views of
 issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 
 | cm, ↓ | dev aggregate | living room | bedroom | lobby |
 |---|---|---|---|---|
-| accuracy | 4.68 → 4.21 | 2.19 → 1.79 | 2.52 → 2.20 | 9.31 → 8.63 |
-| completeness | 2.32 → 3.69 | 1.01 → 1.41 | 1.17 → 1.72 | 4.80 → 7.96 |
-| Chamfer | 3.50 → 3.95 | 1.60 → 1.60 | 1.85 → 1.96 | 7.05 → 8.30 |
+| accuracy | 4.68 → 4.20 | 2.19 → 1.79 | 2.52 → 2.21 | 9.31 → 8.60 |
+| completeness | 2.32 → 3.66 | 1.01 → 1.40 | 1.17 → 1.71 | 4.80 → 7.87 |
+| Chamfer | 3.50 → 3.93 | 1.60 → 1.59 | 1.85 → 1.96 | 7.05 → 8.23 |
 
 | labels (both variants) | dev aggregate | living room | bedroom | lobby |
 |---|---|---|---|---|
@@ -223,22 +223,23 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 | PQ^sc | 0.292 | 0.286 | 0.269 | 0.321 |
 | AP | 0.216 | 0.228 | 0.276 | 0.145 |
 
-- **Refinement does not improve Chamfer on any dev scene:** it is 3.50 → 3.95 cm on dev,
-  unchanged in the living room and worse elsewhere. Accuracy improves on every scene and
-  disagreement between overlapping views falls 6-8×, but the refined surfaces are thinner
+- **Refinement does not improve Chamfer on dev:** it is 3.50 → 3.93 cm, 0.01 cm better in
+  the living room and worse elsewhere. Accuracy improves on every scene and
+  disagreement between overlapping views falls 6-7×, but the refined surfaces are thinner
   than Déjà View's scatter, so completeness loses more than accuracy gains, most in the
   large lobby. No weight improves both: λ_mv, λ_δ and the neighbour count each trade
   accuracy against completeness on dev (E40).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
-  the kitchen, 15.29 → 15.91 in the conference room, 3.99 → 4.36 in the restaurant.
+  the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
   SAM 3 finds but the scene lacks (4-5 per dev scene) as 0. The dev mIoU is pooled over 29
   classes (0.360); the mean of its scenes would be 0.405.
-- **Noise:** GPU sums are not bitwise reproducible, and the spread of these scores is not
-  measured yet.
-- **Val** (11 scenes no choice was made on, `--splits val`, RTX 5090, 2.2 min) confirms it:
-  accuracy 6.07 → 5.75 cm (better on 9 of 11), completeness 4.15 → 5.67 cm (worse on all
-  11), Chamfer 5.11 → 5.71 cm (worse on 10 of 11). Per scene: E34 in `experiments/LOG.md`.
+- **Noise:** GPU sums are not bitwise reproducible; repeated runs on one GPU agree to
+  0.00002 cm on the dev aggregate, two GPUs to about 0.035 cm (E40).
+- **Val** (11 scenes no value was chosen on; E40 used it to reject three changes, `--splits
+  val`, RTX 3080) confirms it: accuracy 6.06 → 5.70 cm (better on 10 of 11), completeness
+  4.14 → 5.58 cm (worse on all 11), Chamfer 5.10 → 5.64 cm (worse on 10 of 11). Per scene:
+  E41 in `experiments/LOG.md`.
 - `test` runs with the same command once its inputs are cached; it has not been run.
 
 ## Layout

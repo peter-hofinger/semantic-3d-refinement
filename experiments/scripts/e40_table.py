@@ -35,7 +35,8 @@ def main() -> None:
     floor = dict(zip(SURFACE, values, strict=True))
     run = yaml.safe_load(args.run.read_text(encoding="utf-8"))
     report = run["splits"][args.split]
-    variants = list(report["aggregate"])
+    first = next(iter(report["scenes"].values()))
+    variants = list(first["variants"])
     assert REFERENCE in variants, variants
     print(f"run {args.run}, git {run['git']}, split {args.split}")
     print(f"noise floor (cm): {floor}")
@@ -47,6 +48,8 @@ def main() -> None:
             values = " | ".join(f"{h[m]:.3f}" for m in SURFACE)
             delta = " ".join(f"{h[m] - ref[m]:+.3f}" for m in SURFACE)
             print(f"{v} | {values} | {delta}")
+    if "aggregate" not in report:  # stress: per scene only
+        return
     print(f"\n{args.split} aggregate: variant | " + " | ".join(SURFACE), end="")
     print(" | Δ vs Refined | passes")
     ref = report["aggregate"][REFERENCE]["headline"]
