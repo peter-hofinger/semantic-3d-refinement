@@ -5,6 +5,7 @@ import dataclasses
 import numpy as np
 import torch
 
+from src.analysis.filters import consistent_views
 from src.loaders.views import Views
 from src.refinement.multiview import (
     MATCH_BORDER,
@@ -21,6 +22,7 @@ from src.refinement.multiview import (
     gauss_newton,
     geometry_from_scene,
     grid_operator,
+    match_candidates,
     match_jacobian,
     normal_equations,
     occlusion_threshold,
@@ -568,3 +570,18 @@ def test_tangent_residuals_vanish_on_the_plane_for_either_sign_and_stay_bounded(
     other = (other / other.norm(dim=-1, keepdim=True)).double()
     r = tangent_residuals(d, scale, rays, other, 2.0)  # √(λ/2) = 1: plain sines
     assert r.abs().max() <= 1 + 1e-12 and r.abs().mean() > 0.3
+
+
+def test_consistent_views_count_the_views_that_agree() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    d0 = scale / scene.depth
+    count = consistent_views(scene, d0, scale, 0.05)
+    seen = match_candidates(scene, d0, scale)[0, 1][0]
+    assert len(seen) > 0.5 * H * W
+    # where view 0 lands in view 1, they agree (the plate occludes, so not everywhere)
+    assert (count.view(2, -1)[0, seen] == 1).float().mean() > 0.9
+    assert count.max() <= 1
+    bumped, _ = two_views(bump=0.3)
+    bumped_count = consistent_views(bumped, scale / bumped.depth, scale, 0.05)
+    assert bumped_count[1, 24, 32] == 0 and count[1, 24, 32] == 1
