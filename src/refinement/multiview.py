@@ -340,19 +340,18 @@ def occlusion_threshold(gaps: Tensor) -> float:
 
 
 @torch.no_grad()
-def find_matches(
-    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
-) -> Matches:
-    """Match each view with its neighbors where the input agrees within tol (log).
+def match_candidates(
+    scene: Scene, d0: Tensor, scale: Tensor
+) -> dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]]:
+    """Per view pair (i, j), i's pixels that land in j: flat index, log gap, log spread.
 
-    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
-    Both the gap and the spread of j's four interpolated pixels must stay below it. A
-    view's neighbors are the `neighbors` views it shares the most matches with; a pair
-    counts if either side picks the other, and is matched both ways.
+    A pixel lands if it projects in front of j and at least `MATCH_BORDER` inside its
+    border; the gap is log(z_j d_j / s), > 0 behind j's surface; the spread is the max /
+    min ratio of j's four interpolated pixels.
     """
     n, h, w = d0.shape
     flat = torch.arange(h * w, device=d0.device)
-    candidates: dict[tuple[int, int], tuple[Tensor, Tensor, Tensor]] = {}
+    candidates = {}
     for i in range(n):
         for j in range(n):
             if i == j:
@@ -365,8 +364,24 @@ def find_matches(
             dj, spread = bilinear(d0, torch.full_like(flat, j), u, v)
             b = MATCH_BORDER
             inside = (z > 0) & (u >= b) & (u <= w - 1 - b) & (v >= b) & (v <= h - 1 - b)
-            gap = (z.clamp_min(1e-6) * dj / scale).log()  # > 0: behind j's surface
+            gap = (z.clamp_min(1e-6) * dj / scale).log()
             candidates[i, j] = (flat[inside], gap[inside], spread[inside].log())
+    return candidates
+
+
+@torch.no_grad()
+def find_matches(
+    scene: Scene, d0: Tensor, scale: Tensor, neighbors: int, tol: float | None = None
+) -> Matches:
+    """Match each view with its neighbors where the input agrees within tol (log).
+
+    tol defaults to `occlusion_threshold` over the gaps of all in-image candidates.
+    Both the gap and the spread of j's four interpolated pixels must stay below it. A
+    view's neighbors are the `neighbors` views it shares the most matches with; a pair
+    counts if either side picks the other, and is matched both ways.
+    """
+    n, h, w = d0.shape
+    candidates = match_candidates(scene, d0, scale)
     if tol is None:
         tol = occlusion_threshold(torch.cat([g for _, g, _ in candidates.values()]))
         log_info("occlusion threshold: %.4f (log depth)", tol)
