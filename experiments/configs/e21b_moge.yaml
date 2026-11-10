@@ -1,0 +1,27 @@
+# E21b (issue #21 with #20, experiments/LOG.md): the refiner of configs/refine.yaml with MoGe-3's normals in
+# place of DSINE's (experiments/scripts/e21b_moge_normals.py, `moge3_<views>.npz`), at the current λ_n and E_n
+# off. Its DSINE reference is e21a_sweep.yaml's "lambda_n 1e-4 (current)", same GPU and inputs.
+# Dev decides, stress is looked at: `--splits dev stress`.
+# Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
+# configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
+# K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3
+# (all NYU40 classes but the three catch-alls, which still count in the scores), linked with
+# the working association. Each output, a labeled point per pixel, aligned onto the ground
+# truth by Umeyama on the pixels: accuracy, completeness, Chamfer, mIoU, PQ, AP, for the
+# scene and per class (src/evaluation/labeled.py).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+normals: moge3                       # MoGe-3 ViT-L, 3 refinement steps, Déjà View's field of view
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
+refine: configs/refine.yaml          # λ_n = 1e-4 there
+variants:
+  - name: Deja View
+    refiner: none
+  - name: MoGe-3 normals, lambda_n 1e-4
+    refiner: joint
