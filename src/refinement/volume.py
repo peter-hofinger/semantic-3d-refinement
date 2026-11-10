@@ -53,13 +53,13 @@ CHUNK = 500_000  # pixels per forward pass at prediction
 
 @dataclasses.dataclass(frozen=True)
 class VolumeConfig:
-    """Data, models and training settings (`configs/e41a_volume.yaml`)."""
+    """Data, models and training settings (`configs/e41b_volume.yaml`)."""
 
     root: Path
     views: str
     backbone: str
     segmentation: str
-    train: list[str]  # scene folders; the last `held_out` only report a loss
+    train: list[str]  # scene folders of `train_splits`; the last `held_out` only report
     held_out: int
     predict: list[str]
     models: dict[str, str]  # name -> semantics: none, sam3 or gt
@@ -68,16 +68,21 @@ class VolumeConfig:
     head: int
     steps: int
     batch_points: int  # pixels per step
-    kept_points: int  # pixels kept per training scene
+    kept_points: int  # pixels per held-out scene the error is reported on
+    view_subset: list[
+        int
+    ]  # each step's grid sees a random number of views in this range
+    amp: bool  # U-Net in bfloat16 on CUDA
     lr: float
-    seed: int
+    seeds: list[int]  # one model per seed; with several, names end in -s<seed>
 
     @classmethod
     def load(cls, path: Path) -> VolumeConfig:
         """Read the config; train and prediction scenes come from Hypersim splits."""
         raw = yaml.safe_load(path.read_text())
         split = load_config(Path(raw.pop("split")))
-        raw["train"] = [f"{s}_{c}" for s, c in split.scenes(["train"]).items()]
+        train = split.scenes(raw.pop("train_splits"))
+        raw["train"] = [f"{s}_{c}" for s, c in train.items()]
         predict = split.scenes(raw.pop("predict_splits"))
         raw["predict"] = [f"{s}_{c}" for s, c in predict.items()]
         raw["root"] = Path(raw["root"])
@@ -97,6 +102,35 @@ class ScenePoints:
     lo: Tensor  # (3,) grid corner
     cell: float  # cell size in the normalized frame
     dims: tuple[int, int, int]  # cells along x, y, z
+
+
+def compact(pts: ScenePoints) -> ScenePoints:
+    """Return the scene in small dtypes for the CPU: uint8 colour, float16 rays."""
+    return dataclasses.replace(
+        pts,
+        rays=pts.rays.half(),
+        color=(pts.color * 255).round().to(torch.uint8),
+        log_conf=pts.log_conf.half(),
+        classes=pts.classes.to(torch.uint8),
+    )
+
+
+def expand(pts: ScenePoints, sel: Tensor, device: torch.device) -> ScenePoints:
+    """Return the selected pixels of a compact scene as float32 tensors on device."""
+    return dataclasses.replace(
+        pts,
+        points=pts.points[sel].to(device),
+        rays=pts.rays[sel].to(device).float(),
+        color=pts.color[sel].to(device).float() / 255,
+        log_conf=pts.log_conf[sel].to(device).float(),
+        classes=pts.classes[sel].to(device).long(),
+        lo=pts.lo.to(device),
+    )
+
+
+def view_pixels(views: np.ndarray, pixels: int) -> Tensor:
+    """Flat indices of every pixel of the given views (view-major order)."""
+    return torch.cat([torch.arange(v * pixels, (v + 1) * pixels) for v in views])
 
 
 def pixel_classes(ids: np.ndarray, classes: dict[int, str]) -> np.ndarray:
@@ -184,14 +218,16 @@ def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
     cells = nx * ny * nz
     local = (pts.points - pts.lo) / pts.cell
     values = torch.cat([pts.log_conf[:, None], pts.color, local, local**2], 1)
-    count = torch.zeros(cells).index_add_(0, flat, torch.ones(len(flat)))
-    sums = torch.zeros(cells, values.shape[1]).index_add_(0, flat, values)
+    dev = pts.points.device
+    ones = torch.ones(len(flat), device=dev)
+    count = torch.zeros(cells, device=dev).index_add_(0, flat, ones)
+    sums = torch.zeros(cells, values.shape[1], device=dev).index_add_(0, flat, values)
     mean = sums / count.clamp(min=1)[:, None]
     spread = (mean[:, 7:10] - mean[:, 4:7] ** 2).clamp(min=0).sqrt()
     feats = [count.log1p()[:, None], mean[:, :4], spread]
     if semantics:
-        hist = torch.zeros(cells * CLASSES).index_add_(
-            0, flat * CLASSES + pts.classes, torch.ones(len(flat))
+        hist = torch.zeros(cells * CLASSES, device=dev).index_add_(
+            0, flat * CLASSES + pts.classes, ones
         )
         feats.append(hist.view(cells, CLASSES) / count.clamp(min=1)[:, None])
     grid = torch.cat(feats, 1).T.reshape(-1, nz, ny, nx)
@@ -235,8 +271,16 @@ class VolumeRefiner(nn.Module):
         nn.init.zeros_(self.head[-1].weight)
         nn.init.zeros_(self.head[-1].bias)
 
-    def features(self, grid: Tensor) -> Tensor:
-        """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X)."""
+    @property
+    def semantics(self) -> bool:
+        """Whether the refiner sees classes: grid histogram and per-pixel embedding."""
+        return self.embed is not None
+
+    def features(self, grid: Tensor, *, amp: bool = False) -> Tensor:
+        """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X); bfloat16 with amp."""
+        if amp and grid.is_cuda:
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                return self.features(grid).float()
         skips, x = [], grid[None]
         for i, enc in enumerate(self.down):
             x = enc(x if i == 0 else F.avg_pool3d(x, 2))
@@ -306,55 +350,90 @@ def load_scene(
     return pts, geometry, r, valid
 
 
-def train(
-    cfg: VolumeConfig, device: torch.device, semantics: str
-) -> tuple[VolumeRefiner, list[dict]]:
-    """Fit one refiner, one train scene per step; log the held-out error."""
-    torch.manual_seed(cfg.seed)
-    rng = np.random.default_rng(cfg.seed)
-    sem = semantics != "none"
+@dataclasses.dataclass(frozen=True)
+class TrainScene:
+    """A training scene on the CPU: compact pixels, r* (float16), valid, held pick."""
+
+    pts: ScenePoints
+    r: Tensor
+    valid: Tensor
+    views: int
+    pixels: int  # per view
+    held: Tensor  # pixels the held-out error is reported on
+
+
+def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], list[str]]:
+    """Every train scene, compact; scenes whose rays are no pinhole are skipped."""
+    rng = np.random.default_rng(0)
     data, skipped = [], []
     for scene in cfg.train:
         try:
-            pts, _, r, valid = load_scene(cfg, scene, semantics)
+            pts, geometry, r, valid = load_scene(cfg, scene, semantics)
         except AssertionError as err:  # fit_pinhole: Deja View's rays are no pinhole
             skipped.append(scene)
             print(f"{scene}: skipped, pinhole fit failed ({err})", flush=True)  # noqa: T201
             continue
+        views, h, w = geometry.depth.shape
         keep = rng.choice(
-            np.flatnonzero(valid),
-            size=min(cfg.kept_points, int(valid.sum())),
-            replace=False,
+            np.flatnonzero(valid), size=min(cfg.kept_points, int(valid.sum()))
         )
-        data.append(
-            (
-                voxelize(pts, semantics=sem),
-                pts,
-                torch.from_numpy(keep),
-                torch.from_numpy(r[keep]),
-            )
-        )
+        data.append(TrainScene(compact(pts), torch.from_numpy(r).half(),
+                               torch.from_numpy(valid), views, h * w,
+                               torch.from_numpy(np.sort(keep))))  # fmt: skip
+    return data, skipped
+
+
+def step_loss(
+    model: VolumeRefiner,
+    scene: TrainScene,
+    cfg: VolumeConfig,
+    rng: np.random.Generator,
+    device: torch.device,
+) -> Tensor:
+    """L1 on r of random valid pixels, the grid built from a random subset of views."""
+    k = int(rng.integers(cfg.view_subset[0], min(cfg.view_subset[1], scene.views) + 1))
+    sel = view_pixels(
+        np.sort(rng.choice(scene.views, size=k, replace=False)), scene.pixels
+    )
+    pts = expand(scene.pts, sel, device)
+    candidates = torch.nonzero(scene.valid[sel])[:, 0]
+    pick = candidates[
+        torch.from_numpy(rng.integers(len(candidates), size=cfg.batch_points))
+    ]
+    feats = model.features(voxelize(pts, semantics=model.semantics), amp=cfg.amp)
+    pred = model(feats, pts, pick.to(device))
+    return (pred - scene.r[sel][pick].to(device).float()).abs().mean()
+
+
+def train(
+    cfg: VolumeConfig,
+    data: list[TrainScene],
+    device: torch.device,
+    *,
+    semantics: bool,
+    seed: int,
+) -> tuple[VolumeRefiner, list[dict]]:
+    """Fit one refiner, one train scene per step; log the held-out error."""
+    torch.manual_seed(seed)
+    rng = np.random.default_rng(seed)
     fit, held = data[: -cfg.held_out], data[-cfg.held_out :]
-    channels = grid_channels(semantics=sem)
-    model = VolumeRefiner(channels, cfg.widths, cfg.head, semantics=sem).to(device)
+    channels = grid_channels(semantics=semantics)
+    model = VolumeRefiner(channels, cfg.widths, cfg.head, semantics=semantics).to(
+        device
+    )
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, cfg.lr, total_steps=cfg.steps)
-    log: list[dict] = [{"skipped": skipped}]
+    log: list[dict] = []
+    t0 = time.perf_counter()
     for step in range(cfg.steps + 1):
-        if step % (cfg.steps // 10) == 0:
-            log.append({"step": step, **held_out_error(model, held, device)})
+        if step % (cfg.steps // 20) == 0:
+            err = held_out_error(model, held, cfg, device)
+            log.append({"step": step, "seconds": time.perf_counter() - t0, **err})
             print(f"step {step}: {log[-1]}", flush=True)  # noqa: T201
         if step == cfg.steps:
             break
-        grid, pts, keep, r = data[rng.integers(len(fit))]
-        pick = torch.from_numpy(rng.integers(len(keep), size=cfg.batch_points))
         model.train()
-        pred = model(
-            model.features(grid.to(device)),
-            to_device(pts, device),
-            keep[pick].to(device),
-        )
-        value = (pred - r[pick].to(device)).abs().mean()
+        value = step_loss(model, fit[rng.integers(len(fit))], cfg, rng, device)
         opt.zero_grad()
         value.backward()
         opt.step()
@@ -363,16 +442,22 @@ def train(
 
 
 def held_out_error(
-    model: VolumeRefiner, held: list, device: torch.device
+    model: VolumeRefiner,
+    held: list[TrainScene],
+    cfg: VolumeConfig,
+    device: torch.device,
 ) -> dict[str, float]:
-    """Mean |r* - r| before (r = 0) and after, over the held-out scenes' kept pixels."""
+    """Mean |r* - r| before (r = 0) and after on the held-out scenes, all views."""
     model.eval()
     before = after = 0.0
     with torch.no_grad():
-        for grid, pts, keep, r in held:
-            pred = model(
-                model.features(grid.to(device)), to_device(pts, device), keep.to(device)
-            ).cpu()
+        for scene in held:
+            pts = expand(scene.pts, torch.arange(len(scene.r)), device)
+            feats = model.features(
+                voxelize(pts, semantics=model.semantics), amp=cfg.amp
+            )
+            pred = model(feats, pts, scene.held.to(device)).cpu()
+            r = scene.r[scene.held].float()
             before += float(r.abs().mean()) / len(held)
             after += float((pred - r).abs().mean()) / len(held)
     return {"abs_log_before": before, "abs_log_after": after}
@@ -384,13 +469,13 @@ def refine(
     geometry: Geometry,
     device: torch.device,
     *,
-    semantics: bool,
+    amp: bool = False,
 ) -> Geometry:
     """Return the backbone geometry with depth D exp(r); all else kept."""
     model.eval()
     with torch.no_grad():
-        feats = model.features(voxelize(pts, semantics=semantics).to(device))
-        on = to_device(pts, device)
+        on = expand(compact(pts), torch.arange(len(pts.points)), device)
+        feats = model.features(voxelize(on, semantics=model.semantics), amp=amp)
         n = len(pts.points)
         r = torch.cat(
             [
@@ -414,16 +499,17 @@ def grid_channels(*, semantics: bool) -> int:
 
 
 def main() -> None:
-    """Train every model of the config, save it, write its depth for `predict`.
+    """Train every model of the config per seed, save it, write its depth for `predict`.
 
-    `--out` resumes a run: a model already saved there is loaded instead of trained, so
-    a job that died (out of memory, a reboot) is restarted without losing finished
-    models. On CUDA the process first takes `--reserve-gb` of GPU memory and frees it
-    into PyTorch's cache, which keeps it, so a job started later on the shared GPU
-    cannot take the memory this one needs.
+    The train scenes are loaded once per class source and shared by its seeds. `--out`
+    resumes a run: a model already saved there is loaded instead of trained, so a job
+    that died (out of memory, a reboot) is restarted without losing finished models. On
+    CUDA the process first takes `--reserve-gb` of GPU memory and frees it into
+    PyTorch's cache, which keeps it, so a job started later on the shared GPU cannot
+    take the memory this one needs.
     """
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("configs/e41a_volume.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/e41b_volume.yaml"))
     parser.add_argument("--out", type=Path, help="run folder to create or resume")
     parser.add_argument("--reserve-gb", type=float, default=6.0)
     args = parser.parse_args()
@@ -439,26 +525,38 @@ def main() -> None:
         record.setdefault("resumed_at", []).append(git_hash())
     else:
         record = {"config": yaml.safe_load(args.config.read_text()), "git": git_hash()}
-    for name, semantics in cfg.models.items():
+    for base, semantics in cfg.models.items():
         sem = semantics != "none"
-        saved = out / f"{name}.pt"
-        if saved.exists() and name in record:
+        names = {s: f"{base}-s{s}" if len(cfg.seeds) > 1 else base for s in cfg.seeds}
+        todo = [
+            s
+            for s, n in names.items()
+            if not ((out / f"{n}.pt").exists() and n in record)
+        ]
+        data = []
+        if todo:
+            data, skipped = load_train(cfg, semantics)
+            record.setdefault("skipped", {})[base] = skipped
+        for seed, name in names.items():
+            saved = out / f"{name}.pt"
             channels = grid_channels(semantics=sem)
-            model = VolumeRefiner(channels, cfg.widths, cfg.head, semantics=sem)
-            model = model.to(device)
-            model.load_state_dict(torch.load(saved, map_location=device))
-            print(f"{name}: loaded from {saved}")  # noqa: T201
-        else:
-            t0 = time.perf_counter()
-            model, log = train(cfg, device, semantics)
-            record[name] = {"seconds": time.perf_counter() - t0, "held_out": log}
-            torch.save(model.state_dict(), saved)
-            run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))
-        for scene in cfg.predict:
-            pts, geometry, _, _ = load_scene(cfg, scene, semantics)
-            refined = refine(model, pts, geometry, device, semantics=sem)
-            refined.save(cfg.root / scene / f"{name}_{cfg.views}.npz")
-        print(f"{name}: wrote {len(cfg.predict)} scenes", flush=True)  # noqa: T201
+            if seed in todo:
+                t0 = time.perf_counter()
+                model, log = train(cfg, data, device, semantics=sem, seed=seed)
+                record[name] = {"seconds": time.perf_counter() - t0, "held_out": log}
+                torch.save(model.state_dict(), saved)
+                run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))
+            else:
+                model = VolumeRefiner(channels, cfg.widths, cfg.head, semantics=sem)
+                model = model.to(device)
+                model.load_state_dict(torch.load(saved, map_location=device))
+                print(f"{name}: loaded from {saved}")  # noqa: T201
+            for scene in cfg.predict:
+                pts, geometry, _, _ = load_scene(cfg, scene, semantics)
+                refined = refine(model, pts, geometry, device, amp=cfg.amp)
+                refined.save(cfg.root / scene / f"{name}_{cfg.views}.npz")
+            print(f"{name}: wrote {len(cfg.predict)} scenes", flush=True)  # noqa: T201
+        del data
     run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))
     print(f"wrote {out}")  # noqa: T201
 

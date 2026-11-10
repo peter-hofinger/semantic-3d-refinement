@@ -1,11 +1,14 @@
 # E41a (issue #41, src/refinement/volume.py, volume-refine): every view fused into one voxel grid, a 3D U-Net,
 # a per-pixel depth residual. Trained on Déjà View's depth of the Hypersim train split, written for dev and
 # val, scored by experiments/configs/e41a_<model>.yaml. The three models differ only in the classes they see.
+# E41a ran at 8a0ea0b (grids precomputed, a fixed 400k pixels per scene); this file is in the current schema,
+# with every view in every step and one seed, the same setting.
 root: data/processed/hypersim
 views: views_n20_uniform_504
 backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
-split: configs/hypersim.yaml         # its train split
+split: configs/hypersim.yaml
+train_splits: [train]
 held_out: 4                          # last train scenes, error only
 predict_splits: [dev, val]
 models:                              # name -> classes it sees: none, sam3 (per-view masks), gt (Hypersim)
@@ -17,6 +20,8 @@ widths: [16, 32, 64]
 head: 64
 steps: 3000
 batch_points: 100000
-kept_points: 400000  # valid pixels kept per training scene, of about 3.8M
+kept_points: 400000  # pixels per held-out scene the error is reported on
+view_subset: [20, 20]
+amp: false
 lr: 1.0e-3
-seed: 0
+seeds: [0]

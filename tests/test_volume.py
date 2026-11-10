@@ -48,7 +48,7 @@ def test_untrained_refiner_returns_its_input_bit_for_bit() -> None:
     model = VolumeRefiner(
         voxelize(pts, semantics=True).shape[0], [8, 16], 16, semantics=True
     )
-    out = refine(model, pts, geometry, torch.device("cpu"), semantics=True)
+    out = refine(model, pts, geometry, torch.device("cpu"))
     np.testing.assert_array_equal(out.depth, geometry.depth)
 
 
