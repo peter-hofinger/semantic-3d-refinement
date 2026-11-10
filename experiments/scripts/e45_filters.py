@@ -9,7 +9,8 @@ on a grid; then q is solved so that the filter's completeness equals the refiner
 that scene (bisection of the bracketing grid step, each step scored exactly, to a gap
 below `GAP_CM`; `--reuse` keeps the curves of an earlier sweep and solves again).
 Scores are computed on the GPU where they project between views, the protocol's k-d
-trees run on the CPU in `WORKERS` processes.
+trees run on the CPU in `WORKERS` processes. Each finished scene is kept in
+`e45_<split>.partial.json`, so a rerun after a crash goes on from there.
 
 uv run python experiments/scripts/e45_filters.py runs/<run> --splits dev stress \
     --step 0.05 > experiments/results/e45_dev_stress.txt
@@ -171,6 +172,15 @@ def scene_jobs(
     return jobs
 
 
+def collect(
+    pending: dict[str, dict[str, Future]], scenes: dict[str, dict], partial: Path
+) -> None:
+    """Wait for the pending scenes' sweeps, add them, and keep all on disk."""
+    for name, jobs in pending.items():
+        scenes[name] = {f: j.result() for f, j in jobs.items()}
+    partial.write_text(json.dumps(scenes))
+
+
 def verdict(delta: dict) -> str:
     """Where the refiner lies against a filter's curve, by the plan's rule."""
     acc, cham = delta["accuracy_cm"], delta["chamfer_cm"]
@@ -262,11 +272,17 @@ def main() -> None:
                 name: rec["variants"]["Refined"]["headline"]
                 for name, rec in records.items()
             }
-            scenes: dict[str, dict] = {}
-            pending: dict[str, dict[str, Future]] = {}
             out = args.run / f"e45_{split}.json"
             earlier = json.loads(out.read_text())["scenes"] if args.reuse else None
+            partial = out.with_suffix(".partial.json")
+            scenes: dict[str, dict] = (
+                json.loads(partial.read_text()) if partial.is_file() else {}
+            )
+            pending: dict[str, dict[str, Future]] = {}
+
             for name in records:
+                if name in scenes:
+                    continue
                 inputs = load_inputs(raw, name, device)
                 refined = arrays[f"{name}/{refined_index}"]
                 target = refiner[name]["completeness_cm"]
@@ -275,14 +291,10 @@ def main() -> None:
                 )
                 del inputs
                 torch.cuda.empty_cache()
-                for (
-                    k,
-                    done,
-                ) in pending.items():  # one scene in flight while the next loads
-                    scenes[k] = {f: j.result() for f, j in done.items()}
+                collect(pending, scenes, partial)  # one in flight while the next loads
                 pending = {name: jobs}
-            for k, done in pending.items():
-                scenes[k] = {f: j.result() for f, j in done.items()}
+            collect(pending, scenes, partial)
+            scenes = {name: scenes[name] for name in records}
             for name, record in scenes.items():
                 dv = record["confidence"]["curve"][0]
                 ref = records[name]["variants"]["Déjà View"]["headline"]
@@ -290,6 +302,7 @@ def main() -> None:
                 print(f"check {name}: q = 1 against the run's Déjà View, {gap:.6f} cm")
             report(split, scenes, refiner)
             out.write_text(json.dumps({"refiner": refiner, "scenes": scenes}))
+            partial.unlink()
             print(f"wrote {out}")
 
 
