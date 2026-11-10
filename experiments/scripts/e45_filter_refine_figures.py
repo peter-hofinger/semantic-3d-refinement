@@ -1,17 +1,17 @@
-"""E46's figures: filter + refine against the filter alone, curves and the bedroom.
+"""E45, second arm: filter + refine against the filter alone, curves and the bedroom.
 
-Curves (`e46_curves.png`, `e46_curves_scenes.png`): accuracy against completeness,
-one panel per filter; the filter alone (E45's curve), filter + refine (E46's grid),
+Curves (`e45_filter_refine_curves.png`, `e45_filter_refine_curves_scenes.png`): accuracy against completeness,
+one panel per filter; the filter alone (E45's curve), filter + refine (this arm's grid),
 refine-then-cut by confidence (E45's "refined + confidence"), Déjà View and the refiner
 as points. The means are over the split's scenes at each q, as the protocol aggregates.
 
-Bedroom (`e46_bedroom.jpg`), views 18, 0, 12, 6: the pixels
+Bedroom (`e45_filter_refine_bedroom.jpg`), views 18, 0, 12, 6: the pixels
 voxel density keeps at `BEDROOM_Q`, without and with refinement; each kept pixel's
 distance to the nearest GT point (removed pixels gray) and the change. No render: its
 shading takes normals from neighboring pixels, NaN next to most removed ones.
 
-uv run python experiments/scripts/e46_figures.py runs/<run> \
-    > experiments/results/e46_figures.txt
+uv run python experiments/scripts/e45_filter_refine_figures.py runs/<run> \
+    > experiments/results/e45_filter_refine_figures.txt
 """
 
 import dataclasses
@@ -43,8 +43,8 @@ from src.refinement.multiview import RefineConfig, points_from_rays, refine_scen
 
 sys.path.insert(0, str(Path(__file__).parent))
 from e40_figures import distances
+from e45_filter_refine import FILTERS, filter_scores
 from e45_filters import REFINED_FILTER
-from e46_filter_refine import FILTERS, filter_scores
 
 from src.analysis.filters import keep_top, ranks
 
@@ -65,13 +65,13 @@ def mean_curve(curves: list[list[dict]]) -> tuple[np.ndarray, np.ndarray]:
     return comp, acc
 
 
-def panel(ax: plt.Axes, e45: list[dict], e46: list[list[dict]], f: str) -> None:
+def panel(ax: plt.Axes, e45: list[dict], arm: list[list[dict]], f: str) -> None:
     """Draw one filter's curves on one axis from per-scene records."""
     alone = mean_curve([r[f]["curve"] for r in e45])
-    refined = mean_curve([[p["refined"] for p in c] for c in e46])
+    refined = mean_curve([[p["refined"] for p in c] for c in arm])
     cut = mean_curve([r[REFINED_FILTER]["curve"] for r in e45])
     ax.plot(*alone, "o-", ms=3, color="tab:blue", label=f"{f} alone (E45)")
-    ax.plot(*refined, "s-", ms=4, color="tab:red", label=f"{f}, then refine (E46)")
+    ax.plot(*refined, "s-", ms=4, color="tab:red", label=f"{f}, then refine")
     ax.plot(*cut, ".--", ms=3, color="0.5", label="refine, then cut by confidence")
     ax.plot(alone[0][0], alone[1][0], "k^", ms=8, label="Déjà View")
     ax.plot(refined[0][0], refined[1][0], "kD", ms=7, label="refiner")
@@ -86,7 +86,7 @@ def curves(run: Path) -> None:
     data = {
         s: (
             json.loads((run / f"e45_{s}.json").read_text())["scenes"],
-            json.loads((run / f"e46_{s}.json").read_text())["scenes"],
+            json.loads((run / f"e45_filter_refine_{s}.json").read_text())["scenes"],
         )
         for s in SPLITS
     }
@@ -98,18 +98,18 @@ def curves(run: Path) -> None:
         squeeze=False,
     )
     for row, split in zip(axes, SPLITS, strict=True):
-        e45, e46 = data[split]
+        e45, arm = data[split]
         for ax, f in zip(row, FILTERS, strict=True):
-            panel(ax, list(e45.values()), [e46[n][f] for n in e45], f)
+            panel(ax, list(e45.values()), [arm[n][f] for n in e45], f)
             ax.set_title(f"{split}, mean of {len(e45)} scenes: {f}", fontsize=9)
     axes[0, 0].legend(fontsize=7)
     fig.suptitle(
-        "E46: filter first, then refine (red), against the filter alone (blue); "
+        "E45: filter first, then refine (red), against the filter alone (blue); "
         "lower left is better; each red point is read at its own completeness",
         x=0.01,
         ha="left",
     )
-    fig.savefig(OUT / "e46_curves.png", dpi=110)
+    fig.savefig(OUT / "e45_filter_refine_curves.png", dpi=110)
     plt.close(fig)
     names = [(s, n) for s in SPLITS for n in data[s][0]]
     fig, axes = plt.subplots(
@@ -120,12 +120,12 @@ def curves(run: Path) -> None:
         squeeze=False,
     )
     for row, (split, name) in zip(axes, names, strict=True):
-        e45, e46 = data[split]
+        e45, arm = data[split]
         for ax, f in zip(row, FILTERS, strict=True):
-            panel(ax, [e45[name]], [e46[name][f]], f)
+            panel(ax, [e45[name]], [arm[name][f]], f)
             ax.set_title(f"{split} {name}: {f}", fontsize=9)
     axes[0, 0].legend(fontsize=7)
-    fig.savefig(OUT / "e46_curves_scenes.png", dpi=90)
+    fig.savefig(OUT / "e45_filter_refine_curves_scenes.png", dpi=90)
     plt.close(fig)
 
 
@@ -208,12 +208,12 @@ def bedroom(run: Path) -> None:
         ha="left",
         fontsize=9,
     )
-    fig.savefig(OUT / "e46_bedroom.jpg", dpi=110)
+    fig.savefig(OUT / "e45_filter_refine_bedroom.jpg", dpi=110)
     plt.close(fig)
 
 
 def main() -> None:
-    """Draw every figure of E46."""
+    """Draw every figure of E45's filter-then-refine arm."""
     run = Path(sys.argv[1])
     curves(run)
     bedroom(run)

@@ -1,4 +1,4 @@
-"""E46: filter Déjà View's points first, then refine what remains, against the filter.
+"""E45, second arm: filter Déjà View's points first, then refine what remains.
 
 Reads the `scene_eval` run E45 read (its config, its refiner settings) and E45's curves
 of each filter without refinement (`e45_<split>.json`, same run, same code). Per scene,
@@ -9,9 +9,9 @@ kept pixels). Then the same filter without refinement is solved to the completen
 filter + refine reached (`e45_filters.sweep`'s bisection, from E45's curve), and the
 two are compared there by E45's rule against E40's floor.
 
-uv run python experiments/scripts/e46_filter_refine.py runs/<run> --splits dev stress \
-    --grid 1 0.9 0.8 0.7 0.6 0.5 0.4 0.3 0.2 0.1 > experiments/results/e46_dev_stress.txt
-writes runs/<run>/e46_<split>.json, read by `e46_figures.py`.
+uv run python experiments/scripts/e45_filter_refine.py runs/<run> --splits dev \
+    --grid 1 0.9 0.8 0.7 0.6 0.5 0.4 0.3 > experiments/results/e45_filter_refine_dev.txt
+writes runs/<run>/e45_filter_refine_<split>.json, read by `e45_filter_refine_figures.py`.
 """
 
 import argparse
@@ -214,7 +214,7 @@ def main() -> None:
                         f"check {name}: q = 1 against the run's refiner, {gap:.6f} cm"
                     )
             report(split, scenes, grid)
-            out = args.run / f"e46_{split}.json"
+            out = args.run / f"e45_filter_refine_{split}.json"
             out.write_text(json.dumps({"grid": grid, "scenes": scenes}))
             print(f"wrote {out}")
 

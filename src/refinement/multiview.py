@@ -41,7 +41,7 @@ dev in E40 (issue #28, `experiments/LOG.md`); its reason is where it is set.
   per-segment scale and shift of inverse depth (a, b) would carry it across the
   instance, but on Hypersim the F-score at 5 cm is equal or better without them.
 
-A keep mask (E46) refines only the pixels a filter keeps: the others are no unknowns
+A keep mask (E45) refines only the pixels a filter keeps: the others are no unknowns
 of the solve (`gauss_newton_step` holds them at the input) and come out NaN, and every
 term that reads one is dropped (`kept_matches`, `kept_edges`), so E_d and λ_δ, zero at
 δ = 0, act only on kept pixels. What is derived from the input as a whole stays as it
@@ -439,7 +439,7 @@ class Problem:
     normals: NormalTerm | None
     matches: Matches
     dsine: Tensor | None = None  # (V, H, W, 3) DSINE's normals, rays' frame: E_t
-    keep: Tensor | None = None  # (V, H, W) bool, the pixels that are unknowns (E46)
+    keep: Tensor | None = None  # (V, H, W) bool, the pixels that are unknowns (E45)
 
 
 def same_instance_edges(ids: Tensor) -> tuple[Tensor, Tensor]:
