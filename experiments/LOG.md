@@ -62,6 +62,7 @@ Metrics:
 | E32 | Visual of the segmenter on the four shared bedroom views (matched colours instead of id numbers, error map) | right object 0.83-0.92 of labeled pixels, other object 0.01-0.03, no mask 0.06-0.16; shared objects keep one colour across views. Harmful errors sit at the bed frame: the bed mask fills the gaps between the bars and takes the wall / floor behind them, exactly where Déjà View bleeds (E31). Largest gaps: mirror and floor mat never masked |
 | E35 | Learned single-view depth refiner (issue #11), with vs without SAM 3 masks, trained on 40 Hypersim train scenes | dev Chamfer 3.50 -> 3.20 cm with masks (3.29 without), better on all 3 scenes in accuracy and completeness; old protocol read it as no gain (F-score 0.844 -> 0.845); one seed, val not run |
 | E39 | Faster panoptic labeling (issue #29): prompts encoded once, detector batched 4 prompts at a time, overlaps on the GPU, association in torch | bedroom on an RTX 3080: SAM 3 29.7 -> 16.6 s, association 1.94 -> 0.57 s, pipeline 37.1 -> 22.6 s; dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 unchanged; 99.85-99.98% of pixels keep their mask (bf16 rounding of the batched detector), linked ids from the torch association bit-identical |
+| E40 | Remove or justify every hand-set constant in the energy (issue #28): one-at-a-time dev sweep, val check | λ_d and conf_power removed (no-ops); no Huber, no border margin and E_n cut at Otsu's threshold each tie on dev, but combined they lost 0.5 cm in val's ai_009_009 (val means beyond noise), so all three stay with that reason; λ_mv, λ_δ, neighbors and the cut window stay (alternatives trade accuracy for completeness); refiner unchanged within run-to-run spread |
 
 ## Reference table (current scorer, E11)
 
@@ -2389,3 +2390,115 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   RTX 3080's 10 GB in the living room (neighbors 4 / 8: 16.1M / 26.1M matches, 4.8 / 7.2 GB; 19: out of memory;
   bedroom 19: 14.0M matches, 4.3 GB; lobby 19: 26.2M, 7.2 GB). "neighbors all" is dropped from the sweep, so the
   remove option of that row cannot be tested on this machine; 2 and 8 stay.
+
+## E40: remove or justify every hand-set constant in the energy -> two removed, the rest kept: dev cannot tell three candidates apart, val can (10.11.2026)
+- **Goal, setting, method, noise floor and success rule:** as in the plan above (issue #28); RTX 3080, torch
+  2.14.1+cu130, Hypersim dev for every decision, val as the check, no test scene. Out of scope, unchanged: λ_n and
+  the normal estimator (#21), the Gauss-Newton / CG budget (#10).
+- **Commits:** d8675a5 (sweep knobs), ce36225 (plan), 0de7b92 (amendment), caea80c (`e40_table.py`), 954bfc1 (first
+  final energy), a97064a (confidence kept), 679291c (final: back to the refiner before E40 but for λ_d and
+  conf_power), this commit (`e40_check.py`, `e40_figures.py`, `e40_attribution.yaml`, results, figure).
+- **Commands** (this machine; `runs/` stays local):
+  - `uv run python -m src.analysis.scene_eval --cfg experiments/configs/e40_sweep.yaml --splits dev` at caea80c's
+    code (run `e40_sweep-20261110-081852`; it records git 50d6117, the same tree before a lint fix of
+    `e40_table.py` was folded in) -> `e40_table.py <run> --split dev --floor 0.033 0.037 0.036 --labels` ->
+    `results/e40_sweep.txt` (every variant per scene and aggregate).
+  - Val inputs, prepared here with E34's settings: `hypersim-download --splits val` and `hypersim-prepare` (~25
+    min, network-bound), `dejaview-predict` (1:09 for all 11), `sam3-segment --prompts configs/prompts/nyu40.txt
+    --threshold 0.3` (3:26), `dsine-predict` (0:42), `HF_HUB_OFFLINE=1`.
+  - `scene_eval --cfg configs/eval_hypersim.yaml --splits dev val` at caea80c (refiner before E40, run
+    `eval_hypersim-20261110-083124`, a git worktree), 954bfc1 (`-083337`), a97064a (`-083934`) and 679291c
+    (`-084435`) -> `e40_check.py <caea80c run> <the three others>` -> `results/e40_check.txt`.
+  - `scene_eval --cfg experiments/configs/e40_attribution.yaml --splits dev` at caea80c (`e40_attribution-20261110-083642`)
+    -> `results/e40_attribution.txt`.
+  - `uv run python experiments/scripts/e40_figures.py runs/e40_sweep-20261110-081852 runs/eval_hypersim-20261110-083337
+    runs/eval_hypersim-20261110-083934 runs/eval_hypersim-20261110-084435` -> `results/e40_figures.txt`,
+    `figures/e40_bedroom.jpg`.
+- **Noise floor:** the unchanged refiner twice in one process, in a second process and in a third: dev aggregates
+  equal to 0.00002 cm, per val scene to 0.0006 cm. The depth maps themselves are not bit-identical between
+  repeats (3-14% of the pixels differ in the four scenes checked, a few by up to 10%: `index_add`'s atomic sums reorder on the GPU), but the
+  scores agree to the third decimal, so, as planned, the floor is the cross-GPU difference against E34's
+  addendum (RTX 5090): **0.033 / 0.037 / 0.036 cm** (accuracy / completeness / Chamfer, dev aggregate).
+- **Sweep, dev aggregate, cm** (refiner before E40: 4.211 / 3.694 / 3.953; Δ = variant - that; per scene in
+  `results/e40_sweep.txt`). "neighbors all" (19) did not fit on 10 GB (amendment above).
+
+  | row | variant | Δ accuracy | Δ completeness | Δ Chamfer | within floor |
+  |---|---|---|---|---|---|
+  | E_d Huber | quadratic (none) | +0.000 | +0.000 | +0.000 | yes |
+  | | Otsu's threshold | -0.000 | -0.000 | -0.000 | yes |
+  | | 0.02 / 0.1 | -0.001 / -0.000 | +0.000 / -0.000 | -0.000 / -0.000 | yes |
+  | E_d weight | u removed (w = c) | +0.001 | -0.011 | -0.005 | yes |
+  | E_mv neighbors | 2 | +0.097 | -0.260 | -0.081 | no |
+  | | 8 | -0.014 | +0.228 | +0.107 | no |
+  | E_mv border | 0 px | +0.000 | -0.004 | -0.002 | yes |
+  | E_n cut | 0.01 / 0.05 | -0.009 / +0.030 | -0.017 / +0.026 | -0.013 / +0.028 | yes / yes |
+  | | Otsu's threshold | +0.005 | +0.005 | +0.005 | yes |
+  | E_n window | 3 / 5 / 11 px | +0.006 / -0.002 / +0.003 | -0.005 / -0.001 / +0.005 | +0.001 / -0.002 / +0.004 | yes |
+  | E_n closing budget | 0 (no closing) | +0.050 | +0.030 | +0.040 | no |
+  | | 2 x window | -0.006 | -0.007 | -0.007 | yes |
+  | λ_δ | 0.3 / 3 | -0.043 / +0.062 | +0.184 / -0.279 | +0.070 / -0.108 | no / no |
+  | λ_mv | 0.3 / 3 | +0.058 / -0.021 | -0.323 / +0.245 | -0.132 / +0.112 | no / no |
+
+  Labels do not move (mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216 for every variant). Huber's threshold binds on only
+  0.3 / 0.9 / 0.3% of the pixels (living room / bedroom / lobby, |δ| > 0.05 after refinement), which is why
+  removing it changes nothing on dev.
+- **Val check 1** (Huber removed, border 0 px, E_n cut at Otsu's threshold, confidence removed per E37, λ_d
+  removed; 954bfc1): dev +0.018 / -0.027 / -0.005 (passes); val **+0.074** / -0.008 / +0.033: accuracy worse on
+  11 of 11 val scenes, beyond the floor. ai_009_009 (Déjà View's failure hall) +0.469 cm; without it +0.034.
+- **Attribution, on dev only** (the combination with one change undone at a time, `results/e40_attribution.txt`):
+  the knob version of the combination reproduces 954bfc1's dev scores exactly; undoing the confidence removal
+  recovers the most accuracy (-0.013 cm; Huber -0.010, but only once the confidence is gone; E_n cut -0.004;
+  border 0). The confidence removal was the one change taken from E37 rather than tested alone here, so it was
+  stepped back (a97064a).
+- **Val check 2** (the same, confidence kept; a97064a): dev +0.005 / -0.000 / +0.002; val **+0.051 / +0.042 /
+  +0.046**, all beyond the floor, while the median scene moves by +0.001 / +0.001 / +0.002 and the mean without
+  ai_009_009 is +0.007 / -0.011 / -0.002. ai_009_009 alone: +0.486 / +0.575 / +0.530 cm, against a run-to-run
+  spread of 0.0001 cm there, so it is an effect, not noise. Otsu's threshold is 0.024-0.037 on dev but
+  0.023-0.067 on val (ai_009_009: 0.048), so the derived cut runs where dev never tested (dev's sweep: 0.05
+  already +0.03 cm), and Huber's linear branch acts where corrections are large, as in a failed scene.
+- **Second val run, stated plainly:** the plan said one val run. Val was run twice to check a configuration, plus
+  once at 679291c as an identity check; no value was chosen among alternatives on val. Which of the three changes
+  carries ai_009_009's loss is not known: finding out would mean choosing on val.
+- **Decisions:**
+
+  | row | decision | reason | dev Δ (acc / comp / Chamfer, cm) |
+  |---|---|---|---|
+  | λ_d | **remove** | E's scale does not move its minimizer (test: scaling every weight by 7 scales E by 7, same x) | 0 (identical) |
+  | E_d weight: confidence exponent (`conf_power`) | **remove**, w = c u | the exponent stays 1, so the knob is dead code; dropping c itself tied on dev (E37) but carried the accuracy loss of val check 1 | 0 |
+  | E_d weight: consistency u | **keep** | ties without it (-0.005 Chamfer); semantics stay unless better beyond noise (agreed before running) | +0.001 / -0.011 / -0.005 without |
+  | E_d Huber 0.05 | **keep** | removing it ties on dev, but the combination with it lost 0.5 cm in val's failure scene, where corrections are large | 0.000 without |
+  | E_mv neighbors 4 | **keep** | 2 and 8 trade accuracy against completeness beyond noise; all 19 exceed 10 GB | see table |
+  | E_mv border 1 px | **keep** (`MATCH_BORDER`) | 0 px ties on dev, but failed val in combination; the margin keeps the four bilinear corners in the image when a step moves the projection | -0.002 Chamfer at 0 px |
+  | E_n cut 0.02 | **keep** | Otsu's threshold ties on dev, but spans 0.023-0.067 on val, beyond what dev tested, and failed val in combination | +0.005 at Otsu |
+  | E_n window 7 px | **keep** (`CUT_WINDOW`) | spans Déjà View's 2-4 px occlusion ramps on both sides (fc6c3c4); 3-11 px tie on dev | within ±0.006 |
+  | E_n closing budget = window | **keep** | no closing loses accuracy beyond noise; twice the window ties | +0.050 without |
+  | λ_δ 1 | **keep** | 0 is singular; 0.3 / 3 trade accuracy against completeness beyond noise | see table |
+  | λ_mv 1 | **keep** | 0.3 / 3 trade as λ_δ does | see table |
+  | λ_n, normal estimator | out of scope | issue #21 | - |
+  | Gauss-Newton x CG, CG tol | out of scope | issue #10 | - |
+
+- **Final refiner** (679291c): the one before E40 within the run-to-run spread (dev aggregate 4.211 / 3.694 /
+  3.953 cm, val 5.755 / 5.690 / 5.723, every scene within 0.0006 cm), so the README's numbers stand. Labels
+  rechecked once: dev mIoU / PQ^sc / AP 0.360 / 0.292 / 0.216, val 0.397 / 0.258 / 0.345 (val differs from E34's
+  0.395 / 0.256 / 0.353, most likely because SAM 3 ran here with E39's batched code, not on the RTX 5090;
+  not checked further).
+- **Figure:** `figures/e40_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6: each pixel's distance to
+  the nearest GT point before E40, and its change under each change that passed dev, both val-checked
+  combinations and the final energy, on one ±2 cm scale. Every change is local to object edges (bed-frame bars,
+  chair backs, the vanity); no surface moves as a whole. Combination 1 adds red along the thin bed bars of view 18
+  (mean +0.006 cm over the bedroom's 20 views); the final column is blank (fewer than 0.01% of
+  the pixels move by more than 0.5 cm).
+- **Conclusion:**
+  - Two settings went: λ_d (a gauge, by definition) and the confidence exponent (dead at 1). Every other
+    constant stays, now with its reason where it is set and listed in the README.
+  - Three candidates (no Huber, no border margin, the E_n cut derived from Otsu) are each indistinguishable from
+    the current value on dev, yet together they lose 0.5 cm in one val scene. Three dev scenes cannot separate
+    settings that only act on failures and edge cases; the "prefer the simpler energy on a tie" rule is only as
+    good as the scenes the tie is measured on.
+  - Every weight in the sweep (λ_mv, λ_δ, neighbors) trades accuracy against completeness, the trade E38 explained
+    (the merge of the views' spread). None improves both, so no weight search over them can pass this issue's rule;
+    a Chamfer-only rule would pick λ_mv 0.3 (-0.132 cm) or λ_δ 3 (-0.108 cm) on dev. That is a choice of metric,
+    left open.
+  - Not tested, next candidates: the three candidates one at a time on a split not yet used (train scenes, or
+    test with the team's consent); whether the derived cut works if Otsu's threshold is computed per view pair
+    instead of per scene.

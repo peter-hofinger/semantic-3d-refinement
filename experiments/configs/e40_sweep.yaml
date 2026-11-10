@@ -1,6 +1,8 @@
 # E40 (experiments/LOG.md, issue #28): configs/eval_hypersim.yaml with each hand-set
 # constant of the energy varied alone from configs/refine.yaml; null derives it from
 # Otsu's occlusion threshold. Run on dev only: `--splits dev`.
+# Reads RefineConfig's sweep knobs, which exist from d8675a5 to caea80c only (E40 removed
+# them again): run it at caea80c.
 # Evaluation protocol (src/analysis/scene_eval.py): every variant on the scenes of
 # configs/hypersim.yaml's splits, chosen by --splits, 20 views each at 504 px, Déjà View
 # K = 16, SAM 3 image mode with the prompts of configs/prompts/nyu40.txt at threshold 0.3

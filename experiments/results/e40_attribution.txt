@@ -1,0 +1,47 @@
+run runs/e40_attribution-20261110-083642/run.yaml, git caea80c7e2b625a4f417f054eb5ab723594b60a1, split dev
+noise floor (cm): {'accuracy_cm': 0.033, 'completeness_cm': 0.037, 'chamfer_cm': 0.036}
+
+ai_010_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.194 | 1.007 | 1.601 | +0.400 -0.403 -0.001
+Refined | 1.794 | 1.410 | 1.602 | +0.000 +0.000 +0.000
+final | 1.806 | 1.376 | 1.591 | +0.011 -0.034 -0.011
+final, Huber 0.05 back | 1.802 | 1.377 | 1.590 | +0.008 -0.033 -0.012
+final, confidence back | 1.799 | 1.385 | 1.592 | +0.004 -0.025 -0.010
+final, 1 px border back | 1.801 | 1.402 | 1.602 | +0.007 -0.008 -0.000
+final, edge_tol 0.02 back | 1.805 | 1.376 | 1.591 | +0.011 -0.033 -0.011
+
+ai_006_007_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 2.520 | 1.172 | 1.846 | +0.316 -0.545 -0.115
+Refined | 2.204 | 1.716 | 1.960 | +0.000 +0.000 +0.000
+final | 2.211 | 1.717 | 1.964 | +0.006 +0.000 +0.003
+final, Huber 0.05 back | 2.208 | 1.719 | 1.964 | +0.004 +0.003 +0.003
+final, confidence back | 2.201 | 1.717 | 1.959 | -0.003 +0.001 -0.001
+final, 1 px border back | 2.214 | 1.716 | 1.965 | +0.010 -0.001 +0.004
+final, edge_tol 0.02 back | 2.211 | 1.717 | 1.964 | +0.006 +0.001 +0.004
+
+ai_044_001_cam_00: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined
+Déjà View | 9.312 | 4.795 | 7.053 | +0.677 -3.160 -1.242
+Refined | 8.635 | 7.955 | 8.295 | +0.000 +0.000 +0.000
+final | 8.670 | 7.908 | 8.289 | +0.035 -0.047 -0.006
+final, Huber 0.05 back | 8.648 | 7.907 | 8.277 | +0.013 -0.048 -0.018
+final, confidence back | 8.649 | 7.979 | 8.314 | +0.014 +0.023 +0.019
+final, 1 px border back | 8.672 | 7.898 | 8.285 | +0.037 -0.057 -0.010
+final, edge_tol 0.02 back | 8.658 | 7.897 | 8.278 | +0.023 -0.058 -0.017
+
+dev aggregate: variant | accuracy_cm | completeness_cm | chamfer_cm | Δ vs Refined | passes
+Déjà View | 4.675 | 2.324 | 3.500 | +0.464 -1.369 -0.453 | no
+Refined | 4.211 | 3.694 | 3.953 | +0.000 +0.000 +0.000 | yes
+final | 4.229 | 3.667 | 3.948 | +0.018 -0.027 -0.005 | yes
+final, Huber 0.05 back | 4.219 | 3.668 | 3.943 | +0.008 -0.026 -0.009 | yes
+final, confidence back | 4.216 | 3.694 | 3.955 | +0.005 -0.000 +0.002 | yes
+final, 1 px border back | 4.229 | 3.672 | 3.950 | +0.018 -0.022 -0.002 | yes
+final, edge_tol 0.02 back | 4.225 | 3.664 | 3.944 | +0.014 -0.030 -0.008 | yes
+
+refinement time per scene (s), mean over scenes
+Déjà View | 0.00
+Refined | 4.06
+final | 3.98
+final, Huber 0.05 back | 3.99
+final, confidence back | 3.98
+final, 1 px border back | 3.98
+final, edge_tol 0.02 back | 4.03

@@ -1,0 +1,8 @@
+bedroom ai_006_007_cam_00, all 20 views: mean distance change (cm)
+no Huber: -0.0000, pixels changed by > 0.5 cm: 0.0025
+no border margin: -0.0024, pixels changed by > 0.5 cm: 0.0115
+E_n cut at Otsu: -0.0003, pixels changed by > 0.5 cm: 0.0128
+combination 1: all three, no confidence: +0.0055, pixels changed by > 0.5 cm: 0.0285
+combination 2: all three, confidence kept: -0.0032, pixels changed by > 0.5 cm: 0.0213
+final (= before): +0.0000, pixels changed by > 0.5 cm: 0.0000
+wrote experiments/figures/e40_bedroom.jpg

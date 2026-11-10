@@ -1,0 +1,83 @@
+reference runs/eval_hypersim-20261110-083124 (git caea80c); Δ = run - reference, cm
+dev reference Déjà View: accuracy_cm 4.675 completeness_cm 2.324 chamfer_cm 3.500 miou 0.360 pq 0.292 ap 0.216
+dev reference Refined: accuracy_cm 4.211 completeness_cm 3.694 chamfer_cm 3.953 miou 0.360 pq 0.292 ap 0.216
+val reference Déjà View: accuracy_cm 6.061 completeness_cm 4.142 chamfer_cm 5.102 miou 0.397 pq 0.258 ap 0.345
+val reference Refined: accuracy_cm 5.755 completeness_cm 5.690 chamfer_cm 5.723 miou 0.397 pq 0.258 ap 0.345
+
+runs/eval_hypersim-20261110-083337 (git 954bfc1)
+dev ai_010_007_cam_00: +0.0113 -0.0337 -0.0112
+dev ai_006_007_cam_00: +0.0062 -0.0002 +0.0030
+dev ai_044_001_cam_00: +0.0351 -0.0473 -0.0061
+dev aggregate: +0.0175 -0.0271 -0.0048
+dev median over scenes: +0.0113 -0.0337 -0.0061
+dev scenes worse: +3.0000 +0.0000 +1.0000
+dev mean without ai_009_009_cam_00: +0.0175 -0.0271 -0.0048
+dev labels: miou 0.360 pq 0.292 ap 0.216
+val ai_003_010_cam_00: +0.0029 -0.0085 -0.0028
+val ai_004_003_cam_00: +0.0126 -0.0518 -0.0196
+val ai_004_004_cam_00: +0.0006 -0.0040 -0.0017
+val ai_004_010_cam_00: +0.0101 +0.0019 +0.0060
+val ai_005_005_cam_00: +0.0609 -0.1601 -0.0496
+val ai_007_001_cam_00: +0.0210 +0.0317 +0.0264
+val ai_009_007_cam_00: +0.0533 -0.0350 +0.0091
+val ai_009_009_cam_00: +0.4694 +0.2180 +0.3437
+val ai_031_004_cam_00: +0.1160 -0.0173 +0.0494
+val ai_044_003_cam_01: +0.0460 -0.0288 +0.0086
+val ai_050_002_cam_00: +0.0204 -0.0289 -0.0043
+val aggregate: +0.0739 -0.0075 +0.0332
+val median over scenes: +0.0210 -0.0173 +0.0060
+val scenes worse: +11.0000 +3.0000 +6.0000
+val mean without ai_009_009_cam_00: +0.0344 -0.0301 +0.0022
+val labels: miou 0.397 pq 0.258 ap 0.345
+
+runs/eval_hypersim-20261110-083934 (git a97064a)
+dev ai_010_007_cam_00: +0.0042 -0.0249 -0.0104
+dev ai_006_007_cam_00: -0.0032 +0.0005 -0.0014
+dev ai_044_001_cam_00: +0.0139 +0.0235 +0.0187
+dev aggregate: +0.0050 -0.0003 +0.0023
+dev median over scenes: +0.0042 +0.0005 -0.0014
+dev scenes worse: +2.0000 +2.0000 +1.0000
+dev mean without ai_009_009_cam_00: +0.0050 -0.0003 +0.0023
+dev labels: miou 0.360 pq 0.292 ap 0.216
+val ai_003_010_cam_00: +0.0002 +0.0009 +0.0005
+val ai_004_003_cam_00: -0.0000 -0.0071 -0.0036
+val ai_004_004_cam_00: -0.0073 -0.0079 -0.0076
+val ai_004_010_cam_00: +0.0024 +0.0027 +0.0026
+val ai_005_005_cam_00: -0.0067 -0.1646 -0.0856
+val ai_007_001_cam_00: -0.0052 +0.0559 +0.0254
+val ai_009_007_cam_00: +0.0012 +0.0017 +0.0015
+val ai_009_009_cam_00: +0.4856 +0.5747 +0.5301
+val ai_031_004_cam_00: +0.0291 -0.0103 +0.0094
+val ai_044_003_cam_01: +0.0475 +0.0251 +0.0363
+val ai_050_002_cam_00: +0.0087 -0.0052 +0.0018
+val aggregate: +0.0505 +0.0423 +0.0464
+val median over scenes: +0.0012 +0.0009 +0.0018
+val scenes worse: +7.0000 +6.0000 +8.0000
+val mean without ai_009_009_cam_00: +0.0070 -0.0109 -0.0020
+val labels: miou 0.397 pq 0.258 ap 0.345
+
+runs/eval_hypersim-20261110-084435 (git 679291c)
+dev ai_010_007_cam_00: -0.0000 +0.0000 -0.0000
+dev ai_006_007_cam_00: +0.0000 +0.0000 +0.0000
+dev ai_044_001_cam_00: +0.0000 -0.0000 -0.0000
+dev aggregate: +0.0000 +0.0000 +0.0000
+dev median over scenes: +0.0000 +0.0000 -0.0000
+dev scenes worse: +2.0000 +2.0000 +1.0000
+dev mean without ai_009_009_cam_00: +0.0000 +0.0000 +0.0000
+dev labels: miou 0.360 pq 0.292 ap 0.216
+val ai_003_010_cam_00: +0.0000 +0.0000 +0.0000
+val ai_004_003_cam_00: +0.0000 +0.0000 +0.0000
+val ai_004_004_cam_00: +0.0001 +0.0001 +0.0001
+val ai_004_010_cam_00: +0.0000 +0.0000 +0.0000
+val ai_005_005_cam_00: -0.0001 -0.0006 -0.0004
+val ai_007_001_cam_00: +0.0000 +0.0000 +0.0000
+val ai_009_007_cam_00: -0.0000 +0.0001 +0.0000
+val ai_009_009_cam_00: -0.0000 -0.0001 -0.0000
+val ai_031_004_cam_00: -0.0001 +0.0000 -0.0000
+val ai_044_003_cam_01: +0.0000 +0.0000 +0.0000
+val ai_050_002_cam_00: -0.0000 -0.0000 -0.0000
+val aggregate: -0.0000 -0.0000 -0.0000
+val median over scenes: +0.0000 +0.0000 +0.0000
+val scenes worse: +6.0000 +8.0000 +7.0000
+val mean without ai_009_009_cam_00: -0.0000 -0.0000 -0.0000
+val labels: miou 0.397 pq 0.258 ap 0.345

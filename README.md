@@ -119,8 +119,9 @@ A refiner gets the same object as `Refiner.refine(views, geometry, segmentation)
 at once, per pixel as d = d⁰ + δ, cameras fixed, by Gauss-Newton with matrix-free
 conjugate gradients:
 
-E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 for now and λ_n = 1e-4 for E_n's units
-(`configs/refine.yaml`).
+E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 and λ_n = 1e-4 for E_n's units
+(`configs/refine.yaml`). E_d's weight is 1 by definition, since E's scale does not move its
+minimizer.
 
 - **E_d**: Huber anchor to Déjà View's depth, weighted by its confidence times the share
   of other views that agree on the pixel's instance, so it lets go where views disagree.
@@ -131,6 +132,27 @@ E = E_d + E_mv + λ_n E_n + ‖δ‖², every weight 1 for now and λ_n = 1e-4 f
   shape term: only between pixels of one instance and cut on the input's occlusion
   contours. DSINE is non-commercial and stays outside git
   (`data/third_party/dsine_hub`); `uv run dsine-predict <views npz>` caches its normals.
+
+**Hand-set constants (E40, issue #28).** Each was varied alone on the three dev scenes,
+against a noise floor of 0.033 / 0.037 / 0.036 cm (accuracy / completeness / Chamfer). Only
+λ_d and the confidence exponent were removed. The rest stay, for these reasons:
+
+| Constant | Value | Why it stays |
+|---|---|---|
+| λ_mv, λ_δ | 1, 1 | 0.3 and 3 trade accuracy for completeness beyond noise on dev; λ_δ = 0 is singular |
+| E_mv neighbours | 4 | 2 and 8 trade the same way; all 19 views exceed 10 GB |
+| E_d Huber threshold | 0.05 | removing it ties on dev, but failed the val check (see below) |
+| E_mv border margin | 1 px | keeps the four bilinear corners in the image; 0 px failed the same val check |
+| E_n occlusion cut | 0.02 | Otsu's per-scene threshold ties on dev, but on val reaches 0.067, beyond what dev tested |
+| E_n cut window, closing budget | 7 px | spans Déjà View's 2-4 px edge ramps; 3-11 px tie, no closing loses 0.05 cm |
+| E_d weight | c × u | dropping c ties on dev (E37); combined with the three above, accuracy got worse on all 11 val scenes, and on dev restoring c recovered most of it |
+| λ_n, DSINE | 1e-4 | issue #21 |
+| Gauss-Newton × CG, CG tol | 10 × 20, 1e-3 | issue #10 |
+
+On dev, removing Huber, the border margin and the fixed cut each tie. Combined, they cost 0.5 cm
+in one val scene (ai_009_009, where Déjà View fails), which put the val means beyond noise, so
+all three stay. Three dev scenes cannot separate settings that only matter on failures. Details
+are in E40 in `experiments/LOG.md`.
 
 ```bash
 D=data/processed/scannetpp/5ee7c22ba0
@@ -204,7 +226,8 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   unchanged in the living room and worse elsewhere. Accuracy improves on every scene and
   disagreement between overlapping views falls 6-8×, but the refined surfaces are thinner
   than Déjà View's scatter, so completeness loses more than accuracy gains, most in the
-  large lobby. Setting the weights is the next step.
+  large lobby. No weight improves both: λ_mv, λ_δ and the neighbour count each trade
+  accuracy against completeness on dev (E40).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
   the kitchen, 15.29 → 15.91 in the conference room, 3.99 → 4.36 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
