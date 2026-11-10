@@ -9,6 +9,7 @@ from src.loaders.views import Views
 from src.refinement.multiview import (
     MATCH_BORDER,
     JointRefiner,
+    MatchSelection,
     Problem,
     RefineConfig,
     Scene,
@@ -26,6 +27,7 @@ from src.refinement.multiview import (
     occlusion_threshold,
     points_from_rays,
     project,
+    random_matches,
     refine_scene,
     residuals,
     robust,
@@ -568,3 +570,44 @@ def test_tangent_residuals_vanish_on_the_plane_for_either_sign_and_stay_bounded(
     other = (other / other.norm(dim=-1, keepdim=True)).double()
     r = tangent_residuals(d, scale, rays, other, 2.0)  # √(λ/2) = 1: plain sines
     assert r.abs().max() <= 1 + 1e-12 and r.abs().mean() > 0.3
+
+
+def test_keeping_every_match_returns_the_ungated_refinement_bit_for_bit() -> None:
+    scene, _ = two_views(bump=0.03, noise=0.01)
+    cfg = RefineConfig(lambda_n=0.0, device="cpu")
+    scale = scene.depth.median()
+    every = len(find_matches(scene, scale / scene.depth, scale, cfg.neighbors).src)
+    depth, _, _ = refine_scene(scene, cfg)
+    select = MatchSelection(keep=every, seed=3)
+    kept, _, counts = refine_scene(scene, cfg, select=select)
+    assert counts["matches"] == every
+    assert torch.equal(depth, kept)
+
+
+def test_random_matches_keeps_n_distinct_matches_in_order_per_seed() -> None:
+    scene, _ = two_views()
+    scale = scene.depth.median()
+    m = find_matches(scene, scale / scene.depth, scale, 4, 0.05)
+    n = len(m.src) // 3
+    assert n > 100
+    a, b, c = (random_matches(m, n, seed) for seed in (0, 0, 1))
+    assert len(a.src) == n
+    assert torch.equal(a.src, b.src) and not torch.equal(a.src, c.src)
+    index = (m.dst * scene.depth.numel() + m.src).tolist()
+    picked = (a.dst * scene.depth.numel() + a.src).tolist()
+    positions = [index.index(key) for key in picked]
+    assert positions == sorted(set(positions))  # distinct, original order
+
+
+def test_a_gate_alone_cuts_matches_but_leaves_weights_and_edges_ungated() -> None:
+    scene, _ = two_views(bump=0.03)
+    cfg = RefineConfig(lambda_n=0.0, device="cpu")
+    ids = halves()
+    ids[1] = torch.roll(ids[1], 20, dims=1)  # view 1's boundary elsewhere
+    off = build_problem(scene, cfg)
+    gated = build_problem(scene, cfg, select=MatchSelection(gate=ids))
+    full = build_problem(scene, cfg, segments=ids)
+    assert torch.equal(gated.w, off.w) and not torch.equal(full.w, off.w)
+    assert torch.equal(gated.matches.src, full.matches.src)
+    assert torch.equal(gated.matches.dst, full.matches.dst)
+    assert len(gated.matches.src) < len(off.matches.src)

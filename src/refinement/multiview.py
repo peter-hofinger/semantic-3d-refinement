@@ -446,6 +446,28 @@ def same_segment_matches(
     return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
 
 
+@dataclass(frozen=True)
+class MatchSelection:
+    """E_mv's matches other than the segments' gate: the segment ablation's controls.
+
+    gate: ids that gate the matches in place of the segments (`same_segment_matches`);
+    keep: then a random `keep` of the gated matches, drawn with seed (`random_matches`).
+    Used to tell what segments add from the number of matches they cut (E8b).
+    """
+
+    gate: Tensor | None = None
+    keep: int | None = None
+    seed: int = 0
+
+
+def random_matches(m: Matches, n: int, seed: int) -> Matches:
+    """Keep n of the matches, drawn uniformly without replacement, in their order."""
+    assert 0 <= n <= len(m.src), (n, len(m.src))
+    g = torch.Generator().manual_seed(seed)
+    keep = torch.randperm(len(m.src), generator=g)[:n].sort().values.to(m.src.device)
+    return Matches(m.src[keep], m.dst[keep], m.offset[keep], m.direction[keep])
+
+
 def robust(u: Tensor, k: float) -> tuple[Tensor, Tensor]:
     """Huber's cost as one squared residual: r with r² = 2 h(u), and dr/du.
 
@@ -733,6 +755,7 @@ def refine_scene(
     cfg: RefineConfig,
     normals: Tensor | None = None,
     segments: Tensor | None = None,
+    select: MatchSelection | None = None,
 ) -> tuple[Tensor, list[dict[str, float]], dict[str, int]]:
     """Gauss-Newton on all views at once; return depth (V, H, W), energy log, counts.
 
@@ -741,9 +764,9 @@ def refine_scene(
     E decreases and no depth grows tenfold (the logs clamp d at 1e-6, so E alone would
     not see a step that crosses d = 0). Normals (V, H, W, 3), unit, in the frame of the
     rays, enable E_n. Segments (V, H, W) are linked instance ids, -1 for none (default:
-    no pixel has one).
+    no pixel has one). Select changes which of E_mv's matches are used.
     """
-    p = build_problem(scene, cfg, normals, segments)
+    p = build_problem(scene, cfg, normals, segments, select)
     x, log, cg_total = gauss_newton(p, cfg)
     depth_hat = p.scale / (p.d0 + x)
     assert (
@@ -798,12 +821,13 @@ def build_problem(
     cfg: RefineConfig,
     normals: Tensor | None = None,
     segments: Tensor | None = None,
+    select: MatchSelection | None = None,
 ) -> Problem:
     """Fix what the solve keeps constant: scale, d0, weights, normal terms, matches.
 
     E_d's weight is the confidence (mean one per view) times u; E_n's
     edges stay within one instance; E_mv keeps the matches that land on their source's
-    instance.
+    instance, unless select says otherwise (`MatchSelection`).
     """
     assert normals is not None or cfg.lambda_n == cfg.lambda_t == 0, "E_n needs normals"
     ids = (
@@ -836,7 +860,12 @@ def build_problem(
             ],
         )
     matches = find_matches(scene, d0, scale, cfg.neighbors)
-    matches = same_segment_matches(matches, scene, d0, scale, ids)
+    select = select or MatchSelection()
+    gate = ids if select.gate is None else select.gate.to(ids.device)
+    assert gate.shape == ids.shape, gate.shape
+    matches = same_segment_matches(matches, scene, d0, scale, gate)
+    if select.keep is not None:
+        matches = random_matches(matches, select.keep, select.seed)
     dsine = normals if cfg.lambda_t > 0 else None
     return Problem(scene, scale, d0, w, terms, matches, dsine)
 
