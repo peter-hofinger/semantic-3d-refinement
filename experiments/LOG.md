@@ -86,6 +86,7 @@ Metrics:
 | E41a | All views fused into one 64-cell voxel grid, a 3D U-Net and a per-pixel depth residual, without / with SAM 3 / with GT classes, 35 train scenes (issue #41) | worse than Deja View (val Chamfer 5.47 / 5.32 / 5.54 vs 5.10): held-out error rises after step 300, it overfits; SAM 3 classes ahead of none |
 | E41b | E41a on 136 train scenes, 128-cell grid, 20k steps, view-subset augmentation, best held-out step, 2 seeds (issue #41) | close to Deja View but not better on val (5.24 / 5.29 / 5.25 vs 5.10, seed means); dev SAM 3 3.41 vs 3.50; class effects within seed noise |
 | E25a | Déjà View's error per class over what its pixels' edge distance, depth and incidence angle predict; Hypersim dev + val with GT classes, SAM 3's classes on Hypersim and ETH3D (issue #25) | no class fails in its own way except glass (window 2.23x its geometry); S passes the permutation test by 0.002 (p = 0.05), without window and mirror p = 0.45; split halves agree at median r = 0.21; largest per-class excess error +0.29 cm of 17.0; SAM 3's labels add spread (S 0.249 vs 0.183 on the same pixels) |
+| E25b | Oracle bound for segments at Déjà View's depth edges: where edge pixels sit between the two surfaces, and each segment's border snapped onto a plane fitted inside it (GT instances, GT depth edges, SAM 3, Déjà View's depth edges); Hypersim dev + val (issue #25) | 64% of the edge error is pixels on the surface across the edge, 18% bleeding; GT instances remove 19% of it (11 undragged scenes), GT depth edges 12%, SAM 3 4%, Déjà View's edges -4%; instances beat depth edges on Chamfer in 2/14 scenes -> the headroom is edges, not semantics; Chamfer moves 0.13 cm for an 8.4 cm drop in edge error; snaps dragged the Sim(3) on 3 val scenes |
 
 ## Reference table (current scorer, E11)
 
@@ -3840,3 +3841,83 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
     3 against Déjà View depth components whether it beats the realistic geometric alternative.
 - **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, Déjà View's error, and the error after each snap
   on one shared scale (cm), plus the t histogram of the band.
+
+## E25b: segments at Déjà View's depth edges -> GT instances remove 19% of the edge error, GT depth edges alone 12%, SAM 3 4%; Chamfer barely sees it (11.11.2026)
+- **Goal, setting:** as in the plan above, with two changes to the snap made after looking at results (both
+  explained in their commit bodies, both applied to all four sources):
+  1. *Clamp* (346307a, after the first dev run): unclamped, 0.1-0.5% of the snapped pixels moved by more than 2x
+     (up to 464x), the protocol's least-squares Sim(3) followed them and every pixel of the scene moved (SAM 3:
+     dev mean error 14.6 -> 18.9 cm, Chamfer 3.48 -> 6.53). A fit now stays within its interior pixels'
+     inverse-depth range widened by its own ratio. As-planned dev numbers: `results/e25b_dev_unclamped.txt`
+     (4e6aa0b).
+  2. *Connected pieces* (f36e368, after the first val run, so val is not an untouched check for E25b): with GT
+     instances three val scenes still dragged the Sim(3). Hypersim's walls are one instance, so every segment is
+     now split into its 4-connected pieces per view. This did not fix them (val GT-instance Chamfer 9.95 before,
+     9.93 after; `results/e25b_hypersim_unsplit.txt`). The cause, seen afterwards on ai_004_010 view 10: Déjà
+     View draws the near wall's edge about 100 px left of the GT's, so the far wall's interior holds Déjà View's
+     own 10 -> 2.4 m jump and the plane through it extrapolates to 32 m. No third change was made; the three
+     scenes are reported both ways below.
+- **Commits:** 190a125 (plan), 4e6aa0b (`experiments/scripts/e25b_boundary_oracle.py`), 346307a (clamp),
+  f36e368 (pieces), this commit (`e25b_figures.py`, results, figures).
+- **Commands** (student cluster, CPU job 2045, 8 cores, clean tree at f36e368, 6 min):
+  `e25b_boundary_oracle.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25b --check
+  runs/e8a_segments-20261110-130124/run.yaml` -> `results/e25b_hypersim.txt`; locally `e25b_figures.py runs/e25b`.
+- **Checks:** the snap returns its input bit for bit with no segment and with one segment, and recovers a plane
+  seen by a pinhole to 1e-9 next to a segment edge; the pieces of one id get separate ids (asserted on every run).
+  Déjà View's alignment scale and Chamfer reproduce E8a's on all 14 scenes to the printed digits.
+- **1. What Déjà View's edge error is** (14 scenes): the band (<= 3 px from a GT depth edge) is 13.5% of the GT
+  pixels and carries 42% of the mean per-pixel error (52.96 cm in the band, 17.01 cm overall; E35: 42-48%). For
+  the 80% of band pixels with a surface across the edge within 3 px, by t (0 = own surface, 1 = the other):
+
+  | t | pixels | error |
+  |---|---|---|
+  | away (<= 0) | 0.31 | 0.09 |
+  | own (0-0.25) | 0.37 | 0.09 |
+  | between (0.25-0.75): bleeding | 0.16 | 0.18 |
+  | other (> 0.75): the edge in the wrong place | 0.17 | 0.64 |
+
+  Déjà View's edge error is mostly pixels that take the depth of the surface across the edge (thin parts merged
+  into the background, edges drawn a few px off, in ai_004_010 about 100 px), less depth smeared between the two
+  surfaces. "Away" and "own" carry similar shares, as a plain offset would.
+- **2. Oracle snap,** means over scenes; removed = 1 - band error / Déjà View's, per scene. "11" = without
+  ai_004_010, ai_009_009 and ai_031_004, where a snap moved the alignment scale by more than 1% (GT instances on
+  all three, GT depth components on ai_009_009); this cut was chosen after looking:
+
+  | variant | snapped px | band error cm (14 / 11) | removed (14 / 11) | Chamfer cm (14 / 11) | Chamfer lower than Déjà View's by > 0.05 cm, scenes of 14 |
+  |---|---|---|---|---|---|
+  | Déjà View | 0 | 52.96 / 50.25 | - | 4.758 / 3.975 | - |
+  | GT instances | 0.24 | 51.84 / 41.81 | -0.07 / 0.19 | 8.523 / 3.849 | 2 |
+  | GT depth components | 0.19 | 47.80 / 45.17 | 0.11 / 0.12 | 4.523 / 3.788 | 2 |
+  | SAM 3 | 0.26 | 50.64 / 48.12 | 0.04 / 0.04 | 4.774 / 4.008 | 3 |
+  | Déjà View depth components | 0.16 | 54.57 / 51.66 | -0.04 / -0.04 | 4.755 / 3.998 | 2 |
+
+  Dev alone (3 scenes, none dragged): removed 0.30 / 0.12 / 0.04 / -0.04 in the order of the table, Chamfer
+  3.479 -> 3.374 / 3.469 / 3.417 / 3.491. Val, 8 undragged scenes: removed 0.14 / 0.12 / 0.04 / -0.04. Accuracy
+  and completeness are in `results/e25b_hypersim.txt`.
+- **Pairs on the 11 undragged scenes** (band error lower in, mean a - b; Chamfer lower by > 0.05 cm in, mean
+  a - b): GT instances vs GT depth components 8/11, -3.36 cm; 2/11, +0.061 cm. SAM 3 vs Déjà View depth
+  components 11/11, -3.55 cm; 2/11, +0.010 cm. SAM 3 vs GT instances 1/11, +6.31 cm; 3/11, +0.159 cm.
+- **Figures:** `figures/e25b_scores.jpg`: per scene each snap's change of band error and of Chamfer against
+  Déjà View on one cm axis (the dragged scenes as x), and the t split above. `figures/e25b_bedroom.jpg`: bedroom
+  views 18, 0, 12, 6: image, Déjà View's t in the band, the error of Déjà View and of each snap on one 0-30 cm
+  scale. GT instances clear most of the bed frame and chair legs (red t: merged into the background); SAM 3
+  changes little; Déjà View's own components follow its blurred edges and add errors along them.
+- **Reading (the plan's rule):** GT instances remove more than 10% of the band error on the undragged scenes
+  (0.19; dev 0.30, val 0.14), so segments have headroom at edges by the per-pixel error. GT depth components,
+  which know only where the depth edges are, remove 0.12, and GT instances beat them on Chamfer in 2 of 14
+  scenes, below the plan's 2/3: by the rule the headroom is in knowing the edges, not in semantics. By the band
+  error itself semantics add some on dev (0.30 vs 0.12) and little on val (0.14 vs 0.12).
+- **Conclusion:**
+  - Two-thirds of Déjà View's edge error is pixels that sit on the surface across the edge; under a fifth is
+    bleeding. Snapping a segment's border onto its interior removes about a fifth of the edge error with perfect
+    instances, an eighth with perfect depth edges and 4% with SAM 3; Déjà View's own depth edges make it worse.
+  - Chamfer does not see this error: on the 11 scenes GT instances cut the band error by 8.4 cm and Chamfer by
+    0.13 cm. A point that takes the depth of the surface behind it still lies on a GT surface, so accuracy does
+    not punish it, and other views cover the surface it left. For #32 (which metric decides): a boundary method
+    can only show its gain in a per-pixel or own-view metric.
+  - A local snap cannot repair an edge that Déjà View misplaces by more than the band, and a plane fitted across
+    Déjà View's own jump inside a segment broke the protocol's alignment on 3 of 11 val scenes. A boundary
+    method on Déjà View's depth has to expect the wrong edge inside a segment.
+  - For the project: the boundary route is open only narrowly. Its oracle headroom is about 8% of the mean
+    per-pixel error (a fifth of the 42% at edges), most of it reachable without semantics; SAM 3 reaches a fifth
+    of it, and the headline metric does not see it. To bring to Umut and Robin together with E25a.
