@@ -9,3 +9,7 @@ views: views_n20_stride2_504
 backbone: dejaview_k16
 segmentation: sam3image-kitti360-t0.3
 vocabulary: kitti360   # evaluated classes: every class KITTI-360 labels, but sky
+# GT beyond this many metres is dropped before aligning and scoring: Déjà View compresses
+# depth there and the least-squares Sim(3) then mis-scales the near scene (E45a's first
+# run). Set after that run, at the bin of e45a_alignment_check.py where the ratio breaks.
+max_gt_depth: 80

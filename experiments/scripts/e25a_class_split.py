@@ -27,7 +27,8 @@ SAM 3: per-view masks, unlinked (a class needs no identity), each pixel within E
 of a change of mask id dropped. On Hypersim the GT and SAM 3 classes are compared on the
 same pixels (SAM 3's kept ones): slope and correlation of the per-class log excess. On
 ETH3D, which has no labels, SAM 3's classes are the only ones. KITTI-360 (E45a) has GT
-classes and is read as Hypersim; its groups are the drives (country, town).
+classes and is read as Hypersim; its groups are the drives (country, town). A config's
+`max_gt_depth` (m) drops the GT beyond it before the alignment and every score.
 
 uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25a_hypersim
 uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_eth3d.yaml --out runs/e25a_eth3d
@@ -217,6 +218,7 @@ def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
     gt_classes = "vocabulary" in raw
     paths = input_paths(raw, name)
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
+    gt_depth = np.where(gt.depth <= raw.get("max_gt_depth", np.inf), gt.depth, 0)
     geometry = Geometry.load(paths["geometry"])
     masks = Segmentation.load(paths["masks"])
     scene = scene_from_geometry(geometry)
@@ -224,14 +226,14 @@ def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
         torch.from_numpy(geometry.depth).double(), scene.rays.double()
     ).numpy()
     truth = ground_truth_cloud(
-        gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
+        gt_depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
     )
     pred, scale, _ = align_output(truth, points)
     valid = truth.pixels
     assert pred.shape == truth.points.shape
     assert valid is not None
     k, c2w = views.intrinsics.astype(np.float64), views.cam_to_world.astype(np.float64)
-    depth = gt.depth.astype(np.float64)
+    depth = gt_depth.astype(np.float64)
     gt_pts = np.zeros((*valid.shape, 3))
     gt_pts[valid] = truth.points
     pred_full = np.full((*valid.shape, 3), np.nan)

@@ -1,3 +1,4 @@
+GT kept up to inf m
 scene | group | scene Sim(3): e m, r % | per-view Sim(3): e m, r % | depth alone r % | focal px, Déjà View / GT | aligned depth / GT depth, median in 0-5 m | 5-10 m | 10-20 m | 20-40 m | 40-80 m | 80-inf m
 0003_0000000002_0000000282 | country | 0.33, 3.5 | 0.34, 3.5 | 2.1 | 351 / 368 | 0.99 | 0.98 | 0.97 | 0.97 | 0.91 | -
 0003_0000000274_0000000401 | country | 5.61, 33.2 | 5.41, 26.4 | 6.1 | 331 / 368 | 1.14 | 1.14 | 1.15 | 1.15 | 1.10 | 0.66

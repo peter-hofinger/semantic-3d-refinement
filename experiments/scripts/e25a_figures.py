@@ -165,6 +165,7 @@ def scene_figure(
     scene: str,
     views: tuple[int, ...],
     row_height: float,
+    r_max: float,
     title: str,
     out: Path,
 ) -> None:
@@ -185,7 +186,7 @@ def scene_figure(
             ratio = r[i] / r_hat[i]
         axes[row, 0].imshow(images[i])
         axes[row, 1].imshow(colour)
-        a = axes[row, 2].imshow(100 * r[i], cmap="magma", vmin=0, vmax=100 * R_MAX)
+        a = axes[row, 2].imshow(100 * r[i], cmap="magma", vmin=0, vmax=100 * r_max)
         b = axes[row, 3].imshow(
             ratio, cmap="RdBu_r", norm=mpl.colors.LogNorm(1 / RATIO, RATIO)
         )
@@ -241,6 +242,7 @@ def main() -> None:
         BEDROOM,
         VIEWS,
         3.1,
+        R_MAX,
         "E25a, bedroom ai_006_007: Déjà View's relative error, and the same over what each pixel's "
         "edge distance, depth and incidence angle predict (red = worse than its geometry)",
         FIGURES / "e25a_bedroom.jpg",

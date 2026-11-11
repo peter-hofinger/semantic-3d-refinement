@@ -14,8 +14,11 @@ the GT's; and the median of aligned Déjà View depth / GT depth in bins of GT d
 Over all scenes, per bin: share of the GT pixels, share of the summed error, mean e, mean r.
 
 uv run python experiments/scripts/e45a_alignment_check.py > experiments/results/e45a_alignment_check.txt
+uv run python experiments/scripts/e45a_alignment_check.py --max-gt-depth 80 > experiments/results/e45a_alignment_check_80m.txt
+The second drops the GT beyond 80 m first, as `configs/eval_kitti360.yaml` does since.
 """
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +39,11 @@ MIN_PX = 100  # GT pixels of a scene in a bin for its ratio to be printed
 
 def main() -> None:
     """Print the per-scene table and the per-bin totals; see the module docstring."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--max-gt-depth", type=float, default=np.inf)
+    args = parser.parse_args()
     config = load_config(CFG)
+    print(f"GT kept up to {args.max_gt_depth} m")
     labels = [f"{a}-{b} m" for a, b in zip((0, *BINS), (*BINS, "inf"), strict=True)]
     totals = np.zeros((len(labels), 3))
     print(
@@ -47,17 +54,18 @@ def main() -> None:
         folder = config.output_root / name
         views = Views.load(folder / f"{STEM}.npz")
         gt = GroundTruth.load(folder / f"gt_{STEM}.npz")
+        gt_depth = np.where(gt.depth <= args.max_gt_depth, gt.depth, 0)
         geometry = Geometry.load(folder / f"dejaview_k16_{STEM}.npz")
         scene = scene_from_geometry(geometry)
         points = points_from_rays(
             torch.from_numpy(geometry.depth).double(), scene.rays.double()
         ).numpy()
         truth = ground_truth_cloud(
-            gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
+            gt_depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
         )
         valid = truth.pixels
         pred, scale, _ = align_output(truth, points)
-        d = gt.depth[valid].astype(np.float64)
+        d = gt_depth[valid].astype(np.float64)
         e = np.linalg.norm(pred - truth.points, axis=1)
         assert np.isfinite(e).all()
         gt_points = np.zeros((*valid.shape, 3))
@@ -71,7 +79,7 @@ def main() -> None:
                     s * points[i][m] @ rotation.T + t - gt_points[i][m], axis=1
                 )
             )
-            z, z_gt = geometry.depth[i][m].astype(np.float64), gt.depth[i][m]
+            z, z_gt = geometry.depth[i][m].astype(np.float64), gt_depth[i][m]
             r_depth.append(np.abs(np.median(z_gt / z) * z - z_gt) / z_gt)
         e_view, r_depth = np.concatenate(e_view), np.concatenate(r_depth)
         ratio = scale * geometry.depth[valid] / d
@@ -89,6 +97,8 @@ def main() -> None:
         )
     print("\nall scenes: GT depth | px share | error share | mean e m | mean r %")
     for label, (px, e_sum, r_sum) in zip(labels, totals, strict=True):
+        if px == 0:
+            continue
         print(
             f"{label} | {px / totals[:, 0].sum():.3f} | {e_sum / totals[:, 1].sum():.3f} | "
             f"{e_sum / px:.2f} | {100 * r_sum / px:.1f}"

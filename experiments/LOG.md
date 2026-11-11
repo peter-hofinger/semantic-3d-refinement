@@ -4103,3 +4103,13 @@ alignment (below).
 - **Open, a change to the evaluation and so not made here:** how KITTI-360 is aligned and scored. Candidates:
   drop GT beyond a fixed range before aligning and scoring; align on relative error (weights 1 / depth²);
   keep the protocol and report the far-range failure as the result. The Hypersim numbers do not depend on it.
+- **Decided with Mircea, 11.11, after the first run (a change to how KITTI-360 is scored, chosen with its
+  result in view):** GT beyond 80 m is dropped before the alignment and every score (`max_gt_depth: 80` in
+  `configs/eval_kitti360.yaml`; 3.3% of the GT pixels). 80 m is the bin edge of the alignment check beyond
+  which the depth ratio breaks; no other value was tried. Hypersim and ETH3D are untouched (no such key).
+  The far-range compression stays reported above as its own finding. Check before the rerun
+  (`e45a_alignment_check.py --max-gt-depth 80` -> `results/e45a_alignment_check_80m.txt`): the aligned
+  depth / GT depth below 40 m is 0.93-1.06 in 20 scenes (first run: 0.95-1.37), and the relative error
+  falls to 3.5-22.5% in those and 21.7% in `0010_0000001245` (ratio 0.82-0.86). The three scenes where
+  Déjà View's depth alone is 13-39% off stay at 52-92%, with ratios of 0.54-0.79 at every range: they are
+  Déjà View's failures, not the alignment's, and are kept.
