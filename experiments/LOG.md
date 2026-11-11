@@ -3921,3 +3921,65 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - For the project: the boundary route is open only narrowly. Its oracle headroom is about 8% of the mean
     per-pixel error (a fifth of the 42% at edges), most of it reachable without semantics; SAM 3 reaches a fifth
     of it, and the headline metric does not see it. To bring to Umut and Robin together with E25a.
+
+## Plan: E45a = Déjà View's error per class and at depth edges on KITTI-360, out of domain (issue #45, 11.11.2026)
+Unrelated to E45 (the filters of issue #27): the id follows issue #45.
+- **Goal:** E25a and E25b answered "does a class fail in its own way" and "what could segments do at depth
+  edges" on Hypersim, where Déjà View is in domain, and on ETH3D with SAM 3's classes only. Umut's examples are
+  outdoor objects (cars, trees, poles, a wheel with holes). Rerun both analyses unchanged on out-of-domain scenes
+  that have GT classes and instances. Analysis only: no change to the method, the scorer or the backbones.
+  Tanks and Temples (Truck, Caterpillar, Meeting room; laser GT, no labels) is E45b, planned after this.
+- **Data:** KITTI-360 (Liao et al., TPAMI 2022; CC BY-NC-SA 3.0, nothing of it enters git), not in Déjà View's
+  29-dataset mix (paper Table 6), which does hold Virtual KITTI 2 and Waymo: driving is seen, this city and
+  sensor are not. Left perspective camera, rectified, 1408 x 376, f = 552.55 px, principal point (682.05,
+  238.77). Sequences `2013_05_28_drive_0003_sync` (country road; car 1.6%, pole 0.7%, building 1.0%, vegetation
+  43% of the labelled pixels) and `_0010_sync` (town; car 7.3%, pole 1.1%, building 16.5%, vegetation 26%),
+  chosen as the two smallest downloads that together hold the classes asked about (shares counted from the 2D
+  labels of all nine sequences before any image was run).
+- **Scenes:** one per accumulated point-cloud window of the two sequences (7 + 17 = 24), none filtered. Views:
+  20 labelled frames at a stride of 2 frames, centred in the window (in 0003 the car moves a median 1.6 m per
+  frame: 3.2 m between views, 61 m per scene). Uniform sampling over a whole window, as on Hypersim, would put the views
+  10-20 m apart with little overlap on anything near the road.
+- **Views:** Déjà View assumes a centred principal point (E30), so each image is cropped symmetrically about
+  it: 756 x 273 px, resized to 504 x 182 (scale 2/3, f = 368.4 px, 68.7° x 27.8°). The full symmetric crop
+  (1364 x 274) would give 504 x 98, 7 patches high and 3 px of edge band on 98 rows; the narrower crop keeps the
+  resolution. The crop drops the top 102 rows (sky, tree crowns, upper facades). Fixed before any Déjà View
+  output was seen.
+- **Ground truth:** the window's static accumulated points (Velodyne + SICK, with semantic and instance ids),
+  projected into each view by its `cam0_to_world` pose; per pixel the nearest point (z-buffer). A pixel keeps
+  its depth only if that point's semantic id equals the pixel's 2D label: this drops moving objects (their
+  pixels would take the road or facade behind them) and points seen through a nearer surface of another
+  class. Same-class see-through (vegetation behind vegetation) stays. Classes and instances from the 2D maps
+  (`semantic`, `instance` = 1000 x class + id, consistent across frames); road, sidewalk, terrain, vegetation
+  and the other classes without instance ids are one instance per class, as Hypersim's walls. Sky has no GT.
+- **Checks before any number is read** (the ladder, in order): GT depth edges drawn over the image for four
+  views per sequence (do edges sit on object outlines; is the see-through filter enough); GT coverage per scene
+  and class; the same GT point seen from two views reprojects within a pixel (poses and intrinsics); Déjà View's
+  rays against their pinhole fit (`MAX_PINHOLE_RESIDUAL`); E25a's and E25b's own asserts (Σr̂ = Σr, snap identity,
+  plane recovery).
+- **Run:** Déjà View K = 16, `rays: pinhole`, the protocol's one Umeyama Sim(3) on the pixels, then
+  `e25a_class_split.py` and `e25b_boundary_oracle.py` with their constants as committed (E25b with its clamp
+  and connected pieces). SAM 3: image mode, t0.3, the working association, prompted with KITTI-360's evaluated
+  class names in place of NYU40 (a new vocabulary; the only change to the inputs).
+- **What is reported**, per sequence and together, next to Hypersim's numbers from E25a / E25b:
+  - E25a: per class excess Σr / Σr̂, excess error in cm, share of error within 3 px of an edge, cross-view gap;
+    S against the permutation null (instances' classes permuted, 1000 times); SAM 3's classes against GT's on
+    the same pixels.
+  - E25b: the band's pixel and error share; the t split (away / own / between / other); band error removed and
+    accuracy / completeness / Chamfer for the four snaps (GT instances, GT depth components, SAM 3, Déjà View
+    depth components), with the count of scenes whose alignment scale a snap moves by more than 1%.
+- **Reading, fixed before running** (E25a's and E25b's rules, unchanged):
+  - A class fails in its own way only if its excess is beyond 1.5x (or below 1/1.5) in at least 2/3 of its
+    scenes; the classes differ if S is above the null's 95th percentile. Cars, poles or vegetation passing it
+    here while nothing but glass did on Hypersim -> class matters out of domain, with the excess-error column
+    as its headroom. None passing -> E25a's conclusion holds outdoors.
+  - GT instances removing < 10% of the band error -> no headroom at edges; removing more but not beating GT
+    depth components on Chamfer by > 0.05 cm in >= 2/3 of the scenes -> the headroom is in the edges, not in
+    semantics.
+- **Limits known before running:** the GT is sparse where LiDAR is (far range, above the scan lines), so depth
+  edges are under-counted as on ETH3D (E35) and the band shares are lower bounds; thin structures (poles,
+  fences) have few GT pixels at 504 px; moving cars are not scored; 24 scenes come from 2 drives of one day, so
+  scenes are not independent and the permutation test's p is optimistic.
+- **Figures:** as E25a / E25b (per-class excess with the null; snap scores and the t split), and for one town
+  scene four views with image, GT class, relative error, r / r̂ and the error after each snap on shared scales.
+  These are debug visuals; the presentation's bedroom stays the reference.
