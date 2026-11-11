@@ -1,0 +1,87 @@
+config configs/eval_kitti360.yaml, git 1881bdb8621a03bf2f60761792492237c760d9ca, scenes 24, edges plane
+check, excess over all pixels = 1 by construction (asserted per scene)
+
+## country (7 scenes); * = beyond 1.5x the same way in >= 2/3 of its scenes
+
+### GT classes
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+traffic sign | 3 | 0.004 | 2.03 (1.06-7.01) | 1 | -1.305 | 0.22 | 0.92 | 0.93 | 184.06 | 160.21
+vegetation | 7 | 0.262 | 1.15 (0.92-1.73) | 1 | +43.320 | 0.87 | 1.11 | - | 202.58 | 320.29
+pole | 4 | 0.006 | 1.10 (0.71-1.48) | 0 | -0.332 | 0.44 | 1.30 | 0.92 | 202.61 | 276.20
+sidewalk | 7 | 0.118 | 1.01 (0.80-1.27) | 0 | -7.795 | 0.43 | 1.30 | - | 45.83 | 41.26
+ground | 6 | 0.023 | 1.00 (0.48-1.56) | 2 | -0.426 | 0.52 | 1.00 | - | 111.27 | 24.66
+terrain | 6 | 0.088 | 0.98 (0.57-1.54) | 2 | -9.538 | 0.83 | 1.16 | - | 118.05 | 117.10
+road | 7 | 0.494 | 0.93 (0.89-0.97) | 0 | -23.391 | 0.40 | 0.85 | - | 26.00 | 31.17
+wall | 3 | 0.035 | 0.91 (0.75-1.14) | 0 | -5.189 | 0.36 | 0.59 | - | 136.67 | 103.88
+
+### SAM 3 classes, eroded (kept 0.755 of the GT pixels)
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+vegetation | 7 | 0.231 | 1.29 (0.85-4.22) | 1 | -7.334 | 0.85 | 1.12 | - | - | -
+sidewalk | 7 | 0.076 | 1.07 (0.84-1.50) | 0 | -0.953 | 0.41 | 1.27 | - | - | -
+road | 7 | 0.434 | 0.92 (0.89-0.97) | 0 | -18.439 | 0.39 | 0.85 | - | - | -
+
+## town (17 scenes); * = beyond 1.5x the same way in >= 2/3 of its scenes
+
+### GT classes
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+pole | 15 | 0.011 | 1.55 (0.74-3.11) | 9 | +2.148 | 0.60 | 1.91 | 0.81 | 221.72 | 185.27
+fence | 10 | 0.041 | 1.39 (1.01-2.77) | 4 | +18.245 | 0.38 | 2.16 | - | 249.15 | 1029.65
+car | 11 | 0.058 | 1.25 (0.89-2.09) | 3 | +0.378 | 0.79 | 1.76 | 0.60 | 132.94 | 1135.99
+vegetation | 17 | 0.140 | 1.11 (0.70-2.18) | 1 | +17.815 | 0.85 | 1.23 | - | 157.46 | 375.78
+traffic sign | 9 | 0.006 | 1.01 (0.37-2.48) | 2 | -0.555 | 0.54 | 1.18 | 0.92 | 184.38 | 113.04
+building | 14 | 0.111 | 1.00 (0.58-1.56) | 2 | +12.837 | 0.62 | 0.87 | 0.60 | 289.75 | 1644.27
+ground | 12 | 0.026 | 1.00 (0.68-2.25) | 1 | -2.631 | 0.53 | 1.13 | - | 61.93 | 30.03
+box | 4 | 0.004 | 0.99 (0.66-1.24) | 1 | -0.533 | 0.71 | 1.31 | 0.88 | 112.49 | 631.84
+parking | 9 | 0.015 | 0.95 (0.59-1.55) | 2 | -2.845 | 0.61 | 0.86 | - | 71.41 | 64.85
+sidewalk | 17 | 0.094 | 0.95 (0.55-1.43) | 1 | -8.636 | 0.38 | 1.19 | - | 51.27 | 30.46
+terrain | 14 | 0.028 | 0.93 (0.46-1.31) | 2 | -3.543 | 0.56 | 1.00 | - | 76.78 | 141.04
+road | 17 | 0.508 | 0.92 (0.80-1.01) | 0 | -22.440 | 0.32 | 0.96 | - | 28.67 | 24.46
+wall | 6 | 0.083 | 0.89 (0.65-1.03) | 1 | -13.645 | 0.46 | 1.13 | - | 129.16 | 150.86
+
+### SAM 3 classes, eroded (kept 0.726 of the GT pixels)
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+fence | 7 | 0.023 | 1.58 (0.80-3.25) | 4 | +14.195 | 0.32 | 2.75 | - | - | -
+car | 10 | 0.031 | 1.24 (0.92-2.64) | 2 | -0.724 | 0.69 | 1.53 | - | - | -
+truck | 5 | 0.009 | 1.14 (0.93-1.35) | 0 | +0.073 | 0.66 | 1.72 | - | - | -
+wall | 4 | 0.062 | 1.11 (0.82-1.67) | 1 | -8.229 | 0.48 | 0.89 | - | - | -
+vegetation | 17 | 0.097 | 1.07 (0.64-2.26) | 2 | -4.928 | 0.85 | 1.12 | - | - | -
+sidewalk | 17 | 0.075 | 0.99 (0.55-1.47) | 1 | -2.687 | 0.37 | 1.19 | - | - | -
+traffic sign | 5 | 0.003 | 0.99 (0.68-1.25) | 0 | -0.355 | 0.44 | 1.04 | - | - | -
+building | 13 | 0.082 | 0.95 (0.45-2.30) | 3 | -7.975 | 0.51 | 0.87 | - | - | -
+road | 17 | 0.443 | 0.91 (0.81-1.02) | 0 | -17.224 | 0.30 | 0.96 | - | - | -
+
+## all (24 scenes); * = beyond 1.5x the same way in >= 2/3 of its scenes
+
+### GT classes
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+pole | 19 | 0.010 | 1.44 (0.71-3.11) | 9 | +1.626 | 0.59 | 1.65 | 0.82 | 216.73 | 208.99
+smallpole * | 3 | 0.005 | 1.31 (0.55-2.44) | 3 | +0.191 | 0.74 | 2.73 | 0.92 | 124.63 | 178.69
+fence | 12 | 0.037 | 1.30 (0.85-2.77) | 4 | +14.562 | 0.38 | 1.88 | - | 286.13 | 904.79
+car | 12 | 0.054 | 1.25 (0.89-2.09) | 3 | +0.419 | 0.79 | 1.59 | 0.60 | 129.29 | 1047.97
+traffic sign | 12 | 0.005 | 1.20 (0.37-7.01) | 3 | -0.742 | 0.47 | 1.10 | 0.93 | 184.30 | 124.27
+vegetation | 24 | 0.176 | 1.12 (0.70-2.18) | 2 | +25.254 | 0.86 | 1.21 | - | 170.62 | 359.59
+ground | 18 | 0.025 | 1.00 (0.48-2.25) | 3 | -1.896 | 0.53 | 1.13 | - | 77.51 | 28.34
+building | 16 | 0.098 | 0.99 (0.58-1.56) | 2 | +11.068 | 0.62 | 0.88 | 0.60 | 410.55 | 1362.18
+parking | 10 | 0.014 | 0.97 (0.59-1.55) | 2 | -2.556 | 0.60 | 0.93 | - | 71.34 | 60.16
+sidewalk | 24 | 0.101 | 0.97 (0.55-1.43) | 1 | -8.391 | 0.39 | 1.24 | - | 49.69 | 33.61
+terrain | 20 | 0.046 | 0.95 (0.46-1.54) | 4 | -5.342 | 0.74 | 1.07 | - | 89.34 | 133.76
+road | 24 | 0.504 | 0.92 (0.80-1.01) | 0 | -22.717 | 0.34 | 0.94 | - | 27.90 | 26.42
+wall | 9 | 0.067 | 0.90 (0.65-1.14) | 1 | -10.826 | 0.45 | 1.11 | - | 131.03 | 139.11
+box | 5 | 0.004 | 0.77 (0.28-1.24) | 2 | -1.161 | 0.68 | 1.11 | 0.88 | 116.90 | 1005.51
+
+### SAM 3 classes, eroded (kept 0.734 of the GT pixels)
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+fence | 9 | 0.021 | 1.44 (0.80-3.25) | 4 | +10.779 | 0.32 | 2.08 | - | - | -
+car | 11 | 0.029 | 1.23 (0.92-2.64) | 2 | -0.645 | 0.69 | 1.83 | - | - | -
+truck | 5 | 0.009 | 1.14 (0.93-1.35) | 0 | +0.073 | 0.66 | 1.72 | - | - | -
+vegetation | 24 | 0.136 | 1.13 (0.64-4.22) | 3 | -5.630 | 0.85 | 1.12 | - | - | -
+wall | 6 | 0.049 | 1.01 (0.70-1.67) | 1 | -5.656 | 0.46 | 0.72 | - | - | -
+sidewalk | 24 | 0.076 | 1.01 (0.55-1.50) | 1 | -2.181 | 0.38 | 1.20 | - | - | -
+building | 15 | 0.072 | 0.95 (0.45-2.30) | 3 | -7.021 | 0.51 | 0.87 | - | - | -
+road | 24 | 0.440 | 0.91 (0.81-1.02) | 0 | -17.578 | 0.32 | 0.94 | - | - | -
+traffic sign | 6 | 0.003 | 0.77 (0.22-1.25) | 1 | -0.817 | 0.42 | 1.00 | - | - | -
+
+## Do the GT classes differ? (all 24 scenes)
+S = 0.172; null (labels permuted among instances, 1000x): median 0.138, 95th percentile 0.195; p = 0.155
+SAM 3 vs GT classes on the same pixels, per-class mean log excess over 8 classes: slope 1.04, correlation 0.91
+S on those pixels: GT 0.164, SAM 3 0.173

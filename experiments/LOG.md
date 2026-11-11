@@ -4052,3 +4052,54 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
   - *Limit this adds:* 69% of all GT pixels fall into one angle bin and the road alone is half the GT, so
     the road's expected error is largely its own mean: its excess is near 1 by construction, and the test
     has power only for the smaller classes (car, pole, vegetation, building), which are the ones asked about.
+
+## E45a, first run: Déjà View on KITTI-360 -> 34% relative error, set by the alignment on a few far pixels; the class tables are not read yet (issue #45, 11.11.2026)
+Interim entry: the run is done and checked, the reading of its class tables waits for a decision on the
+alignment (below).
+- **Setting:** as planned. Commits 1497256 (script, config, prompts), 1881bdb (the tree the cluster ran).
+  Inputs: job 2132 (VC15, RTX 5090, 3:16): `dejaview-predict` 86 s and `sam3-segment --threshold 0.3 --prompts
+  configs/prompts/kitti360.txt` 109 s for the 24 scenes, peak GPU 3.0 GB for SAM 3. No view failed
+  `MAX_PINHOLE_RESIDUAL` at 504 x 182. Analysis: job 2133 (CPU, 3:02):
+  - `e25a_class_split.py --cfg configs/eval_kitti360.yaml --edges plane --maps 0010_0000000984_0000001116
+    --out runs/e45a_kitti360` -> `results/e45a_kitti360.txt`
+  - `e25a_class_split.py --cfg configs/eval_hypersim.yaml --splits dev val --edges plane --out
+    runs/e45a_hypersim_plane --scales runs/e8a_segments-20261110-130124/run.yaml` ->
+    `results/e45a_hypersim_plane.txt`
+- **Checks:** Σr̂ = Σr and Σ(e - ê) = 0 asserted per scene; on Hypersim the alignment scales equal the E8a
+  run's to six decimals in all 14 scenes; no non-finite Déjà View point.
+- **Hypersim under the plane rule (the comparison promised in the plan):** E25a stands. Plane rule against
+  E25a's step rule, dev + val, 14 scenes: GT pixels within 3 px of an edge 13.5% against 13.7%; S = 0.280
+  against 0.278, the null's 95th percentile 0.274 against 0.276, p = 0.041 against 0.050; window is the one
+  class beyond 1.5x in 2/3 of its scenes under both (2.24 against 2.23). The edge rule is not what E25a's
+  result hangs on.
+- **KITTI-360, Déjà View under the protocol's alignment:** mean error 5.96 m and mean relative error 33.9%
+  over the 24 scenes (Hypersim dev + val: 0.17 m, 3.4%); country 6.18 m / 36.1%, town 5.87 m / 33.0%; per
+  scene 0.33-10.78 m, 3.5-79.0%. Median cross-view gap 2.0% (Hypersim 0.6%).
+- **Where it comes from** (`experiments/scripts/e45a_alignment_check.py` -> `results/e45a_alignment_check.txt`;
+  added after the first read, not in the plan):
+  - GT beyond 80 m is 3.3% of the GT pixels (21 of 24 scenes have GT there, reaching up to 352 m) and carries 28.8%
+    of the summed error (mean 52.9 m per pixel). There Déjà View's depth is compressed: aligned depth / GT
+    depth has a median of 0.41-0.93 beyond 80 m in those scenes.
+  - The protocol's Sim(3) is least squares in metres, so these pixels set the scale. In 16 of the 21 scenes
+    the aligned depth is then 1.02-1.37x the GT's at every range below 40 m, the same factor in each bin: the
+    near scene is blown up as one piece. Pixels at 5-10 m (40% of the GT) get a mean relative error of 40.3%.
+  - The three scenes whose GT ends before 80 m or barely passes it (`0003_0000000002`, `0010_0000000353`,
+    `0010_0000000549`) are the three best: 3.5%, 5.5%, 13.8%.
+  - Depth alone, each view scaled by its median GT / Déjà View depth: 2.1-10.5% in 21 scenes (median 6.4%);
+    14.6%, 24.2% and 38.5% in `0003_0000000617`, `0003_0000000508` and `0010_0000001563`, where Déjà View
+    itself fails. One Sim(3) per view does not help (13.8-56.9% in the scenes with far GT): the same far pixels
+    dominate each view.
+  - Déjà View's focal length is short in every scene: 275-359 px against 368 px (2-25%).
+- **Reading so far:**
+  - Out of domain in a way Hypersim cannot show: Déjà View compresses depth beyond about 80 m and
+    under-estimates the focal length on this crop; near geometry is right to about 6% per view.
+  - The class tables of `results/e45a_kitti360.txt` (no class but smallpole, 3 scenes and 0.5% of the pixels,
+    beyond 1.5x in 2/3 of its scenes; S = 0.172 against a null 95th percentile of 0.195, p = 0.155; SAM 3
+    against GT classes slope 1.04, correlation 0.91) are computed on errors of which the largest part is this
+    global scale. The depth quartile of r̂ absorbs some of it; how much is not measured. They are reported
+    for the record and not interpreted.
+  - `figures/e45a_town.jpg` and `e45a_class_excess.jpg` were drawn and looked at (the r maps saturate their
+    8% scale everywhere) and are not committed until the alignment is decided.
+- **Open, a change to the evaluation and so not made here:** how KITTI-360 is aligned and scored. Candidates:
+  drop GT beyond a fixed range before aligning and scoring; align on relative error (weights 1 / depth²);
+  keep the protocol and report the far-range failure as the result. The Hypersim numbers do not depend on it.
