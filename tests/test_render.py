@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from src.analysis.render import Camera, intrinsics, look_at, splat
-from src.analysis.scene_figures import shown
+from src.analysis.scene_figures import shown, unit_normals
 
 
 def test_the_nearest_point_wins_where_it_projects() -> None:
@@ -30,3 +30,11 @@ def test_a_splat_covers_its_surface_patch() -> None:
 def test_the_presentation_shows_only_the_chosen_scene_and_views() -> None:
     assert shown("ai_006_007_cam_00") == ("presentation", (18, 0, 12, 6))
     assert shown("ai_044_001_cam_00")[0] == "debug"
+
+
+def test_point_map_normals_are_exact_on_a_plane_up_to_the_image_border() -> None:
+    v, u = np.mgrid[0:6, 0:7].astype(np.float64)
+    plane = np.stack([u, v, 0.3 * u + 0.1 * v + 2], -1)[None]
+    n = np.array([0.3, 0.1, -1.0]) / np.linalg.norm([0.3, 0.1, -1.0])
+    cos = np.abs((unit_normals(plane) * n).sum(-1))
+    np.testing.assert_allclose(cos, 1.0, atol=1e-12)  # border rows and columns too
