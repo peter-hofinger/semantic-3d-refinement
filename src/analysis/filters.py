@@ -21,9 +21,10 @@ Ties are broken by one fixed random permutation; within a tie a filter has no pr
 - voxel density: the number of the scene's points in the pixel's voxel (`voxel_counts`),
   the voxel side the scene's median pixel footprint D / f (`pixel_footprint`): the
   cloud's own units, no GT scale. Its variants sum a value per voxel instead
-  (`voxel_sums`: confidence, or the points of one instance), and voxel fusion replaces
-  the kept points by their voxel's mean (`voxel_means`), as voxel-grid downsampling does
-  (Open3D's `voxel_down_sample`), but one point per pixel, so the protocol scores it.
+  (`voxel_sums`: confidence, or the points of one instance, `instance_voxel_density`),
+  and voxel fusion replaces the kept points by their voxel's mean (`voxel_means`), as
+  voxel-grid downsampling does (Open3D's `voxel_down_sample`), but one point per pixel,
+  so the protocol scores it.
 - grazing angle: |cos| between the pixel's ray and its normal (`facing`), the weight
   Curless and Levoy (1996) give a range sample.
 """
@@ -122,6 +123,22 @@ def voxel_sums(
     assert values.shape == (len(points),), values.shape
     index = voxel_index(points, side, groups)
     return np.bincount(index, weights=values.astype(np.float64))[index]
+
+
+def instance_voxel_density(
+    points: np.ndarray, depth: np.ndarray, k: np.ndarray, ids: np.ndarray
+) -> np.ndarray:
+    """Each pixel's (V, H, W) count of its own instance's points in its voxel, >= 1.
+
+    E45's best filter: `voxel_sums` of ones grouped by instance id, the voxel side the
+    scene's `pixel_footprint`. Pixels without an instance (-1) count as one instance.
+    """
+    assert points.shape == (*depth.shape, 3) and ids.shape == depth.shape, ids.shape
+    flat = points.reshape(-1, 3)
+    side = pixel_footprint(depth, k)
+    count = voxel_sums(flat, side, np.ones(len(flat)), ids.ravel()).reshape(depth.shape)
+    assert (count >= 1).all(), "a pixel counts itself"
+    return count
 
 
 def voxel_means(

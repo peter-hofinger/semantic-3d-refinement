@@ -1,0 +1,25 @@
+run e27a-20261111-112353 (git 3e6801e2d23f2c39de23c9baca55b183ae86ad20)
+
+dev (3 scenes), cm, accuracy | completeness | Chamfer
+variant | mean / median over scenes
+Déjà View                | 4.675 / 2.520 | 2.324 / 1.172 | 3.500 / 1.846
+Déjà View, kept 0.5      | 2.998 / 1.897 | 3.597 / 2.223 | 3.298 / 1.727
+Refined                  | 4.199 / 2.208 | 3.658 / 1.710 | 3.928 / 1.959
+Refined, kept 0.5        | 2.841 / 1.768 | 4.331 / 2.318 | 3.586 / 1.824
+tangent 4e-2             | 4.494 / 2.465 | 2.359 / 1.181 | 3.426 / 1.823
+tangent 4e-2, kept 0.5   | 2.918 / 1.865 | 3.500 / 2.129 | 3.209 / 1.674
+minus Déjà View, kept 0.5 (same pixels): mean | median | scenes better
+Refined, kept 0.5        | -0.157 / +0.734 / +0.288 | -0.129 / +0.388 / +0.130 | 3 / 0 / 1 of 3
+tangent 4e-2, kept 0.5   | -0.080 / -0.097 / -0.089 | -0.070 / -0.094 / -0.082 | 3 / 3 / 3 of 3
+
+val (11 scenes), cm, accuracy | completeness | Chamfer
+variant | mean / median over scenes
+Déjà View                | 6.061 / 4.751 | 4.142 / 2.390 | 5.102 / 3.971
+Déjà View, kept 0.5      | 3.013 / 2.466 | 4.621 / 3.357 | 3.817 / 2.948
+Refined                  | 5.701 / 4.456 | 5.585 / 3.428 | 5.643 / 4.214
+Refined, kept 0.5        | 2.872 / 2.356 | 5.625 / 3.787 | 4.249 / 3.166
+tangent 4e-2             | 5.969 / 4.648 | 3.702 / 2.635 | 4.835 / 3.932
+tangent 4e-2, kept 0.5   | 2.971 / 2.424 | 4.367 / 3.045 | 3.669 / 2.889
+minus Déjà View, kept 0.5 (same pixels): mean | median | scenes better
+Refined, kept 0.5        | -0.141 / +1.004 / +0.432 | -0.111 / +0.580 / +0.220 | 11 / 0 / 0 of 11
+tangent 4e-2, kept 0.5   | -0.042 / -0.254 / -0.148 | -0.041 / -0.112 / -0.077 | 11 / 10 / 10 of 11

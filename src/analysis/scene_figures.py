@@ -292,11 +292,14 @@ def topdown_figure(
 
 
 def unit_normals(points: np.ndarray) -> np.ndarray:
-    """Return a point map's unit normals (..., H, W, 3) by central differences."""
-    du = np.zeros_like(points)
-    dv = np.zeros_like(points)
-    du[..., :, 1:-1, :] = points[..., :, 2:, :] - points[..., :, :-2, :]
-    dv[..., 1:-1, :, :] = points[..., 2:, :, :] - points[..., :-2, :, :]
+    """Return a point map's unit normals (..., H, W, 3), central differences inside.
+
+    The image border takes one-sided differences: with a zero difference there, the
+    border rows and columns had no normal and rendered as dark lines wherever the
+    views agreed well enough for them to win the depth test.
+    """
+    du = np.gradient(points, axis=-2)
+    dv = np.gradient(points, axis=-3)
     n = np.cross(du, dv)
     return n / np.linalg.norm(n, axis=-1, keepdims=True).clip(1e-12)
 
