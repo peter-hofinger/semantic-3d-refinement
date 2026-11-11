@@ -4021,7 +4021,8 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
     hit near and far leaves.
   - **Reading:** this GT is right on average but not clean enough between neighbouring pixels for "the band
     at depth edges" to mean object outlines. E25b on it would measure LiDAR noise. E25a's per-class excess
-    does not need clean edges (its edge-distance cell then also absorbs noisy regions), so it can run. Proposed,
-    not decided: E45a = E25a only on KITTI-360; the edge question (E25b) goes to Tanks and Temples (E45b),
-    whose laser scans are dense (2 mm) and hold the thin parts Umut named. Not tried: removing outlying
+    does not need clean edges (its edge-distance cell then also absorbs noisy regions), so it can run.
+    **Decided with Mircea, 11.11, before any Déjà View output:** E45a = E25a only on KITTI-360; the E25b
+    parts of this plan (the t split, the oracle snaps, their reading rule) are dropped here and go to Tanks
+    and Temples as E45b, whose laser scans are dense (2 mm) and hold the thin parts Umut named. Not tried: removing outlying
     points from the GT (another choice stacked on the GT; it would not help cars or vegetation).
