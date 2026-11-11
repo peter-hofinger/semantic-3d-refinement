@@ -44,16 +44,24 @@ def style(ax: plt.Axes) -> None:
         ax.spines[side].set_visible(False)
 
 
-def bedroom(out: Path, raw: dict) -> None:
-    """Write figure 1 (see module)."""
+def scene_figure(
+    out: Path,
+    raw: dict,
+    scene: str,
+    views: tuple[int, ...],
+    variants: tuple[str, ...],
+    title: str,
+    path: Path,
+) -> None:
+    """Draw image, Déjà View's t in the band and each variant's error for `views`."""
     with np.load(out / "e25b_maps.npz") as f:
-        maps = {k.split("/", 1)[1]: f[k] for k in f.files if k.startswith(BEDROOM)}
-    images = Views.load(input_paths(raw, BEDROOM)["views"]).images
-    rows = ["image", "t", *VARIANTS]
+        maps = {k.split("/", 1)[1]: f[k] for k in f.files if k.startswith(scene)}
+    images = Views.load(input_paths(raw, scene)["views"]).images
+    rows = ["image", "t", *variants]
     fig, axes = plt.subplots(
-        len(rows), len(VIEWS), figsize=(3.2 * len(VIEWS), 2.5 * len(rows))
+        len(rows), len(views), figsize=(3.2 * len(views), 2.5 * len(rows))
     )
-    for c, v in enumerate(VIEWS):
+    for c, v in enumerate(views):
         axes[0, c].imshow(images[v])
         axes[0, c].set_title(f"view {v}", fontsize=10)
         t = axes[1, c].imshow(
@@ -63,7 +71,7 @@ def bedroom(out: Path, raw: dict) -> None:
             vmax=1.5,
             interpolation="nearest",
         )
-        for r, variant in enumerate(VARIANTS, start=2):
+        for r, variant in enumerate(variants, start=2):
             e = axes[r, c].imshow(
                 100 * maps[f"error/{variant}"][v],
                 cmap="magma",
@@ -87,18 +95,23 @@ def bedroom(out: Path, raw: dict) -> None:
         fraction=0.02,
         label="error to own GT point (cm)",
     )
-    fig.suptitle(
+    fig.suptitle(title, fontsize=10)
+    fig.savefig(path, dpi=110, bbox_inches="tight", pil_kwargs={"quality": 88})
+    plt.close(fig)
+
+
+def bedroom(out: Path, raw: dict) -> None:
+    """Write figure 1 (see module)."""
+    scene_figure(
+        out,
+        raw,
+        BEDROOM,
+        VIEWS,
+        VARIANTS,
         "Bedroom ai_006_007: where Déjà View's edge pixels sit (t, GT edge band only) and the error before / after snapping\n"
         "each segment's boundary band onto a plane fitted inside it; look at the object outlines and at new errors inside segments",
-        fontsize=10,
-    )
-    fig.savefig(
         FIGURES / "e25b_bedroom.jpg",
-        dpi=110,
-        bbox_inches="tight",
-        pil_kwargs={"quality": 88},
     )
-    plt.close(fig)
 
 
 def scores(out: Path) -> None:

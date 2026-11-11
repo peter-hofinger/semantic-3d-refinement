@@ -16,6 +16,9 @@ Over all scenes, per bin: share of the GT pixels, share of the summed error, mea
 uv run python experiments/scripts/e45a_alignment_check.py > experiments/results/e45a_alignment_check.txt
 uv run python experiments/scripts/e45a_alignment_check.py --max-gt-depth 80 > experiments/results/e45a_alignment_check_80m.txt
 The second drops the GT beyond 80 m first, as `configs/eval_kitti360.yaml` does since.
+uv run python experiments/scripts/e45a_alignment_check.py --dataset tanksandtemples > experiments/results/e45b_alignment_check.txt
+E45b's check before its tables are read: the same table on Tanks and Temples, whose
+scenes end within 17 m (bins of 2, 4 and 8 m).
 """
 
 import argparse
@@ -27,13 +30,25 @@ import torch
 from src.evaluation.labeled import align_output, ground_truth_cloud, umeyama
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
-from src.loaders.kitti360.scene import load_config
+from src.loaders.kitti360.scene import load_config as kitti360_config
+from src.loaders.tanksandtemples.scene import load_config as tanksandtemples_config
 from src.loaders.views import Views
 from src.refinement.multiview import points_from_rays, scene_from_geometry
 
-CFG = Path("configs/kitti360.yaml")
-STEM = "views_n20_stride2_504"
-BINS = (5, 10, 20, 40, 80)  # m of GT depth
+DATASETS = {  # config loader, config, views stem, bin edges in m of GT depth
+    "kitti360": (
+        kitti360_config,
+        Path("configs/kitti360.yaml"),
+        "views_n20_stride2_504",
+        (5, 10, 20, 40, 80),
+    ),
+    "tanksandtemples": (
+        tanksandtemples_config,
+        Path("configs/tanksandtemples.yaml"),
+        "views_n20_uniform_504",
+        (2, 4, 8),
+    ),
+}
 MIN_PX = 100  # GT pixels of a scene in a bin for its ratio to be printed
 
 
@@ -41,10 +56,12 @@ def main() -> None:
     """Print the per-scene table and the per-bin totals; see the module docstring."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-gt-depth", type=float, default=np.inf)
+    parser.add_argument("--dataset", choices=sorted(DATASETS), default="kitti360")
     args = parser.parse_args()
-    config = load_config(CFG)
+    load_config, cfg, stem, edges = DATASETS[args.dataset]
+    config = load_config(cfg)
     print(f"GT kept up to {args.max_gt_depth} m")
-    labels = [f"{a}-{b} m" for a, b in zip((0, *BINS), (*BINS, "inf"), strict=True)]
+    labels = [f"{a}-{b} m" for a, b in zip((0, *edges), (*edges, "inf"), strict=True)]
     totals = np.zeros((len(labels), 3))
     print(
         "scene | group | scene Sim(3): e m, r % | per-view Sim(3): e m, r % | depth alone r % | "
@@ -52,10 +69,10 @@ def main() -> None:
     )
     for name, group in config.scenes.items():
         folder = config.output_root / name
-        views = Views.load(folder / f"{STEM}.npz")
-        gt = GroundTruth.load(folder / f"gt_{STEM}.npz")
+        views = Views.load(folder / f"{stem}.npz")
+        gt = GroundTruth.load(folder / f"gt_{stem}.npz")
         gt_depth = np.where(gt.depth <= args.max_gt_depth, gt.depth, 0)
-        geometry = Geometry.load(folder / f"dejaview_k16_{STEM}.npz")
+        geometry = Geometry.load(folder / f"dejaview_k16_{stem}.npz")
         scene = scene_from_geometry(geometry)
         points = points_from_rays(
             torch.from_numpy(geometry.depth).double(), scene.rays.double()
@@ -83,7 +100,7 @@ def main() -> None:
             r_depth.append(np.abs(np.median(z_gt / z) * z - z_gt) / z_gt)
         e_view, r_depth = np.concatenate(e_view), np.concatenate(r_depth)
         ratio = scale * geometry.depth[valid] / d
-        which = np.digitize(d, BINS)
+        which = np.digitize(d, edges)
         cells = []
         for b in range(len(labels)):
             m = which == b
