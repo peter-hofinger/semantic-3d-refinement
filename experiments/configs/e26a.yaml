@@ -1,0 +1,29 @@
+# E26a (experiments/LOG.md, issue #26): every direct competitor's geometry on ETH3D's 13
+# high-res training scenes, next to ours with and without semantics. Inputs and refiner
+# as E35's configs/eval_eth3d.yaml: 20 views at 504 px, Déjà View K = 16, SAM 3 image mode
+# nyu40 t0.3 linked, DSINE normals, configs/refine.yaml. Each output aligned onto the
+# laser-scan ground truth by one Umeyama Sim(3) on its pixels; surface scores only.
+output_dir: runs
+root: data/processed/eth3d
+dataset: configs/eth3d.yaml
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+refine: configs/refine.yaml
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: Refined, no segments
+    refiner: joint
+    segments: none
+  - name: Refined, SAM 3 (ours)
+    refiner: joint
+  - name: Refined, permuted SAM 3
+    refiner: joint
+    segments: permuted
+# per-pixel points of each competitor, <dir>/<scene>.npz with `points` (V, H, W, 3)
+competitors:
+  PanSt3R v2: runs/e26a/panst3r
+  EPS3D: runs/e26a/eps3d
+  IGGT: runs/e26a/iggt
+  PE3R: runs/e26a/pe3r

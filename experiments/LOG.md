@@ -3687,3 +3687,74 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - A simpler energy, E_d as L1 + E_mv + E_t without E_δ and u, solved to convergence (20 x 50): on its own curve
     it beats the filter from q 0.75 on, but stays 0.02 cm short of this one at equal completeness. Its weights move
     once it converges (5 x 10 acts as early stopping), and it was never run on dev or val.
+
+## Plan: E26a = the direct competitors' geometry on ETH3D, next to ours with and without semantics (issue #26, 11.11.2026)
+- **Goal:** issue #26 compares the methods that take unposed RGB and return a labeled point cloud. Our premise
+  is that semantics improve the geometry, so this run scores geometry only: accuracy, completeness and Chamfer of
+  every method's per-pixel points, and ours with and without the segments. ETH3D, because it is in none of the
+  training sets as far as their papers and notices list them (Déjà View: paper Table 6; MUSt3R_512_cvpr, which
+  PanSt3R freezes: its NOTICE), while Déjà View saw 0.69 % Hypersim and VGGT, behind IGGT, trained on Hypersim.
+  ETH3D has no labels, so no label score.
+- **Setting:** all 13 scenes of ETH3D's high-res training set (`configs/eth3d.yaml`: 7 indoor, 6 outdoor), 20
+  views each at 504 x 336 (pipes 14, meadow 15), prepared afresh with `eth3d-prepare`; E35's caches of office and
+  kicker stay apart in `data/processed/eth3d_e35`. Ours as in E35 (`experiments/configs/e26a.yaml`): Déjà View
+  K = 16, SAM 3 image mode nyu40 t0.3 linked, DSINE, `configs/refine.yaml`; variants Déjà View, refined without
+  segments and refined with the linked SAM 3 segments (the default). Competitors at their released checkpoints
+  and their own demo settings, nothing tuned: PanSt3R v2 (the bedroom check of 11.11 found its geometry is its frozen
+  MUSt3R_512_cvpr), EPS3D, IGGT, PE3R. Each gets the same 20 images; its per-pixel points come back onto our
+  pixels through its own crop and resize (`e26a_pixels.py`), NaN where it cropped.
+- **Scoring:** E35's: per scene one Umeyama Sim(3) on the pixel pairs, `labeled.surface_metrics` against the
+  laser-scan depth; then mean and median over the scenes, indoor, outdoor and all.
+- **Reading it:** refined with against without segments is the premise; refined against Déjà View is whether
+  refinement helps at all out of domain (E35: completeness worse on 13 of 13); the competitors place both. One
+  run, no seeds: a difference below E35's per-scene spread is not a difference.
+
+## E26a: the competitors' geometry on ETH3D -> Déjà View leads on the mean; our refinement is worse than its input on 13 of 13 scenes and the semantics do not explain its small edge over no segments (issue #26, 11.11.2026)
+- **Goal, setting:** as planned above: all 13 ETH3D high-res training scenes, 20 views at 504 x 336 (pipes 14,
+  meadow 15), prepared afresh; ours (Déjà View K = 16, DSINE, SAM 3 nyu40 t0.3 linked, `configs/refine.yaml`)
+  without, with and with permuted segments; PanSt3R v2, EPS3D and IGGT at their released checkpoints; PE3R on
+  the cluster (it needs more than 10 GB; dropped, see below). Scored as E35: one Sim(3) per output,
+  `surface_metrics`.
+- **How each competitor was run** (runners in `experiments/scripts/`, each in its own environment under
+  `data/third_party/`, nothing tuned):
+  - PanSt3R v2 (`panst3r_predict.py`): its demo pipeline, every view a keyframe; 512 x 336 after MUSt3R's
+    1.6 % centre crop, mapped back per pixel (`e26a_pixels.py`), the cropped rows without a point.
+  - EPS3D (`eps3d_predict.py`): the points its encoder unprojects before voxelizing (VGGT aggregator, camera
+    and depth head, weights loaded strictly from its checkpoint) at our 504 x 336, not its 256 x 256 square
+    crop, which would drop a third of each view.
+  - IGGT (`iggt_predict.py`): its demo's depth unprojected along its predicted cameras, at 504 x 336, its
+    default. Two import shims (basicsr's renamed torchvision module; the RMSNorm its release imports but does
+    not ship, replaced by `torch.nn.RMSNorm` with apex's eps 1e-5) and its aggregator's weights in bfloat16 to
+    fit 10 GB (under its autocast every matmul is bfloat16 anyway).
+  - PE3R (`pe3r_predict.py`, `e26a_pe3r_cluster.sh`, branch `peter/e26a-pe3r-cluster`): its own
+    `get_reconstructed_scene` with the demo's defaults. Out of memory on the 3080 even with MASt3R held on the
+    CPU while it segments. The cluster's 5090 would fit it, but building its environment there was estimated at 1-1.25 h on
+    the login node's NFS home, so Peter dropped it; the runner and `e26a_pe3r_cluster.sh` stay for a later run.
+- **Commands:** `runs/e26a/inputs2.sh <scenes>` (Déjà View, DSINE, SAM 3, PanSt3R, EPS3D, IGGT per scene,
+  about 2 min per scene on the 3080), `uv run python experiments/scripts/e26a_eth3d.py --cfg
+  experiments/configs/e26a.yaml` (`runs/e26a-20261111-151031`, 15 min; run on the tree of this commit before
+  it was committed, hence the dirty hash), `uv run python experiments/scripts/e26a_figures.py <run>`
+  (`experiments/results/e26a_eth3d.txt`, `experiments/figures/e26a_eth3d.png`).
+- **Check:** Déjà View and the refiner reproduce E35 on the same scenes: completeness 7.76 -> 9.29 cm here,
+  7.77 -> 9.18 there.
+- **Results** (mean / median over the 13 scenes, cm; indoor and outdoor in the results file):
+
+  | | accuracy | completeness | Chamfer |
+  |---|---|---|---|
+  | Déjà View | 12.22 / 8.99 | 7.76 / 5.54 | 9.99 / 7.26 |
+  | Refined, no segments | 12.15 / 8.71 | 9.50 / 6.58 | 10.82 / 7.65 |
+  | Refined, SAM 3 (ours) | 12.22 / 8.76 | 9.29 / 6.37 | 10.75 / 7.56 |
+  | Refined, permuted SAM 3 | 12.32 / 8.80 | 8.89 / 6.18 | 10.60 / 7.49 |
+  | PanSt3R v2 | 88.88 / 35.05 | 154.16 / 21.36 | 121.52 / 28.76 |
+  | EPS3D | 38.24 / 28.70 | 33.57 / 17.21 | 35.90 / 24.36 |
+  | IGGT | 26.56 / 13.33 | 27.09 / 8.37 | 26.83 / 10.85 |
+
+  Ours minus each control, Chamfer: Déjà View +0.765 / +0.286 cm, better on 0 of 13 scenes; no segments
+  -0.071 / -0.047, better on 11 of 13; permuted segments +0.149 / +0.161, better on 1 of 13.
+- **Conclusion:** out of domain the refiner costs completeness on every scene and buys no accuracy, as E35
+  found. The segments' edge over no segments is real in sign but tiny, and permuted segments do better still:
+  as on Hypersim (E8b), what helps is cutting matches, not which ones the semantics cut. The premise is not
+  supported on ETH3D. Among the competitors Déjà View leads on every mean; IGGT's indoor median beats it
+  (Chamfer 3.81 against 6.20, better on office and terrains) but it fails outdoors (meadow 186 cm), and
+  PanSt3R's frozen MUSt3R_512_cvpr breaks on 5 scenes (over 2 m) while matching Déjà View on kicker and office.
+  None of them reports geometry in its paper, and none is better than its backbone here. PE3R was not run.

@@ -5,9 +5,10 @@ Non-Commercial License) with its own environment, MUSt3R pinned at naver/must3r 
 0c0d76b (the last commit before PanSt3R's, as the head needs torch >= 2.14). Checkpoint
 v2 (`panst3r_v2_512_5ds.pth`, MD5 6a7a47a2...), its default post-processing
 (standard v2), every view a keyframe, the NYU40 names as the text vocabulary.
-Its inputs are resized from 504 x 378 to 512 x 384 (same aspect, no crop) as its demo
-does; its point maps (global frame) and panoptic ids come back to 504 x 378 by nearest
-neighbour, so no point is interpolated across a depth edge. A segment's score, which v2
+Its inputs are cropped and resized to its own resolution by MUSt3R's
+`get_resize_function`, as its demo does (Hypersim's 504 x 378 to 512 x 384, no crop;
+ETH3D's 504 x 336 to 512 x 336 after a 1.6 % centre crop); its point maps (global frame)
+and panoptic ids come back to our pixels by `e26a_pixels.back_to_views`. A segment's score, which v2
 does not output, is its mean mask confidence.
 
 PanSt3R freezes MUSt3R_512_cvpr (its encoder and decoder weights equal that checkpoint's
@@ -29,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F  # noqa: N812
+from e26a_pixels import back_to_views
 from must3r.datasets import ImgNorm
 from must3r.engine.inference import postprocess
 from must3r.model import get_pointmaps_activation
@@ -53,13 +54,6 @@ NYU40 = (
 SIZE = 512  # the checkpoint's resolution
 
 
-def nearest(t: torch.Tensor, h: int, w: int) -> torch.Tensor:
-    """Resize (V, h', w', C) to (V, h, w, C) by nearest neighbour."""
-    return F.interpolate(
-        t.permute(0, 3, 1, 2).float(), size=(h, w), mode="nearest-exact"
-    ).permute(0, 2, 3, 1)
-
-
 def main() -> None:
     """Predict, resize back to the views' pixels, save."""
     views_path, weights, out = map(Path, sys.argv[1:4])
@@ -73,7 +67,9 @@ def main() -> None:
         must3r = torch.load(sys.argv[4], map_location="cpu", weights_only=False)
         model.must3r_decoder.load_state_dict(must3r["decoder"])
     model = model.eval().to(device)
-    resize, _, _ = get_resize_function(SIZE, model.must3r_encoder.patch_size, h, w)
+    resize, to_model, _ = get_resize_function(
+        SIZE, model.must3r_encoder.patch_size, h, w
+    )
     imgs = [resize(ImgNorm(Image.fromarray(im))).to(device) for im in images]
     shape = torch.tensor([im.shape[-2:] for im in imgs], device=device)
     t0 = time.perf_counter()
@@ -93,18 +89,23 @@ def main() -> None:
     seconds = time.perf_counter() - t0
     activation = get_pointmaps_activation(model.must3r_decoder)
     x = [postprocess(m[0], pointmaps_activation=activation) for m in maps]
-    points = nearest(torch.stack([o["pts3d"].float() for o in x]), h, w)
-    conf = nearest(torch.stack([o["conf"].float() for o in x])[..., None], h, w)
-    ids = nearest(torch.stack(pred["pan"])[..., None], h, w)[..., 0].long()
-    mask_conf = nearest(torch.stack(pred["conf"])[..., None], h, w)[..., 0]
+
+    def back(t: list[torch.Tensor]) -> np.ndarray:
+        stacked = torch.stack([a.float() for a in t]).numpy()
+        return back_to_views(stacked.reshape(*stacked.shape[:3], -1), to_model, h, w)
+
+    points = back([o["pts3d"] for o in x])
+    conf = back([o["conf"] for o in x])[..., 0]
+    pan = back(pred["pan"])[..., 0]
+    mask_conf = back(pred["conf"])[..., 0]
+    ids = np.where(pan > 0, np.nan_to_num(pan), -1).astype(np.int32)
     segments = pred["segments_info"]
-    ids = torch.where(ids > 0, ids, -1).int()
-    scores = [float(mask_conf[ids == s["id"]].mean()) for s in segments]
+    scores = [float(np.nanmean(mask_conf[ids == s["id"]])) for s in segments]
     np.savez_compressed(
         out,
-        points=points.numpy().astype(np.float32),
-        confidence=conf[..., 0].numpy().astype(np.float32),
-        instance_ids=ids.numpy(),
+        points=points,
+        confidence=conf,
+        instance_ids=ids,
         class_ids=np.array([s["id"] for s in segments], np.int32),
         class_names=np.array([NYU40[s["category_id"]] for s in segments]),
         scores=np.array(scores, np.float32),
