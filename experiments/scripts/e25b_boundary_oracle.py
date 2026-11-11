@@ -2,7 +2,9 @@
 
 Déjà View's output per scene, aligned onto the GT by the protocol's one Umeyama Sim(3) on
 the pixels (`align_output`) and scored by `surface_metrics`. The band is the GT pixels
-within BAND px of a GT depth edge (E35's edges).
+within BAND px of a GT depth edge; --edges picks E35's step rule (the default, E25b as
+reported) or the plane rule of `src/analysis/edges.py`, which a plane at a grazing angle
+passes, for the band, the surface across the edge and both depth components.
 
 1. What the edge error is: for each band pixel with a GT pixel on the other surface within
    E35's COLLAPSE px (`across_edge`), t = (z_p - z_g) / (z_o - z_g) with z_g its GT depth,
@@ -29,7 +31,11 @@ first val run: Hypersim's walls are one instance per scene, so a window could ho
 walls at different depths, e.g. through a door, and the plane through both dragged the
 Sim(3) of 3 of the 11 val scenes; a local fit should see one connected surface).
 
+A config without `vocabulary` is Tanks and Temples (E45b): no labels, so no GT-instance
+snap, and its groups are the config's (outdoor, indoor), not splits.
+
 uv run python experiments/scripts/e25b_boundary_oracle.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25b --check runs/e8a_segments-20261110-130124/run.yaml
+uv run python experiments/scripts/e25b_boundary_oracle.py --cfg configs/eval_tanksandtemples.yaml --edges plane --maps truck --out runs/e45b_tanksandtemples
 prints the report and writes `<out>/e25b.yaml` (every record) and `<out>/e25b_maps.npz`
 (the --maps scenes: each variant's per-pixel error and Déjà View's t), the inputs of
 `e25b_figures.py`.
@@ -43,14 +49,18 @@ from pathlib import Path
 import numpy as np
 import torch
 import yaml
-from e35_error_split import across_edge, bins, depth_edges, edge_distance, to_camera
+from e25a_class_split import EDGE_RULES, edge_distance
+from e35_error_split import across_edge as step_across
+from e35_error_split import bins, to_camera
 from scipy import ndimage
 
+from src.analysis.edges import across_edge as plane_across
 from src.analysis.scene_eval import git_hash, input_paths
 from src.evaluation.labeled import align_output, ground_truth_cloud, surface_metrics
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config as hypersim_config
+from src.loaders.tanksandtemples.scene import load_config as tanksandtemples_config
 from src.loaders.views import Views
 from src.refinement.multiview import points_from_rays, scene_from_geometry
 from src.segmentation.base import Segmentation
@@ -151,11 +161,20 @@ def snap_depth(depth: np.ndarray, ids: np.ndarray) -> np.ndarray:
     return np.stack([1 / plane_snap(1 / d, i) for d, i in zip(depth, ids, strict=True)])
 
 
-def depth_components(depth: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    """Ids (V, H, W) of connected components cut at depth edges, edge pixels joined to their nearest; -1 off `valid`."""
+def across_edge(depth: np.ndarray, valid: np.ndarray, rule: str) -> np.ndarray:
+    """GT depth (V, H, W) of the nearest pixel within BAND px on another surface by `rule`, NaN if none."""
+    if rule == "step":
+        return step_across(depth, valid)
+    return np.stack(
+        [plane_across(d, v, BAND) for d, v in zip(depth, valid, strict=True)]
+    )
+
+
+def depth_components(depth: np.ndarray, valid: np.ndarray, rule: str) -> np.ndarray:
+    """Ids (V, H, W) of connected components cut at `rule`'s depth edges, edge pixels joined to their nearest; -1 off `valid`."""
     out = np.full(depth.shape, -1, dtype=np.int64)
     for i in range(len(depth)):
-        free = valid[i] & ~depth_edges(depth[i], valid[i])
+        free = valid[i] & ~EDGE_RULES[rule](depth[i], valid[i])
         lab, n = ndimage.label(free)
         if not n:
             continue
@@ -218,7 +237,7 @@ def scores(
     }
 
 
-def analyse(raw: dict, name: str, *, maps: bool) -> dict:
+def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
     """Every number of the module docstring for one scene."""
     paths = input_paths(raw, name)
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
@@ -235,17 +254,18 @@ def analyse(raw: dict, name: str, *, maps: bool) -> dict:
     dv = geometry.depth.astype(np.float64)
     assert np.isfinite(dv).all()
     assert (dv > 0).all()
-    band = (edge_distance(depth, valid) <= BAND)[valid]
-    other = across_edge(depth, valid)
-    segments = {
-        k: pieces(v)
-        for k, v in {
-            "GT instances": gt.instance_ids,
-            "GT depth comp.": depth_components(depth, valid),
-            "SAM 3": labels.instance_ids,
-            "DV depth comp.": depth_components(dv, np.ones(dv.shape, dtype=bool)),
-        }.items()
+    band = (edge_distance(depth, valid, edges) <= BAND)[valid]
+    other = across_edge(depth, valid, edges)
+    everywhere = np.ones(dv.shape, dtype=bool)
+    sources = {
+        "GT instances": gt.instance_ids,
+        "GT depth comp.": depth_components(depth, valid, edges),
+        "SAM 3": labels.instance_ids,
+        "DV depth comp.": depth_components(dv, everywhere, edges),
     }
+    if not gt.classes:
+        del sources["GT instances"]
+    segments = {k: pieces(v) for k, v in sources.items()}
     out: dict = {
         "px": int(valid.sum()),
         "band_px_share": float(band.mean()),
@@ -312,9 +332,9 @@ def wins(records: list[dict], a: str, b: str) -> tuple[int, float]:
 
 def report(groups: dict[str, list[str]], records: dict[str, dict]) -> None:
     """Print the split tables, the t decomposition and the plan's comparisons."""
-    variants = ["Déjà View", *SOURCES]
     for group, names in groups.items():
         recs = [records[n] for n in names]
+        variants = [v for v in ("Déjà View", *SOURCES) if v in recs[0]["variants"]]
         band = np.mean([r["band_px_share"] for r in recs])
         print(f"\n## {group} ({len(recs)} scenes; band = {band:.3f} of the GT pixels)")
         print(
@@ -361,8 +381,9 @@ def report(groups: dict[str, list[str]], records: dict[str, dict]) -> None:
             ("DV depth comp.", "Déjà View"),
             ("SAM 3", "Déjà View"),
         ):
-            n, mean = wins(recs, a, b)
-            print(f"  {a} vs {b}: {n} | {mean:+.3f}")
+            if a in variants and b in variants:
+                n, mean = wins(recs, a, b)
+                print(f"  {a} vs {b}: {n} | {mean:+.3f}")
 
 
 def main() -> None:
@@ -372,6 +393,7 @@ def main() -> None:
     parser.add_argument("--splits", nargs="*", default=["dev", "val"])
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--maps", nargs="*", default=["ai_006_007_cam_00"])
+    parser.add_argument("--edges", choices=sorted(EDGE_RULES), default="step")
     parser.add_argument(
         "--check",
         type=Path,
@@ -380,22 +402,33 @@ def main() -> None:
     args = parser.parse_args()
     check()
     raw = yaml.safe_load(args.cfg.read_text(encoding="utf-8"))
-    config = hypersim_config(Path(raw["dataset"]))
-    groups = {
-        s: [f"{n}_{c}" for n, c in config.scenes([s]).items()] for s in args.splits
-    }
-    groups["all"] = [n for s in args.splits for n in groups[s]]
+    if raw.get("vocabulary") == "hypersim":
+        config = hypersim_config(Path(raw["dataset"]))
+        groups = {
+            s: [f"{n}_{c}" for n, c in config.scenes([s]).items()] for s in args.splits
+        }
+        groups["all"] = [n for s in args.splits for n in groups[s]]
+    else:
+        kinds = tanksandtemples_config(Path(raw["dataset"])).scenes
+        groups = {
+            kind: [n for n, k in kinds.items() if k == kind]
+            for kind in sorted(set(kinds.values()))
+        }
+        groups["all"] = list(kinds)
     names = groups["all"]
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(WORKERS, mp_context=context) as pool:
-        jobs = {n: pool.submit(analyse, raw, n, maps=n in args.maps) for n in names}
+        jobs = {
+            n: pool.submit(analyse, raw, n, edges=args.edges, maps=n in args.maps)
+            for n in names
+        }
         records = {n: job.result() for n, job in jobs.items()}
     maps = {f"{n}/{k}": v for n in names for k, v in records[n].pop("maps", {}).items()}
     args.out.mkdir(parents=True, exist_ok=True)
     if maps:
         np.savez_compressed(args.out / "e25b_maps.npz", **maps)
     git = git_hash()
-    print(f"config {args.cfg}, git {git}, scenes {len(names)}")
+    print(f"config {args.cfg}, git {git}, scenes {len(names)}, edges {args.edges}")
     print(
         "check, snap: identity with no segment and with one segment, a pinhole plane recovered to 1e-9 (passed)"
     )
@@ -415,7 +448,13 @@ def main() -> None:
     report(groups, records)
     (args.out / "e25b.yaml").write_text(
         yaml.safe_dump(
-            {"config": str(args.cfg), "git": git, "groups": groups, "scenes": records},
+            {
+                "config": str(args.cfg),
+                "git": git,
+                "edges": args.edges,
+                "groups": groups,
+                "scenes": records,
+            },
             sort_keys=False,
             allow_unicode=True,
         ),
