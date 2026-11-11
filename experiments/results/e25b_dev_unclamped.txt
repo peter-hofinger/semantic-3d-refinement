@@ -1,0 +1,48 @@
+config configs\eval_hypersim.yaml, git 4e6aa0bc53600ae71a504229c9f73dcc6be5a32b-dirty, scenes 3
+check, snap: identity with no segment and with one segment, a pinhole plane recovered to 1e-9 (passed)
+check, Déjà View here vs the run's: scene | scale here | run | Chamfer cm here | run
+  ai_010_007_cam_00 | 4.703198 | 4.703198 | 1.606 | 1.606
+  ai_006_007_cam_00 | 2.438340 | 2.438340 | 1.837 | 1.837
+  ai_044_001_cam_00 | 9.405539 | 9.405539 | 6.995 | 6.995
+
+## dev (3 scenes; band = 0.109 of the GT pixels)
+variant | snapped px | error cm | band error cm | band error removed | accuracy cm | completeness cm | Chamfer cm
+Déjà View | 0.000 | 14.59 | 54.49 | - | 4.651 | 2.307 | 3.479
+GT instances | 0.260 | 13.37 | 35.15 | 0.329 | 5.619 | 3.154 | 4.387
+GT depth comp. | 0.173 | 13.83 | 49.60 | 0.123 | 4.668 | 2.276 | 3.472
+SAM 3 | 0.285 | 18.92 | 54.77 | -0.073 | 7.880 | 5.180 | 6.530
+DV depth comp. | 0.152 | 14.86 | 55.58 | -0.038 | 4.768 | 2.416 | 3.592
+t of the band pixels with a GT pixel across the edge (0.796 of the band): variant | away px / error | own px / error | between px / error | other px / error
+  Déjà View | 0.316 / 0.082 | 0.371 / 0.088 | 0.157 / 0.177 | 0.157 / 0.653
+  GT instances | 0.407 / 0.200 | 0.383 / 0.147 | 0.118 / 0.191 | 0.091 / 0.461
+  GT depth comp. | 0.345 / 0.116 | 0.364 / 0.101 | 0.154 / 0.202 | 0.136 / 0.580
+  SAM 3 | 0.343 / 0.126 | 0.356 / 0.104 | 0.142 / 0.159 | 0.159 / 0.611
+  DV depth comp. | 0.314 / 0.084 | 0.372 / 0.083 | 0.151 / 0.149 | 0.164 / 0.683
+Chamfer, a vs b: scenes where a is lower by > 0.05 cm / 3, mean a - b cm
+  GT instances vs Déjà View: 1 | +0.907
+  GT instances vs GT depth comp.: 1 | +0.915
+  SAM 3 vs GT instances: 0 | +2.143
+  SAM 3 vs DV depth comp.: 0 | +2.938
+  DV depth comp. vs Déjà View: 0 | +0.113
+  SAM 3 vs Déjà View: 0 | +3.050
+
+## all (3 scenes; band = 0.109 of the GT pixels)
+variant | snapped px | error cm | band error cm | band error removed | accuracy cm | completeness cm | Chamfer cm
+Déjà View | 0.000 | 14.59 | 54.49 | - | 4.651 | 2.307 | 3.479
+GT instances | 0.260 | 13.37 | 35.15 | 0.329 | 5.619 | 3.154 | 4.387
+GT depth comp. | 0.173 | 13.83 | 49.60 | 0.123 | 4.668 | 2.276 | 3.472
+SAM 3 | 0.285 | 18.92 | 54.77 | -0.073 | 7.880 | 5.180 | 6.530
+DV depth comp. | 0.152 | 14.86 | 55.58 | -0.038 | 4.768 | 2.416 | 3.592
+t of the band pixels with a GT pixel across the edge (0.796 of the band): variant | away px / error | own px / error | between px / error | other px / error
+  Déjà View | 0.316 / 0.082 | 0.371 / 0.088 | 0.157 / 0.177 | 0.157 / 0.653
+  GT instances | 0.407 / 0.200 | 0.383 / 0.147 | 0.118 / 0.191 | 0.091 / 0.461
+  GT depth comp. | 0.345 / 0.116 | 0.364 / 0.101 | 0.154 / 0.202 | 0.136 / 0.580
+  SAM 3 | 0.343 / 0.126 | 0.356 / 0.104 | 0.142 / 0.159 | 0.159 / 0.611
+  DV depth comp. | 0.314 / 0.084 | 0.372 / 0.083 | 0.151 / 0.149 | 0.164 / 0.683
+Chamfer, a vs b: scenes where a is lower by > 0.05 cm / 3, mean a - b cm
+  GT instances vs Déjà View: 1 | +0.907
+  GT instances vs GT depth comp.: 1 | +0.915
+  SAM 3 vs GT instances: 0 | +2.143
+  SAM 3 vs DV depth comp.: 0 | +2.938
+  DV depth comp. vs Déjà View: 0 | +0.113
+  SAM 3 vs Déjà View: 0 | +3.050
