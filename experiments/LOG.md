@@ -3795,3 +3795,48 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
     to help through grouping or identity (which E8a found the refiner does not use either), not through what a
     class is. Out of domain the answer is coarse: SAM 3 labels few classes outdoors, and no labelled
     out-of-domain GT was used (Matterport3D needs an access request).
+
+## Plan: E25b = how much of Déjà View's error at depth edges could segments remove? An oracle bound (issue #25, 11.11.2026)
+- **Goal:** E25a found that a pixel's class says nothing about Déjà View's error beyond its geometry, so the
+  remaining route for semantics is boundaries: E35 put 42-48% of Déjà View's error on Hypersim within 3 px of a
+  GT depth edge. Bound what segments could do there, and whether that needs semantics or only depth edges.
+  Analysis only, on Déjà View's caches: no refiner, no change to the method, the scorer or the backbones.
+- **Scenes and protocol:** Hypersim dev (3) + val (11), Déjà View K = 16, 20 views at 504 px, `rays: pinhole`;
+  every output aligned onto the GT by the protocol's one Umeyama Sim(3) on its pixels (`align_output`) and
+  scored by `surface_metrics`. Glass is not set apart (it is in the scores the project reports).
+- **1. What the edge error is.** Band = GT pixels within 3 px of a GT depth edge (E35's edge definition:
+  relative jump > 5% to a 4-neighbour). For each band pixel with a GT pixel on the other surface within 3 px
+  (E35's `across_edge`), its GT depth z_g, the other surface's z_o and Déjà View's aligned depth z_p in the GT
+  camera give t = (z_p - z_g) / (z_o - z_g): t <= 0 away from the other surface, 0-0.25 near its own, 0.25-0.75
+  between the two (bleeding), > 0.75 on or past the other surface (the edge drawn in the wrong place). Report
+  each bin's pixel share and share of the band's error. A plain offset is symmetric around t = 0, so bleeding
+  and misplaced edges show as mass in the last two bins beyond what t <= 0 mirrors.
+- **2. Oracle snap.** Per view and segment, pixels within BAND = 3 px of a change of segment id are snapped;
+  pixels farther in are the segment's interior. A snapped pixel's inverse depth is replaced by a plane in
+  inverse depth over pixel coordinates (exact for a plane seen by a pinhole), least squares on Déjà View's
+  inverse depth at the same segment's interior pixels within a 31 x 31 px window around it; with fewer than
+  MIN_FIT = 30 such pixels, or a non-positive fit, the pixel keeps Déjà View's depth. Pixels without a segment
+  are never snapped. Constants fixed here, not tuned.
+- **Segment sources** (one variant each, plus Déjà View unchanged):
+  - *GT instances* (Hypersim's; walls, floors and ceilings one instance per class, E29): semantic oracle.
+  - *GT depth components*: connected components of the GT pixels after removing GT depth-edge pixels, each
+    edge pixel given its nearest component: knows exactly where the depth edges are, no semantics.
+  - *SAM 3*: the linked masks of the protocol (`sam3image-nyu40-t0.3`, working association).
+  - *Déjà View depth components*: the same components on Déjà View's own depth and edges: realistic, no
+    semantics.
+- **Scores per variant:** mean per-pixel error (3D distance to its own GT point) over all pixels and in the GT
+  band, the share of Déjà View's band error removed, accuracy / completeness / Chamfer, snapped pixel share;
+  split means over scenes, and per scene for the count of scenes a variant improves.
+- **Checks:** with zero snapped pixels the output is Déjà View bit for bit; on a synthetic plane seen by a
+  pinhole the fit returns its inverse depth exactly; the Déjà View row reproduces E8a's scores (same alignment).
+- **Reading, fixed before running:**
+  - GT instances remove little of the band error (< 10%) -> segments have no headroom at edges on these data;
+    the boundary route is closed too -> bring to Umut and Robin.
+  - GT instances remove much, GT depth components as much (within 0.05 cm Chamfer, or fewer than 2/3 of the
+    scenes in favour of instances) -> the headroom is in knowing the edges, not in semantics: any segmentation
+    that follows depth edges does it.
+  - GT instances beat GT depth components on Chamfer by more than 0.05 cm in >= 2/3 of the scenes -> semantic
+    grouping adds over depth edges; then SAM 3 against GT instances says whether SAM 3 is the bottleneck, and SAM
+    3 against Déjà View depth components whether it beats the realistic geometric alternative.
+- **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, Déjà View's error, and the error after each snap
+  on one shared scale (cm), plus the t histogram of the band.
