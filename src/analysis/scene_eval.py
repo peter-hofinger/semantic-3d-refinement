@@ -52,6 +52,8 @@ from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config
 from src.loaders.hypersim.scene import NYU40
+from src.loaders.kitti360.scene import CLASSES as KITTI360
+from src.loaders.kitti360.scene import SKY
 from src.loaders.views import Views
 from src.refinement.multiview import (
     RefineConfig,
@@ -77,7 +79,11 @@ HEADLINE = (
     "pq",
     "ap",
 )
-VOCABULARIES = {"hypersim": NYU40[1:]}  # every class a dataset labels, not a scene's
+# every class a dataset labels with geometry, not a scene's
+VOCABULARIES = {
+    "hypersim": NYU40[1:],
+    "kitti360": tuple(c for i, c in KITTI360.items() if i != SKY),
+}
 WORKERS = 6  # scoring processes; each also uses several threads
 
 

@@ -4,7 +4,8 @@ Déjà View's output per scene, aligned onto the GT by the protocol's one Umeyam
 on the pixels (`align_output`). Per GT pixel: error e = 3D distance of its aligned point
 to its own GT point, relative error r = e / GT depth. Expected relative error r̂ = the
 scene's mean r over the GT pixels in the same geometric cell: distance to a GT depth
-edge (E35's bins) x the scene's depth quartile x incidence angle of the GT surface
+edge (E35's bins; --edges picks E35's step rule or the plane rule of
+`src/analysis/edges.py`, which a plane at a grazing angle passes) x the scene's depth quartile x incidence angle of the GT surface
 (cos bins ANGLE_BINS, normals from the GT point map; no normal is its own bin). By
 construction the mean of r̂ over a scene equals the mean of r.
 
@@ -25,10 +26,12 @@ among the instances, PERMUTATIONS times; pixels, geometry and grouping stay.
 SAM 3: per-view masks, unlinked (a class needs no identity), each pixel within ERODE px
 of a change of mask id dropped. On Hypersim the GT and SAM 3 classes are compared on the
 same pixels (SAM 3's kept ones): slope and correlation of the per-class log excess. On
-ETH3D, which has no labels, SAM 3's classes are the only ones.
+ETH3D, which has no labels, SAM 3's classes are the only ones. KITTI-360 (E45a) has GT
+classes and is read as Hypersim; its groups are the drives (country, town).
 
 uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25a_hypersim
 uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_eth3d.yaml --out runs/e25a_eth3d
+uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_kitti360.yaml --edges plane --maps 0010_0000000984_0000001116 --out runs/e45a_kitti360
 prints the report and writes `<out>/e25a.yaml` (every record) and `<out>/e25a_maps.npz`
 (the --maps scenes: r, r̂ and the class of each pixel), the inputs of `e25a_figures.py`.
 """
@@ -42,16 +45,18 @@ from pathlib import Path
 import numpy as np
 import torch
 import yaml
-from e35_error_split import EDGE_BINS, bins, edge_distance, quartile, to_camera
+from e35_error_split import EDGE_BINS, bins, quartile, to_camera
+from e35_error_split import depth_edges as step_edges
 from scipy import ndimage
 
+from src.analysis.edges import depth_edges as plane_edges
 from src.analysis.scene_eval import VOCABULARIES, git_hash, input_paths
 from src.evaluation.labeled import align_output, ground_truth_cloud, surface_metrics
 from src.geometry import Geometry
 from src.loaders.eth3d.scene import load_config as eth3d_config
-from src.loaders.ground_truth import GroundTruth
+from src.loaders.ground_truth import STUFF_BASE, GroundTruth
 from src.loaders.hypersim.config import load_config as hypersim_config
-from src.loaders.hypersim.prepare import STUFF_BASE
+from src.loaders.kitti360.scene import load_config as kitti360_config
 from src.loaders.views import Views
 from src.refinement.multiview import points_from_rays, scene_from_geometry
 from src.segmentation.base import Segmentation
@@ -69,6 +74,17 @@ STRIDE = 4  # every STRIDE-th source pixel in the cross-view gaps
 FAILS = 1.5  # excess beyond FAILS (or below 1 / FAILS) in >= 2/3 of a class's scenes
 PERMUTATIONS = 1000
 WORKERS = 6
+EDGE_RULES = {"step": step_edges, "plane": plane_edges}
+
+
+def edge_distance(depth: np.ndarray, valid: np.ndarray, rule: str) -> np.ndarray:
+    """Distance (V, H, W) in px of each pixel to the nearest GT depth edge of its view, by `rule`."""
+    out = np.full(depth.shape, np.inf)
+    for i in range(len(depth)):
+        edge = EDGE_RULES[rule](depth[i], valid[i])
+        if edge.any():
+            out[i] = ndimage.distance_transform_edt(~edge)
+    return out
 
 
 def incidence(points: np.ndarray, valid: np.ndarray, c2w: np.ndarray) -> np.ndarray:
@@ -196,8 +212,9 @@ def per_class(
     return out
 
 
-def analyse(raw: dict, name: str, *, gt_classes: bool, maps: bool) -> dict:
+def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
     """Every number of the module docstring for one scene."""
+    gt_classes = "vocabulary" in raw
     paths = input_paths(raw, name)
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
     geometry = Geometry.load(paths["geometry"])
@@ -225,7 +242,7 @@ def analyse(raw: dict, name: str, *, gt_classes: bool, maps: bool) -> dict:
     assert finite.all(), f"{name}: {int((~finite).sum())} non-finite Déjà View points"
     d = depth[valid]
     r = e / d
-    dist = edge_distance(depth, valid)
+    dist = edge_distance(depth, valid, edges)
     cos = incidence(gt_pts, valid, c2w)
     angle = np.where(
         np.isfinite(cos[valid]), bins(np.nan_to_num(cos[valid]), ANGLE_BINS), 3
@@ -440,6 +457,7 @@ def main() -> None:
     parser.add_argument("--splits", nargs="*", default=["dev", "val"])
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--maps", nargs="*", default=["ai_006_007_cam_00"])
+    parser.add_argument("--edges", choices=sorted(EDGE_RULES), default="step")
     parser.add_argument(
         "--scales",
         type=Path,
@@ -448,24 +466,25 @@ def main() -> None:
     args = parser.parse_args()
     raw = yaml.safe_load(args.cfg.read_text(encoding="utf-8"))
     gt_classes = "vocabulary" in raw
-    if gt_classes:
+    if raw.get("vocabulary") == "hypersim":
         config = hypersim_config(Path(raw["dataset"]))
         groups = {
             s: [f"{n}_{c}" for n, c in config.scenes([s]).items()] for s in args.splits
         }
         groups["all"] = [n for s in args.splits for n in groups[s]]
     else:
-        kinds = eth3d_config(Path(raw["dataset"])).scenes
+        load = kitti360_config if gt_classes else eth3d_config
+        kinds = load(Path(raw["dataset"])).scenes
         groups = {
             kind: [n for n, k in kinds.items() if k == kind]
-            for kind in ("indoor", "outdoor")
+            for kind in sorted(set(kinds.values()))
         }
         groups["all"] = list(kinds)
     names = groups["all"]
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(WORKERS, mp_context=context) as pool:
         jobs = {
-            n: pool.submit(analyse, raw, n, gt_classes=gt_classes, maps=n in args.maps)
+            n: pool.submit(analyse, raw, n, edges=args.edges, maps=n in args.maps)
             for n in names
         }
         records = {n: job.result() for n, job in jobs.items()}
@@ -474,7 +493,7 @@ def main() -> None:
     if maps:
         np.savez_compressed(args.out / "e25a_maps.npz", **maps)
     git = git_hash()
-    print(f"config {args.cfg}, git {git}, scenes {len(names)}")
+    print(f"config {args.cfg}, git {git}, scenes {len(names)}, edges {args.edges}")
     print("check, excess over all pixels = 1 by construction (asserted per scene)")
     if args.scales:
         run = yaml.safe_load(args.scales.read_text(encoding="utf-8"))
@@ -522,6 +541,7 @@ def main() -> None:
             {
                 "config": str(args.cfg),
                 "git": git,
+                "edges": args.edges,
                 "groups": groups,
                 "summary": summary,
                 "scenes": records,

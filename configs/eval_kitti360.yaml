@@ -1,0 +1,11 @@
+# E45a's inputs (experiments/scripts/e25a_class_split.py): the 24 scenes of
+# configs/kitti360.yaml, 20 views each at 504 x 182 px, Déjà View K = 16, SAM 3 image mode
+# with the prompts of configs/prompts/kitti360.txt at threshold 0.3, per view and unlinked.
+# Each output is aligned onto the ground truth by one Umeyama Sim(3) on the pixels, as in
+# src/evaluation/labeled.py. Analysis only: no refiner runs on these scenes.
+root: data/processed/kitti360
+dataset: configs/kitti360.yaml       # the scenes, each country or town
+views: views_n20_stride2_504
+backbone: dejaview_k16
+segmentation: sam3image-kitti360-t0.3
+vocabulary: kitti360   # evaluated classes: every class KITTI-360 labels, but sky
