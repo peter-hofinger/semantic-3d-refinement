@@ -5,9 +5,9 @@ Writes, per scene, `views_n<N>_<sampling>_<long side>.npz` (Views) and
 Hypersim loader. <raw_root>/<scene>/ holds the downloads as they come:
 images/<number>.jpg, gt/<Scene>.ply, poses/<Scene>_COLMAP_SfM.log and
 alignment/<Scene>_trans.txt. Frames are picked by `select_frames` in capture order,
-cut and resized about the image centre and given the laser scan's depth (see
-scene.py). Tanks and Temples has no labels: a pixel with depth is unlabeled, one
-without is NO_MESH.
+undistorted, cut and resized about the image centre and given the laser scan's depth
+(see scene.py). Tanks and Temples has no labels: a pixel with depth is unlabeled,
+one without is NO_MESH.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from src.loaders.tanksandtemples.scene import (
     read_log,
     render_depth,
     to_scan_frame,
+    undistort,
 )
 from src.loaders.views import Views
 from src.segmentation.base import NO_INSTANCE
@@ -60,7 +61,8 @@ def build(cfg: TanksAndTemplesConfig, scene: str) -> tuple[Views, GroundTruth]:
 
     images, depths, intrinsics = [], [], []
     for i in picked:
-        image = Image.open(files[i]).convert("RGB")
+        photo = np.asarray(Image.open(files[i]).convert("RGB"))
+        image = Image.fromarray(undistort(photo, p.focal, p.k1))
         box, size, k = centred_view(image.size, p)
         images.append(np.asarray(image.resize(size, Image.Resampling.LANCZOS, box=box)))
         depths.append(render_depth(points, poses[i], k, size))

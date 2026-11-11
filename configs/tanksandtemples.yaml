@@ -21,4 +21,5 @@ prepare:
   sampling: uniform    # uniform over the capture order
   long_side: 504       # Déjà View input size: 1920 x 1080 is cut to 1920 x 1066.7, resized to 504 x 280
   patch_size: 14       # output width and height are multiples of this
-  focal: 0.6           # focal length over image width; no intrinsics ship with the data (E45b's check)
+  focal: 0.605         # focal length over image width; no intrinsics ship with the data:
+  k1: -0.04            # both fitted to the scans by experiments/scripts/e45b_focal_check.py

@@ -8,9 +8,12 @@ maps that frame onto the scan (`<Scene>_trans.txt`). There are no labels.
 
 Camera. A camera-to-world pose [R_c | c] in COLMAP's frame becomes [R R_c | s R c + t]
 in the scan's, with camera coordinates in metres. The dataset ships no intrinsics.
-A pinhole with f = `focal` x image width and a centred principal point is assumed and
-checked against the scan (E45b: over 8 views of each of the three scenes used, the
-scan's projected colours match the image best at f = 0.60 W, to about 0.005 W).
+The camera assumed has a centred principal point, f = `focal` x image width and one
+radial coefficient `k1` (OpenCV's: normalised (x, y) is seen at (x, y)(1 + k1 r²)),
+fitted to the scan (E45b's e45b_focal_check.py: over 8 views of each of the three
+scenes used, the scan's projected colours match the photos best at f = 0.605 W,
+k1 = -0.04, the same for all three). Each photo is resampled to the pinhole of that
+focal length (`undistort`), which the views and the rendered depth then share.
 
 Ground truth. A view's depth is rendered from the points; a point cloud has no
 surface, so two things are guarded against. Stray points: with z_1 <= z_2 <= ... the
@@ -30,6 +33,7 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from scipy import ndimage
 
 MIN_DEPTH = 0.05  # m: nearer points are behind the camera or on the lens
 SUPPORT = 3  # points that must share a depth for it to count as a surface
@@ -41,13 +45,14 @@ SIMILARITY_TOL = 1e-6  # departure from s x rotation allowed in the alignment
 
 @dataclass
 class PrepareConfig:
-    """How views are picked and resized, and the assumed focal length."""
+    """How views are picked and resized, and the assumed camera."""
 
     num_frames: int = 20
     sampling: str = "uniform"
     long_side: int = 504
     patch_size: int = 14
-    focal: float = 0.6
+    focal: float = 0.605
+    k1: float = -0.04
 
 
 @dataclass
@@ -102,6 +107,30 @@ def to_scan_frame(poses: np.ndarray, alignment: np.ndarray) -> np.ndarray:
     ortho = np.abs(out[:, :3, :3] @ out[:, :3, :3].transpose(0, 2, 1) - np.eye(3))
     assert ortho.max() < 1e-5, f"pose is not rigid: {ortho.max()}"  # noqa: PLR2004 - the .log prints 12 digits
     return out
+
+
+def undistort(image: np.ndarray, focal: float, k1: float) -> np.ndarray:
+    """Image (H, W, 3) uint8 as the pinhole of the same focal length sees it.
+
+    focal is a share of the width; k1 <= 0 (barrel), so every pixel of the pinhole
+    image has its source inside the photo. Bilinear.
+    """
+    assert image.dtype == np.uint8, image.dtype
+    assert k1 <= 0, k1
+    if k1 == 0:
+        return image.copy()
+    height, width = image.shape[:2]
+    f = focal * width
+    ys, xs = np.mgrid[0:height, 0:width] + 0.5
+    x, y = (xs - width / 2) / f, (ys - height / 2) / f
+    radial = 1 + k1 * (x * x + y * y)
+    assert (radial > 0).all(), "k1 folds the image"
+    source = [f * y * radial + height / 2 - 0.5, f * x * radial + width / 2 - 0.5]
+    channels = [
+        ndimage.map_coordinates(image[..., c].astype(np.float32), source, order=1)
+        for c in range(image.shape[2])
+    ]
+    return np.stack(channels, axis=-1).round().astype(np.uint8)
 
 
 def centred_view(

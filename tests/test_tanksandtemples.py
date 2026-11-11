@@ -8,6 +8,7 @@ from src.loaders.tanksandtemples.scene import (
     read_log,
     render_depth,
     to_scan_frame,
+    undistort,
 )
 
 K = np.array([[100.0, 0, 8], [0, 100.0, 4], [0, 0, 1]])
@@ -85,6 +86,25 @@ def test_centred_view_keeps_one_scale_and_a_centred_principal_point() -> None:
     assert box == pytest.approx((0, 540 - 280 / 504 * 960, 1920, 540 + 280 / 504 * 960))
     assert (box[2] - box[0]) / size[0] == pytest.approx((box[3] - box[1]) / size[1])
     assert np.allclose(k, [[302.4, 0, 252], [0, 302.4, 140], [0, 0, 1]])
+
+
+def test_undistort_without_distortion_returns_the_image() -> None:
+    image = np.random.default_rng(0).integers(0, 255, (6, 8, 3), dtype=np.uint8)
+    assert np.array_equal(undistort(image, 0.6, 0.0), image)
+
+
+def test_undistort_reads_each_pixel_where_the_lens_put_it() -> None:
+    width, height, focal, k1 = 200, 100, 0.6, -0.05
+    ramp = np.broadcast_to(
+        np.arange(width, dtype=np.uint8)[None, :, None], (height, width, 3)
+    )
+    out = undistort(np.ascontiguousarray(ramp), focal, k1)
+    ys, xs = np.mgrid[0:height, 0:width] + 0.5
+    x, y = (xs - width / 2) / (focal * width), (ys - height / 2) / (focal * width)
+    seen = focal * width * x * (1 + k1 * (x * x + y * y)) + width / 2 - 0.5
+    assert np.abs(out[..., 0] - seen).max() <= 0.5 + 1e-4  # rounding to uint8
+    assert out[50, 100, 0] == 100  # the centre stays
+    assert out[50, 199, 0] < 199  # the border reads from further in: barrel
 
 
 def test_render_returns_a_plane_at_its_depth() -> None:
