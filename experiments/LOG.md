@@ -3758,3 +3758,11 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   (Chamfer 3.81 against 6.20, better on office and terrains) but it fails outdoors (meadow 186 cm), and
   PanSt3R's frozen MUSt3R_512_cvpr breaks on 5 scenes (over 2 m) while matching Déjà View on kicker and office.
   None of them reports geometry in its paper, and none is better than its backbone here. PE3R was not run.
+- **Addendum, issue #27's result on the same scenes:** E27a's flag-refine-filter (λ_t 4e-2, E_n off, q 0.5 by
+  instance voxel density on Déjà View) and the filter alone, which keeps the same pixels
+  (`experiments/configs/e26a_frf.yaml`, `runs/e26a_frf-20261111-162646`). Mean / median over 13 scenes, cm:
+  filter alone 6.11 / 4.41, 7.86 / 5.73, 6.99 / 5.38 (accuracy, completeness, Chamfer); flag-refine-filter
+  6.13 / 4.37, 7.85 / 5.66, 6.99 / 5.38. Against the filter alone its Chamfer is better on 9 of 13 scenes, by a
+  median of 0.023 cm and a mean of +0.004 cm (playground +0.81): a tie, inside the noise. Against Déjà View with
+  every pixel, Chamfer 9.99 -> 6.99 cm on 13 of 13 scenes, at equal completeness (7.76 -> 7.85). Out of domain,
+  what carries flag-refine-filter is the filter; on Hypersim val the refinement added 0.15 cm on top (E27a).
