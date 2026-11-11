@@ -3626,3 +3626,64 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   helps. Unfiltered, E_t 4e-2 against BiNI is the trade E21a and E43 rejected (accuracy for completeness); it is
   reported, not decided here (issue #21 owns the default).
 - **Check:** `Déjà View, kept 0.5` must reproduce E45's instance voxel density curve at q 0.5 on dev.
+
+## E27a: flag, refine, filter -> refining the kept points with E_t 4e-2 beats the filter alone on all three scores, dev and val; BiNI does not (11.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned.
+- **Commits:** 5b8eccc (one-sided normals on the image border, a rendering fix found here), e8a0f65 (`keep`,
+  `filters.instance_voxel_density`, test), 3e6801e (plan, config), this commit (`e27a_figures.py`, results, figure).
+- **Commands** (RTX 3080, clean tree at 3e6801e): `scene_eval --cfg experiments/configs/e27a.yaml --splits dev val`
+  (`e27a-20261111-112353`, 8 min); `e27a_figures.py runs/e27a-20261111-112353` -> `results/e27a_figures.txt`,
+  `figures/e27a_bedroom.jpg`.
+- **Checks:** Déjà View, Refined and tangent 4e-2 reproduce E41's and the exploratory run's scores to the third
+  decimal on both splits; `Déjà View, kept 0.5` reproduces E45's instance voxel density at q 0.5. The label scores
+  are the same for every variant (mIoU 0.360 dev, 0.397 val), as they must be.
+- **Results, cm, mean / median over the split's scenes** (accuracy | completeness | Chamfer):
+
+  | variant | dev | val |
+  |---|---|---|
+  | Déjà View | 4.675 / 2.520 \| 2.324 / 1.172 \| 3.500 / 1.846 | 6.061 / 4.751 \| 4.142 / 2.390 \| 5.102 / 3.971 |
+  | Refined (BiNI, E41) | 4.199 / 2.208 \| 3.658 / 1.710 \| 3.928 / 1.959 | 5.701 / 4.456 \| 5.585 / 3.428 \| 5.643 / 4.214 |
+  | tangent 4e-2 | 4.494 / 2.465 \| 2.359 / 1.181 \| 3.426 / 1.823 | 5.969 / 4.648 \| 3.702 / 2.635 \| 4.835 / 3.932 |
+  | Déjà View, kept 0.5 | 2.998 / 1.897 \| 3.597 / 2.223 \| 3.298 / 1.727 | 3.013 / 2.466 \| 4.621 / 3.357 \| 3.817 / 2.948 |
+  | Refined, kept 0.5 | 2.841 / 1.768 \| 4.331 / 2.318 \| 3.586 / 1.824 | 2.872 / 2.356 \| 5.625 / 3.787 \| 4.249 / 3.166 |
+  | **tangent 4e-2, kept 0.5** | **2.918 / 1.865 \| 3.500 / 2.129 \| 3.209 / 1.674** | **2.971 / 2.424 \| 4.367 / 3.045 \| 3.669 / 2.889** |
+
+  Each cut output minus `Déjà View, kept 0.5` (the same pixels), mean | median | scenes on which the refined one
+  is better:
+
+  | variant | dev | val |
+  |---|---|---|
+  | tangent 4e-2, kept 0.5 | -0.080 / -0.097 / -0.089 \| -0.070 / -0.094 / -0.082 \| 3 / 3 / 3 of 3 | -0.042 / -0.254 / -0.148 \| -0.041 / -0.112 / -0.077 \| 11 / 10 / 10 of 11 |
+  | Refined, kept 0.5 | -0.157 / +0.734 / +0.288 \| -0.129 / +0.388 / +0.130 \| 3 / 0 / 1 of 3 | -0.141 / +1.004 / +0.432 \| -0.111 / +0.580 / +0.220 \| 11 / 0 / 0 of 11 |
+
+- **Figure:** `figures/e27a_bedroom.jpg` (in `experiments/`), bedroom views 18, 0, 12, 6 pulled back, gray under a
+  headlight: GT, Déjà View, Déjà View kept 0.5, tangent 4e-2 kept 0.5. Both cuts thin out the flying pixels in
+  front of the bed and the dresser (views 18, 12) but leave many. Between the last two, which draw the same pixels,
+  the refined walls are more closed (view 0's left wall, view 12's back wall: fewer white gaps between splats, since
+  the points of different views move onto one surface) and take on DSINE's faint texture, as E43 saw. Stray points
+  near furniture edges stay in both: the flag removes them or it does not, the refinement does not.
+- **Conclusion:**
+  - Refining the pixels the filter keeps adds to the filter: on dev beyond the floor on all three scores and on every
+    scene, on val with the same sign on 10 or 11 of 11 scenes and in the median. The gain is small next to the
+    filter's own (dev Chamfer 3.500 -> 3.298 from the cut, -> 3.209 with the refinement), so the filter remains most
+    of the effect.
+  - The normal term decides it. BiNI's refiner, cut the same way, has the best accuracy but loses completeness on
+    every scene, as unfiltered (E21a, E43); E_t at 4e-2 keeps the completeness of the input and still gains
+    accuracy. It is the first refined output in this log that beats E45's best filter on all three scores, here
+    on the same pixels rather than at equal completeness.
+  - Not changed: the default refiner (`configs/refine.yaml`) stays BiNI. Unfiltered, E_t 4e-2 against BiNI is the
+    trade E21a and E43 rejected (accuracy +0.295 dev / +0.268 val, completeness -1.299 / -1.883), and issue #21 owns
+    that choice. Flag, refine, filter is a `scene_eval` option, not yet a `run-pipeline` stage.
+  - Val is not a clean check (see the plan): λ_t and q were chosen on the bedroom and dev, but the exploratory work
+    had already scored val once with them.
+- **Also tried in the exploratory work, not kept** (branch `peter/emb-weighted-tangent`, not merged; bedroom unless
+  said otherwise):
+  - E_t's edges weighted by the similarity of SAM 3's or Déjà View's features at both pixels: helped on the bedroom
+    only; on val it cost completeness on all 11 scenes (+0.465 cm).
+  - E_d weighted by the instance voxel count instead of u: no effect while E_δ is there (E_δ at 1.0 outweighs E_d).
+  - Flagging on the refined cloud instead of Déjà View's: ties at q 0.75 (dev and val medians within 0.04 cm), but its
+    Chamfer jumps one grid step earlier (q 0.55 dev, 0.45 val), so flagging on the input is the safer cut.
+  - MoGe-3's normals in place of DSINE's in this recipe: a tie (Chamfer 1.681 against 1.674 cm at q 0.5), as E21b.
+  - A simpler energy, E_d as L1 + E_mv + E_t without E_δ and u, solved to convergence (20 x 50): on its own curve
+    it beats the filter from q 0.75 on, but stays 0.02 cm short of this one at equal completeness. Its weights move
+    once it converges (5 x 10 acts as early stopping), and it was never run on dev or val.
