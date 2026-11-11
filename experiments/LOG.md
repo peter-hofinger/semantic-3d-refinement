@@ -3687,3 +3687,46 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - A simpler energy, E_d as L1 + E_mv + E_t without E_δ and u, solved to convergence (20 x 50): on its own curve
     it beats the filter from q 0.75 on, but stays 0.02 cm short of this one at equal completeness. Its weights move
     once it converges (5 x 10 acts as early stopping), and it was never run on dev or val.
+
+## Plan: E25a = does Déjà View fail per class, beyond what depth, edges and viewing angle explain? (issue #25, 11.11.2026)
+- **Goal:** Peter's question on #25: if semantics matter, each class should fail in its own way and by its own
+  amount. Measure Déjà View's error per class, controlled for the geometry that makes any pixel hard, and say
+  how each class fails. Analysis only: no change to the method, the scorer or the backbones.
+- **Scenes:** Hypersim dev (3) + val (11) with its GT NYU40 classes (in domain); ETH3D's 13 scenes (out of domain)
+  with SAM 3's classes, as ETH3D has no labels. Déjà View K = 16, 20 views at 504 px, `rays: pinhole`, aligned by
+  the protocol's one Umeyama Sim(3) on the pixels (`align_output`). Matterport3D would give labelled out-of-domain
+  GT but needs an access request: not used.
+- **Per pixel:** error e = 3D distance of the aligned point to its own GT point; relative error r = e / GT depth.
+  Expected relative error r̂: the scene's mean r over all its GT pixels in the same cell of edge distance (E35's
+  bins: <= 1, 1-3, 3-10, > 10 px from a GT depth edge) x the scene's depth quartile x incidence angle of the GT
+  surface (cos <= 0.4, 0.4-0.7, > 0.7; normals from the GT point map). These are the three geometric reasons a
+  pixel is hard that have nothing to do with what the object is.
+- **Per class** (a class counts in a scene with >= 2000 px there, and in the table with >= 3 scenes):
+  - *Excess* = mean r / mean r̂ over the class's pixels, per scene; reported as the geometric mean over scenes with
+    the scenes' range. 1 = as hard as its geometry predicts.
+  - *Excess error* = the class's (e - ê) summed over its pixels, per pixel of the scene (cm): how much of the
+    scene's mean error the class adds beyond its geometry, i.e. the headroom a class-aware method could address.
+  - *How it fails:* share of its error within 3 px of a depth edge; cross-view gap (E35: pixel pairs the GT says
+    see one surface, |predicted - GT relative gap|, median), the scattered layers of E38; placement vs shape
+    (E35's per-instance scale + shift fit, share of the error it removes; object classes only, as Hypersim's
+    walls, floor and ceiling are one instance per class); the scorer's per-class accuracy and completeness.
+- **Do the classes differ? Rule, fixed before running:** statistic S = standard deviation over classes of the
+  per-class mean log excess. Null: per scene, the GT instances' class labels are permuted among the instances
+  (pixels, geometry and instance grouping stay), 1000 times. The classes differ if S lies above the null's 95th
+  percentile on dev + val together. A class is named as failing in its own way only if its excess is beyond
+  1.5x (or below 1/1.5) in at least 2/3 of its scenes.
+- **SAM 3's classes (calibration, then ETH3D):** per-view masks of `sam3image-nyu40-t0.3`, unlinked (a pixel's
+  class needs no identity), eroded by 3 px (pixels within 3 px of a change of mask id dropped, against leakage
+  across edges). On Hypersim, GT classes and SAM 3 classes are compared on the same pixels (SAM 3's eroded,
+  labelled ones), so only the labels differ: slope and correlation of SAM 3's per-class log excess against GT's
+  say how much label errors blur the differences. ETH3D: the same table, indoor and outdoor apart, with the share
+  of pixels SAM 3 labels (NYU40 prompts fit outdoor scenes badly; coarse by design).
+- **Checks before reading numbers:** the alignment scale reproduces the protocol's for each scene; r̂'s cells
+  reproduce the scene's mean r (excess over all pixels = 1 exactly); with a class map that is one class
+  everywhere, S = 0; the permutation null on a scene with shuffled labels already gives S inside its range.
+- **Figures:** per-class excess with the scenes as dots and the null band (Hypersim GT, Hypersim SAM 3, ETH3D);
+  SAM 3 vs GT excess per class; bedroom `ai_006_007` views 18, 0, 12, 6: image, GT class, relative error, and
+  r / r̂ on a shared log scale.
+- **Reading:** classes do not differ (S inside the null) -> Déjà View's error is geometry, not category, on
+  Hypersim; semantics can then only help through grouping (E8a), and per-class priors have no headroom. Classes
+  differ -> the excess-error column says which classes carry it and the failure columns say how.
