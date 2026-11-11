@@ -13,8 +13,13 @@ within BAND px of a GT depth edge (E35's edges).
    take the inverse depth of a plane over pixel coordinates (a 3D plane through a pinhole
    is linear in inverse depth), least squares on Déjà View's inverse depth at the same
    segment's interior pixels (farther than BAND px from a change of id) in the
-   WINDOW x WINDOW window around them. Fewer than MIN_FIT such pixels, interior pixels on
-   one line, or a non-positive fit: the pixel keeps Déjà View's depth.
+   WINDOW x WINDOW window around them. The fit is clamped to the range [lo, hi] of those
+   pixels' inverse depth widened by its own ratio, [lo^2 / hi, hi^2 / lo]: a plane may
+   extrapolate past its interior about as far as the interior spans, and stays positive.
+   (Added after E25b's first look at dev: unclamped, a few planes extrapolated up to 464x
+   the depth and dragged the scene's least-squares Sim(3) off; the plain range clamp
+   cut a sloped plane's legitimate 4 px extrapolation in the synthetic check.) Fewer
+   than MIN_FIT such pixels or interior pixels on one line: Déjà View's depth stays.
 
 Segments: GT instances; GT depth components (the GT pixels cut at GT depth edges, each
 edge pixel given its nearest component's id: the edges without semantics); SAM 3's
@@ -124,8 +129,14 @@ def plane_snap(inv: np.ndarray, ids: np.ndarray) -> np.ndarray:
         a = (cvv * cuw - cuv * cvw) / det
         b = (cuu * cvw - cuv * cuw) / det
         fit = mw + a * (xs - x0 - mu) + b * (ys - y0 - mv)
-        ok &= fit > 0
-        out[ys[ok], xs[ok]] = fit[ok]
+        lo = ndimage.minimum_filter(
+            np.where(m > 0, w, np.inf), WINDOW, mode="constant", cval=np.inf
+        )
+        hi = ndimage.maximum_filter(
+            np.where(m > 0, w, -np.inf), WINDOW, mode="constant", cval=-np.inf
+        )
+        lo, hi = lo[ys[ok] - y0, xs[ok] - x0], hi[ys[ok] - y0, xs[ok] - x0]
+        out[ys[ok], xs[ok]] = np.clip(fit[ok], lo * lo / hi, hi * hi / lo)
     assert np.isfinite(out).all()
     assert (out > 0).all()
     return out
