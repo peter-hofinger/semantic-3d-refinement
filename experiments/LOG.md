@@ -83,6 +83,8 @@ Metrics:
 | E21a | BiNI's E_n weight λ_n swept (0, 1e-5 to 1e-3) and E_n off checked on val (issue #21) | no weight improves all three scores; off: dev Chamfer 3.928 -> 3.858 but accuracy +0.067, val 5.643 -> 5.420, accuracy +0.126; λ_n = 1e-4 stays |
 | E21b | MoGe-3's normals in place of DSINE's in E_n (issues #21, #20) | dev accuracy / completeness / Chamfer -0.020 / -0.023 / -0.021 cm, inside the noise floor; still 3.91 against Deja View's 3.50 |
 | E20a | MoGe-3's depth fitted onto Deja View's in inverse depth, per view, per SAM 3 segment or per GT instance (issue #20) | no variant beats Deja View (val Chamfer 5.102 vs 6.192 / 5.196 / 5.142); per segment gains on completeness, loses more on accuracy; MoGe-3 alone has 2.7-6.6x Deja View's median depth error per scene |
+| E41a | All views fused into one 64-cell voxel grid, a 3D U-Net and a per-pixel depth residual, without / with SAM 3 / with GT classes, 35 train scenes (issue #41) | worse than Deja View (val Chamfer 5.47 / 5.32 / 5.54 vs 5.10): held-out error rises after step 300, it overfits; SAM 3 classes ahead of none |
+| E41b | E41a on 136 train scenes, 128-cell grid, 20k steps, view-subset augmentation, best held-out step, 2 seeds (issue #41) | close to Deja View but not better on val (5.24 / 5.29 / 5.25 vs 5.10, seed means); dev SAM 3 3.41 vs 3.50; class effects within seed noise |
 
 ## Reference table (current scorer, E11)
 
@@ -3533,3 +3535,73 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
     View rather than adding detail Deja View lacks. GT instances are no better than SAM 3's masks on dev.
   - MoGe-2 trained on Hypersim and MoGe-3 starts from it, so this is not a domain gap in Deja View's favour.
     MoGe-3 stays useful as a normal source (E21b ties DSINE) and as a baseline, not as a depth to fuse.
+
+## E41a: one fused voxel grid, a 3D U-Net and a per-pixel depth residual -> worse than Deja View; it overfits 35 scenes (11.11.2026)
+- **Goal:** issue #41: every per-view refiner so far trades accuracy for completeness (E11a, E20a, E21a, E40-E45).
+  Refine in 3D instead, where a thin object and the wall behind it are not neighbours, and test whether classes
+  help there: the same refiner without classes, with SAM 3's per-view classes and with Hypersim's (upper bound).
+- **Method** (`src/refinement/volume.py`, `volume-refine`): all pixels of the 20 views lifted along Deja View's
+  pinhole rays, in the scene frame divided by the median depth, scatter-averaged into a dense grid of 64 cells along
+  the longest side of the padded 1-99 % box: log count, mean confidence and colour, spread of the points per axis
+  (the views' layering) and, with classes, the NYU40 histogram. A 3D U-Net (16 / 32 / 64 channels, GroupNorm,
+  GELU); each pixel samples its features trilinearly, adds its colour, confidence, offset in the cell, ray direction
+  and class embedding, and a 3-layer head predicts r, depth D exp(r). The last layer starts at zero (identity).
+  Target: the GT points mapped into Deja View's frame by the Umeyama fit of Deja View's points onto them (the
+  evaluation's alignment), projected onto each pixel's ray, r* = log(t* / D), |r*| <= 0.5. L1, AdamW 1e-3
+  one-cycle, 3000 steps, 100k pixels per step, one scene per step, seed 0.
+- **Checks before running** (`tests/test_volume.py`): untrained refiner bit for bit its input; the grid keeps every
+  point and its class histogram sums to one; r* = 0 when the prediction is the GT and recovers a 5 % error on a
+  patch the alignment cannot absorb; classes map to NYU40; sampling reads the cell a point lies in. Smoke run
+  (20 steps): 1.2 GB peak GPU memory, held-out error 3.16 -> 3.12 %.
+- **Data:** `configs/hypersim.yaml`'s 40 train scenes; ai_003_001 is skipped (Deja View's rays sit 11.0 px from
+  their pinhole fit, above `MAX_PINHOLE_RESIDUAL`), the last 4 report a held-out error.
+- **Commands** (RTX 3080, 8a0ea0b, clean tree): `uv run volume-refine --config configs/e41a_volume.yaml --out
+  runs/volume-e41a --reserve-gb 3` (3-4 min per model), `scene_eval --splits dev val` per model with
+  `experiments/configs/e41a_volume-<none|sam3|gt>.yaml` (`e41a_volume-*-20261111-00*`). The config file is now in
+  the schema of E41b (every view in every step, one seed: the same setting).
+- **Held-out error** (mean |r* - r| on the 4 held-out train scenes, 3.16 % before): best at step 300 for all three
+  (3.11-3.12 %), then rising to 3.44 / 3.33 / 3.18 % (none / SAM 3 / GT) by step 3000: the refiner fits its 35
+  scenes, not the task.
+- **Chamfer, cm:** dev 4.262 / 3.604 / 3.873 (none / SAM 3 / GT), val 5.465 / 5.316 / 5.540, against Deja View's
+  3.500 / 5.102; accuracy and completeness both worse than Deja View in every case.
+- **Conclusion:** worse than Deja View; the model overfits a training set this small. SAM 3's classes beat no
+  classes on dev and val, the first time classes help in any of our refiners, but from below Deja View. Next (E41b):
+  4x the data, view subsets as augmentation, a larger grid, and the step of least held-out error kept.
+
+## E41b: E41a scaled up (136 train scenes, 128-cell grid, 20k steps, 2 seeds) -> close to Deja View, not better on val (11.11.2026)
+- **Goal:** issue #41: does E41a's refiner beat Deja View with enough data, and do the classes help then?
+- **Data:** new split `train_extra` in `configs/hypersim.yaml`: the other 113 of the 153 centred scenes of
+  Hypersim's official train partition, first public trajectory each (`check_splits` passes). Downloaded with 8
+  workers (4043 s, one chunk retried once), prepared, Deja View, SAM 3 (`--prompts configs/prompts/nyu40.txt
+  --threshold 0.3`, 1632 s for 98 scenes). `hypersim-prepare` stopped at ai_047_006 (camera orientation not a
+  uniformly scaled rotation), so it and the 14 scenes after it in name order were not prepared; with ai_003_001
+  and ai_016_009 (rays 11.0 and 13.5 px from their pinhole fit) 17 scenes are skipped and logged: 136 used, the
+  last 8 held out.
+- **Changes against E41a** (bb1af9f, 3a9b9b8, 58ecfb7; `configs/e41b_volume.yaml`): 128 cells along the longest
+  side (128 x 104 x 120 on ai_001_001), U-Net 32 / 64 / 128, head 128, 20000 steps, 200k pixels per step, each
+  step's grid built on the GPU from a random 8-20 of the 20 views, U-Net in bfloat16, seeds 0 and 1, scenes kept
+  compact on the CPU (uint8 colour and class, float16 rays), held-out error every 1000 steps on 8 scenes and the
+  state of least held-out error returned (no dev or val scene takes part).
+- **Commands** (RTX 3080, 58ecfb7, clean worktree): `uv run volume-refine --config configs/e41b_volume.yaml --out
+  runs/volume-e41b --reserve-gb 7` (35-40 min per model, 4.6 GB peak), then `scene_eval --splits dev val` per
+  model with run-local copies of `experiments/configs/e41a_volume-<classes>.yaml`, backbone `volume-<classes>-s<seed>`
+  (`runs/e41b_configs/`, `e41b_volume-*-20261111-06*`).
+- **Held-out error** (8.25 % before; these 8 scenes are harder than E41a's 4): best 8.18 / 8.17 % (none, seeds 0 /
+  1, steps 6000 / 4000), 7.83 / 8.17 % (SAM 3, 20000 / 2000), 8.06 / 7.94 % (GT, 13000 / 20000).
+- **Chamfer, cm** (accuracy / completeness in brackets):
+
+  | model | dev seed 0 | dev seed 1 | val seed 0 | val seed 1 |
+  |---|---|---|---|---|
+  | Deja View | 3.500 (4.675 / 2.324) | | 5.102 (6.061 / 4.142) | |
+  | no classes | 3.515 (4.508 / 2.521) | 3.562 (4.452 / 2.671) | 5.249 (6.132 / 4.365) | 5.239 (6.027 / 4.450) |
+  | SAM 3 classes | 3.330 (4.266 / 2.393) | 3.487 (4.609 / 2.365) | 5.277 (6.368 / 4.186) | 5.305 (6.296 / 4.313) |
+  | GT classes | 3.491 (4.517 / 2.465) | 3.571 (4.621 / 2.521) | 5.148 (6.209 / 4.087) | 5.349 (6.570 / 4.128) |
+
+  Labels are unchanged (mIoU 0.36 dev, 0.39-0.41 val).
+- **Conclusion:**
+  - The data fixes E41a's overfitting: val Chamfer 5.32-5.54 -> 5.24-5.35, within 0.05-0.25 cm of Deja View,
+    and on dev SAM 3's classes beat Deja View (3.41 mean of seeds, accuracy -0.24 cm). On val no model beats
+    Deja View (best 5.148, GT seed 0).
+  - The classes do not separate the models beyond seed noise: seeds of one model differ by up to 0.20 cm (GT on
+    val), more than the gaps between models; GT classes are no better than none on val (5.25 vs 5.24, means).
+  - Not run: the 15 unprepared train scenes (fix the prepare crash first), more seeds, and the stress split.
