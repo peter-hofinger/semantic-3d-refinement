@@ -24,6 +24,10 @@ within BAND px of a GT depth edge (E35's edges).
 Segments: GT instances; GT depth components (the GT pixels cut at GT depth edges, each
 edge pixel given its nearest component's id: the edges without semantics); SAM 3's
 linked masks (the protocol's); Déjà View depth components (the same on its own depth).
+Each segment is split into its 4-connected pieces per view (`pieces`; added after E25b's
+first val run: Hypersim's walls are one instance per scene, so a window could hold two
+walls at different depths, e.g. through a door, and the plane through both dragged the
+Sim(3) of 3 of the 11 val scenes; a local fit should see one connected surface).
 
 uv run python experiments/scripts/e25b_boundary_oracle.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25b --check runs/e8a_segments-20261110-130124/run.yaml
 prints the report and writes `<out>/e25b.yaml` (every record) and `<out>/e25b_maps.npz`
@@ -163,6 +167,18 @@ def depth_components(depth: np.ndarray, valid: np.ndarray) -> np.ndarray:
     return out
 
 
+def pieces(ids: np.ndarray) -> np.ndarray:
+    """Ids (V, H, W) with each segment split into its 4-connected pieces per view; negative ids become -1."""
+    out = np.full(ids.shape, -1, dtype=np.int64)
+    for i in range(len(ids)):
+        start = 0
+        for s in np.unique(ids[i][ids[i] >= 0]):
+            lab, n = ndimage.label(ids[i] == s)
+            out[i][lab > 0] = lab[lab > 0] - 1 + start
+            start += n
+    return out
+
+
 def check() -> None:
     """Identity and known solution of the snap (the plan's checks), on CPU in well under a second."""
     rng = np.random.default_rng(0)
@@ -174,6 +190,8 @@ def check() -> None:
     assert np.array_equal(
         plane_snap(noisy, np.zeros(plane.shape, dtype=np.int64)), noisy
     )
+    two = np.where((u < 20) | (u >= 60), 5, -1)[None]
+    assert np.array_equal(np.unique(pieces(two)), [-1, 0, 1])
     ids = (u >= 40).astype(np.int64)
     snapped = plane_snap(np.where(ids == 0, plane, noisy), ids)
     left = (ids == 0) & (np.abs(u - 39.5) < BAND + 1)
@@ -220,12 +238,13 @@ def analyse(raw: dict, name: str, *, maps: bool) -> dict:
     band = (edge_distance(depth, valid) <= BAND)[valid]
     other = across_edge(depth, valid)
     segments = {
-        "GT instances": np.where(gt.instance_ids >= 0, gt.instance_ids, -1).astype(
-            np.int64
-        ),
-        "GT depth comp.": depth_components(depth, valid),
-        "SAM 3": labels.instance_ids.astype(np.int64),
-        "DV depth comp.": depth_components(dv, np.ones(dv.shape, dtype=bool)),
+        k: pieces(v)
+        for k, v in {
+            "GT instances": gt.instance_ids,
+            "GT depth comp.": depth_components(depth, valid),
+            "SAM 3": labels.instance_ids,
+            "DV depth comp.": depth_components(dv, np.ones(dv.shape, dtype=bool)),
+        }.items()
     }
     out: dict = {
         "px": int(valid.sum()),
