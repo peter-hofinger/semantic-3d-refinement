@@ -11,7 +11,7 @@ Reads what `e25a_class_split.py --edges plane` wrote for KITTI-360 and for Hyper
 2. `e45a_town.jpg`: town scene 0010_0000000984_0000001116, views 0, 6, 12, 18: image, GT
    class, relative error r on one % scale, and r / r̂ on one log scale. A debug visual.
 
-uv run python experiments/scripts/e45a_figures.py runs/e45a_kitti360 runs/e45a_hypersim_plane
+uv run python experiments/scripts/e45a_figures.py runs/e45a_kitti360_80m runs/e45a_hypersim_plane
 """
 
 import argparse

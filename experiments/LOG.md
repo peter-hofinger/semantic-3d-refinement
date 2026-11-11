@@ -87,6 +87,7 @@ Metrics:
 | E41b | E41a on 136 train scenes, 128-cell grid, 20k steps, view-subset augmentation, best held-out step, 2 seeds (issue #41) | close to Deja View but not better on val (5.24 / 5.29 / 5.25 vs 5.10, seed means); dev SAM 3 3.41 vs 3.50; class effects within seed noise |
 | E25a | Déjà View's error per class over what its pixels' edge distance, depth and incidence angle predict; Hypersim dev + val with GT classes, SAM 3's classes on Hypersim and ETH3D (issue #25) | no class fails in its own way except glass (window 2.23x its geometry); S passes the permutation test by 0.002 (p = 0.05), without window and mirror p = 0.45; split halves agree at median r = 0.21; largest per-class excess error +0.29 cm of 17.0; SAM 3's labels add spread (S 0.249 vs 0.183 on the same pixels) |
 | E25b | Oracle bound for segments at Déjà View's depth edges: where edge pixels sit between the two surfaces, and each segment's border snapped onto a plane fitted inside it (GT instances, GT depth edges, SAM 3, Déjà View's depth edges); Hypersim dev + val (issue #25) | 64% of the edge error is pixels on the surface across the edge, 18% bleeding; GT instances remove 19% of it (11 undragged scenes), GT depth edges 12%, SAM 3 4%, Déjà View's edges -4%; instances beat depth edges on Chamfer in 2/14 scenes -> the headroom is edges, not semantics; Chamfer moves 0.13 cm for an 8.4 cm drop in edge error; snaps dragged the Sim(3) on 3 val scenes |
+| E45a | E25a out of domain: Déjà View's error per class on 24 KITTI-360 scenes (2 drives), plane-rule edges, GT up to 80 m (cap chosen after the first run); Hypersim rerun under the plane rule (issue #45; unrelated to E45) | poles alone fail beyond their geometry (1.80x, 14 of 18 scenes), cars 1.33 and vegetation 1.15 do not; headroom 2.06 cm of a 296 cm mean error; S misses the permutation test by 0.002 (p = 0.054); SAM 3's eroded masks keep no pole class; scene-wide error 14% of depth (median) against 3.4% on Hypersim: depth compressed beyond 80 m (uncapped, the Sim(3) inflates the near scene 1.02-1.37x and the error is 34%), focal length 2-25% short; Hypersim under the plane rule repeats E25a (p 0.041 vs 0.050) |
 
 ## Reference table (current scorer, E11)
 
@@ -4109,7 +4110,73 @@ alignment (below).
   which the depth ratio breaks; no other value was tried. Hypersim and ETH3D are untouched (no such key).
   The far-range compression stays reported above as its own finding. Check before the rerun
   (`e45a_alignment_check.py --max-gt-depth 80` -> `results/e45a_alignment_check_80m.txt`): the aligned
-  depth / GT depth below 40 m is 0.93-1.06 in 20 scenes (first run: 0.95-1.37), and the relative error
+  depth / GT depth below 40 m is 0.93-1.06 in 20 scenes (first run: 0.96-1.37), and the relative error
   falls to 3.5-22.5% in those and 21.7% in `0010_0000001245` (ratio 0.82-0.86). The three scenes where
   Déjà View's depth alone is 13-39% off stay at 52-92%, with ratios of 0.54-0.79 at every range: they are
   Déjà View's failures, not the alignment's, and are kept.
+
+## E45a: Déjà View's error per class on KITTI-360 -> poles fail beyond their geometry (1.80x, 14 of 18 scenes), cars and vegetation do not; the headroom is 2 cm of 296 (issue #45, 11.11.2026)
+- **Goal:** E25a's question out of domain, on the outdoor objects Umut named: does a class fail in its own
+  way, beyond what edge distance, depth and viewing angle predict?
+- **Setting:** the plan above as it stands after the split, with GT up to 80 m (decided after the first
+  run, see the interim entry). 24 KITTI-360 scenes (7 country, 17 town), 20 views at 504 x 182, Déjà View
+  K = 16, one Umeyama Sim(3) on the pixels, plane-rule edges, SAM 3 image mode t0.3 with
+  `configs/prompts/kitti360.txt`, per view, eroded 3 px. Commits bb2edcb (cap), 1d7266e (figures script).
+- **Command:** `uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_kitti360.yaml
+  --edges plane --maps 0010_0000000984_0000001116 --out runs/e45a_kitti360_80m` ->
+  `results/e45a_kitti360_80m.txt`; laptop CPU, 2:17, on the caches of cluster job 2132 (the cluster's queue
+  was full; the same script gives the cluster's first-run errors per scene to every printed digit on these
+  caches). The run is stamped 1d7266e-dirty: the tree held one untracked results file
+  (`e45a_alignment_check_80m.txt`), no code change; a run before that commit printed the same report.
+  Figures: `e45a_figures.py runs/e45a_kitti360_80m runs/e45a_hypersim_plane`.
+- **Checks:** Σr̂ = Σr and Σ(e - ê) = 0 asserted per scene; no non-finite point; both figures looked at.
+- **Déjà View on KITTI-360, GT up to 80 m:** mean error 2.96 m, relative error mean 21.4% and median 14.4%
+  over the scenes (country 26.1%, town 19.4%; Hypersim dev + val 3.4%); three scenes at 52-92% (the
+  failures of the interim entry), the rest 3.5-22.5%. Median cross-view gap 1.8% (Hypersim 0.6%). GT pixels
+  within 3 px of a plane-rule edge 44% (Hypersim 13.5%): the GT's noise, as the GT check said.
+- **GT classes, all 24 scenes** (excess = Σr / Σr̂, geometric mean over the scenes where the class has >=
+  2000 px; excess error = the class's share of the scene's mean error beyond its geometry):
+
+  | class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges |
+  |---|---|---|---|---|---|---|
+  | pole * | 18 | 0.010 | 1.80 (0.49-3.91) | 14 | +2.06 | 0.51 |
+  | fence | 12 | 0.038 | 1.40 (0.70-2.80) | 4 | +12.82 | 0.36 |
+  | car | 11 | 0.060 | 1.33 (0.82-2.45) | 3 | +2.71 | 0.73 |
+  | traffic sign | 12 | 0.005 | 1.23 (0.32-7.01) | 5 | +0.23 | 0.35 |
+  | vegetation | 24 | 0.158 | 1.15 (0.72-2.18) | 3 | +11.07 | 0.82 |
+  | sidewalk | 24 | 0.104 | 0.99 (0.67-1.43) | 0 | -4.16 | 0.37 |
+  | building | 13 | 0.113 | 0.95 (0.60-1.41) | 1 | -2.08 | 0.53 |
+  | road | 24 | 0.519 | 0.87 (0.61-1.00) | 1 | -14.55 | 0.33 |
+
+  \* = beyond 1.5x the same way in >= 2/3 of its scenes. The other six classes (smallpole, wall, terrain,
+  ground, parking, box) lie at 0.76-1.26 and none is starred; all rows are in the results file.
+  - Per drive: in the town pole is 1.99 (11 of 14 scenes beyond 1.5x) and starred; on the country road it
+    has 4 scenes (1.28) and nothing is starred.
+  - Do the classes differ? S = 0.240; null (classes permuted among instances, 1000x) median 0.160, 95th
+    percentile 0.242; p = 0.054. Not above the null's 95th percentile, by 0.002.
+- **SAM 3's classes:** fence is starred (1.47, 6 of 9 scenes), car 1.34, vegetation 1.15, road 0.87. Against
+  the GT classes on the same pixels: slope 0.90, correlation 0.95 over 8 classes (Hypersim: 0.55, 0.56); S
+  0.180 against GT's 0.196. Pole is not among SAM 3's classes with >= 3 scenes: after eroding 3 px around
+  each mask border too little of a pole is left, so the one class that fails is the one SAM 3's eroded
+  masks do not see.
+- **Against the first run (GT uncapped):** pole 1.44 -> 1.80, 9 -> 14 scenes beyond 1.5x; p 0.155 -> 0.054.
+  The class result depends on the cap, which was chosen after seeing the first run.
+- **Against Hypersim (E25a, same edge rule):** there window alone is starred (2.24, GT is the glass); here
+  pole alone. Hypersim's p is 0.041, here 0.054.
+- **Conclusion, by the rule fixed in the plan:**
+  - Poles fail in their own way out of domain: 1.8x the error their geometry predicts, in 14 of 18 scenes.
+    Cars (1.33, 3 of 11 scenes) and vegetation (1.15, 3 of 24) do not pass; fences come closest (1.40).
+  - The headroom is small: the poles' excess is 2.06 cm of a mean error of 296 cm (0.7%), as poles are 1%
+    of the pixels. The largest excess errors, fence +12.8 cm and vegetation +11.1 cm, are 4% each.
+  - The test that the classes differ at all does not pass (p = 0.054). With E25a: class identity adds
+    little beyond geometry indoors and outdoors; the one outdoor exception is thin, upright structures.
+  - What dominates out of domain is not per class: a scene-wide error of 14% (median) from cameras and
+    scale, depth compressed beyond 80 m, a focal length 2-25% short (interim entry). The town figure shows
+    it: r varies smoothly over road and views; only poles stand out in r / r̂.
+- **Limits:** the cap is post hoc; 24 scenes from 2 drives of one day are not independent, so p is
+  optimistic; poles have the sparsest GT (40% of their pixels without a normal, 52% within 3 px of an
+  edge), so part of their excess may be the GT's; the road is half the GT and near 1 by construction;
+  moving cars are not scored; per-pixel error to the pixel's own GT point under-measures missing thin parts.
+- **Figures:** `figures/e45a_class_excess.jpg` (per-class excess, KITTI-360 GT and SAM 3 classes next to
+  Hypersim; null; SAM 3 against GT), `figures/e45a_town.jpg` (debug visual, one town scene: image, GT
+  class, r on a 0-30% scale, r / r̂).
