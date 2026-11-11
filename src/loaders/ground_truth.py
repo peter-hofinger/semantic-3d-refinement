@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 NO_MESH = -2  # no ground truth at the pixel (no surface hit): ignored in evaluation
+STUFF_BASE = 1_000_000  # id of a class the dataset gives no instances = base + class
 
 
 @dataclass

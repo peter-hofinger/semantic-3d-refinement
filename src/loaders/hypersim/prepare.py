@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from src.loaders.frames import resize_view, select_frames, target_size
-from src.loaders.ground_truth import NO_MESH, GroundTruth
+from src.loaders.ground_truth import NO_MESH, STUFF_BASE, GroundTruth
 from src.loaders.hypersim.config import HypersimConfig, check_splits, load_config
 from src.loaders.hypersim.scene import (
     NYU40,
@@ -34,7 +34,6 @@ from src.segmentation.base import NO_INSTANCE
 
 log = logging.getLogger(__name__)
 
-STUFF_BASE = 1_000_000  # id of a class without Hypersim instances = base + class
 UNKNOWN_CLASS = "unknown"  # instance whose pixels carry no NYU40 label
 
 
