@@ -6,6 +6,7 @@ from src.analysis.filters import (
     both,
     depth_edge,
     facing,
+    instance_voxel_density,
     keep_top,
     log_gradient,
     neighbor_distance,
@@ -103,3 +104,12 @@ def test_voxel_means_average_a_cube_and_keep_a_lone_point() -> None:
     np.testing.assert_array_equal(fused[2], points[2])
     apart = voxel_means(points, 1.0, np.array([0, 1, 0]))
     np.testing.assert_array_equal(apart, points)  # two objects in a cube stay apart
+
+
+def test_instance_voxel_density_counts_only_the_own_instance_in_a_voxel() -> None:
+    depth = np.full((1, 2, 2), 2.0)
+    k = np.array([[[2.0, 0, 0], [0, 2.0, 0], [0, 0, 1]]])  # footprint 1
+    points = np.array([[[0.1, 0, 0], [0.2, 0, 0]], [[0.3, 0, 0], [5.0, 0, 0]]])[None]
+    ids = np.array([[[3, 3], [4, -1]]])
+    count = instance_voxel_density(points, depth, k, ids)
+    np.testing.assert_array_equal(count, [[[2, 2], [1, 1]]])
