@@ -3999,8 +3999,29 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
     band is then no longer "the pixels at object outlines", and E25a's edge-distance cell and all of E25b
     lose their meaning. Also, the GT instance ids exist only where there is depth, so GT segments are dotted
     and E25b's snap would treat every pixel as a segment border.
-  - Open, to decide before going on (changing a definition also changes what "the same analysis as on
-    Hypersim" means): an edge definition that ignores a plane's own slope; dense instance maps from the 2D
-    labels, kept apart from where depth exists; splatting each point over a few pixels of its own class;
-    a depth cap. One scene (`0010_0000002024_0000002177`) has a 41 m gap between two of its views, as the
-    labelled frames have a hole there.
+  - One scene (`0010_0000002024_0000002177`) has a 41 m gap between two of its views, as the labelled frames
+    have a hole there.
+- **Two adaptations, decided with Mircea 11.11 after that check, still before any Déjà View output:**
+  - *Loader:* instance ids at every pixel from the 2D labels (sky NO_MESH), whether or not a point fell
+    into it; holes interpolated from the surrounding points of the same instance (`fill_holes`: Delaunay on
+    the pixels with depth, barycentric in inverse depth, exact on a plane; corners within 3 px, of the hole's
+    own instance and within 10% of each other). A plain splat over neighbouring pixels was not used: taking
+    the nearest of several points biases a sloped surface towards the camera. Coverage 36-59% -> 54-81%;
+    cross-view agreement unchanged (median 0.5-2.5%). `kitti360-prepare` now takes about 45 s per scene.
+  - *Edges:* `src/analysis/edges.py`, the plane rule: two neighbours are an edge when each one's
+    continuation of its own inverse-depth slope misses the other by more than 5%; with zero slopes it is E35's
+    step rule. Tests: a grazing plane has no edges though the step rule marks it, a box standing on it is
+    outlined and its foot is not, a pole one pixel wide is found.
+  - **Result of the second check** (`results/e45a_gt_check.txt`, `figures/e45a_gt_check.jpg`, step rule and
+    plane rule side by side): the plane rule removes the band along the horizon, as designed. But the
+    share of GT pixels within 3 px of an edge only falls from 39-67% to 36-64% per scene. Per class, plane
+    rule, all scenes: road 33%, sidewalk 38%, building 47%, pole 52%, car 73%, vegetation 78% (Hypersim, all
+    classes, step rule: 13.5%). What remains is in the figure: single outlying points scattered over the road,
+    cars whose points are sparse and seen through their windows, and vegetation, where neighbouring pixels
+    hit near and far leaves.
+  - **Reading:** this GT is right on average but not clean enough between neighbouring pixels for "the band
+    at depth edges" to mean object outlines. E25b on it would measure LiDAR noise. E25a's per-class excess
+    does not need clean edges (its edge-distance cell then also absorbs noisy regions), so it can run. Proposed,
+    not decided: E45a = E25a only on KITTI-360; the edge question (E25b) goes to Tanks and Temples (E45b),
+    whose laser scans are dense (2 mm) and hold the thin parts Umut named. Not tried: removing outlying
+    points from the GT (another choice stacked on the GT; it would not help cars or vegetation).

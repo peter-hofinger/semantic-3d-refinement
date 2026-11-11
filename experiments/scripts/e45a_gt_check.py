@@ -2,13 +2,15 @@
 
 Per prepared scene (`kitti360-prepare`):
 1. Coverage: share of pixels with GT depth, and its depth range.
-2. Edges: share of GT pixels within EDGE_PX of a GT depth edge (E35's definition).
+2. Edges: share of GT pixels within EDGE_PX of a GT depth edge, by E35's step rule
+   and by the plane rule of src/analysis/edges.py.
 3. Multi-view consistency (poses, intrinsics and the projection together): lift view
    i's GT, project it into view j; where it lands on a GT pixel of the same instance,
    the relative depth difference: its median and the share within CONSISTENT.
-4. Classes: share of the GT pixels per class, over the listed scenes.
+4. Classes: share of the GT pixels per class, and the share of each class's pixels
+   within EDGE_PX of a plane-rule edge, over the listed scenes.
 Figure: FIGURE_VIEWS views of each of --figure's scenes: image, GT depth, GT class,
-and the GT depth edges over the image. KITTI-360 data: CC BY-NC-SA 3.0
+and the GT depth edges of both rules over the image. KITTI-360 data: CC BY-NC-SA 3.0
 (www.cvlibs.net/datasets/kitti-360), Liao et al., TPAMI 2022.
 
 uv run python experiments/scripts/e45a_gt_check.py > experiments/results/e45a_gt_check.txt
@@ -17,6 +19,7 @@ uv run python experiments/scripts/e45a_gt_check.py > experiments/results/e45a_gt
 import argparse
 import itertools
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib as mpl
@@ -24,8 +27,10 @@ import numpy as np
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
-from e35_error_split import depth_edges, edge_distance
+from e35_error_split import depth_edges as step_edges
+from scipy import ndimage
 
+from src.analysis.edges import depth_edges
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.kitti360.prepare import output_path
 from src.loaders.kitti360.scene import CLASSES, load_config
@@ -63,6 +68,16 @@ def consistency(views: Views, gt: GroundTruth) -> np.ndarray:
     return np.concatenate(out)
 
 
+def near_edge(depth: np.ndarray, valid: np.ndarray, rule: Callable) -> np.ndarray:
+    """Mark the valid pixels (V, H, W) within EDGE_PX of an edge of their view."""
+    near = np.zeros(depth.shape, dtype=bool)
+    for i, (d, v) in enumerate(zip(depth, valid, strict=True)):
+        edge = rule(d, v)
+        if edge.any():
+            near[i] = v & (ndimage.distance_transform_edt(~edge) <= EDGE_PX)
+    return near
+
+
 def class_image(gt: GroundTruth, view: int) -> np.ndarray:
     """Class id (H, W) of a view's GT pixels, -1 without a class."""
     index = {name: c for c, name in CLASSES.items()}
@@ -74,9 +89,9 @@ def class_image(gt: GroundTruth, view: int) -> np.ndarray:
 
 
 def figure(shown: list[tuple[str, Views, GroundTruth]]) -> None:
-    """Image, GT depth, GT class and GT depth edges for FIGURE_VIEWS of each scene."""
+    """Image, GT depth, GT class and both rules' edges for FIGURE_VIEWS of each scene."""
     rows = [(s, v, g, i) for s, v, g in shown for i in FIGURE_VIEWS]
-    fig, axes = plt.subplots(len(rows), 4, figsize=(18, 1.75 * len(rows)))
+    fig, axes = plt.subplots(len(rows), 5, figsize=(22, 1.75 * len(rows)))
     far = max(np.percentile(g.depth[g.depth > 0], 99) for _, _, g in shown)
     for ax, (scene, views, gt, i) in zip(axes, rows, strict=True):
         depth, valid = gt.depth[i], gt.depth[i] > 0
@@ -95,9 +110,10 @@ def figure(shown: list[tuple[str, Views, GroundTruth]]) -> None:
             vmax=40,
             interpolation="nearest",
         )
-        overlay = views.images[i].copy()
-        overlay[depth_edges(depth, valid)] = (255, 0, 0)
-        ax[3].imshow(overlay)
+        for a, rule in ((ax[3], step_edges), (ax[4], depth_edges)):
+            overlay = views.images[i].copy()
+            overlay[rule(depth, valid)] = (255, 0, 0)
+            a.imshow(overlay)
         for a in ax:
             a.set_xticks([])
             a.set_yticks([])
@@ -105,14 +121,15 @@ def figure(shown: list[tuple[str, Views, GroundTruth]]) -> None:
         "image (cropped about the principal point, 504 x 182)",
         "GT depth (m, log scale; white = none)",
         "GT class (one colour per class)",
-        "GT depth edges (red) over the image",
+        "GT depth edges, step rule (E35)",
+        "GT depth edges, plane rule",
     )
     for a, title in zip(axes[0], titles, strict=True):
         a.set_title(title, fontsize=9)
     fig.colorbar(shade, ax=axes[:, 1], fraction=0.03, pad=0.01, label="m")
     fig.suptitle(
-        "E45a: KITTI-360 ground truth from the accumulated LiDAR. Look at: red edges"
-        " should follow object outlines; depth should not leak through cars and poles.",
+        "E45a: KITTI-360 ground truth from the accumulated LiDAR. Look at: the plane"
+        " rule's edges should follow object outlines and leave the far road free.",
         fontsize=10,
     )
     fig.savefig(OUT, dpi=110, bbox_inches="tight", pil_kwargs={"quality": 85})
@@ -130,11 +147,10 @@ def main() -> None:
     args = parser.parse_args()
     cfg = load_config(args.cfg)
     pixels: Counter = Counter()
+    at_edge: Counter = Counter()
     shown = []
-    print(
-        "scene (group): GT px | depth m 1%-99% | px <= 3 px of an edge | view i in j:"
-    )
-    print("  median relative difference, share within 5%")
+    print("scene (group): GT px | depth m 1%-99% | px <= 3 px of an edge, step rule,")
+    print("  plane rule | view i in j: median relative difference, share within 5%")
     for scene, group in cfg.scenes.items():
         path = output_path(cfg, scene)
         if not path.exists():
@@ -143,23 +159,28 @@ def main() -> None:
         views = Views.load(path)
         gt = GroundTruth.load(path.with_name(f"gt_{path.stem}.npz"))
         valid = gt.depth > 0
-        near = (edge_distance(gt.depth, valid) <= EDGE_PX) & valid
+        near = [near_edge(gt.depth, valid, rule) for rule in (step_edges, depth_edges)]
         diff = consistency(views, gt)
         low, high = np.percentile(gt.depth[valid], [1, 99])
         print(
             f"{scene} ({group}): {valid.mean():.3f} | {low:.1f}-{high:.1f} |"
-            f" {near.sum() / valid.sum():.3f} | {np.median(diff):.4f},"
+            f" {near[0].sum() / valid.sum():.3f}, {near[1].sum() / valid.sum():.3f} |"
+            f" {np.median(diff):.4f},"
             f" {(diff < CONSISTENT).mean():.3f}"
         )
-        ids, counts = np.unique(gt.instance_ids[valid], return_counts=True)
-        for i, n in zip(ids.tolist(), counts.tolist(), strict=True):
-            pixels[gt.classes.get(i, "unlabeled")] += n
+        for mask, counter in ((valid, pixels), (near[1], at_edge)):
+            ids, counts = np.unique(gt.instance_ids[mask], return_counts=True)
+            for i, n in zip(ids.tolist(), counts.tolist(), strict=True):
+                counter[gt.classes.get(i, "unlabeled")] += n
         if scene in args.figure:
             shown.append((scene, views, gt))
     total = sum(pixels.values())
-    print("\nshare of the GT pixels per class, over the prepared scenes:")
+    print(
+        "\nclass: share of the GT pixels | share of its pixels within 3 px of an edge"
+    )
+    print("  (plane rule), over the prepared scenes")
     for name, n in pixels.most_common():
-        print(f"  {name}: {n / total:.4f}")
+        print(f"  {name}: {n / total:.4f} | {at_edge[name] / n:.3f}")
     if shown:
         figure(shown)
         print(f"\nfigure: {OUT}")
