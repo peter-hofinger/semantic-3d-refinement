@@ -4180,3 +4180,99 @@ alignment (below).
 - **Figures:** `figures/e45a_class_excess.jpg` (per-class excess, KITTI-360 GT and SAM 3 classes next to
   Hypersim; null; SAM 3 against GT), `figures/e45a_town.jpg` (debug visual, one town scene: image, GT
   class, r on a 0-30% scale, r / r̂).
+
+## Plan: E45b = Déjà View's error at depth edges on Tanks and Temples, out of domain (issue #45, 11.11.2026)
+Unrelated to E45 (the filters of issue #27): the id follows issue #45.
+- **Goal:** E25b's two questions on scenes that hold the thin parts Umut named (stake gaps, wheels with
+  holes, bars, chair legs) and are out of domain: what is Déjà View's error at depth edges (bleeding, or
+  pixels on the surface across the edge), and how much of it could segments remove? KITTI-360's LiDAR was
+  too noisy between neighbouring pixels for this (E45a). Analysis only: no refiner, no change to the
+  method, the scorer or the backbones.
+- **Data:** Tanks and Temples (Knapitsch et al., SIGGRAPH 2017), training scenes Truck, Caterpillar
+  (outdoor) and Meeting room (indoor), chosen 11.11 before any was run; not in Déjà View's 29-dataset mix
+  (paper Table 6). Per scene: 251 / 383 / 371 frames of 1920 x 1080, a laser scan (8.1 M / 7.3 M / 44.5 M
+  points), COLMAP poses and their similarity onto the scan. No labels and no intrinsics. Nothing of the
+  data or of depth derived from it enters git.
+- **Views:** 20 per scene, uniform over the capture order (`select_frames`, as Hypersim and ETH3D): the
+  camera circles the object, so neighbouring views are 13-20 frames apart. Looked at before anything ran:
+  no person stands in any of the 60 frames (one does in others of Truck; the scan holds no people). Each
+  frame is cut to 1920 x 1066.7 about its centre and resized to 504 x 280.
+- **Camera, checked before the loader was written** (`experiments/scripts/e45b_focal_check.py` ->
+  `results/e45b_focal_check.txt`): the scan's colours are projected into 8 views per scene with the
+  dataset's poses and a candidate camera (centred principal point, focal length f, one radial
+  coefficient k1), and their gradients correlated with the photo's.
+  - The dataset's page suggests f = 0.7 W; that does not fit (the scan lands visibly larger than the
+    truck). Without distortion the best f is 0.5975-0.6000 W in the three scenes, but the inner pixels
+    want 0.6000-0.6025 and the outer 0.5950 in all three: a barrel distortion.
+  - With k1 the correlation peaks at f = 0.605 W in all three scenes, k1 = -0.04 (Truck, Meeting room)
+    and -0.05 (Caterpillar, flat between -0.03 and -0.06), and rises from 0.515 to 0.574 (Truck), 0.419
+    to 0.433 and 0.514 to 0.546; inner and outer pixels then agree (0.6050, 0.6050-0.6075). The three
+    scenes were filmed with one camera, so one camera is used: f = 0.605 W, k1 = -0.04. Ignoring k1
+    would have put the scan about 5 px off the photo at the left and right border at 504 px, more than the
+    3 px band this experiment is about.
+  - Each frame is resampled to the pinhole of that focal length before it is cut and resized.
+- **Ground truth** (`src/loaders/tanksandtemples/`): the scan rendered into each view. Per pixel the front
+  is the nearest depth that 3 points share within 1% (a single stray point is no surface), and the pixel
+  takes the depth of the one point nearest its centre within 1% behind that front (no mean across an
+  edge). Tests: a plane returns its depth, a slanted plane the depth at the pixel centre, stray points
+  are ignored, a back surface shows only where the front has no points. What the rule cannot catch: a
+  surface the scanner never saw lets the points behind it show; measured below as pixels that another
+  view's GT contradicts. No GT outside the scan (background, sky): those pixels are not scored.
+- **Segments** (E25b's sources without the first): there are no GT instances, so the semantic oracle
+  does not exist here. *GT depth components* (the GT cut at its depth edges: perfect edges, no
+  semantics), *SAM 3* (image mode, t0.3, the working association; its prompt list is a new choice and is
+  fixed in this entry before any mask of these scenes is seen), *Déjà View depth components*.
+- **Run:** Déjà View K = 16, `rays: pinhole`, one Umeyama Sim(3) on the pixels, then
+  `e25b_boundary_oracle.py --cfg configs/eval_tanksandtemples.yaml --edges plane` with E25b's constants,
+  clamp and connected pieces as committed. Edges by the plane rule (`src/analysis/edges.py`, E45a) for
+  the band, the surface across the edge and both depth components. So that the comparison is like for
+  like, Hypersim dev + val is rerun under the plane rule and reported next to E25b's step-rule numbers;
+  `--edges step` (the default) must first reprint E25b's dev table digit for digit.
+- **Checks before any table is read** (the ladder): the focal sweep; the GT figure (depth and edges on
+  the image's outlines); GT pixels contradicted by other views; Déjà View's rays against their pinhole
+  fit (`MAX_PINHOLE_RESIDUAL`); E45a's alignment check on these scenes (aligned depth over GT depth per
+  range bin, Déjà View's focal length against the GT's, error under one Sim(3) per view): the alignment
+  must not be what sets the error; the snap's identity and plane recovery (asserted on every run).
+- **What is reported,** per scene (three scenes carry no statistics) and as their mean, next to Hypersim:
+  the band's pixel and error share; the t split (away / own / between / other); band error removed and
+  accuracy / completeness / Chamfer for the three snaps; scenes whose alignment scale a snap moves by
+  more than 1%.
+- **Reading, fixed before running:**
+  - *What the edge error is:* Hypersim's is 64% pixels on the surface across the edge and 18% bleeding.
+    The same order here (other > between in all three scenes) -> out of domain the edge error is the
+    same kind; otherwise the scenes are named.
+  - *Headroom:* GT depth components remove < 10% of the band error in a scene -> perfect edges would not
+    help there by a local snap.
+  - *SAM 3:* it finds the edges out of domain if it removes at least half of what GT depth components
+    remove, in at least 2 of the 3 scenes; it beats the geometric alternative if its band error is below
+    Déjà View depth components' in at least 2 of 3.
+  - Whether semantics add over edges (E25b's instances against depth components) cannot be answered
+    here: no GT instances.
+- **Limits known before running:** three scenes; no labels; the camera is ours: f and k1 are read off a
+  grid (steps 0.0025 W and 0.01) and trade against each other, so the scan may still sit about a pixel
+  off the photo at the border at 504 px, a third of the band; the scans cover the object and the ground
+  next to it, not the background; SAM 3's prompts are a new choice.
+- **Figures:** per scene four views: image, Déjà View's t in the band, the error of Déjà View and of each
+  snap on one cm scale. Debug visuals; the presentation's bedroom stays the reference.
+- **Check of the ground truth, 11.11, before any Déjà View output** (`experiments/scripts/e45b_gt_check.py`
+  -> `results/e45b_gt_check.txt`, `figures/e45b_gt_check.jpg`; with the fitted camera;
+  `tanksandtemples-prepare` takes 7 min for the three scenes on a laptop CPU):
+
+  | scene | GT px | depth m (1%-99%) | GT px within 3 px of an edge, step / plane rule | view i's GT in view j: on j's surface (within 5%), median difference there | GT px contradicted by >= 1 / >= 2 views |
+  |---|---|---|---|---|---|
+  | truck | 0.53 | 1.2-7.0 | 0.30 / 0.29 | 0.45, 0.16% | 0.019 / 0.008 |
+  | caterpillar | 0.37 | 1.6-9.3 | 0.33 / 0.33 | 0.40, 0.12% | 0.019 / 0.006 |
+  | meetingroom | 0.95 | 1.5-13.4 | 0.42 / 0.40 | 0.64, 0.14% | 0.032 / 0.009 |
+
+  - Poses and rendering agree across views: where view i's GT lands on the surface view j shows, the
+    depths differ by a median 0.12-0.16% (KITTI-360: 0.5-2.5%). The rest of the projections are hidden in
+    j, as the camera circles the object.
+  - See-through is rare: 2-3% of the GT pixels have another view's GT more than 5% in front of them,
+    under 1% by two views. In the figure these are scattered pixels in the plant and around stake gaps,
+    and one wedge of the meeting room's ceiling seen at a grazing angle (view 000293, top left), where
+    the scan is thin; no whole surface elsewhere.
+  - The band is 29-40% of the GT pixels (Hypersim 13.5%, KITTI-360 44%), but here the figure shows the
+    edges on outlines: stakes, wheel rims, grille, cab bars, chair backs, roof trusses. The exception is
+    the meeting room's plants, where neighbouring pixels alternate between leaves (view 000001: one
+    region of edges). The step and the plane rule differ little, as no large plane is seen at a grazing
+    angle. Windows have no GT (glass); the ground around Caterpillar is mostly outside its scan.
