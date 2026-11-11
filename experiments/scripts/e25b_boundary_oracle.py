@@ -31,11 +31,20 @@ first val run: Hypersim's walls are one instance per scene, so a window could ho
 walls at different depths, e.g. through a door, and the plane through both dragged the
 Sim(3) of 3 of the 11 val scenes; a local fit should see one connected surface).
 
+--align interior (E45b, decided after its alignment check): one Sim(3), Umeyama of Déjà
+View's points on the GT pixels farther than BAND px from a GT depth edge and from the GT's
+border (a pixel without GT), applied unchanged to every variant. On Tanks and Temples under
+1% of the GT pixels, at the scan's border, where Déjà View shows the far background, set
+the protocol's least-squares scale (Truck 0.54 of the GT's); with the interior fit the
+pixels under study cannot set the alignment and a snap cannot move it. The report then
+adds the GT's border band (GT pixels within BAND px of a pixel without GT) next to the
+edge band. --align protocol (the default) is E25b as reported.
+
 A config without `vocabulary` is Tanks and Temples (E45b): no labels, so no GT-instance
 snap, and its groups are the config's (outdoor, indoor), not splits.
 
 uv run python experiments/scripts/e25b_boundary_oracle.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25b --check runs/e8a_segments-20261110-130124/run.yaml
-uv run python experiments/scripts/e25b_boundary_oracle.py --cfg configs/eval_tanksandtemples.yaml --edges plane --maps truck --out runs/e45b_tanksandtemples
+uv run python experiments/scripts/e25b_boundary_oracle.py --cfg configs/eval_tanksandtemples.yaml --edges plane --align interior --maps truck caterpillar meetingroom --out runs/e45b_tanksandtemples
 prints the report and writes `<out>/e25b.yaml` (every record) and `<out>/e25b_maps.npz`
 (the --maps scenes: each variant's per-pixel error and Déjà View's t), the inputs of
 `e25b_figures.py`.
@@ -56,7 +65,12 @@ from scipy import ndimage
 
 from src.analysis.edges import across_edge as plane_across
 from src.analysis.scene_eval import git_hash, input_paths
-from src.evaluation.labeled import align_output, ground_truth_cloud, surface_metrics
+from src.evaluation.labeled import (
+    align_output,
+    ground_truth_cloud,
+    surface_metrics,
+    umeyama,
+)
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config as hypersim_config
@@ -237,7 +251,7 @@ def scores(
     }
 
 
-def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
+def analyse(raw: dict, name: str, *, edges: str, align: str, maps: bool) -> dict:
     """Every number of the module docstring for one scene."""
     paths = input_paths(raw, name)
     views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
@@ -255,6 +269,9 @@ def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
     assert np.isfinite(dv).all()
     assert (dv > 0).all()
     band = (edge_distance(depth, valid, edges) <= BAND)[valid]
+    border = np.stack([ndimage.distance_transform_edt(v) <= BAND for v in valid])[valid]
+    interior = ~band & ~border
+    assert interior.any()
     other = across_edge(depth, valid, edges)
     everywhere = np.ones(dv.shape, dtype=bool)
     sources = {
@@ -269,6 +286,7 @@ def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
     out: dict = {
         "px": int(valid.sum()),
         "band_px_share": float(band.mean()),
+        "border_px_share": float(border.mean()),
         "variants": {},
     }
     maps_out: dict[str, np.ndarray] = {}
@@ -276,8 +294,19 @@ def analyse(raw: dict, name: str, *, edges: str, maps: bool) -> dict:
     for variant, ids in [("Déjà View", None), *segments.items()]:
         d = dv if ids is None else snap_depth(dv, ids)
         points = points_from_rays(torch.from_numpy(d), rays).numpy()
-        pred, scale, _ = align_output(truth, points)
+        if align == "protocol":
+            pred, scale, _ = align_output(truth, points)
+        else:
+            if ids is None:
+                fixed = umeyama(points[valid][interior], truth.points[interior])
+            scale, rotation, shift = fixed
+            pred = scale * points[valid] @ rotation.T + shift
         rec = scores(pred, truth.points, band, ref_band)
+        e_all = np.linalg.norm(pred - truth.points, axis=1)
+        rec["band_error_share"] = float(e_all[band].sum() / e_all.sum())
+        rec["border_error_cm"] = 100 * float(e_all[border].mean())
+        rec["border_error_share"] = float(e_all[border].sum() / e_all.sum())
+        rec["interior_error_cm"] = 100 * float(e_all[interior].mean())
         ref_band = rec["band_error_cm"] if ids is None else ref_band
         surface = surface_metrics(pred, truth, [])
         rec |= {k: surface[k] for k in ("accuracy_cm", "completeness_cm", "chamfer_cm")}
@@ -330,7 +359,9 @@ def wins(records: list[dict], a: str, b: str) -> tuple[int, float]:
     return int((diff < -MARGIN).sum()), float(diff.mean())
 
 
-def report(groups: dict[str, list[str]], records: dict[str, dict]) -> None:
+def report(
+    groups: dict[str, list[str]], records: dict[str, dict], align: str = "protocol"
+) -> None:
     """Print the split tables, the t decomposition and the plan's comparisons."""
     for group, names in groups.items():
         recs = [records[n] for n in names]
@@ -359,6 +390,22 @@ def report(groups: dict[str, list[str]], records: dict[str, dict]) -> None:
                 for k in ("accuracy_cm", "completeness_cm", "chamfer_cm")
             ]
             print(f"{v} | " + " | ".join(cells))
+        if align == "interior":
+            share = np.mean([r["border_px_share"] for r in recs])
+            print(
+                f"variant | error cm in the GT's border band ({share:.3f} of the GT pixels) | its share of the error | the edge band's share | error cm of the other pixels"
+            )
+            for v in variants:
+                cells = [
+                    f"{split_mean(recs, v, k):{f}}"
+                    for k, f in (
+                        ("border_error_cm", ".2f"),
+                        ("border_error_share", ".3f"),
+                        ("band_error_share", ".3f"),
+                        ("interior_error_cm", ".2f"),
+                    )
+                ]
+                print(f"  {v} | " + " | ".join(cells))
         partner = np.mean([r["variants"]["Déjà View"]["partner_share"] for r in recs])
         print(
             f"t of the band pixels with a GT pixel across the edge ({partner:.3f} of the band): variant | "
@@ -394,6 +441,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--maps", nargs="*", default=["ai_006_007_cam_00"])
     parser.add_argument("--edges", choices=sorted(EDGE_RULES), default="step")
+    parser.add_argument("--align", choices=("protocol", "interior"), default="protocol")
     parser.add_argument(
         "--check",
         type=Path,
@@ -419,7 +467,9 @@ def main() -> None:
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(WORKERS, mp_context=context) as pool:
         jobs = {
-            n: pool.submit(analyse, raw, n, edges=args.edges, maps=n in args.maps)
+            n: pool.submit(
+                analyse, raw, n, edges=args.edges, align=args.align, maps=n in args.maps
+            )
             for n in names
         }
         records = {n: job.result() for n, job in jobs.items()}
@@ -429,6 +479,8 @@ def main() -> None:
         np.savez_compressed(args.out / "e25b_maps.npz", **maps)
     git = git_hash()
     print(f"config {args.cfg}, git {git}, scenes {len(names)}, edges {args.edges}")
+    if args.align != "protocol":
+        print(f"alignment: {args.align}")
     print(
         "check, snap: identity with no segment and with one segment, a pinhole plane recovered to 1e-9 (passed)"
     )
@@ -445,13 +497,14 @@ def main() -> None:
                     print(
                         f"  {n} | {mine['scale']:.6f} | {theirs['debug']['scale']:.6f} | {mine['chamfer_cm']:.3f} | {theirs['headline']['chamfer_cm']:.3f}"
                     )
-    report(groups, records)
+    report(groups, records, args.align)
     (args.out / "e25b.yaml").write_text(
         yaml.safe_dump(
             {
                 "config": str(args.cfg),
                 "git": git,
                 "edges": args.edges,
+                "align": args.align,
                 "groups": groups,
                 "scenes": records,
             },

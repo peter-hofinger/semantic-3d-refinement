@@ -1,0 +1,27 @@
+
+truck (outdoor): GT pixels within 3 px of an edge 0.291, of the border 0.105, of either 0.355
+  depth off by more than | share of GT px | Déjà View too far | of them at an edge | at the border | at either
+  10% | 0.0891 | 0.0168 | 0.78 | 0.30 | 0.91
+  50% | 0.0211 | 0.0077 | 0.67 | 0.46 | 0.95
+  200% | 0.0045 | 0.0045 | 0.14 | 0.97 | 0.97
+  Sim(3) fitted on | scale | mean e cm | mean r % | median r % | mean r % over the interior
+  all GT px | 2.953 | 112.9 | 40.8 | 32.9 | 40.0
+  interior | 5.351 | 32.0 | 8.8 | 2.6 | 3.2
+
+caterpillar (outdoor): GT pixels within 3 px of an edge 0.325, of the border 0.150, of either 0.417
+  depth off by more than | share of GT px | Déjà View too far | of them at an edge | at the border | at either
+  10% | 0.1131 | 0.0267 | 0.75 | 0.35 | 0.91
+  50% | 0.0144 | 0.0099 | 0.43 | 0.65 | 0.94
+  200% | 0.0058 | 0.0058 | 0.17 | 0.95 | 0.96
+  Sim(3) fitted on | scale | mean e cm | mean r % | median r % | mean r % over the interior
+  all GT px | 1.843 | 174.6 | 52.1 | 45.8 | 55.9
+  interior | 6.853 | 56.7 | 13.0 | 5.9 | 6.7
+
+meetingroom (indoor): GT pixels within 3 px of an edge 0.399, of the border 0.053, of either 0.433
+  depth off by more than | share of GT px | Déjà View too far | of them at an edge | at the border | at either
+  10% | 0.1408 | 0.0467 | 0.87 | 0.08 | 0.90
+  50% | 0.0522 | 0.0105 | 0.93 | 0.06 | 0.94
+  200% | 0.0017 | 0.0017 | 0.99 | 0.10 | 1.00
+  Sim(3) fitted on | scale | mean e cm | mean r % | median r % | mean r % over the interior
+  all GT px | 5.060 | 59.1 | 11.4 | 4.6 | 5.2
+  interior | 5.196 | 50.9 | 9.6 | 2.3 | 3.1
