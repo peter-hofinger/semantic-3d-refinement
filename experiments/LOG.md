@@ -3946,10 +3946,12 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
   resolution. The crop drops the top 102 rows (sky, tree crowns, upper facades). Fixed before any Déjà View
   output was seen.
 - **Ground truth:** the window's static accumulated points (Velodyne + SICK, with semantic and instance ids),
-  projected into each view by its `cam0_to_world` pose; per pixel the nearest point (z-buffer). A pixel keeps
-  its depth only if that point's semantic id equals the pixel's 2D label: this drops moving objects (their
-  pixels would take the road or facade behind them) and points seen through a nearer surface of another
-  class. Same-class see-through (vegetation behind vegetation) stays. Classes and instances from the 2D maps
+  projected into each view by its `cam0_to_world` pose; per pixel the nearest point whose semantic id equals
+  the pixel's 2D label (changed while writing the loader, before any output: the first wording kept a pixel
+  only if its nearest point of any class agreed, which empties the pixels next to object outlines, the ones
+  E25b is about). This drops moving objects (their pixels would take the road or facade behind them) and
+  points seen through a nearer surface of another class. Same-class see-through (vegetation behind
+  vegetation) stays. The points are the window's and its two neighbours'. Classes and instances from the 2D maps
   (`semantic`, `instance` = 1000 x class + id, consistent across frames); road, sidewalk, terrain, vegetation
   and the other classes without instance ids are one instance per class, as Hypersim's walls. Sky has no GT.
 - **Checks before any number is read** (the ladder, in order): GT depth edges drawn over the image for four
@@ -3983,3 +3985,22 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
 - **Figures:** as E25a / E25b (per-class excess with the null; snap scores and the t split), and for one town
   scene four views with image, GT class, relative error, r / r̂ and the error after each snap on shared scales.
   These are debug visuals; the presentation's bedroom stays the reference.
+- **Check of the ground truth, 11.11, before any Déjà View output** (`experiments/scripts/e45a_gt_check.py` on
+  all 24 prepared scenes -> `results/e45a_gt_check.txt`, `figures/e45a_gt_check.jpg`; `kitti360-prepare` takes
+  8 s per scene on a laptop CPU):
+  - Geometry and labels are right: classes and depth sit on their objects in the figure, moving cars have no
+    depth, and view i's GT seen in view j agrees to a median 0.4-2.4% (town 78-96% of the pixels within 5%,
+    country road 68-97%; the rest is vegetation seen through vegetation and points beyond 100 m).
+  - Coverage is 36-59% of the pixels, as single dots near the camera (one pixel per point).
+  - **The plan cannot run unchanged.** 50-79% of the GT pixels lie within 3 px of a GT depth edge by E35's
+    definition (Hypersim: 13.5%). Two causes, both visible in the figure: on the road, which is 43% of the GT
+    and seen at a grazing angle, neighbouring rows differ by more than 5% in depth from about 28 m on, so
+    the whole far road is "edge"; and in vegetation the dots alternate between near and far leaves. The
+    band is then no longer "the pixels at object outlines", and E25a's edge-distance cell and all of E25b
+    lose their meaning. Also, the GT instance ids exist only where there is depth, so GT segments are dotted
+    and E25b's snap would treat every pixel as a segment border.
+  - Open, to decide before going on (changing a definition also changes what "the same analysis as on
+    Hypersim" means): an edge definition that ignores a plane's own slope; dense instance maps from the 2D
+    labels, kept apart from where depth exists; splatting each point over a few pixels of its own class;
+    a depth cap. One scene (`0010_0000002024_0000002177`) has a 41 m gap between two of its views, as the
+    labelled frames have a hole there.
