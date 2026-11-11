@@ -1,0 +1,36 @@
+# E27a (experiments/LOG.md, issue #27): flag, refine, filter. Every variant at once, on
+# dev and then val: `--splits dev val`. The pixels are flagged by instance voxel density
+# on Déjà View's cloud (`keep`, src/analysis/scene_eval.py); every pixel is refined; the
+# flagged ones are dropped. The two weights were chosen before this run, on the bedroom
+# and dev (see the plan): λ_t = 4e-2 for the tangent term, q = 0.5.
+# Evaluation protocol as E43's (experiments/configs/e43_val.yaml): 20 views at 504 px,
+# Déjà View K = 16, SAM 3 image mode with configs/prompts/nyu40.txt at 0.3, linked, DSINE
+# normals; each output aligned onto the GT by Umeyama on its pixels (src/evaluation/labeled.py).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml          # BiNI's E_n, the default refiner (E41)
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: Déjà View, kept 0.5
+    refiner: none
+    keep: 0.5
+  - name: Refined
+    refiner: joint
+  - name: Refined, kept 0.5
+    refiner: joint
+    keep: 0.5
+  - name: tangent 4e-2
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+  - name: tangent 4e-2, kept 0.5
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5

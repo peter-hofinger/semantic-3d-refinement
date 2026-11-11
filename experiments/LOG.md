@@ -3605,3 +3605,24 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - The classes do not separate the models beyond seed noise: seeds of one model differ by up to 0.20 cm (GT on
     val), more than the gaps between models; GT classes are no better than none on val (5.25 vs 5.24, means).
   - Not run: the 15 unprepared train scenes (fix the prepare crash first), more seeds, and the stress split.
+
+## Plan: E27a = flag, refine, filter: refine every pixel, then drop the ones E45's best filter flags on Déjà View (issue #27, 11.11.2026)
+- **Goal:** E45 found that dropping Déjà View's points by instance voxel density beats the refiner at equal
+  completeness. Does refining the points a filter keeps add anything on top of the filter? The two outputs keep
+  exactly the same pixels, so any difference is the refinement's.
+- **Setting:** `experiments/configs/e27a.yaml`, dev (3) and val (11), RTX 3080, one `scene_eval` run. Variants:
+  Déjà View, the default refiner (BiNI's E_n, E41) and the tangent term at λ_t = 4e-2 with E_n off (E43's E_t,
+  100 x E43's weight), each as is and cut by `keep: 0.5`. The flag is counted on Déjà View's cloud, so the cut
+  is the same for all three; the refiners still solve for every pixel.
+- **Where the two values come from (not chosen in this run):** both were picked in exploratory work on the
+  branch `peter/emb-weighted-tangent`, which is not merged. λ_t: a grid 4e-5 ... 1e-1 on the bedroom, then dev,
+  where Chamfer is flat over 3e-2 ... 1e-1 (spread 0.009 cm). q: the lowest median Chamfer of the cut tangent
+  output over q = 1, 0.95, ..., 0.3 on dev; two grid steps below it (q 0.45 on dev) Chamfer jumps. That work also
+  scored val once with the same weights, so **val is not a clean check here**: this run reproduces a number that
+  was already seen, though nothing was tuned on it.
+- **Rule:** the tangent output cut at 0.5 against Déjà View cut at 0.5 (the same pixels), per split: better on
+  all three scores beyond the floor (0.033 / 0.037 / 0.036 cm) on dev, and the same sign on val, means the
+  refinement adds to the filter. BiNI cut at 0.5 is the control: if it does as well, the normal term is not what
+  helps. Unfiltered, E_t 4e-2 against BiNI is the trade E21a and E43 rejected (accuracy for completeness); it is
+  reported, not decided here (issue #21 owns the default).
+- **Check:** `Déjà View, kept 0.5` must reproduce E45's instance voxel density curve at q 0.5 on dev.
