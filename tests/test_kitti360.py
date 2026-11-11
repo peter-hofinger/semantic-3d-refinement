@@ -9,6 +9,7 @@ from src.loaders.kitti360.scene import (
     PrepareConfig,
     centred_crop,
     cropped_intrinsics,
+    fill_holes,
     load_config,
     pick_frames,
     read_intrinsics,
@@ -146,14 +147,51 @@ def test_points_behind_the_camera_and_outside_the_image_are_dropped() -> None:
     assert (depth == 0).all()
 
 
-def test_instance_ids_name_stuff_void_and_missing_depth() -> None:
-    instance = np.array([[26015, 26015, 7000], [44002, 21000, 7000]], dtype=np.uint16)
-    depth = np.array([[3.0, 3.0, 5.0], [4.0, 0.0, 5.0]], dtype=np.float32)
-    ids, classes = instance_ids(instance, depth)
+def test_instance_ids_name_stuff_void_and_sky() -> None:
+    instance = np.array([[26015, 26015, 7000], [44002, 23000, 7000]], dtype=np.uint16)
+    ids, classes = instance_ids(instance)
     expected = [[26015, 26015, STUFF_BASE + 7], [NO_INSTANCE, NO_MESH, STUFF_BASE + 7]]
     np.testing.assert_array_equal(ids, expected)
     assert ids.dtype == np.int32
     assert classes == {26015: "car", STUFF_BASE + 7: "road"}
+
+
+def road_depth(shape: tuple[int, int]) -> np.ndarray:
+    """Depth of a ground 1.5 m below a camera with f = 100 px, horizon 60 px above."""
+    rows = np.arange(shape[0])[:, None] + 0.5
+    return np.broadcast_to(100 * 1.5 / (rows + 60), shape).astype(np.float32)
+
+
+def test_holes_on_a_plane_are_filled_exactly() -> None:
+    truth = road_depth((12, 16))
+    depth = truth.copy()
+    depth[1::3, 1::3] = 0
+    depth[5:7, 8:10] = 0
+    filled = fill_holes(depth, np.full(depth.shape, STUFF_BASE + ROAD))
+    np.testing.assert_allclose(filled, truth, rtol=1e-5)
+
+
+def test_holes_are_not_filled_across_instances_or_from_afar() -> None:
+    depth = np.full((12, 16), 8.0, dtype=np.float32)
+    ids = np.full(depth.shape, STUFF_BASE + ROAD)
+    ids[:, 8:] = 26015
+    depth[4:8, 7:9] = 0
+    depth[0:12, 12:16] = 0
+    depth[2, 2] = 0
+    ids[2, 2] = NO_INSTANCE
+    filled = fill_holes(depth, ids)
+    assert (filled[4:8, 7:9] == 0).all()
+    assert (filled[:, 13:] == 0).all()
+    assert filled[2, 2] == 0
+    np.testing.assert_array_equal(filled[depth > 0], depth[depth > 0])
+
+
+def test_holes_between_two_depths_stay_empty() -> None:
+    depth = np.full((8, 12), 5.0, dtype=np.float32)
+    depth[:, 6:] = 9.0
+    depth[:, 5:7] = 0
+    filled = fill_holes(depth, np.full(depth.shape, STUFF_BASE + 21))
+    assert (filled[:, 5:7] == 0).all()
 
 
 def test_config_lists_every_window_once() -> None:

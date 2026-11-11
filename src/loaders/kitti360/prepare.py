@@ -9,9 +9,14 @@ the static points of the window and of its two neighbours, which hold what the l
 views see ahead of the window's end.
 
 Instances: KITTI-360's 2D instance map, 1000 x class + instance, the same id in every
-frame of a drive. Classes it gives no instances (road, vegetation, ...) become one
-instance per class (`STUFF_BASE + class`), as Hypersim's walls; pixels of void
-classes with depth are unlabeled.
+frame of a drive, at every pixel whether or not a point fell into it. Classes it gives
+no instances (road, vegetation, ...) become one instance per class (`STUFF_BASE +
+class`), as Hypersim's walls; pixels of void classes are unlabeled, sky is NO_MESH.
+
+Near the camera the points lie several pixels apart; such holes are interpolated from
+the surrounding points of the same instance (`fill_holes`), so that neighbouring
+pixels exist for depth edges and normals. A pixel without depth (0) has no ground
+truth, whatever its instance id.
 """
 
 from __future__ import annotations
@@ -27,9 +32,11 @@ from src.loaders.ground_truth import NO_MESH, STUFF_BASE, GroundTruth
 from src.loaders.kitti360.scene import (
     CLASSES,
     INSTANCE_FACTOR,
+    SKY,
     Kitti360Config,
     centred_crop,
     cropped_intrinsics,
+    fill_holes,
     load_config,
     pick_frames,
     read_intrinsics,
@@ -61,16 +68,14 @@ def window_points(static: Path, first: int) -> tuple[np.ndarray, np.ndarray]:
     return points, np.concatenate([c["semantic"] for c in clouds])
 
 
-def instance_ids(
-    instance: np.ndarray, depth: np.ndarray
-) -> tuple[np.ndarray, dict[int, str]]:
-    """Ids (H, W) int32 and their class names from a 2D instance map and the depth."""
+def instance_ids(instance: np.ndarray) -> tuple[np.ndarray, dict[int, str]]:
+    """Ids (H, W) int32 of every pixel and their class names, from a 2D instance map."""
     semantic = instance.astype(np.int32) // INSTANCE_FACTOR
     ids = instance.astype(np.int32)
     stuff = ids % INSTANCE_FACTOR == 0
     ids[stuff] = STUFF_BASE + semantic[stuff]
     ids[~np.isin(semantic, list(CLASSES))] = NO_INSTANCE
-    ids[depth == 0] = NO_MESH
+    ids[semantic == SKY] = NO_MESH
     labelled = ids >= 0
     pairs = np.unique(np.stack([ids[labelled], semantic[labelled]]), axis=1).T
     classes = {int(i): CLASSES[int(c)] for i, c in pairs}
@@ -116,12 +121,10 @@ def build(cfg: Kitti360Config, scene: str) -> tuple[Views, GroundTruth]:
             k_new,
             sample_nearest(semantic, box, new_size),
         )
-        view_ids, view_classes = instance_ids(
-            sample_nearest(instance, box, new_size), depth
-        )
+        view_ids, view_classes = instance_ids(sample_nearest(instance, box, new_size))
         assert all(classes.get(i, c) == c for i, c in view_classes.items()), name
         classes.update(view_classes)
-        depths.append(depth)
+        depths.append(fill_holes(depth, view_ids))
         ids.append(view_ids)
 
     width, height = new_size

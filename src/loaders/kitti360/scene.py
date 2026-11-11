@@ -32,9 +32,14 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from scipy.spatial import Delaunay
 
 DRIVE = "2013_05_28_drive_{}_sync"
 MIN_DEPTH = 0.5  # m: nearer points are the car itself or behind the camera
+SKY = 23  # the one class that never has geometry
+FILL_PX = 3  # px a hole may lie from the points it is interpolated from
+FILL_SPREAD = 0.1  # relative inverse-depth range of those points: one surface
+MIN_TRIANGULATION = 3  # points a triangulation needs
 PLY_TYPES = {"float": "<f4", "double": "<f8", "int": "<i4", "uchar": "u1"}
 INSTANCE_FACTOR = 1000  # 2D instance map = INSTANCE_FACTOR * class + instance
 POSE_COLUMNS = 17  # a row of cam0_to_world.txt: the frame and a 4 x 4 matrix
@@ -238,3 +243,40 @@ def render_depth(
     np.minimum.at(depth, rows[own] * width + cols[own], z[own])
     depth[~np.isfinite(depth)] = 0
     return depth.reshape(height, width).astype(np.float32)
+
+
+def fill_holes(depth: np.ndarray, ids: np.ndarray) -> np.ndarray:
+    """Depth (H, W) with holes interpolated inside one instance, 0 where still none.
+
+    The pixels with depth are triangulated (Delaunay on their centres). A hole takes
+    the barycentric interpolation of its triangle's inverse depths, which is exact on
+    a plane, if the three corners carry the hole's own instance id (ids >= 0), lie
+    within FILL_PX of it and differ by at most FILL_SPREAD in inverse depth.
+    """
+    assert depth.shape == ids.shape, (depth.shape, ids.shape)
+    rows, cols = np.nonzero(depth > 0)
+    if len(rows) < MIN_TRIANGULATION:
+        return depth
+    inverse = 1.0 / depth[rows, cols].astype(np.float64)
+    corner_ids = ids[rows, cols]
+    mesh = Delaunay(np.stack([cols, rows], axis=1) + 0.5)
+    hole_rows, hole_cols = np.nonzero((depth == 0) & (ids >= 0))
+    centres = np.stack([hole_cols, hole_rows], axis=1) + 0.5
+    simplex = mesh.find_simplex(centres)
+    found = simplex >= 0
+    hole_rows, hole_cols, centres = hole_rows[found], hole_cols[found], centres[found]
+    simplex = simplex[found]
+    corners = mesh.simplices[simplex]
+    transform = mesh.transform[simplex]
+    partial = np.einsum("nij,nj->ni", transform[:, :2], centres - transform[:, 2])
+    weights = np.concatenate([partial, 1 - partial.sum(axis=1, keepdims=True)], axis=1)
+    reach = np.linalg.norm(mesh.points[corners] - centres[:, None], axis=2).max(axis=1)
+    values = inverse[corners]
+    same = (corner_ids[corners] == ids[hole_rows, hole_cols][:, None]).all(axis=1)
+    flat = values.max(axis=1) <= (1 + FILL_SPREAD) * values.min(axis=1)
+    keep = same & flat & (reach <= FILL_PX)
+    out = depth.copy()
+    filled = 1.0 / (weights[keep] * values[keep]).sum(axis=1)
+    out[hole_rows[keep], hole_cols[keep]] = filled.astype(np.float32)
+    assert np.isfinite(out).all() and (out >= 0).all()
+    return out
