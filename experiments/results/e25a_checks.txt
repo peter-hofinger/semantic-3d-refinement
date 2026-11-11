@@ -1,0 +1,4 @@
+split half, GT classes: correlation of per-class mean log excess between halves over 1000 splits (12 classes median): median 0.21, 5-95% -0.14 to 0.67, share > 0 0.79
+S, all classes: 0.278; null median 0.191, 95th percentile 0.277; p = 0.051
+S, without window, mirror: 0.192; null median 0.187, 95th percentile 0.264; p = 0.446
+scenes' mean per-pixel error: mean 17.01 cm, median 13.21 cm

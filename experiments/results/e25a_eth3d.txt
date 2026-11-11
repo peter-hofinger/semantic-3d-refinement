@@ -1,0 +1,47 @@
+config configs/eval_eth3d.yaml, git 5eafda3282bb32d16c674f25d0481954607e4b98, scenes 13
+check, excess over all pixels = 1 by construction (asserted per scene)
+
+## indoor (7 scenes); * = beyond 1.5x the same way in >= 2/3 of its scenes
+
+### SAM 3 classes, eroded (kept 0.641 of the GT pixels)
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+ceiling | 7 | 0.075 | 1.40 (1.00-2.56) | 2 | +0.305 | 0.05 | 1.32 | - | - | -
+lamp * | 3 | 0.003 | 1.25 (0.61-2.00) | 3 | +0.011 | 0.00 | 1.56 | - | - | -
+window | 3 | 0.008 | 1.13 (0.49-2.30) | 2 | +0.002 | 0.00 | 1.48 | - | - | -
+wall | 7 | 0.315 | 0.98 (0.82-1.16) | 0 | -0.202 | 0.01 | 0.99 | - | - | -
+box | 3 | 0.010 | 0.90 (0.56-1.21) | 1 | -0.001 | 0.00 | 1.23 | - | - | -
+floor | 7 | 0.102 | 0.80 (0.60-0.98) | 1 | -0.216 | 0.01 | 0.80 | - | - | -
+whiteboard | 3 | 0.048 | 0.78 (0.70-0.95) | 0 | -0.054 | 0.00 | 0.79 | - | - | -
+cabinet | 3 | 0.055 | 0.77 (0.52-1.06) | 1 | -0.052 | 0.02 | 0.83 | - | - | -
+paper | 3 | 0.046 | 0.77 (0.47-0.99) | 1 | -0.041 | 0.01 | 0.93 | - | - | -
+door | 6 | 0.035 | 0.69 (0.43-0.97) | 3 | +0.014 | 0.00 | 0.90 | - | - | -
+
+## outdoor (6 scenes); * = beyond 1.5x the same way in >= 2/3 of its scenes
+
+### SAM 3 classes, eroded (kept 0.398 of the GT pixels)
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+ceiling | 5 | 0.019 | 1.07 (0.70-1.61) | 1 | +0.009 | 0.00 | 1.09 | - | - | -
+wall | 6 | 0.242 | 0.97 (0.84-1.20) | 0 | +0.456 | 0.01 | 0.78 | - | - | -
+door | 4 | 0.042 | 0.90 (0.76-0.99) | 0 | -0.226 | 0.00 | 0.73 | - | - | -
+floor | 6 | 0.077 | 0.89 (0.77-1.11) | 0 | -0.175 | 0.01 | 1.39 | - | - | -
+window | 5 | 0.029 | 0.84 (0.70-0.92) | 0 | -0.105 | 0.01 | 1.01 | - | - | -
+
+## all (13 scenes); * = beyond 1.5x the same way in >= 2/3 of its scenes
+
+### SAM 3 classes, eroded (kept 0.529 of the GT pixels)
+class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges | cross-view gap / scene's | fit removes | accuracy cm | completeness cm
+ceiling | 12 | 0.052 | 1.25 (0.70-2.56) | 3 | +0.181 | 0.04 | 1.22 | - | - | -
+floor mat | 3 | 0.001 | 1.05 (0.75-1.95) | 1 | +0.004 | 0.00 | 0.72 | - | - | -
+chair | 3 | 0.016 | 1.00 (0.87-1.20) | 0 | +0.007 | 0.03 | 1.84 | - | - | -
+wall | 13 | 0.282 | 0.97 (0.82-1.20) | 0 | +0.102 | 0.01 | 0.91 | - | - | -
+window | 8 | 0.021 | 0.94 (0.49-2.30) | 2 | -0.065 | 0.01 | 1.05 | - | - | -
+box | 4 | 0.008 | 0.85 (0.56-1.21) | 1 | -0.002 | 0.01 | 1.55 | - | - | -
+lamp | 4 | 0.003 | 0.84 (0.25-2.00) | 4 | -0.010 | 0.00 | 2.73 | - | - | -
+floor | 13 | 0.091 | 0.84 (0.60-1.11) | 1 | -0.197 | 0.01 | 1.00 | - | - | -
+whiteboard | 3 | 0.048 | 0.78 (0.70-0.95) | 0 | -0.054 | 0.00 | 0.79 | - | - | -
+cabinet | 3 | 0.055 | 0.77 (0.52-1.06) | 1 | -0.052 | 0.02 | 0.83 | - | - | -
+door | 10 | 0.038 | 0.77 (0.43-0.99) | 3 | -0.082 | 0.00 | 0.81 | - | - | -
+paper | 3 | 0.046 | 0.77 (0.47-0.99) | 1 | -0.041 | 0.01 | 0.93 | - | - | -
+table | 4 | 0.011 | 0.76 (0.67-0.89) | 1 | -0.220 | 0.03 | 1.78 | - | - | -
+desk | 4 | 0.024 | 0.67 (0.55-0.77) | 1 | -0.087 | 0.01 | 1.45 | - | - | -
+sofa * | 3 | 0.018 | 0.59 (0.54-0.63) | 3 | -0.027 | 0.04 | 1.02 | - | - | -

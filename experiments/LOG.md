@@ -85,6 +85,8 @@ Metrics:
 | E20a | MoGe-3's depth fitted onto Deja View's in inverse depth, per view, per SAM 3 segment or per GT instance (issue #20) | no variant beats Deja View (val Chamfer 5.102 vs 6.192 / 5.196 / 5.142); per segment gains on completeness, loses more on accuracy; MoGe-3 alone has 2.7-6.6x Deja View's median depth error per scene |
 | E41a | All views fused into one 64-cell voxel grid, a 3D U-Net and a per-pixel depth residual, without / with SAM 3 / with GT classes, 35 train scenes (issue #41) | worse than Deja View (val Chamfer 5.47 / 5.32 / 5.54 vs 5.10): held-out error rises after step 300, it overfits; SAM 3 classes ahead of none |
 | E41b | E41a on 136 train scenes, 128-cell grid, 20k steps, view-subset augmentation, best held-out step, 2 seeds (issue #41) | close to Deja View but not better on val (5.24 / 5.29 / 5.25 vs 5.10, seed means); dev SAM 3 3.41 vs 3.50; class effects within seed noise |
+| E25a | Déjà View's error per class over what its pixels' edge distance, depth and incidence angle predict; Hypersim dev + val with GT classes, SAM 3's classes on Hypersim and ETH3D (issue #25) | no class fails in its own way except glass (window 2.23x its geometry); S passes the permutation test by 0.002 (p = 0.05), without window and mirror p = 0.45; split halves agree at median r = 0.21; largest per-class excess error +0.29 cm of 17.0; SAM 3's labels add spread (S 0.249 vs 0.183 on the same pixels) |
+| E25b | Oracle bound for segments at Déjà View's depth edges: where edge pixels sit between the two surfaces, and each segment's border snapped onto a plane fitted inside it (GT instances, GT depth edges, SAM 3, Déjà View's depth edges); Hypersim dev + val (issue #25) | 64% of the edge error is pixels on the surface across the edge, 18% bleeding; GT instances remove 19% of it (11 undragged scenes), GT depth edges 12%, SAM 3 4%, Déjà View's edges -4%; instances beat depth edges on Chamfer in 2/14 scenes -> the headroom is edges, not semantics; Chamfer moves 0.13 cm for an 8.4 cm drop in edge error; snaps dragged the Sim(3) on 3 val scenes |
 
 ## Reference table (current scorer, E11)
 
@@ -3766,3 +3768,235 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   median of 0.023 cm and a mean of +0.004 cm (playground +0.81): a tie, inside the noise. Against Déjà View with
   every pixel, Chamfer 9.99 -> 6.99 cm on 13 of 13 scenes, at equal completeness (7.76 -> 7.85). Out of domain,
   what carries flag-refine-filter is the filter; on Hypersim val the refinement added 0.15 cm on top (E27a).
+
+## Plan: E25a = does Déjà View fail per class, beyond what depth, edges and viewing angle explain? (issue #25, 11.11.2026)
+- **Goal:** Peter's question on #25: if semantics matter, each class should fail in its own way and by its own
+  amount. Measure Déjà View's error per class, controlled for the geometry that makes any pixel hard, and say
+  how each class fails. Analysis only: no change to the method, the scorer or the backbones.
+- **Scenes:** Hypersim dev (3) + val (11) with its GT NYU40 classes (in domain); ETH3D's 13 scenes (out of domain)
+  with SAM 3's classes, as ETH3D has no labels. Déjà View K = 16, 20 views at 504 px, `rays: pinhole`, aligned by
+  the protocol's one Umeyama Sim(3) on the pixels (`align_output`). Matterport3D would give labelled out-of-domain
+  GT but needs an access request: not used.
+- **Per pixel:** error e = 3D distance of the aligned point to its own GT point; relative error r = e / GT depth.
+  Expected relative error r̂: the scene's mean r over all its GT pixels in the same cell of edge distance (E35's
+  bins: <= 1, 1-3, 3-10, > 10 px from a GT depth edge) x the scene's depth quartile x incidence angle of the GT
+  surface (cos <= 0.4, 0.4-0.7, > 0.7; normals from the GT point map). These are the three geometric reasons a
+  pixel is hard that have nothing to do with what the object is.
+- **Per class** (a class counts in a scene with >= 2000 px there, and in the table with >= 3 scenes):
+  - *Excess* = mean r / mean r̂ over the class's pixels, per scene; reported as the geometric mean over scenes with
+    the scenes' range. 1 = as hard as its geometry predicts.
+  - *Excess error* = the class's (e - ê) summed over its pixels, per pixel of the scene (cm): how much of the
+    scene's mean error the class adds beyond its geometry, i.e. the headroom a class-aware method could address.
+  - *How it fails:* share of its error within 3 px of a depth edge; cross-view gap (E35: pixel pairs the GT says
+    see one surface, |predicted - GT relative gap|, median), the scattered layers of E38; placement vs shape
+    (E35's per-instance scale + shift fit, share of the error it removes; object classes only, as Hypersim's
+    walls, floor and ceiling are one instance per class); the scorer's per-class accuracy and completeness.
+- **Do the classes differ? Rule, fixed before running:** statistic S = standard deviation over classes of the
+  per-class mean log excess. Null: per scene, the GT instances' class labels are permuted among the instances
+  (pixels, geometry and instance grouping stay), 1000 times. The classes differ if S lies above the null's 95th
+  percentile on dev + val together. A class is named as failing in its own way only if its excess is beyond
+  1.5x (or below 1/1.5) in at least 2/3 of its scenes.
+- **SAM 3's classes (calibration, then ETH3D):** per-view masks of `sam3image-nyu40-t0.3`, unlinked (a pixel's
+  class needs no identity), eroded by 3 px (pixels within 3 px of a change of mask id dropped, against leakage
+  across edges). On Hypersim, GT classes and SAM 3 classes are compared on the same pixels (SAM 3's eroded,
+  labelled ones), so only the labels differ: slope and correlation of SAM 3's per-class log excess against GT's
+  say how much label errors blur the differences. ETH3D: the same table, indoor and outdoor apart, with the share
+  of pixels SAM 3 labels (NYU40 prompts fit outdoor scenes badly; coarse by design).
+- **Checks before reading numbers:** the alignment scale reproduces the protocol's for each scene; r̂'s cells
+  reproduce the scene's mean r (excess over all pixels = 1 exactly); with a class map that is one class
+  everywhere, S = 0; the permutation null on a scene with shuffled labels already gives S inside its range.
+- **Figures:** per-class excess with the scenes as dots and the null band (Hypersim GT, Hypersim SAM 3, ETH3D);
+  SAM 3 vs GT excess per class; bedroom `ai_006_007` views 18, 0, 12, 6: image, GT class, relative error, and
+  r / r̂ on a shared log scale.
+- **Reading:** classes do not differ (S inside the null) -> Déjà View's error is geometry, not category, on
+  Hypersim; semantics can then only help through grouping (E8a), and per-class priors have no headroom. Classes
+  differ -> the excess-error column says which classes carry it and the failure columns say how.
+
+## E25a: Déjà View's error per class -> no class fails in its own way beyond its geometry, except glass (11.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned. The checks marked "after the first read" were
+  added after the results were seen and are not part of the plan's rule.
+- **Commits:** db8a898 (plan), 5eafda3 (`experiments/scripts/e25a_class_split.py`), this commit
+  (`e25a_figures.py`, `e25a_checks.py`, results, figures).
+- **Commands** (student cluster, CPU job 1838 on VC16, 8 cores, clean tree at 5eafda3, 3 min for both):
+  `e25a_class_split.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25a_hypersim --scales
+  runs/e8a_segments-20261110-130124/run.yaml` -> `results/e25a_hypersim.txt`; `--cfg configs/eval_eth3d.yaml
+  --out runs/e25a_eth3d --maps office` -> `results/e25a_eth3d.txt`; locally `e25a_checks.py runs/e25a_hypersim`
+  -> `results/e25a_checks.txt` and `e25a_figures.py runs/e25a_hypersim runs/e25a_eth3d`.
+- **Checks:** the alignment scale matches E8a's Déjà View on all 14 scenes to 1e-6; per scene, Σr̂ = Σr and
+  Σ(e - ê) = 0 (asserted). Not done: the plan's permutation check on a scene with shuffled labels.
+- **Hypersim, GT classes, dev + val (14 scenes; mean per-pixel error 17.0 cm, median 13.2):** excess Σr / Σr̂,
+  geometric mean over scenes (range), and excess error in cm per pixel of the scene:
+
+  | class (scenes) | excess | excess error cm | error share within 3 px of an edge | cross-view gap / scene's |
+  |---|---|---|---|---|
+  | window (3) | 2.23 (1.38-4.99) | +0.235 | 0.11 | 2.28 |
+  | otherstructure (10) | 1.17 (0.57-2.45) | +0.190 | 0.70 | 1.70 |
+  | lamp (10) | 1.13 (0.48-2.46) | -0.053 | 0.85 | 1.55 |
+  | wall (13) | 1.10 (0.88-2.45) | +0.290 | 0.43 | 0.78 |
+  | ceiling (10) | 0.98 (0.69-1.60) | -0.202 | 0.35 | 1.07 |
+  | table (10) | 0.86 (0.30-1.86) | +0.053 | 0.67 | 2.88 |
+  | chair (8) | 0.77 (0.55-1.32) | -0.069 | 0.68 | 1.38 |
+  | floor (13) | 0.73 (0.40-1.83) | -0.331 | 0.35 | 0.93 |
+  | sofa (6) | 0.64 (0.36-1.09) | -0.168 | 0.54 | 1.13 |
+
+  All 18 classes with >= 3 scenes, the object fit and the scorer's per-class scores are in
+  `results/e25a_hypersim.txt`. Only window passes the "beyond 1.5x the same way in >= 2/3 of its scenes" rule.
+  Within a class the scenes spread over a factor of 2-5 (lamp 0.48-2.46, table 0.30-1.86, door 0.10-2.12).
+- **Do the classes differ (the plan's rule):** S = 0.278 against the permutation null's 95th percentile 0.276
+  (median 0.191), p = 0.05: a pass by 0.002.
+- **After the first read** (`e25a_checks.py`): without window and mirror (glass, whose GT is the glass surface;
+  E35 set it apart) S = 0.192 against a null median 0.187, p = 0.45. Splitting the 14 scenes into random halves
+  1000 times, the per-class mean log excess of one half correlates with the other's at median 0.21 (5-95%: -0.14
+  to 0.67). The class differences besides glass do not reproduce across scenes.
+- **SAM 3's classes on Hypersim, same pixels as GT's (3 px eroded, 67% of the GT pixels kept):** slope 0.57,
+  correlation 0.57 of SAM 3's per-class mean log excess on GT's (13 classes); S = 0.249 with SAM 3's labels
+  against 0.183 with GT's. The plan expected wrong labels to blur class differences; they add spread instead
+  (fewer, noisier pixels per class). SAM 3's per-class spread is therefore an upper bound on the real one.
+- **ETH3D, SAM 3 classes (13 scenes; 64% of indoor and 40% of outdoor GT pixels labelled after erosion):** no
+  class worse than 1.5x the same way in >= 2/3 of its scenes except lamp indoors (3 scenes, 0.003 of the pixels).
+  Ceiling 1.25 (12 scenes, 0.70-2.56, +0.18 cm), wall 0.97, floor 0.84, door 0.77, sofa 0.59 (3 scenes). The
+  order matches Hypersim's where both have the class (wall and ceiling near 1, floor, door and sofa below).
+- **Figures:** `figures/e25a_class_excess.jpg`: per class the scenes as dots and the geometric mean as a bar,
+  Hypersim GT, Hypersim SAM 3, ETH3D; the permutation null with S; SAM 3 vs GT excess. `figures/e25a_bedroom.jpg`:
+  bedroom views 18, 0, 12, 6, image, GT class, r, r / r̂. In r / r̂, red and blue areas span class boundaries (the
+  right half of view 0's wall, the far wall of view 6), and one class can be red in one view and blue in the
+  next; the mirror in view 0 is the one region that is red as a whole.
+- **Conclusion:**
+  - Once a pixel's edge distance, depth and viewing angle are known, its class adds almost nothing about Déjà
+    View's error, in domain (Hypersim, GT classes) and, as far as SAM 3's classes show it, out of domain
+    (ETH3D). The one exception is glass: windows are 2.2x worse than their geometry, and how much of that is
+    Hypersim's GT definition (the glass surface) rather than Déjà View is not separable here.
+  - Classes that look worse or better than their geometry (lamp, otherstructure, floor, sofa) do so in some
+    scenes and not in others; the split halves do not agree on them.
+  - Headroom: the largest per-class excess error is +0.29 cm (wall) against a mean error of 17.0 cm. A
+    per-class correction could at most remove the positive part (about 0.8 cm summed over the classes, about
+    5%), and only where it is stable, which outside glass it is not.
+  - For the project: per-class priors on Déjà View's output have no headroom on these data. Semantics would have
+    to help through grouping or identity (which E8a found the refiner does not use either), not through what a
+    class is. Out of domain the answer is coarse: SAM 3 labels few classes outdoors, and no labelled
+    out-of-domain GT was used (Matterport3D needs an access request).
+
+## Plan: E25b = how much of Déjà View's error at depth edges could segments remove? An oracle bound (issue #25, 11.11.2026)
+- **Goal:** E25a found that a pixel's class says nothing about Déjà View's error beyond its geometry, so the
+  remaining route for semantics is boundaries: E35 put 42-48% of Déjà View's error on Hypersim within 3 px of a
+  GT depth edge. Bound what segments could do there, and whether that needs semantics or only depth edges.
+  Analysis only, on Déjà View's caches: no refiner, no change to the method, the scorer or the backbones.
+- **Scenes and protocol:** Hypersim dev (3) + val (11), Déjà View K = 16, 20 views at 504 px, `rays: pinhole`;
+  every output aligned onto the GT by the protocol's one Umeyama Sim(3) on its pixels (`align_output`) and
+  scored by `surface_metrics`. Glass is not set apart (it is in the scores the project reports).
+- **1. What the edge error is.** Band = GT pixels within 3 px of a GT depth edge (E35's edge definition:
+  relative jump > 5% to a 4-neighbour). For each band pixel with a GT pixel on the other surface within 3 px
+  (E35's `across_edge`), its GT depth z_g, the other surface's z_o and Déjà View's aligned depth z_p in the GT
+  camera give t = (z_p - z_g) / (z_o - z_g): t <= 0 away from the other surface, 0-0.25 near its own, 0.25-0.75
+  between the two (bleeding), > 0.75 on or past the other surface (the edge drawn in the wrong place). Report
+  each bin's pixel share and share of the band's error. A plain offset is symmetric around t = 0, so bleeding
+  and misplaced edges show as mass in the last two bins beyond what t <= 0 mirrors.
+- **2. Oracle snap.** Per view and segment, pixels within BAND = 3 px of a change of segment id are snapped;
+  pixels farther in are the segment's interior. A snapped pixel's inverse depth is replaced by a plane in
+  inverse depth over pixel coordinates (exact for a plane seen by a pinhole), least squares on Déjà View's
+  inverse depth at the same segment's interior pixels within a 31 x 31 px window around it; with fewer than
+  MIN_FIT = 30 such pixels, or a non-positive fit, the pixel keeps Déjà View's depth. Pixels without a segment
+  are never snapped. Constants fixed here, not tuned.
+- **Segment sources** (one variant each, plus Déjà View unchanged):
+  - *GT instances* (Hypersim's; walls, floors and ceilings one instance per class, E29): semantic oracle.
+  - *GT depth components*: connected components of the GT pixels after removing GT depth-edge pixels, each
+    edge pixel given its nearest component: knows exactly where the depth edges are, no semantics.
+  - *SAM 3*: the linked masks of the protocol (`sam3image-nyu40-t0.3`, working association).
+  - *Déjà View depth components*: the same components on Déjà View's own depth and edges: realistic, no
+    semantics.
+- **Scores per variant:** mean per-pixel error (3D distance to its own GT point) over all pixels and in the GT
+  band, the share of Déjà View's band error removed, accuracy / completeness / Chamfer, snapped pixel share;
+  split means over scenes, and per scene for the count of scenes a variant improves.
+- **Checks:** with zero snapped pixels the output is Déjà View bit for bit; on a synthetic plane seen by a
+  pinhole the fit returns its inverse depth exactly; the Déjà View row reproduces E8a's scores (same alignment).
+- **Reading, fixed before running:**
+  - GT instances remove little of the band error (< 10%) -> segments have no headroom at edges on these data;
+    the boundary route is closed too -> bring to Umut and Robin.
+  - GT instances remove much, GT depth components as much (within 0.05 cm Chamfer, or fewer than 2/3 of the
+    scenes in favour of instances) -> the headroom is in knowing the edges, not in semantics: any segmentation
+    that follows depth edges does it.
+  - GT instances beat GT depth components on Chamfer by more than 0.05 cm in >= 2/3 of the scenes -> semantic
+    grouping adds over depth edges; then SAM 3 against GT instances says whether SAM 3 is the bottleneck, and SAM
+    3 against Déjà View depth components whether it beats the realistic geometric alternative.
+- **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, Déjà View's error, and the error after each snap
+  on one shared scale (cm), plus the t histogram of the band.
+
+## E25b: segments at Déjà View's depth edges -> GT instances remove 19% of the edge error, GT depth edges alone 12%, SAM 3 4%; Chamfer barely sees it (11.11.2026)
+- **Goal, setting:** as in the plan above, with two changes to the snap made after looking at results (both
+  explained in their commit bodies, both applied to all four sources):
+  1. *Clamp* (346307a, after the first dev run): unclamped, 0.1-0.5% of the snapped pixels moved by more than 2x
+     (up to 464x), the protocol's least-squares Sim(3) followed them and every pixel of the scene moved (SAM 3:
+     dev mean error 14.6 -> 18.9 cm, Chamfer 3.48 -> 6.53). A fit now stays within its interior pixels'
+     inverse-depth range widened by its own ratio. As-planned dev numbers: `results/e25b_dev_unclamped.txt`
+     (4e6aa0b).
+  2. *Connected pieces* (f36e368, after the first val run, so val is not an untouched check for E25b): with GT
+     instances three val scenes still dragged the Sim(3). Hypersim's walls are one instance, so every segment is
+     now split into its 4-connected pieces per view. This did not fix them (val GT-instance Chamfer 9.95 before,
+     9.93 after; `results/e25b_hypersim_unsplit.txt`). The cause, seen afterwards on ai_004_010 view 10: Déjà
+     View draws the near wall's edge about 100 px left of the GT's, so the far wall's interior holds Déjà View's
+     own 10 -> 2.4 m jump and the plane through it extrapolates to 32 m. No third change was made; the three
+     scenes are reported both ways below.
+- **Commits:** 190a125 (plan), 4e6aa0b (`experiments/scripts/e25b_boundary_oracle.py`), 346307a (clamp),
+  f36e368 (pieces), this commit (`e25b_figures.py`, results, figures).
+- **Commands** (student cluster, CPU job 2045, 8 cores, clean tree at f36e368, 6 min):
+  `e25b_boundary_oracle.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25b --check
+  runs/e8a_segments-20261110-130124/run.yaml` -> `results/e25b_hypersim.txt`; locally `e25b_figures.py runs/e25b`.
+- **Checks:** the snap returns its input bit for bit with no segment and with one segment, and recovers a plane
+  seen by a pinhole to 1e-9 next to a segment edge; the pieces of one id get separate ids (asserted on every run).
+  Déjà View's alignment scale and Chamfer reproduce E8a's on all 14 scenes to the printed digits.
+- **1. What Déjà View's edge error is** (14 scenes): the band (<= 3 px from a GT depth edge) is 13.5% of the GT
+  pixels and carries 42% of the mean per-pixel error (52.96 cm in the band, 17.01 cm overall; E35: 42-48%). For
+  the 80% of band pixels with a surface across the edge within 3 px, by t (0 = own surface, 1 = the other):
+
+  | t | pixels | error |
+  |---|---|---|
+  | away (<= 0) | 0.31 | 0.09 |
+  | own (0-0.25) | 0.37 | 0.09 |
+  | between (0.25-0.75): bleeding | 0.16 | 0.18 |
+  | other (> 0.75): the edge in the wrong place | 0.17 | 0.64 |
+
+  Déjà View's edge error is mostly pixels that take the depth of the surface across the edge (thin parts merged
+  into the background, edges drawn a few px off, in ai_004_010 about 100 px), less depth smeared between the two
+  surfaces. "Away" and "own" carry similar shares, as a plain offset would.
+- **2. Oracle snap,** means over scenes; removed = 1 - band error / Déjà View's, per scene. "11" = without
+  ai_004_010, ai_009_009 and ai_031_004, where a snap moved the alignment scale by more than 1% (GT instances on
+  all three, GT depth components on ai_009_009); this cut was chosen after looking:
+
+  | variant | snapped px | band error cm (14 / 11) | removed (14 / 11) | Chamfer cm (14 / 11) | Chamfer lower than Déjà View's by > 0.05 cm, scenes of 14 |
+  |---|---|---|---|---|---|
+  | Déjà View | 0 | 52.96 / 50.25 | - | 4.758 / 3.975 | - |
+  | GT instances | 0.24 | 51.84 / 41.81 | -0.07 / 0.19 | 8.523 / 3.849 | 2 |
+  | GT depth components | 0.19 | 47.80 / 45.17 | 0.11 / 0.12 | 4.523 / 3.788 | 2 |
+  | SAM 3 | 0.26 | 50.64 / 48.12 | 0.04 / 0.04 | 4.774 / 4.008 | 3 |
+  | Déjà View depth components | 0.16 | 54.57 / 51.66 | -0.04 / -0.04 | 4.755 / 3.998 | 2 |
+
+  Dev alone (3 scenes, none dragged): removed 0.30 / 0.12 / 0.04 / -0.04 in the order of the table, Chamfer
+  3.479 -> 3.374 / 3.469 / 3.417 / 3.491. Val, 8 undragged scenes: removed 0.14 / 0.12 / 0.04 / -0.04. Accuracy
+  and completeness are in `results/e25b_hypersim.txt`.
+- **Pairs on the 11 undragged scenes** (band error lower in, mean a - b; Chamfer lower by > 0.05 cm in, mean
+  a - b): GT instances vs GT depth components 8/11, -3.36 cm; 2/11, +0.061 cm. SAM 3 vs Déjà View depth
+  components 11/11, -3.55 cm; 2/11, +0.010 cm. SAM 3 vs GT instances 1/11, +6.31 cm; 3/11, +0.159 cm.
+- **Figures:** `figures/e25b_scores.jpg`: per scene each snap's change of band error and of Chamfer against
+  Déjà View on one cm axis (the dragged scenes as x), and the t split above. `figures/e25b_bedroom.jpg`: bedroom
+  views 18, 0, 12, 6: image, Déjà View's t in the band, the error of Déjà View and of each snap on one 0-30 cm
+  scale. GT instances clear most of the bed frame and chair legs (red t: merged into the background); SAM 3
+  changes little; Déjà View's own components follow its blurred edges and add errors along them.
+- **Reading (the plan's rule):** GT instances remove more than 10% of the band error on the undragged scenes
+  (0.19; dev 0.30, val 0.14), so segments have headroom at edges by the per-pixel error. GT depth components,
+  which know only where the depth edges are, remove 0.12, and GT instances beat them on Chamfer in 2 of 14
+  scenes, below the plan's 2/3: by the rule the headroom is in knowing the edges, not in semantics. By the band
+  error itself semantics add some on dev (0.30 vs 0.12) and little on val (0.14 vs 0.12).
+- **Conclusion:**
+  - Two-thirds of Déjà View's edge error is pixels that sit on the surface across the edge; under a fifth is
+    bleeding. Snapping a segment's border onto its interior removes about a fifth of the edge error with perfect
+    instances, an eighth with perfect depth edges and 4% with SAM 3; Déjà View's own depth edges make it worse.
+  - Chamfer does not see this error: on the 11 scenes GT instances cut the band error by 8.4 cm and Chamfer by
+    0.13 cm. A point that takes the depth of the surface behind it still lies on a GT surface, so accuracy does
+    not punish it, and other views cover the surface it left. For #32 (which metric decides): a boundary method
+    can only show its gain in a per-pixel or own-view metric.
+  - A local snap cannot repair an edge that Déjà View misplaces by more than the band, and a plane fitted across
+    Déjà View's own jump inside a segment broke the protocol's alignment on 3 of 11 val scenes. A boundary
+    method on Déjà View's depth has to expect the wrong edge inside a segment.
+  - For the project: the boundary route is open only narrowly. Its oracle headroom is about 8% of the mean
+    per-pixel error (a fifth of the 42% at edges), most of it reachable without semantics; SAM 3 reaches a fifth
+    of it, and the headline metric does not see it. To bring to Umut and Robin together with E25a.
