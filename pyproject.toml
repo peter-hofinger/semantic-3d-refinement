@@ -37,6 +37,7 @@ hypersim-prepare = "src.loaders.hypersim.prepare:main"
 eth3d-download = "src.loaders.eth3d.download:main"
 eth3d-prepare = "src.loaders.eth3d.prepare:main"
 kitti360-prepare = "src.loaders.kitti360.prepare:main"
+tanksandtemples-prepare = "src.loaders.tanksandtemples.prepare:main"
 run-pipeline = "src.pipeline:main"
 dejaview-predict = "src.backbone.dejaview:main"
 segvggt-predict = "src.backbone.segvggt:main"
@@ -143,8 +144,9 @@ ignore = [
 "src/analysis/*.py" = [
     "E501",     # figure captions, slide text and README tables as long f-strings
 ]
-# the ETH3D and KITTI-360 loaders state their calibration and depth contracts the same way
-"src/loaders/{eth3d,kitti360}/*.py" = [
+# the ETH3D, KITTI-360 and Tanks and Temples loaders state their calibration and depth
+# contracts the same way
+"src/loaders/{eth3d,kitti360,tanksandtemples}/*.py" = [
     "S101",     # contract asserts
 ]
 "src/loaders/kitti360/*.py" = [
