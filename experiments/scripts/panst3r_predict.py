@@ -10,11 +10,17 @@ does; its point maps (global frame) and panoptic ids come back to 504 x 378 by n
 neighbour, so no point is interpolated across a depth edge. A segment's score, which v2
 does not output, is its mean mask confidence.
 
+PanSt3R freezes MUSt3R_512_cvpr (its encoder and decoder weights equal that checkpoint's
+bit for bit, in v1 and v2). Given a MUSt3R checkpoint as a fourth argument, its decoder
+replaces that one, e.g. MUSt3R_512, fine-tuned from it on 20-view memories and more
+data, some Hypersim scenes among them. The panoptic head was trained on the CVPR
+decoder's features, so that is no longer PanSt3R as released.
+
 Writes `<out>`: points (V, H, W, 3), confidence (V, H, W), instance_ids (V, H, W) with
 -1 for none, class_ids / class_names / scores per instance, seconds.
 
 data/third_party/panst3r/.venv/bin/python experiments/scripts/panst3r_predict.py \
-    <views.npz> <checkpoint> <out.npz>
+    <views.npz> <checkpoint> <out.npz> [<must3r checkpoint>]
 """
 
 import sys
@@ -63,6 +69,9 @@ def main() -> None:
     toggle_memory_efficient_attention(enabled=has_xformers)
     model = PanSt3R.from_checkpoint(str(weights))
     model.panoptic_decoder.text_encoder.change_mode(fixed_vocab=False)
+    if len(sys.argv) > 4:
+        must3r = torch.load(sys.argv[4], map_location="cpu", weights_only=False)
+        model.must3r_decoder.load_state_dict(must3r["decoder"])
     model = model.eval().to(device)
     resize, _, _ = get_resize_function(SIZE, model.must3r_encoder.patch_size, h, w)
     imgs = [resize(ImgNorm(Image.fromarray(im))).to(device) for im in images]

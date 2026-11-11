@@ -10,7 +10,7 @@ themselves against Hypersim's, in that same alignment: rotation (deg), center (c
 focal length (%), median over the 20 views.
 
 Given PanSt3R's prediction (`panst3r_predict.py`) it is scored too, with its own
-points and labels; every other row is labeled by the linked SAM 3 masks. The labels are
+points and labels, and so is a second one with MUSt3R_512's decoder swapped in; every other row is labeled by the linked SAM 3 masks. The labels are
 scored per pixel, apart from the geometry, so mIoU, PQ and AP compare only the labels
 and accuracy, completeness and Chamfer only the geometry.
 
@@ -21,7 +21,7 @@ Bedroom only, no dev or val: a look, not a result.
   views: ground truth, linked SAM 3, PanSt3R.
 
 uv run python experiments/scripts/ray_refinement_bedroom.py runs/ray_refinement \
-    [runs/panst3r/ai_006_007_cam_00.npz]
+    [runs/panst3r/ai_006_007_cam_00.npz [runs/panst3r/ai_006_007_cam_00_must3r512.npz]]
 """
 
 import dataclasses
@@ -61,6 +61,8 @@ from src.refinement.multiview import (
 )
 from src.segmentation.base import Segmentation
 
+# PanSt3R's predictions, in the order given: as released, then with MUSt3R_512's decoder
+PANST3R = ("PanSt3R v2", "PanSt3R v2, MUSt3R_512 decoder")
 CAMERA_KEYS = ("rotation_deg", "center_cm", "focal_pct")
 CONFIG = Path("experiments/configs/e27a.yaml")
 VARIANTS = {
@@ -225,14 +227,15 @@ def main() -> None:
         report["variants"][name] = row | {"seconds": seconds, "energy": log[-1:]}
         print_row(name, row, seconds)
     panst3r = None
-    if len(sys.argv) > 2:
-        points, panst3r, seconds = load_panst3r(Path(sys.argv[2]))
-        scores = score_output(inputs.truth, points, panst3r, evaluated)
+    for path, name in zip(sys.argv[2:], PANST3R, strict=False):
+        points, labels, seconds = load_panst3r(Path(path))
+        panst3r = panst3r or labels
+        scores = score_output(inputs.truth, points, labels, evaluated)
         align = scores.pop("align")
-        clouds["PanSt3R v2"] = points @ align[:3, :3].T + align[:3, 3]
+        clouds[name] = points @ align[:3, :3].T + align[:3, 3]
         row = {k: float(scores[k]) for k in HEADLINE}
-        report["variants"]["PanSt3R v2"] = row | {"seconds": seconds}
-        print_row("PanSt3R v2", row, seconds)
+        report["variants"][name] = row | {"seconds": seconds}
+        print_row(name, row, seconds)
     (out / "scores.yaml").write_text(yaml.safe_dump(report, allow_unicode=True))
     render(inputs, clouds, out)
     if panst3r is not None:
