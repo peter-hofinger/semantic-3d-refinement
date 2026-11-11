@@ -209,7 +209,7 @@ def test_config_rejects_scene_in_two_splits(tmp_path: Path) -> None:
     path.write_text(
         "data_root: d\nmetadata_root: m\noutput_root: o\nsplits:\n"
         "  dev: {ai_v_plain: cam_00}\n  val: {ai_v_plain: cam_01}\n"
-        "  test: {}\n  stress: {}\n  train: {}\n",
+        "  test: {}\n  stress: {}\n  train: {}\n  train_extra: {}\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="more than one split"):

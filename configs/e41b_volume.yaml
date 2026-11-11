@@ -1,0 +1,26 @@
+# E41b (issue #41, src/refinement/volume.py, volume-refine): E41a's volumetric refiner, scaled up: all 153
+# centred train scenes (train + train_extra), a 128-cell grid, wider U-Net, more steps, each step's grid built
+# from a random subset of 8-20 views, two seeds per model. Written for dev and val, scored by
+# experiments/configs/e41b_<model>.yaml. The three models differ only in the classes they see.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml
+train_splits: [train, train_extra]
+held_out: 8                          # last train scenes: error, and the kept step (least error)
+predict_splits: [dev, val]
+models:                              # name -> classes it sees: none, sam3 (per-view masks), gt (Hypersim)
+  volume-none: none
+  volume-sam3: sam3
+  volume-gt: gt
+resolution: 128      # cells along the scene box's longest side
+widths: [32, 64, 128]
+head: 128
+steps: 20000
+batch_points: 200000
+kept_points: 400000  # pixels per held-out scene the error is reported on
+view_subset: [8, 20]
+amp: true
+lr: 1.0e-3
+seeds: [0, 1]
