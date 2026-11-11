@@ -1,0 +1,17 @@
+# Vehicles and their parts for E45b's Tanks and Temples scenes (Truck, Caterpillar), one
+# SAM 3 prompt each, used after nyu40.txt, whose door, window, mirror and lamp are not
+# repeated. Written from the photos before any SAM 3 mask or Déjà View output of these
+# scenes was seen; not tuned afterwards. `ground` stands in for nyu40's floor outdoors.
+truck
+bulldozer
+wheel
+tire
+bumper
+headlight
+windshield
+grille
+hood
+wooden board
+ladder
+bucket
+ground

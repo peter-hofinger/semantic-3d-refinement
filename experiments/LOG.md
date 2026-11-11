@@ -4276,3 +4276,11 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
     the meeting room's plants, where neighbouring pixels alternate between leaves (view 000001: one
     region of edges). The step and the plane rule differ little, as no large plane is seen at a grazing
     angle. Windows have no GT (glass); the ground around Caterpillar is mostly outside its scan.
+- **SAM 3's prompts, fixed 12.11 with Mircea before any mask or Déjà View output of these scenes:**
+  `configs/prompts/nyu40.txt` (the protocol's list) followed by `configs/prompts/vehicle_parts.txt`, 13
+  prompts written from the photos: truck, bulldozer, wheel, tire, bumper, headlight, windshield, grille,
+  hood, wooden board, ladder, bucket, ground. One list for all three scenes, so the meeting room gets
+  the vehicle prompts too. NYU40 alone names almost nothing on a truck or a loader. The list is a
+  choice of ours and is not changed after the masks are seen. Inputs: `configs/eval_tanksandtemples.yaml`
+  (`sam3image-nyu40+vehicle_parts-t0.3`), run on the group's RTX 3080 server, as the cluster's queue
+  held 31 pending jobs.
