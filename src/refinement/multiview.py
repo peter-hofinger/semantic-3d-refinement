@@ -1,4 +1,4 @@
-"""Joint refinement of all views by Gauss-Newton: the method in `Claude.md`.
+"""Joint refinement of all views by Gauss-Newton: the default refiner.
 
 Cameras stay fixed: Déjà View's, each with the pinhole fitted to its rays
 (`fit_pinhole`). All views share one normalization, d_i = s / D_i with s the scene's
