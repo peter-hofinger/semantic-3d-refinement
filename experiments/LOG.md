@@ -85,6 +85,7 @@ Metrics:
 | E20a | MoGe-3's depth fitted onto Deja View's in inverse depth, per view, per SAM 3 segment or per GT instance (issue #20) | no variant beats Deja View (val Chamfer 5.102 vs 6.192 / 5.196 / 5.142); per segment gains on completeness, loses more on accuracy; MoGe-3 alone has 2.7-6.6x Deja View's median depth error per scene |
 | E41a | All views fused into one 64-cell voxel grid, a 3D U-Net and a per-pixel depth residual, without / with SAM 3 / with GT classes, 35 train scenes (issue #41) | worse than Deja View (val Chamfer 5.47 / 5.32 / 5.54 vs 5.10): held-out error rises after step 300, it overfits; SAM 3 classes ahead of none |
 | E41b | E41a on 136 train scenes, 128-cell grid, 20k steps, view-subset augmentation, best held-out step, 2 seeds (issue #41) | close to Deja View but not better on val (5.24 / 5.29 / 5.25 vs 5.10, seed means); dev SAM 3 3.41 vs 3.50; class effects within seed noise |
+| E25a | Déjà View's error per class over what its pixels' edge distance, depth and incidence angle predict; Hypersim dev + val with GT classes, SAM 3's classes on Hypersim and ETH3D (issue #25) | no class fails in its own way except glass (window 2.23x its geometry); S passes the permutation test by 0.002 (p = 0.05), without window and mirror p = 0.45; split halves agree at median r = 0.21; largest per-class excess error +0.29 cm of 17.0; SAM 3's labels add spread (S 0.249 vs 0.183 on the same pixels) |
 
 ## Reference table (current scorer, E11)
 
@@ -3730,3 +3731,67 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
 - **Reading:** classes do not differ (S inside the null) -> Déjà View's error is geometry, not category, on
   Hypersim; semantics can then only help through grouping (E8a), and per-class priors have no headroom. Classes
   differ -> the excess-error column says which classes carry it and the failure columns say how.
+
+## E25a: Déjà View's error per class -> no class fails in its own way beyond its geometry, except glass (11.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned. The checks marked "after the first read" were
+  added after the results were seen and are not part of the plan's rule.
+- **Commits:** db8a898 (plan), 5eafda3 (`experiments/scripts/e25a_class_split.py`), this commit
+  (`e25a_figures.py`, `e25a_checks.py`, results, figures).
+- **Commands** (student cluster, CPU job 1838 on VC16, 8 cores, clean tree at 5eafda3, 3 min for both):
+  `e25a_class_split.py --cfg configs/eval_hypersim.yaml --splits dev val --out runs/e25a_hypersim --scales
+  runs/e8a_segments-20261110-130124/run.yaml` -> `results/e25a_hypersim.txt`; `--cfg configs/eval_eth3d.yaml
+  --out runs/e25a_eth3d --maps office` -> `results/e25a_eth3d.txt`; locally `e25a_checks.py runs/e25a_hypersim`
+  -> `results/e25a_checks.txt` and `e25a_figures.py runs/e25a_hypersim runs/e25a_eth3d`.
+- **Checks:** the alignment scale matches E8a's Déjà View on all 14 scenes to 1e-6; per scene, Σr̂ = Σr and
+  Σ(e - ê) = 0 (asserted). Not done: the plan's permutation check on a scene with shuffled labels.
+- **Hypersim, GT classes, dev + val (14 scenes; mean per-pixel error 17.0 cm, median 13.2):** excess Σr / Σr̂,
+  geometric mean over scenes (range), and excess error in cm per pixel of the scene:
+
+  | class (scenes) | excess | excess error cm | error share within 3 px of an edge | cross-view gap / scene's |
+  |---|---|---|---|---|
+  | window (3) | 2.23 (1.38-4.99) | +0.235 | 0.11 | 2.28 |
+  | otherstructure (10) | 1.17 (0.57-2.45) | +0.190 | 0.70 | 1.70 |
+  | lamp (10) | 1.13 (0.48-2.46) | -0.053 | 0.85 | 1.55 |
+  | wall (13) | 1.10 (0.88-2.45) | +0.290 | 0.43 | 0.78 |
+  | ceiling (10) | 0.98 (0.69-1.60) | -0.202 | 0.35 | 1.07 |
+  | table (10) | 0.86 (0.30-1.86) | +0.053 | 0.67 | 2.88 |
+  | chair (8) | 0.77 (0.55-1.32) | -0.069 | 0.68 | 1.38 |
+  | floor (13) | 0.73 (0.40-1.83) | -0.331 | 0.35 | 0.93 |
+  | sofa (6) | 0.64 (0.36-1.09) | -0.168 | 0.54 | 1.13 |
+
+  All 18 classes with >= 3 scenes, the object fit and the scorer's per-class scores are in
+  `results/e25a_hypersim.txt`. Only window passes the "beyond 1.5x the same way in >= 2/3 of its scenes" rule.
+  Within a class the scenes spread over a factor of 2-5 (lamp 0.48-2.46, table 0.30-1.86, door 0.10-2.12).
+- **Do the classes differ (the plan's rule):** S = 0.278 against the permutation null's 95th percentile 0.276
+  (median 0.191), p = 0.05: a pass by 0.002.
+- **After the first read** (`e25a_checks.py`): without window and mirror (glass, whose GT is the glass surface;
+  E35 set it apart) S = 0.192 against a null median 0.187, p = 0.45. Splitting the 14 scenes into random halves
+  1000 times, the per-class mean log excess of one half correlates with the other's at median 0.21 (5-95%: -0.14
+  to 0.67). The class differences besides glass do not reproduce across scenes.
+- **SAM 3's classes on Hypersim, same pixels as GT's (3 px eroded, 67% of the GT pixels kept):** slope 0.57,
+  correlation 0.57 of SAM 3's per-class mean log excess on GT's (13 classes); S = 0.249 with SAM 3's labels
+  against 0.183 with GT's. The plan expected wrong labels to blur class differences; they add spread instead
+  (fewer, noisier pixels per class). SAM 3's per-class spread is therefore an upper bound on the real one.
+- **ETH3D, SAM 3 classes (13 scenes; 64% of indoor and 40% of outdoor GT pixels labelled after erosion):** no
+  class worse than 1.5x the same way in >= 2/3 of its scenes except lamp indoors (3 scenes, 0.003 of the pixels).
+  Ceiling 1.25 (12 scenes, 0.70-2.56, +0.18 cm), wall 0.97, floor 0.84, door 0.77, sofa 0.59 (3 scenes). The
+  order matches Hypersim's where both have the class (wall and ceiling near 1, floor, door and sofa below).
+- **Figures:** `figures/e25a_class_excess.jpg`: per class the scenes as dots and the geometric mean as a bar,
+  Hypersim GT, Hypersim SAM 3, ETH3D; the permutation null with S; SAM 3 vs GT excess. `figures/e25a_bedroom.jpg`:
+  bedroom views 18, 0, 12, 6, image, GT class, r, r / r̂. In r / r̂, red and blue areas span class boundaries (the
+  right half of view 0's wall, the far wall of view 6), and one class can be red in one view and blue in the
+  next; the mirror in view 0 is the one region that is red as a whole.
+- **Conclusion:**
+  - Once a pixel's edge distance, depth and viewing angle are known, its class adds almost nothing about Déjà
+    View's error, in domain (Hypersim, GT classes) and, as far as SAM 3's classes show it, out of domain
+    (ETH3D). The one exception is glass: windows are 2.2x worse than their geometry, and how much of that is
+    Hypersim's GT definition (the glass surface) rather than Déjà View is not separable here.
+  - Classes that look worse or better than their geometry (lamp, otherstructure, floor, sofa) do so in some
+    scenes and not in others; the split halves do not agree on them.
+  - Headroom: the largest per-class excess error is +0.29 cm (wall) against a mean error of 17.0 cm. A
+    per-class correction could at most remove the positive part (about 0.8 cm summed over the classes, about
+    5%), and only where it is stable, which outside glass it is not.
+  - For the project: per-class priors on Déjà View's output have no headroom on these data. Semantics would have
+    to help through grouping or identity (which E8a found the refiner does not use either), not through what a
+    class is. Out of domain the answer is coarse: SAM 3 labels few classes outdoors, and no labelled
+    out-of-domain GT was used (Matterport3D needs an access request).
