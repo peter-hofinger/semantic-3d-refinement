@@ -4026,3 +4026,29 @@ Unrelated to E45 (the filters of issue #27): the id follows issue #45.
     parts of this plan (the t split, the oracle snaps, their reading rule) are dropped here and go to Tanks
     and Temples as E45b, whose laser scans are dense (2 mm) and hold the thin parts Umut named. Not tried: removing outlying
     points from the GT (another choice stacked on the GT; it would not help cars or vegetation).
+- **The plan as it stands after the split, fixed 11.11 before any Déjà View output on KITTI-360** (it
+  replaces the Run / What is reported / Reading bullets above where they name E25b):
+  - *Run:* Déjà View K = 16, `rays: pinhole`, one Umeyama Sim(3) on the pixels, then
+    `e25a_class_split.py --cfg configs/eval_kitti360.yaml --edges plane` with its constants as committed.
+    SAM 3 image mode, t0.3, per view and unlinked (as E25a), prompted with `configs/prompts/kitti360.txt`:
+    the 18 Cityscapes classes KITTI-360 evaluates, without sky. Scored classes (`VOCABULARIES["kitti360"]`):
+    every class KITTI-360 labels but sky, prompted or not. Groups: country (drive 0003, 7 scenes), town
+    (0010, 17), all.
+  - *Edge rule:* the edge-distance cell and the "error share at edges" column use the plane rule on
+    KITTI-360 (`--edges plane`; the step rule marks the far road). So that the comparison with E25a is like
+    for like, Hypersim dev + val is rerun under the plane rule and reported next to E25a's step-rule numbers.
+    `--edges step` (the default) is E25a as committed: on the dev scenes it reprints E25a's GT-class table
+    digit for digit (laptop, from db57fe0 + this change).
+  - *Reported:* E25a's tables per group (excess Σr / Σr̂ with its range, scenes beyond 1.5x, excess error in
+    cm, error share within 3 px of an edge, cross-view gap, object fit, accuracy / completeness), S against
+    the permutation null, SAM 3's classes against GT's on the same pixels; next to Hypersim's E25a numbers.
+  - *Reading:* E25a's rule, unchanged (first Reading bullet above). The second, on the band error, is E45b's.
+  - *Check of the incidence-angle cell* (`experiments/scripts/e45a_incidence_check.py` on all 24 scenes ->
+    `results/e45a_incidence_check.txt`, `figures/e45a_incidence_check.jpg`): the normals of the filled GT
+    are sane: road, sidewalk, terrain and parking are 74-79% at |cos| <= 0.4 and 1-2% above 0.7, poles and
+    traffic signs 14-20% above 0.7, buildings spread over all three bins; in the figure the road is dark,
+    trunks are bright and the facade along the road lies between. 20% of the GT pixels have no normal (a
+    4-neighbour without GT; their own bin, as on Hypersim), 40-47% for poles.
+  - *Limit this adds:* 69% of all GT pixels fall into one angle bin and the road alone is half the GT, so
+    the road's expected error is largely its own mean: its excess is near 1 by construction, and the test
+    has power only for the smaller classes (car, pole, vegetation, building), which are the ones asked about.
