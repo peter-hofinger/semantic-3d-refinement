@@ -1,0 +1,22 @@
+# KITTI-360's evaluated classes (the Cityscapes 19 of kitti360Scripts' labels.py, MIT),
+# one SAM 3 prompt each. Left out: sky, which has no ground-truth geometry. The other
+# labelled classes (parking, guard rail, lamp, trash bin, ...) are not prompted and
+# still count in the scores.
+road
+sidewalk
+building
+wall
+fence
+pole
+traffic light
+traffic sign
+vegetation
+terrain
+person
+rider
+car
+truck
+bus
+train
+motorcycle
+bicycle

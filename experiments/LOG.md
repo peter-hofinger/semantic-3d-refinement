@@ -87,6 +87,8 @@ Metrics:
 | E41b | E41a on 136 train scenes, 128-cell grid, 20k steps, view-subset augmentation, best held-out step, 2 seeds (issue #41) | close to Deja View but not better on val (5.24 / 5.29 / 5.25 vs 5.10, seed means); dev SAM 3 3.41 vs 3.50; class effects within seed noise |
 | E25a | Déjà View's error per class over what its pixels' edge distance, depth and incidence angle predict; Hypersim dev + val with GT classes, SAM 3's classes on Hypersim and ETH3D (issue #25) | no class fails in its own way except glass (window 2.23x its geometry); S passes the permutation test by 0.002 (p = 0.05), without window and mirror p = 0.45; split halves agree at median r = 0.21; largest per-class excess error +0.29 cm of 17.0; SAM 3's labels add spread (S 0.249 vs 0.183 on the same pixels) |
 | E25b | Oracle bound for segments at Déjà View's depth edges: where edge pixels sit between the two surfaces, and each segment's border snapped onto a plane fitted inside it (GT instances, GT depth edges, SAM 3, Déjà View's depth edges); Hypersim dev + val (issue #25) | 64% of the edge error is pixels on the surface across the edge, 18% bleeding; GT instances remove 19% of it (11 undragged scenes), GT depth edges 12%, SAM 3 4%, Déjà View's edges -4%; instances beat depth edges on Chamfer in 2/14 scenes -> the headroom is edges, not semantics; Chamfer moves 0.13 cm for an 8.4 cm drop in edge error; snaps dragged the Sim(3) on 3 val scenes |
+| E45a | E25a out of domain: Déjà View's error per class on 24 KITTI-360 scenes (2 drives), plane-rule edges, GT up to 80 m (cap chosen after the first run); Hypersim rerun under the plane rule (issue #45; unrelated to E45) | poles alone fail beyond their geometry (1.80x, 14 of 18 scenes), cars 1.33 and vegetation 1.15 do not; headroom 2.06 cm of a 296 cm mean error; S misses the permutation test by 0.002 (p = 0.054); SAM 3's eroded masks keep no pole class; scene-wide error 14% of depth (median) against 3.4% on Hypersim: depth compressed beyond 80 m (uncapped, the Sim(3) inflates the near scene 1.02-1.37x and the error is 34%), focal length 2-25% short; Hypersim under the plane rule repeats E25a (p 0.041 vs 0.050) |
+| E45b | E25b out of domain: Déjà View's error at depth edges and three oracle snaps on Tanks and Temples (Truck, Caterpillar, Meeting room; laser GT rendered by our loader, camera fitted to the scans: f = 0.605 W, k1 = -0.04), plane-rule edges, Sim(3) fitted on interior pixels (chosen after the protocol's failed); Hypersim rerun under the plane rule and under that alignment (issue #45; unrelated to E45) | the protocol's Sim(3) fails: under 1% of the GT pixels, at the scan's border where Déjà View shows the far background, shrink Truck to 0.54 and Caterpillar to 0.25 of the GT (41% and 52% error; interior fit: 8.8% and 13.0% mean, 2.6% and 5.9% median); the edge error is the same kind as on Hypersim (pixels on the surface across the edge 53-78% of it, bleeding 6-11%); perfect depth edges remove 9%, 12% and 3% of the edge-band error, SAM 3 3%, 10% and -1%, Déjà View's own edges make it worse; outdoors half of Déjà View's error lies in the 3 px along the object's outline, where knowing the outline removes 39-44% and Chamfer falls 8.2 -> 5.6 and 18.3 -> 12.1 cm (SAM 3: 10-23%, 7.5 and 14.7 cm); Hypersim under the plane rule repeats E25b, and with the fixed alignment GT instances remove 16% on all 14 scenes |
 
 ## Reference table (current scorer, E11)
 
@@ -4000,3 +4002,511 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   - For the project: the boundary route is open only narrowly. Its oracle headroom is about 8% of the mean
     per-pixel error (a fifth of the 42% at edges), most of it reachable without semantics; SAM 3 reaches a fifth
     of it, and the headline metric does not see it. To bring to Umut and Robin together with E25a.
+
+## Plan: E45a = Déjà View's error per class and at depth edges on KITTI-360, out of domain (issue #45, 11.11.2026)
+Unrelated to E45 (the filters of issue #27): the id follows issue #45.
+- **Goal:** E25a and E25b answered "does a class fail in its own way" and "what could segments do at depth
+  edges" on Hypersim, where Déjà View is in domain, and on ETH3D with SAM 3's classes only. Umut's examples are
+  outdoor objects (cars, trees, poles, a wheel with holes). Rerun both analyses unchanged on out-of-domain scenes
+  that have GT classes and instances. Analysis only: no change to the method, the scorer or the backbones.
+  Tanks and Temples (Truck, Caterpillar, Meeting room; laser GT, no labels) is E45b, planned after this.
+- **Data:** KITTI-360 (Liao et al., TPAMI 2022; CC BY-NC-SA 3.0, nothing of it enters git), not in Déjà View's
+  29-dataset mix (paper Table 6), which does hold Virtual KITTI 2 and Waymo: driving is seen, this city and
+  sensor are not. Left perspective camera, rectified, 1408 x 376, f = 552.55 px, principal point (682.05,
+  238.77). Sequences `2013_05_28_drive_0003_sync` (country road; car 1.6%, pole 0.7%, building 1.0%, vegetation
+  43% of the labelled pixels) and `_0010_sync` (town; car 7.3%, pole 1.1%, building 16.5%, vegetation 26%),
+  chosen as the two smallest downloads that together hold the classes asked about (shares counted from the 2D
+  labels of all nine sequences before any image was run).
+- **Scenes:** one per accumulated point-cloud window of the two sequences (7 + 17 = 24), none filtered. Views:
+  20 labelled frames at a stride of 2 frames, centred in the window (in 0003 the car moves a median 1.6 m per
+  frame: 3.2 m between views, 61 m per scene). Uniform sampling over a whole window, as on Hypersim, would put the views
+  10-20 m apart with little overlap on anything near the road.
+- **Views:** Déjà View assumes a centred principal point (E30), so each image is cropped symmetrically about
+  it: 756 x 273 px, resized to 504 x 182 (scale 2/3, f = 368.4 px, 68.7° x 27.8°). The full symmetric crop
+  (1364 x 274) would give 504 x 98, 7 patches high and 3 px of edge band on 98 rows; the narrower crop keeps the
+  resolution. The crop drops the top 102 rows (sky, tree crowns, upper facades). Fixed before any Déjà View
+  output was seen.
+- **Ground truth:** the window's static accumulated points (Velodyne + SICK, with semantic and instance ids),
+  projected into each view by its `cam0_to_world` pose; per pixel the nearest point whose semantic id equals
+  the pixel's 2D label (changed while writing the loader, before any output: the first wording kept a pixel
+  only if its nearest point of any class agreed, which empties the pixels next to object outlines, the ones
+  E25b is about). This drops moving objects (their pixels would take the road or facade behind them) and
+  points seen through a nearer surface of another class. Same-class see-through (vegetation behind
+  vegetation) stays. The points are the window's and its two neighbours'. Classes and instances from the 2D maps
+  (`semantic`, `instance` = 1000 x class + id, consistent across frames); road, sidewalk, terrain, vegetation
+  and the other classes without instance ids are one instance per class, as Hypersim's walls. Sky has no GT.
+- **Checks before any number is read** (the ladder, in order): GT depth edges drawn over the image for four
+  views per sequence (do edges sit on object outlines; is the see-through filter enough); GT coverage per scene
+  and class; the same GT point seen from two views reprojects within a pixel (poses and intrinsics); Déjà View's
+  rays against their pinhole fit (`MAX_PINHOLE_RESIDUAL`); E25a's and E25b's own asserts (Σr̂ = Σr, snap identity,
+  plane recovery).
+- **Run:** Déjà View K = 16, `rays: pinhole`, the protocol's one Umeyama Sim(3) on the pixels, then
+  `e25a_class_split.py` and `e25b_boundary_oracle.py` with their constants as committed (E25b with its clamp
+  and connected pieces). SAM 3: image mode, t0.3, the working association, prompted with KITTI-360's evaluated
+  class names in place of NYU40 (a new vocabulary; the only change to the inputs).
+- **What is reported**, per sequence and together, next to Hypersim's numbers from E25a / E25b:
+  - E25a: per class excess Σr / Σr̂, excess error in cm, share of error within 3 px of an edge, cross-view gap;
+    S against the permutation null (instances' classes permuted, 1000 times); SAM 3's classes against GT's on
+    the same pixels.
+  - E25b: the band's pixel and error share; the t split (away / own / between / other); band error removed and
+    accuracy / completeness / Chamfer for the four snaps (GT instances, GT depth components, SAM 3, Déjà View
+    depth components), with the count of scenes whose alignment scale a snap moves by more than 1%.
+- **Reading, fixed before running** (E25a's and E25b's rules, unchanged):
+  - A class fails in its own way only if its excess is beyond 1.5x (or below 1/1.5) in at least 2/3 of its
+    scenes; the classes differ if S is above the null's 95th percentile. Cars, poles or vegetation passing it
+    here while nothing but glass did on Hypersim -> class matters out of domain, with the excess-error column
+    as its headroom. None passing -> E25a's conclusion holds outdoors.
+  - GT instances removing < 10% of the band error -> no headroom at edges; removing more but not beating GT
+    depth components on Chamfer by > 0.05 cm in >= 2/3 of the scenes -> the headroom is in the edges, not in
+    semantics.
+- **Limits known before running:** the GT is sparse where LiDAR is (far range, above the scan lines), so depth
+  edges are under-counted as on ETH3D (E35) and the band shares are lower bounds; thin structures (poles,
+  fences) have few GT pixels at 504 px; moving cars are not scored; 24 scenes come from 2 drives of one day, so
+  scenes are not independent and the permutation test's p is optimistic.
+- **Figures:** as E25a / E25b (per-class excess with the null; snap scores and the t split), and for one town
+  scene four views with image, GT class, relative error, r / r̂ and the error after each snap on shared scales.
+  These are debug visuals; the presentation's bedroom stays the reference.
+- **Check of the ground truth, 11.11, before any Déjà View output** (`experiments/scripts/e45a_gt_check.py` on
+  all 24 prepared scenes -> `results/e45a_gt_check.txt`, `figures/e45a_gt_check.jpg`; `kitti360-prepare` takes
+  8 s per scene on a laptop CPU):
+  - Geometry and labels are right: classes and depth sit on their objects in the figure, moving cars have no
+    depth, and view i's GT seen in view j agrees to a median 0.4-2.4% (town 78-96% of the pixels within 5%,
+    country road 68-97%; the rest is vegetation seen through vegetation and points beyond 100 m).
+  - Coverage is 36-59% of the pixels, as single dots near the camera (one pixel per point).
+  - **The plan cannot run unchanged.** 50-79% of the GT pixels lie within 3 px of a GT depth edge by E35's
+    definition (Hypersim: 13.5%). Two causes, both visible in the figure: on the road, which is 43% of the GT
+    and seen at a grazing angle, neighbouring rows differ by more than 5% in depth from about 28 m on, so
+    the whole far road is "edge"; and in vegetation the dots alternate between near and far leaves. The
+    band is then no longer "the pixels at object outlines", and E25a's edge-distance cell and all of E25b
+    lose their meaning. Also, the GT instance ids exist only where there is depth, so GT segments are dotted
+    and E25b's snap would treat every pixel as a segment border.
+  - One scene (`0010_0000002024_0000002177`) has a 41 m gap between two of its views, as the labelled frames
+    have a hole there.
+- **Two adaptations, decided with Mircea 11.11 after that check, still before any Déjà View output:**
+  - *Loader:* instance ids at every pixel from the 2D labels (sky NO_MESH), whether or not a point fell
+    into it; holes interpolated from the surrounding points of the same instance (`fill_holes`: Delaunay on
+    the pixels with depth, barycentric in inverse depth, exact on a plane; corners within 3 px, of the hole's
+    own instance and within 10% of each other). A plain splat over neighbouring pixels was not used: taking
+    the nearest of several points biases a sloped surface towards the camera. Coverage 36-59% -> 54-81%;
+    cross-view agreement unchanged (median 0.5-2.5%). `kitti360-prepare` now takes about 45 s per scene.
+  - *Edges:* `src/analysis/edges.py`, the plane rule: two neighbours are an edge when each one's
+    continuation of its own inverse-depth slope misses the other by more than 5%; with zero slopes it is E35's
+    step rule. Tests: a grazing plane has no edges though the step rule marks it, a box standing on it is
+    outlined and its foot is not, a pole one pixel wide is found.
+  - **Result of the second check** (`results/e45a_gt_check.txt`, `figures/e45a_gt_check.jpg`, step rule and
+    plane rule side by side): the plane rule removes the band along the horizon, as designed. But the
+    share of GT pixels within 3 px of an edge only falls from 39-67% to 36-64% per scene. Per class, plane
+    rule, all scenes: road 33%, sidewalk 38%, building 47%, pole 52%, car 73%, vegetation 78% (Hypersim, all
+    classes, step rule: 13.5%). What remains is in the figure: single outlying points scattered over the road,
+    cars whose points are sparse and seen through their windows, and vegetation, where neighbouring pixels
+    hit near and far leaves.
+  - **Reading:** this GT is right on average but not clean enough between neighbouring pixels for "the band
+    at depth edges" to mean object outlines. E25b on it would measure LiDAR noise. E25a's per-class excess
+    does not need clean edges (its edge-distance cell then also absorbs noisy regions), so it can run.
+    **Decided with Mircea, 11.11, before any Déjà View output:** E45a = E25a only on KITTI-360; the E25b
+    parts of this plan (the t split, the oracle snaps, their reading rule) are dropped here and go to Tanks
+    and Temples as E45b, whose laser scans are dense (2 mm) and hold the thin parts Umut named. Not tried: removing outlying
+    points from the GT (another choice stacked on the GT; it would not help cars or vegetation).
+- **The plan as it stands after the split, fixed 11.11 before any Déjà View output on KITTI-360** (it
+  replaces the Run / What is reported / Reading bullets above where they name E25b):
+  - *Run:* Déjà View K = 16, `rays: pinhole`, one Umeyama Sim(3) on the pixels, then
+    `e25a_class_split.py --cfg configs/eval_kitti360.yaml --edges plane` with its constants as committed.
+    SAM 3 image mode, t0.3, per view and unlinked (as E25a), prompted with `configs/prompts/kitti360.txt`:
+    the 18 Cityscapes classes KITTI-360 evaluates, without sky. Scored classes (`VOCABULARIES["kitti360"]`):
+    every class KITTI-360 labels but sky, prompted or not. Groups: country (drive 0003, 7 scenes), town
+    (0010, 17), all.
+  - *Edge rule:* the edge-distance cell and the "error share at edges" column use the plane rule on
+    KITTI-360 (`--edges plane`; the step rule marks the far road). So that the comparison with E25a is like
+    for like, Hypersim dev + val is rerun under the plane rule and reported next to E25a's step-rule numbers.
+    `--edges step` (the default) is E25a as committed: on the dev scenes it reprints E25a's GT-class table
+    digit for digit (laptop, from db57fe0 + this change).
+  - *Reported:* E25a's tables per group (excess Σr / Σr̂ with its range, scenes beyond 1.5x, excess error in
+    cm, error share within 3 px of an edge, cross-view gap, object fit, accuracy / completeness), S against
+    the permutation null, SAM 3's classes against GT's on the same pixels; next to Hypersim's E25a numbers.
+  - *Reading:* E25a's rule, unchanged (first Reading bullet above). The second, on the band error, is E45b's.
+  - *Check of the incidence-angle cell* (`experiments/scripts/e45a_incidence_check.py` on all 24 scenes ->
+    `results/e45a_incidence_check.txt`, `figures/e45a_incidence_check.jpg`): the normals of the filled GT
+    are sane: road, sidewalk, terrain and parking are 74-79% at |cos| <= 0.4 and 1-2% above 0.7, poles and
+    traffic signs 14-20% above 0.7, buildings spread over all three bins; in the figure the road is dark,
+    trunks are bright and the facade along the road lies between. 20% of the GT pixels have no normal (a
+    4-neighbour without GT; their own bin, as on Hypersim), 40-47% for poles.
+  - *Limit this adds:* 69% of all GT pixels fall into one angle bin and the road alone is half the GT, so
+    the road's expected error is largely its own mean: its excess is near 1 by construction, and the test
+    has power only for the smaller classes (car, pole, vegetation, building), which are the ones asked about.
+
+## E45a, first run: Déjà View on KITTI-360 -> 34% relative error, set by the alignment on a few far pixels; the class tables are not read yet (issue #45, 11.11.2026)
+Interim entry: the run is done and checked, the reading of its class tables waits for a decision on the
+alignment (below).
+- **Setting:** as planned. Commits 1497256 (script, config, prompts), 1881bdb (the tree the cluster ran).
+  Inputs: job 2132 (VC15, RTX 5090, 3:16): `dejaview-predict` 86 s and `sam3-segment --threshold 0.3 --prompts
+  configs/prompts/kitti360.txt` 109 s for the 24 scenes, peak GPU 3.0 GB for SAM 3. No view failed
+  `MAX_PINHOLE_RESIDUAL` at 504 x 182. Analysis: job 2133 (CPU, 3:02):
+  - `e25a_class_split.py --cfg configs/eval_kitti360.yaml --edges plane --maps 0010_0000000984_0000001116
+    --out runs/e45a_kitti360` -> `results/e45a_kitti360.txt`
+  - `e25a_class_split.py --cfg configs/eval_hypersim.yaml --splits dev val --edges plane --out
+    runs/e45a_hypersim_plane --scales runs/e8a_segments-20261110-130124/run.yaml` ->
+    `results/e45a_hypersim_plane.txt`
+- **Checks:** Σr̂ = Σr and Σ(e - ê) = 0 asserted per scene; on Hypersim the alignment scales equal the E8a
+  run's to six decimals in all 14 scenes; no non-finite Déjà View point.
+- **Hypersim under the plane rule (the comparison promised in the plan):** E25a stands. Plane rule against
+  E25a's step rule, dev + val, 14 scenes: GT pixels within 3 px of an edge 13.5% against 13.7%; S = 0.280
+  against 0.278, the null's 95th percentile 0.274 against 0.276, p = 0.041 against 0.050; window is the one
+  class beyond 1.5x in 2/3 of its scenes under both (2.24 against 2.23). The edge rule is not what E25a's
+  result hangs on.
+- **KITTI-360, Déjà View under the protocol's alignment:** mean error 5.96 m and mean relative error 33.9%
+  over the 24 scenes (Hypersim dev + val: 0.17 m, 3.4%); country 6.18 m / 36.1%, town 5.87 m / 33.0%; per
+  scene 0.33-10.78 m, 3.5-79.0%. Median cross-view gap 2.0% (Hypersim 0.6%).
+- **Where it comes from** (`experiments/scripts/e45a_alignment_check.py` -> `results/e45a_alignment_check.txt`;
+  added after the first read, not in the plan):
+  - GT beyond 80 m is 3.3% of the GT pixels (21 of 24 scenes have GT there, reaching up to 352 m) and carries 28.8%
+    of the summed error (mean 52.9 m per pixel). There Déjà View's depth is compressed: aligned depth / GT
+    depth has a median of 0.41-0.93 beyond 80 m in those scenes.
+  - The protocol's Sim(3) is least squares in metres, so these pixels set the scale. In 16 of the 21 scenes
+    the aligned depth is then 1.02-1.37x the GT's at every range below 40 m, the same factor in each bin: the
+    near scene is blown up as one piece. Pixels at 5-10 m (40% of the GT) get a mean relative error of 40.3%.
+  - The three scenes whose GT ends before 80 m or barely passes it (`0003_0000000002`, `0010_0000000353`,
+    `0010_0000000549`) are the three best: 3.5%, 5.5%, 13.8%.
+  - Depth alone, each view scaled by its median GT / Déjà View depth: 2.1-10.5% in 21 scenes (median 6.4%);
+    14.6%, 24.2% and 38.5% in `0003_0000000617`, `0003_0000000508` and `0010_0000001563`, where Déjà View
+    itself fails. One Sim(3) per view does not help (13.8-56.9% in the scenes with far GT): the same far pixels
+    dominate each view.
+  - Déjà View's focal length is short in every scene: 275-359 px against 368 px (2-25%).
+- **Reading so far:**
+  - Out of domain in a way Hypersim cannot show: Déjà View compresses depth beyond about 80 m and
+    under-estimates the focal length on this crop; near geometry is right to about 6% per view.
+  - The class tables of `results/e45a_kitti360.txt` (no class but smallpole, 3 scenes and 0.5% of the pixels,
+    beyond 1.5x in 2/3 of its scenes; S = 0.172 against a null 95th percentile of 0.195, p = 0.155; SAM 3
+    against GT classes slope 1.04, correlation 0.91) are computed on errors of which the largest part is this
+    global scale. The depth quartile of r̂ absorbs some of it; how much is not measured. They are reported
+    for the record and not interpreted.
+  - `figures/e45a_town.jpg` and `e45a_class_excess.jpg` were drawn and looked at (the r maps saturate their
+    8% scale everywhere) and are not committed until the alignment is decided.
+- **Open, a change to the evaluation and so not made here:** how KITTI-360 is aligned and scored. Candidates:
+  drop GT beyond a fixed range before aligning and scoring; align on relative error (weights 1 / depth²);
+  keep the protocol and report the far-range failure as the result. The Hypersim numbers do not depend on it.
+- **Decided with Mircea, 11.11, after the first run (a change to how KITTI-360 is scored, chosen with its
+  result in view):** GT beyond 80 m is dropped before the alignment and every score (`max_gt_depth: 80` in
+  `configs/eval_kitti360.yaml`; 3.3% of the GT pixels). 80 m is the bin edge of the alignment check beyond
+  which the depth ratio breaks; no other value was tried. Hypersim and ETH3D are untouched (no such key).
+  The far-range compression stays reported above as its own finding. Check before the rerun
+  (`e45a_alignment_check.py --max-gt-depth 80` -> `results/e45a_alignment_check_80m.txt`): the aligned
+  depth / GT depth below 40 m is 0.93-1.06 in 20 scenes (first run: 0.96-1.37), and the relative error
+  falls to 3.5-22.5% in those and 21.7% in `0010_0000001245` (ratio 0.82-0.86). The three scenes where
+  Déjà View's depth alone is 13-39% off stay at 52-92%, with ratios of 0.54-0.79 at every range: they are
+  Déjà View's failures, not the alignment's, and are kept.
+
+## E45a: Déjà View's error per class on KITTI-360 -> poles fail beyond their geometry (1.80x, 14 of 18 scenes), cars and vegetation do not; the headroom is 2 cm of 296 (issue #45, 11.11.2026)
+- **Goal:** E25a's question out of domain, on the outdoor objects Umut named: does a class fail in its own
+  way, beyond what edge distance, depth and viewing angle predict?
+- **Setting:** the plan above as it stands after the split, with GT up to 80 m (decided after the first
+  run, see the interim entry). 24 KITTI-360 scenes (7 country, 17 town), 20 views at 504 x 182, Déjà View
+  K = 16, one Umeyama Sim(3) on the pixels, plane-rule edges, SAM 3 image mode t0.3 with
+  `configs/prompts/kitti360.txt`, per view, eroded 3 px. Commits bb2edcb (cap), 1d7266e (figures script).
+- **Command:** `uv run python experiments/scripts/e25a_class_split.py --cfg configs/eval_kitti360.yaml
+  --edges plane --maps 0010_0000000984_0000001116 --out runs/e45a_kitti360_80m` ->
+  `results/e45a_kitti360_80m.txt`; laptop CPU, 2:17, on the caches of cluster job 2132 (the cluster's queue
+  was full; the same script gives the cluster's first-run errors per scene to every printed digit on these
+  caches). The run is stamped 1d7266e-dirty: the tree held one untracked results file
+  (`e45a_alignment_check_80m.txt`), no code change; a run before that commit printed the same report.
+  Figures: `e45a_figures.py runs/e45a_kitti360_80m runs/e45a_hypersim_plane`.
+- **Checks:** Σr̂ = Σr and Σ(e - ê) = 0 asserted per scene; no non-finite point; both figures looked at.
+- **Déjà View on KITTI-360, GT up to 80 m:** mean error 2.96 m, relative error mean 21.4% and median 14.4%
+  over the scenes (country 26.1%, town 19.4%; Hypersim dev + val 3.4%); three scenes at 52-92% (the
+  failures of the interim entry), the rest 3.5-22.5%. Median cross-view gap 1.8% (Hypersim 0.6%). GT pixels
+  within 3 px of a plane-rule edge 44% (Hypersim 13.5%): the GT's noise, as the GT check said.
+- **GT classes, all 24 scenes** (excess = Σr / Σr̂, geometric mean over the scenes where the class has >=
+  2000 px; excess error = the class's share of the scene's mean error beyond its geometry):
+
+  | class | scenes | px share | excess (range) | scenes beyond 1.5x | excess error cm | error share at edges |
+  |---|---|---|---|---|---|---|
+  | pole * | 18 | 0.010 | 1.80 (0.49-3.91) | 14 | +2.06 | 0.51 |
+  | fence | 12 | 0.038 | 1.40 (0.70-2.80) | 4 | +12.82 | 0.36 |
+  | car | 11 | 0.060 | 1.33 (0.82-2.45) | 3 | +2.71 | 0.73 |
+  | traffic sign | 12 | 0.005 | 1.23 (0.32-7.01) | 5 | +0.23 | 0.35 |
+  | vegetation | 24 | 0.158 | 1.15 (0.72-2.18) | 3 | +11.07 | 0.82 |
+  | sidewalk | 24 | 0.104 | 0.99 (0.67-1.43) | 0 | -4.16 | 0.37 |
+  | building | 13 | 0.113 | 0.95 (0.60-1.41) | 1 | -2.08 | 0.53 |
+  | road | 24 | 0.519 | 0.87 (0.61-1.00) | 1 | -14.55 | 0.33 |
+
+  \* = beyond 1.5x the same way in >= 2/3 of its scenes. The other six classes (smallpole, wall, terrain,
+  ground, parking, box) lie at 0.76-1.26 and none is starred; all rows are in the results file.
+  - Per drive: in the town pole is 1.99 (11 of 14 scenes beyond 1.5x) and starred; on the country road it
+    has 4 scenes (1.28) and nothing is starred.
+  - Do the classes differ? S = 0.240; null (classes permuted among instances, 1000x) median 0.160, 95th
+    percentile 0.242; p = 0.054. Not above the null's 95th percentile, by 0.002.
+- **SAM 3's classes:** fence is starred (1.47, 6 of 9 scenes), car 1.34, vegetation 1.15, road 0.87. Against
+  the GT classes on the same pixels: slope 0.90, correlation 0.95 over 8 classes (Hypersim: 0.55, 0.56); S
+  0.180 against GT's 0.196. Pole is not among SAM 3's classes with >= 3 scenes: after eroding 3 px around
+  each mask border too little of a pole is left, so the one class that fails is the one SAM 3's eroded
+  masks do not see.
+- **Against the first run (GT uncapped):** pole 1.44 -> 1.80, 9 -> 14 scenes beyond 1.5x; p 0.155 -> 0.054.
+  The class result depends on the cap, which was chosen after seeing the first run.
+- **Against Hypersim (E25a, same edge rule):** there window alone is starred (2.24, GT is the glass); here
+  pole alone. Hypersim's p is 0.041, here 0.054.
+- **Conclusion, by the rule fixed in the plan:**
+  - Poles fail in their own way out of domain: 1.8x the error their geometry predicts, in 14 of 18 scenes.
+    Cars (1.33, 3 of 11 scenes) and vegetation (1.15, 3 of 24) do not pass; fences come closest (1.40).
+  - The headroom is small: the poles' excess is 2.06 cm of a mean error of 296 cm (0.7%), as poles are 1%
+    of the pixels. The largest excess errors, fence +12.8 cm and vegetation +11.1 cm, are 4% each.
+  - The test that the classes differ at all does not pass (p = 0.054). With E25a: class identity adds
+    little beyond geometry indoors and outdoors; the one outdoor exception is thin, upright structures.
+  - What dominates out of domain is not per class: a scene-wide error of 14% (median) from cameras and
+    scale, depth compressed beyond 80 m, a focal length 2-25% short (interim entry). The town figure shows
+    it: r varies smoothly over road and views; only poles stand out in r / r̂.
+- **Limits:** the cap is post hoc; 24 scenes from 2 drives of one day are not independent, so p is
+  optimistic; poles have the sparsest GT (40% of their pixels without a normal, 52% within 3 px of an
+  edge), so part of their excess may be the GT's; the road is half the GT and near 1 by construction;
+  moving cars are not scored; per-pixel error to the pixel's own GT point under-measures missing thin parts.
+- **Figures:** `figures/e45a_class_excess.jpg` (per-class excess, KITTI-360 GT and SAM 3 classes next to
+  Hypersim; null; SAM 3 against GT), `figures/e45a_town.jpg` (debug visual, one town scene: image, GT
+  class, r on a 0-30% scale, r / r̂).
+
+## Plan: E45b = Déjà View's error at depth edges on Tanks and Temples, out of domain (issue #45, 11.11.2026)
+Unrelated to E45 (the filters of issue #27): the id follows issue #45.
+- **Goal:** E25b's two questions on scenes that hold the thin parts Umut named (stake gaps, wheels with
+  holes, bars, chair legs) and are out of domain: what is Déjà View's error at depth edges (bleeding, or
+  pixels on the surface across the edge), and how much of it could segments remove? KITTI-360's LiDAR was
+  too noisy between neighbouring pixels for this (E45a). Analysis only: no refiner, no change to the
+  method, the scorer or the backbones.
+- **Data:** Tanks and Temples (Knapitsch et al., SIGGRAPH 2017), training scenes Truck, Caterpillar
+  (outdoor) and Meeting room (indoor), chosen 11.11 before any was run; not in Déjà View's 29-dataset mix
+  (paper Table 6). Per scene: 251 / 383 / 371 frames of 1920 x 1080, a laser scan (8.1 M / 7.3 M / 44.5 M
+  points), COLMAP poses and their similarity onto the scan. No labels and no intrinsics. Nothing of the
+  data or of depth derived from it enters git.
+- **Views:** 20 per scene, uniform over the capture order (`select_frames`, as Hypersim and ETH3D): the
+  camera circles the object, so neighbouring views are 13-20 frames apart. Looked at before anything ran:
+  no person stands in any of the 60 frames (one does in others of Truck; the scan holds no people). Each
+  frame is cut to 1920 x 1066.7 about its centre and resized to 504 x 280.
+- **Camera, checked before the loader was written** (`experiments/scripts/e45b_focal_check.py` ->
+  `results/e45b_focal_check.txt`): the scan's colours are projected into 8 views per scene with the
+  dataset's poses and a candidate camera (centred principal point, focal length f, one radial
+  coefficient k1), and their gradients correlated with the photo's.
+  - The dataset's page suggests f = 0.7 W; that does not fit (the scan lands visibly larger than the
+    truck). Without distortion the best f is 0.5975-0.6000 W in the three scenes, but the inner pixels
+    want 0.6000-0.6025 and the outer 0.5950 in all three: a barrel distortion.
+  - With k1 the correlation peaks at f = 0.605 W in all three scenes, k1 = -0.04 (Truck, Meeting room)
+    and -0.05 (Caterpillar, flat between -0.03 and -0.06), and rises from 0.515 to 0.574 (Truck), 0.419
+    to 0.433 and 0.514 to 0.546; inner and outer pixels then agree (0.6050, 0.6050-0.6075). The three
+    scenes were filmed with one camera, so one camera is used: f = 0.605 W, k1 = -0.04. Ignoring k1
+    would have put the scan about 5 px off the photo at the left and right border at 504 px, more than the
+    3 px band this experiment is about.
+  - Each frame is resampled to the pinhole of that focal length before it is cut and resized.
+- **Ground truth** (`src/loaders/tanksandtemples/`): the scan rendered into each view. Per pixel the front
+  is the nearest depth that 3 points share within 1% (a single stray point is no surface), and the pixel
+  takes the depth of the one point nearest its centre within 1% behind that front (no mean across an
+  edge). Tests: a plane returns its depth, a slanted plane the depth at the pixel centre, stray points
+  are ignored, a back surface shows only where the front has no points. What the rule cannot catch: a
+  surface the scanner never saw lets the points behind it show; measured below as pixels that another
+  view's GT contradicts. No GT outside the scan (background, sky): those pixels are not scored.
+- **Segments** (E25b's sources without the first): there are no GT instances, so the semantic oracle
+  does not exist here. *GT depth components* (the GT cut at its depth edges: perfect edges, no
+  semantics), *SAM 3* (image mode, t0.3, the working association; its prompt list is a new choice and is
+  fixed in this entry before any mask of these scenes is seen), *Déjà View depth components*.
+- **Run:** Déjà View K = 16, `rays: pinhole`, one Umeyama Sim(3) on the pixels, then
+  `e25b_boundary_oracle.py --cfg configs/eval_tanksandtemples.yaml --edges plane` with E25b's constants,
+  clamp and connected pieces as committed. Edges by the plane rule (`src/analysis/edges.py`, E45a) for
+  the band, the surface across the edge and both depth components. So that the comparison is like for
+  like, Hypersim dev + val is rerun under the plane rule and reported next to E25b's step-rule numbers;
+  `--edges step` (the default) must first reprint E25b's dev table digit for digit.
+- **Checks before any table is read** (the ladder): the focal sweep; the GT figure (depth and edges on
+  the image's outlines); GT pixels contradicted by other views; Déjà View's rays against their pinhole
+  fit (`MAX_PINHOLE_RESIDUAL`); E45a's alignment check on these scenes (aligned depth over GT depth per
+  range bin, Déjà View's focal length against the GT's, error under one Sim(3) per view): the alignment
+  must not be what sets the error; the snap's identity and plane recovery (asserted on every run).
+- **What is reported,** per scene (three scenes carry no statistics) and as their mean, next to Hypersim:
+  the band's pixel and error share; the t split (away / own / between / other); band error removed and
+  accuracy / completeness / Chamfer for the three snaps; scenes whose alignment scale a snap moves by
+  more than 1%.
+- **Reading, fixed before running:**
+  - *What the edge error is:* Hypersim's is 64% pixels on the surface across the edge and 18% bleeding.
+    The same order here (other > between in all three scenes) -> out of domain the edge error is the
+    same kind; otherwise the scenes are named.
+  - *Headroom:* GT depth components remove < 10% of the band error in a scene -> perfect edges would not
+    help there by a local snap.
+  - *SAM 3:* it finds the edges out of domain if it removes at least half of what GT depth components
+    remove, in at least 2 of the 3 scenes; it beats the geometric alternative if its band error is below
+    Déjà View depth components' in at least 2 of 3.
+  - Whether semantics add over edges (E25b's instances against depth components) cannot be answered
+    here: no GT instances.
+- **Limits known before running:** three scenes; no labels; the camera is ours: f and k1 are read off a
+  grid (steps 0.0025 W and 0.01) and trade against each other, so the scan may still sit about a pixel
+  off the photo at the border at 504 px, a third of the band; the scans cover the object and the ground
+  next to it, not the background; SAM 3's prompts are a new choice.
+- **Figures:** per scene four views: image, Déjà View's t in the band, the error of Déjà View and of each
+  snap on one cm scale. Debug visuals; the presentation's bedroom stays the reference.
+- **Check of the ground truth, 11.11, before any Déjà View output** (`experiments/scripts/e45b_gt_check.py`
+  -> `results/e45b_gt_check.txt`, `figures/e45b_gt_check.jpg`; with the fitted camera;
+  `tanksandtemples-prepare` takes 7 min for the three scenes on a laptop CPU):
+
+  | scene | GT px | depth m (1%-99%) | GT px within 3 px of an edge, step / plane rule | view i's GT in view j: on j's surface (within 5%), median difference there | GT px contradicted by >= 1 / >= 2 views |
+  |---|---|---|---|---|---|
+  | truck | 0.53 | 1.2-7.0 | 0.30 / 0.29 | 0.45, 0.16% | 0.019 / 0.008 |
+  | caterpillar | 0.37 | 1.6-9.3 | 0.33 / 0.33 | 0.40, 0.12% | 0.019 / 0.006 |
+  | meetingroom | 0.95 | 1.5-13.4 | 0.42 / 0.40 | 0.64, 0.14% | 0.032 / 0.009 |
+
+  - Poses and rendering agree across views: where view i's GT lands on the surface view j shows, the
+    depths differ by a median 0.12-0.16% (KITTI-360: 0.5-2.5%). The rest of the projections are hidden in
+    j, as the camera circles the object.
+  - See-through is rare: 2-3% of the GT pixels have another view's GT more than 5% in front of them,
+    under 1% by two views. In the figure these are scattered pixels in the plant and around stake gaps,
+    and one wedge of the meeting room's ceiling seen at a grazing angle (view 000293, top left), where
+    the scan is thin; no whole surface elsewhere.
+  - The band is 29-40% of the GT pixels (Hypersim 13.5%, KITTI-360 44%), but here the figure shows the
+    edges on outlines: stakes, wheel rims, grille, cab bars, chair backs, roof trusses. The exception is
+    the meeting room's plants, where neighbouring pixels alternate between leaves (view 000001: one
+    region of edges). The step and the plane rule differ little, as no large plane is seen at a grazing
+    angle. Windows have no GT (glass); the ground around Caterpillar is mostly outside its scan.
+- **SAM 3's prompts, fixed 12.11 with Mircea before any mask or Déjà View output of these scenes:**
+  `configs/prompts/nyu40.txt` (the protocol's list) followed by `configs/prompts/vehicle_parts.txt`, 13
+  prompts written from the photos: truck, bulldozer, wheel, tire, bumper, headlight, windshield, grille,
+  hood, wooden board, ladder, bucket, ground. One list for all three scenes, so the meeting room gets
+  the vehicle prompts too. NYU40 alone names almost nothing on a truck or a loader. The list is a
+  choice of ours and is not changed after the masks are seen. Inputs: `configs/eval_tanksandtemples.yaml`
+  (`sam3image-nyu40+vehicle_parts-t0.3`), run on the group's RTX 3080 server, as the cluster's queue
+  held 31 pending jobs.
+
+## E45b, first run: under the protocol's Sim(3) Déjà View's Truck is 0.54 and its Caterpillar 0.25 of the GT's size; a few outline pixels set the scale (issue #45, 12.11.2026)
+Interim entry: the check that the plan puts before any table.
+- **Setting:** as planned. Commit d191195 (prompts, eval config). Inputs on the group's RTX 3080 server (clean
+  tree at d191195, `runs/e45b_inputs_3080.log`): `dejaview-predict` 21 s and `sam3-segment --threshold 0.3
+  --prompts configs/prompts/nyu40.txt --prompts configs/prompts/vehicle_parts.txt` 69 s for the three scenes,
+  peak GPU 2.9 GB. No view failed `MAX_PINHOLE_RESIDUAL`.
+- **Alignment check** (`e45a_alignment_check.py --dataset tanksandtemples` ->
+  `results/e45b_alignment_check.txt`), Déjà View under the protocol's one Umeyama Sim(3):
+
+  | scene | e m, r % | one Sim(3) per view: e m, r % | depth alone r % | focal px, Déjà View / GT | aligned depth / GT depth, every range bin |
+  |---|---|---|---|---|---|
+  | truck | 1.13, 40.8 | 0.90, 28.6 | 6.9 | 304 / 305 | 0.53-0.54 |
+  | caterpillar | 1.75, 52.1 | 1.11, 28.9 | 9.3 | 302 / 305 | 0.25 |
+  | meetingroom | 0.59, 11.4 | 0.62, 13.4 | 8.4 | 302 / 305 | 0.96-0.97 |
+
+  Unlike on KITTI-360 the focal length is right (1%) and the ratio is the same at every range: one wrong
+  scale, in the two outdoor scenes.
+- **Cause** (`experiments/scripts/e45b_alignment.py` -> `results/e45b_alignment.txt`; added after that
+  table, not in the plan): each view's depth, scaled by its median GT / Déjà View depth, is off by more
+  than 200% on 0.45% (Truck), 0.58% (Caterpillar) and 0.17% (Meeting room) of the GT pixels, always
+  because Déjà View is too far, and 97%, 95% and 10% of those pixels lie within 3 px of the GT's border:
+  the object's outline, where the scan ends and the photo shows the background behind it, up to about
+  77 m away. The Sim(3) is least squares in metres, so these pixels set the scale (the same mechanism as
+  E45a's far range, from the other side: there the GT was far, here the prediction is).
+- **Decided with Mircea, 12.11, after seeing this (a change to how these scenes are scored, chosen with
+  the failure in view):** the Sim(3) is fitted on the interior, the GT pixels more than 3 px from a GT
+  depth edge and from the GT's border, as Déjà View's, and applied unchanged to every snap
+  (`e25b_boundary_oracle.py --align interior`, commit fe94f86). The pixels under study then cannot set
+  the alignment, and a snap cannot move it, which broke three val scenes in E25b. The 3 px are E25b's
+  band; no other width was tried. Not chosen: a trimmed Umeyama (needs a threshold), and keeping the
+  protocol (the tables would measure the scale). Under the interior fit:
+
+  | scene | scale (protocol) | mean e cm | mean r % | median r % | mean r % over the interior |
+  |---|---|---|---|---|---|
+  | truck | 5.351 (2.953) | 32.0 | 8.8 | 2.6 | 3.2 |
+  | caterpillar | 6.853 (1.843) | 56.7 | 13.0 | 5.9 | 6.7 |
+  | meetingroom | 5.196 (5.060) | 50.9 | 9.6 | 2.3 | 3.1 |
+
+  Hypersim's protocol numbers are untouched; the plane-rule rerun is reported under both alignments.
+
+## E45b: Déjà View's error at depth edges on Tanks and Temples -> the same kind as on Hypersim (pixels on the surface across the edge); perfect edges remove 3-12% of it, but outdoors half the error sits on the object's outline (issue #45, 12.11.2026)
+- **Goal:** E25b's questions out of domain, on scenes with thin parts: what is Déjà View's error at depth
+  edges, and how much could segments remove?
+- **Setting:** the plan above with the interior alignment of the interim entry. Truck, Caterpillar,
+  Meeting room; 20 views at 504 x 280; GT rendered from the laser scans; Déjà View K = 16; plane-rule
+  edges; SAM 3 image mode t0.3, nyu40 + vehicle_parts prompts, the working association. No GT instances
+  exist, so E25b's semantic oracle is absent. Commits: 6a3a7ad (loader), 31019a2 (camera), 365e4b6 (plan),
+  a658390, cc73153 and fe94f86 (scripts), this commit (`e45b_figures.py`, results, figures).
+- **Commands** (laptop CPU, clean tree at fe94f86; the Tanks and Temples run takes 1.5 min):
+  - `e25b_boundary_oracle.py --cfg configs/eval_tanksandtemples.yaml --edges plane --align interior --maps
+    truck caterpillar meetingroom --out runs/e45b_tanksandtemples` -> `results/e45b_tanksandtemples.txt`
+  - `e45b_figures.py runs/e45b_tanksandtemples` -> `results/e45b_tanksandtemples_scenes.txt` and
+    `figures/e45b_{truck,caterpillar,meetingroom}.jpg`
+  - `e25b_boundary_oracle.py --cfg configs/eval_hypersim.yaml --splits dev val --edges plane --out
+    runs/e45b_hypersim_plane --check runs/e8a_segments-20261110-130124/run.yaml` ->
+    `results/e45b_hypersim_plane.txt`; the same with `--align interior --out
+    runs/e45b_hypersim_plane_interior` -> `results/e45b_hypersim_plane_interior.txt` (Hypersim's val caches
+    copied from the cluster)
+- **Checks:** the snap's identity and plane recovery on every run; `--edges step --align protocol` reprints
+  E25b's dev table without a differing character; under the plane rule and the protocol Déjà View's scale
+  and Chamfer equal E8a's on all 14 Hypersim scenes to the printed digits; the three figures looked at.
+- **1. Where Déjà View's error is** (per scene; three scenes carry no statistics). Edge band = GT pixels
+  within 3 px of a GT depth edge; border band = within 3 px of a pixel without GT (not in the plan: it is
+  where the alignment broke, so it is reported next to the edge band; the two overlap):
+
+  | scene | edge band: px, share of the error, error cm | border band: px, share of the error, error cm | error cm elsewhere | error cm overall |
+  |---|---|---|---|---|
+  | truck | 0.29, 0.46, 50.4 | 0.11, 0.49, 149.7 | 9.3 | 32.0 |
+  | caterpillar | 0.33, 0.37, 64.0 | 0.15, 0.55, 206.6 | 22.1 | 56.7 |
+  | meetingroom | 0.40, 0.81, 102.7 | 0.05, 0.07, 71.1 | 16.0 | 50.9 |
+  | Hypersim, 14 scenes, same rule and alignment | 0.13, 0.46, 52.8 | 0.006, 0.014, 30.3 | 9.4 | 15.7 |
+
+  Outdoors half of Déjà View's error lies in the 3 px along the object's outline against the unscanned
+  background, on 11-15% of the GT pixels. In the meeting room, which has GT almost everywhere, 81% lies at
+  depth edges (trusses, chairs, plants). Away from both, Truck is as good as Hypersim (9.3 cm);
+  Caterpillar is not (22.1 cm): its figure shows a smooth error over whole views (the bucket in view 0,
+  the rear in view 10), cameras and scale rather than edges.
+- **2. What the edge error is,** by t (0 = own surface, 1 = the surface across the edge), for the 80-84% of
+  the edge-band pixels with a GT pixel across the edge; pixels / error:
+
+  | scene | away (<= 0) | own (0-0.25) | between (0.25-0.75): bleeding | other (> 0.75): the edge in the wrong place |
+  |---|---|---|---|---|
+  | truck | 0.19 / 0.14 | 0.47 / 0.07 | 0.10 / 0.06 | 0.25 / 0.73 |
+  | caterpillar | 0.21 / 0.28 | 0.34 / 0.08 | 0.19 / 0.11 | 0.26 / 0.53 |
+  | meetingroom | 0.29 / 0.09 | 0.27 / 0.04 | 0.16 / 0.09 | 0.28 / 0.78 |
+  | Hypersim (plane rule, protocol) | 0.31 / 0.08 | 0.37 / 0.09 | 0.15 / 0.18 | 0.17 / 0.65 |
+
+  A quarter of the band pixels sit on the surface across the edge (Hypersim: a sixth) and carry 53-78% of
+  the band's error; bleeding is 6-11% (Hypersim 18%). In the Truck figure these are the gaps between the
+  stakes, which Déjà View closes, and the wheel arches.
+- **3. Oracle snaps,** share of Déjà View's error removed in the edge band / in the border band, and
+  Chamfer cm (Déjà View's first):
+
+  | scene | GT depth components | SAM 3 | Déjà View depth components | Chamfer: Déjà View, GT depth comp., SAM 3, DV depth comp. |
+  |---|---|---|---|---|
+  | truck | 0.09 / 0.39 | 0.03 / 0.10 | -0.01 / -0.04 | 8.17, 5.55, 7.46, 8.47 |
+  | caterpillar | 0.12 / 0.44 | 0.10 / 0.23 | -0.03 / -0.04 | 18.26, 12.14, 14.69, 18.86 |
+  | meetingroom | 0.03 / -0.16 | -0.01 / -0.04 | -0.02 / -0.05 | 5.60, 6.50, 5.80, 5.86 |
+
+  Accuracy carries the Chamfer changes (Truck 14.5 -> 9.3 cm with GT depth components, 13.1 with SAM 3;
+  completeness 1.81 -> 1.86 and 1.81); all rows are in `results/e45b_tanksandtemples_scenes.txt`. The
+  alignment is fixed, so no snap moved a scale.
+- **Hypersim under the plane rule** (dev + val, 14 scenes; E25b's step-rule numbers in brackets): band
+  13.3% of the GT pixels (13.5%); t "other" 0.65 of the band's error (0.64), "between" 0.18 (0.18); removed
+  -0.06 with GT instances (-0.07), 0.11 with GT depth components (0.11), 0.04 with SAM 3 (0.04), -0.02 with
+  Déjà View's (-0.04). E25b does not hang on the edge rule. With the interior alignment no scene is
+  dragged: GT instances remove 0.16 on all 14 scenes (dev 0.30, val 0.12; E25b reported 0.19 on its 11
+  undragged), GT depth components 0.11, SAM 3 0.04; Chamfer 4.256 (Déjà View), 4.370, 4.175, 4.265.
+- **Reading, by the rules fixed in the plan:**
+  - *What the edge error is:* "other" exceeds "between" in all three scenes -> out of domain the edge
+    error is the same kind as on Hypersim, more so: pixels that take the depth of the surface behind.
+  - *Headroom at depth edges:* GT depth components remove 9% (Truck), 12% (Caterpillar) and 3% (Meeting
+    room) of the edge-band error: below the plan's 10% in two of three scenes. A local snap onto the
+    segment's interior does little even with perfect edges, as on Hypersim (11%).
+  - *SAM 3:* it removes at least half of what GT depth components remove in one scene of three
+    (Caterpillar), so by the rule it does not find the edges out of domain; its band error is below
+    Déjà View depth components' in all three, so it beats the geometric alternative, by 1-8 cm.
+  - Whether semantics add over edges cannot be read here (no GT instances).
+- **What the plan did not foresee** (measured after the alignment failed, so post hoc): outdoors the
+  largest error is not at depth edges inside the scan but on the object's outline. There, knowing the
+  outline (GT depth components end where the GT ends) removes 39% and 44% of the error and a third of
+  Chamfer; SAM 3's masks remove 10% and 23% (Chamfer 8.17 -> 7.46 and 18.26 -> 14.69 cm). Unlike on
+  Hypersim, Chamfer sees this error: a point thrown onto a background that has no GT is far from every
+  GT surface. In the meeting room the same snap makes the border worse (-16%): its border is windows
+  and scan holes, not an outline.
+- **Conclusion:**
+  - Out of domain Déjà View's interiors hold (3% of depth on Truck and the meeting room), its edges do not:
+    a quarter of the edge pixels land on the surface behind, stake gaps are closed, and an object's
+    outline is drawn onto the far background, which also breaks the protocol's least-squares alignment.
+  - Segments have little headroom at depth edges by a local snap (3-12% with perfect edges), in or out of
+    domain. They have headroom at the outline of an object against a far background: up to 44% of the
+    error there with the true outline, about a quarter to a half of that with SAM 3's masks, and this is
+    visible in Chamfer. It rests on two scenes and a post hoc measure.
+  - For the project (Umut's thin parts, Peter's #25 point): the out-of-domain failure to show is the
+    outline and the closed gaps, not a class. A boundary method would have to move pixels across the
+    edge, not smooth within a segment.
+- **Limits:** three scenes, per-scene numbers only; the interior alignment and the border band are post
+  hoc; the border band depends on where the scan ends, not only on the object (the ground patch around
+  Truck ends in the open; in the meeting room it is windows and holes); the camera is fitted by us (about
+  a pixel at the border); SAM 3's prompts are ours; no GT instances; per-pixel error to the pixel's own GT
+  point, so a closed gap counts only where the scan sees through it.
+- **Figures:** `figures/e45b_truck.jpg`, `e45b_caterpillar.jpg`, `e45b_meetingroom.jpg` (debug visuals):
+  views 0, 5, 10, 15: image, Déjà View's t in the edge band, the error of Déjà View and of each snap on
+  one 0-30 cm scale. Look at the stake gaps and the outline in Truck, the smooth error over Caterpillar's
+  bucket, the trusses in the meeting room. `figures/e45b_gt_check.jpg`: the ground truth.

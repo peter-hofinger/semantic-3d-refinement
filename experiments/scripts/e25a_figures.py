@@ -91,9 +91,30 @@ def excess_figure(hypersim: dict, eth3d: dict) -> None:
         "sam3",
         f"ETH3D ({len(e)} scenes), SAM 3 classes (eroded 3 px)",
     )
+    summary_panels(
+        fig.add_subplot(grid[1, 0]),
+        fig.add_subplot(grid[1, 1]),
+        h,
+        hypersim["summary"],
+        "Hypersim",
+    )
+    fig.suptitle(
+        "E25a: Déjà View's relative error per class over the error its pixels' geometry predicts "
+        "(edge distance x depth quartile x incidence angle); dots = scenes, bars = geometric mean, grey band = within 1.5x",
+        fontsize=11,
+    )
+    fig.savefig(
+        FIGURES / "e25a_class_excess.jpg",
+        dpi=100,
+        bbox_inches="tight",
+        pil_kwargs={"quality": 88},
+    )
 
-    s = hypersim["summary"]
-    ax = fig.add_subplot(grid[1, 0])
+
+def summary_panels(
+    ax: plt.Axes, right: plt.Axes, records: list[dict], s: dict, name: str
+) -> None:
+    """Draw the permutation null of S with the measured S, and SAM 3's class excess against GT's."""
     ax.hist(s["null"], bins=40, color=LIGHT)
     ax.axvline(s["S"], color=REF, lw=2, label=f"measured S = {s['S']:.3f}")
     ax.axvline(
@@ -106,14 +127,14 @@ def excess_figure(hypersim: dict, eth3d: dict) -> None:
     ax.set_xlabel("S = std over classes of mean log excess")
     ax.set_ylabel("permutations")
     ax.set_title(
-        f"Hypersim GT: class labels permuted among instances, p = {s['p']:.3f}",
+        f"{name} GT: class labels permuted among instances, p = {s['p']:.3f}",
         fontsize=10,
     )
     ax.legend(fontsize=8, frameon=False)
     style(ax)
 
-    ax = fig.add_subplot(grid[1, 1])
-    gt, sam3 = log_excess(h, "gt_on_sam3_px"), log_excess(h, "sam3")
+    ax = right
+    gt, sam3 = log_excess(records, "gt_on_sam3_px"), log_excess(records, "sam3")
     shared = [
         c for c in gt if c in sam3 and min(len(gt[c]), len(sam3[c])) >= MIN_SCENES
     ]
@@ -136,28 +157,26 @@ def excess_figure(hypersim: dict, eth3d: dict) -> None:
         fontsize=10,
     )
     style(ax)
-    fig.suptitle(
-        "E25a: Déjà View's relative error per class over the error its pixels' geometry predicts "
-        "(edge distance x depth quartile x incidence angle); dots = scenes, bars = geometric mean, grey band = within 1.5x",
-        fontsize=11,
-    )
-    fig.savefig(
-        FIGURES / "e25a_class_excess.jpg",
-        dpi=100,
-        bbox_inches="tight",
-        pil_kwargs={"quality": 88},
-    )
 
 
-def bedroom_figure(run: Path, raw: dict) -> None:
-    """Write figure 2 (see module)."""
+def scene_figure(
+    run: Path,
+    raw: dict,
+    scene: str,
+    views: tuple[int, ...],
+    row_height: float,
+    r_max: float,
+    title: str,
+    out: Path,
+) -> None:
+    """Per view: image, GT class, relative error r and r / r̂, on shared scales."""
     with np.load(run / "e25a_maps.npz") as f:
-        r, r_hat, cls = (f[f"{BEDROOM}/{k}"] for k in ("r", "r_hat", "gt_class"))
-    images = np.load(input_paths(raw, BEDROOM)["views"])["images"]
-    names = sorted(set(cls[list(VIEWS)].ravel()) - {""})
+        r, r_hat, cls = (f[f"{scene}/{k}"] for k in ("r", "r_hat", "gt_class"))
+    images = np.load(input_paths(raw, scene)["views"])["images"]
+    names = sorted(set(cls[list(views)].ravel()) - {""})
     palette = plt.get_cmap("tab20")(np.arange(len(names)) % 20)
-    fig, axes = plt.subplots(len(VIEWS), 4, figsize=(16, 3.1 * len(VIEWS)))
-    for row, i in enumerate(VIEWS):
+    fig, axes = plt.subplots(len(views), 4, figsize=(16, row_height * len(views)))
+    for row, i in enumerate(views):
         colour = np.ones((*cls[i].shape, 3))
         for n, c in enumerate(names):
             colour[cls[i] == c] = palette[n, :3]
@@ -167,7 +186,7 @@ def bedroom_figure(run: Path, raw: dict) -> None:
             ratio = r[i] / r_hat[i]
         axes[row, 0].imshow(images[i])
         axes[row, 1].imshow(colour)
-        a = axes[row, 2].imshow(100 * r[i], cmap="magma", vmin=0, vmax=100 * R_MAX)
+        a = axes[row, 2].imshow(100 * r[i], cmap="magma", vmin=0, vmax=100 * r_max)
         b = axes[row, 3].imshow(
             ratio, cmap="RdBu_r", norm=mpl.colors.LogNorm(1 / RATIO, RATIO)
         )
@@ -201,17 +220,8 @@ def bedroom_figure(run: Path, raw: dict) -> None:
         fontsize=8,
         frameon=False,
     )
-    fig.suptitle(
-        "E25a, bedroom ai_006_007: Déjà View's relative error, and the same over what each pixel's "
-        "edge distance, depth and incidence angle predict (red = worse than its geometry)",
-        fontsize=11,
-    )
-    fig.savefig(
-        FIGURES / "e25a_bedroom.jpg",
-        dpi=90,
-        bbox_inches="tight",
-        pil_kwargs={"quality": 88},
-    )
+    fig.suptitle(title, fontsize=11)
+    fig.savefig(out, dpi=90, bbox_inches="tight", pil_kwargs={"quality": 88})
 
 
 def main() -> None:
@@ -226,7 +236,17 @@ def main() -> None:
     )
     excess_figure(hypersim, eth3d)
     raw = yaml.safe_load(Path(hypersim["config"]).read_text(encoding="utf-8"))
-    bedroom_figure(args.hypersim, raw)
+    scene_figure(
+        args.hypersim,
+        raw,
+        BEDROOM,
+        VIEWS,
+        3.1,
+        R_MAX,
+        "E25a, bedroom ai_006_007: Déjà View's relative error, and the same over what each pixel's "
+        "edge distance, depth and incidence angle predict (red = worse than its geometry)",
+        FIGURES / "e25a_bedroom.jpg",
+    )
 
 
 if __name__ == "__main__":

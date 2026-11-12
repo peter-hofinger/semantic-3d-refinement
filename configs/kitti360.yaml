@@ -1,0 +1,47 @@
+# KITTI-360 (www.cvlibs.net/datasets/kitti-360, Liao et al., TPAMI 2022; CC BY-NC-SA 3.0,
+# download after registration): preprocessing for E45a. Paths are relative to the repo root.
+# Out of domain for Déjà View: not in its 29-dataset training mix (paper Table 6), which
+# does hold Virtual KITTI 2 and Waymo.
+#
+# raw_root holds the unpacked downloads: calibration/, data_poses/<sequence>/,
+# data_2d_raw/<sequence>/image_00/data_rect/ (left rectified camera),
+# data_2d_semantics/train/<sequence>/image_00/{semantic,instance}/ and
+# data_3d_semantics/train/<sequence>/static/ (accumulated point clouds).
+raw_root: data/raw/kitti360
+output_root: data/processed/kitti360   # preprocessed views and ground truth (.npz)
+
+# One scene per accumulated point-cloud window, named <drive>_<first frame>_<last frame>;
+# every window of the two drives, none filtered. Drive 0003 is a country road, 0010 a town
+# (car 1.6% / 7.3%, pole 0.7% / 1.1%, building 1.0% / 16.5% of the labelled pixels).
+scenes:
+  "0003_0000000002_0000000282": country
+  "0003_0000000274_0000000401": country
+  "0003_0000000394_0000000514": country
+  "0003_0000000508_0000000623": country
+  "0003_0000000617_0000000738": country
+  "0003_0000000731_0000000893": country
+  "0003_0000000886_0000001009": country
+  "0010_0000000002_0000000208": town
+  "0010_0000000199_0000000361": town
+  "0010_0000000353_0000000557": town
+  "0010_0000000549_0000000726": town
+  "0010_0000000718_0000000881": town
+  "0010_0000000854_0000000991": town
+  "0010_0000000984_0000001116": town
+  "0010_0000001109_0000001252": town
+  "0010_0000001245_0000001578": town
+  "0010_0000001563_0000001733": town
+  "0010_0000001724_0000001879": town
+  "0010_0000001872_0000002033": town
+  "0010_0000002024_0000002177": town
+  "0010_0000002168_0000002765": town
+  "0010_0000002756_0000002920": town
+  "0010_0000002911_0000003114": town
+  "0010_0000003106_0000003313": town
+
+prepare:
+  num_frames: 20     # as Hypersim and ETH3D
+  stride: 2          # in labelled frames, centred in the window: about 3 m between views
+  crop_width: 756    # px of the 1408 px image kept about the principal point (69 degrees)
+  long_side: 504     # Déjà View input size: the crop is resized by 2/3 to 504 x 182
+  patch_size: 14     # output width and height are multiples of this

@@ -1,0 +1,25 @@
+# Tanks and Temples (www.tanksandtemples.org, Knapitsch et al., SIGGRAPH 2017): preprocessing
+# for E45b. Paths are relative to the repo root; nothing of the dataset or of depth derived
+# from it enters git. Out of domain for Déjà View: not in its 29-dataset training mix (paper
+# Table 6). Geometry only, the dataset has no labels.
+#
+# raw_root/<scene>/ holds the downloads of the training set: images/<number>.jpg (the image
+# set), gt/<Scene>.ply (laser scan), poses/<Scene>_COLMAP_SfM.log (camera poses) and
+# alignment/<Scene>_trans.txt (their similarity onto the scan).
+raw_root: data/raw/tanksandtemples
+output_root: data/processed/tanksandtemples   # preprocessed views and ground truth (.npz)
+
+# The three scenes chosen for the thin parts they hold (stake gaps, wheels, bars, chair legs),
+# before any of them was run; images per scene in brackets.
+scenes:
+  truck: outdoor         # 251
+  caterpillar: outdoor   # 383
+  meetingroom: indoor    # 371
+
+prepare:
+  num_frames: 20       # as Hypersim and ETH3D
+  sampling: uniform    # uniform over the capture order
+  long_side: 504       # Déjà View input size: 1920 x 1080 is cut to 1920 x 1066.7, resized to 504 x 280
+  patch_size: 14       # output width and height are multiples of this
+  focal: 0.605         # focal length over image width; no intrinsics ship with the data:
+  k1: -0.04            # both fitted to the scans by experiments/scripts/e45b_focal_check.py

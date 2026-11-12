@@ -1,0 +1,11 @@
+# E45b's inputs (experiments/scripts/e25b_boundary_oracle.py): the three scenes of
+# configs/tanksandtemples.yaml, 20 views each at 504 x 280 px, Déjà View K = 16, SAM 3 image
+# mode with the prompts of configs/prompts/nyu40.txt and vehicle_parts.txt at threshold 0.3,
+# linked by the working association. Each output is aligned onto the ground truth by one
+# Umeyama Sim(3) on the pixels, as in src/evaluation/labeled.py. Analysis only: no refiner
+# runs on these scenes. No `vocabulary`: the dataset has no labels, so no class is scored.
+root: data/processed/tanksandtemples
+dataset: configs/tanksandtemples.yaml   # the scenes, each outdoor or indoor
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40+vehicle_parts-t0.3

@@ -1,0 +1,9 @@
+scene (group): GT px | depth m 1%-99% | px <= 3 px of an edge, step rule,
+  plane rule | view i in j: share within 5% (the rest is hidden in j), their
+  median relative difference |
+  GT px contradicted by >= 1, >= 2 views
+truck (outdoor): 0.526 | 1.17-7.00 | 0.295, 0.291 | 0.450, 0.0016 | 0.019, 0.008
+caterpillar (outdoor): 0.367 | 1.58-9.30 | 0.328, 0.325 | 0.397, 0.0012 | 0.019, 0.006
+meetingroom (indoor): 0.949 | 1.54-13.43 | 0.418, 0.399 | 0.644, 0.0014 | 0.032, 0.009
+
+figure: experiments\figures\e45b_gt_check.jpg
