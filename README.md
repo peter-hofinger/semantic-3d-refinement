@@ -201,6 +201,33 @@ Geometry comes first, segmentation second.
   competitors, because scenes, classes and scored views differ. Comparing requires running
   their methods on this protocol.
 
+**Competitors' geometry on ETH3D (E26a, issue #26).** ETH3D's 13 high-res training
+scenes (7 indoor, 6 outdoor; in none of the methods' listed training sets), 20 views at
+504 px, each output aligned by its own Sim(3); mean / median over the scenes, cm, ↓
+(`experiments/results/e26a_eth3d.txt`, `experiments/figures/e26a_eth3d.png`). Every method
+at its released checkpoint and its own settings, nothing tuned. PE3R is not in the table:
+it needs more than the 3080's 10 GB, and we dropped it rather than wait on the cluster.
+
+| | accuracy | completeness | Chamfer |
+|---|---|---|---|
+| Déjà View | **12.22** / 8.99 | **7.76** / **5.54** | **9.99** / **7.26** |
+| Refined, no segments | 12.15 / **8.71** | 9.50 / 6.58 | 10.82 / 7.65 |
+| Refined, SAM 3 (ours) | 12.22 / 8.76 | 9.29 / 6.37 | 10.75 / 7.56 |
+| Refined, permuted SAM 3 | 12.32 / 8.80 | 8.89 / 6.18 | 10.60 / 7.49 |
+| Déjà View, filtered (instance voxel density, q 0.5) | **6.11** / 4.41 | 7.86 / 5.73 | **6.99** / 5.38 |
+| flag-refine-filter (E27a, issue #27) | 6.13 / **4.37** | **7.85** / 5.66 | **6.99** / **5.38** |
+| PanSt3R v2 | 88.88 / 35.05 | 154.16 / 21.36 | 121.52 / 28.76 |
+| EPS3D | 38.24 / 28.70 | 33.57 / 17.21 | 35.90 / 24.36 |
+| IGGT | 26.56 / 13.33 | 27.09 / 8.37 | 26.83 / 10.85 |
+
+Our refinement is worse than its input on Chamfer on all 13 scenes. The segments beat no
+segments on 11 of 13 by 0.07 cm (mean), but randomly permuted ids beat the real ones on 12 of
+13, so the semantics are not what helps here. Déjà View leads every competitor on the mean;
+IGGT has the best indoor median (Chamfer 3.81 against 6.20) and fails outdoors; PanSt3R's
+frozen MUSt3R_512_cvpr breaks on 5 scenes (over 2 m). The filter, not the refinement,
+carries flag-refine-filter here: Chamfer 9.99 -> 6.99 cm against Déjà View on all 13 scenes,
+but a tie with the filter alone on the same pixels (median -0.02 cm, 9 of 13 scenes).
+
 ```bash
 uv run hypersim-download --splits dev stress && uv run hypersim-prepare --splits dev stress
 uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --splits dev stress   # inputs: dejaview-predict, dsine-predict, sam3-segment

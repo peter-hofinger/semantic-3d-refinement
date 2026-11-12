@@ -1,0 +1,20 @@
+# E26a addendum (experiments/LOG.md): issue #27's result, E27a's flag-refine-filter, on
+# E26a's ETH3D scenes and inputs (experiments/configs/e26a.yaml), with the filter alone
+# as its same-pixel baseline. Weights as in experiments/configs/e27a.yaml: λ_t = 4e-2
+# with E_n off, q = 0.5 by instance voxel density flagged on Déjà View's cloud.
+output_dir: runs
+root: data/processed/eth3d
+dataset: configs/eth3d.yaml
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+refine: configs/refine.yaml
+variants:
+  - name: Déjà View, kept 0.5
+    refiner: none
+    keep: 0.5
+  - name: flag-refine-filter
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+competitors: {}

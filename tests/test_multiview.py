@@ -25,11 +25,14 @@ from src.refinement.multiview import (
     grid_operator,
     match_candidates,
     match_jacobian,
+    matches_in,
+    moved_cameras,
     normal_equations,
     occlusion_threshold,
     points_from_rays,
     project,
     refine_scene,
+    refine_scene_and_cameras,
     residuals,
     robust,
     same_instance_edges,
@@ -37,6 +40,7 @@ from src.refinement.multiview import (
     scene_energy,
     scene_from_geometry,
     scene_residuals,
+    solve_cameras,
     stencil_diagonal,
     tangent_residuals,
 )
@@ -640,3 +644,35 @@ def test_removing_a_bump_stops_it_pulling_the_other_view() -> None:
         )
     ]
     assert errors[1] < 0.5 * errors[0]
+
+
+def test_unmoved_cameras_are_the_scenes_and_zero_rounds_is_refine_scene() -> None:
+    scene, _ = two_views(bump=0.03)
+    moved = moved_cameras(scene, torch.zeros(2, 7), scene.depth.median())
+    torch.testing.assert_close(moved.rays, scene.rays)
+    torch.testing.assert_close(moved.k, scene.k)
+    torch.testing.assert_close(moved.rotation, scene.rotation)
+    cfg = RefineConfig(lambda_n=0.0, device="cpu")
+    depth, _, _ = refine_scene(scene, cfg)
+    same, depth_too, _, _ = refine_scene_and_cameras(scene, cfg)
+    assert same is scene and torch.equal(depth, depth_too)
+
+
+def test_camera_solve_fits_a_moved_camera_at_least_as_well_as_the_true_one() -> None:
+    """E_mv is minimized, not θ recovered: on a plane, depth agreement barely sees θ."""
+    truth, depth = two_views()
+    truth = Scene(depth.float(), *dataclasses.astuple(truth)[1:])
+    scale = truth.depth.median()
+    move = torch.tensor([[0.0] * 7, [0.01, -0.02, 0.015, 0.01, -0.01, 0.02, 0.03]])
+    moved = moved_cameras(truth, move, scale)
+    d = scale / moved.depth
+    m = find_matches(moved, d, scale, 1, 0.2)
+    theta = solve_cameras(moved, d, scale, m, RefineConfig(device="cpu"))
+    assert torch.equal(theta[0], torch.zeros(7))
+
+    def energy(t: torch.Tensor) -> float:
+        cams = moved_cameras(moved, t, scale)
+        return residuals(d, scale, cams, matches_in(cams, m)).square().mean().item()
+
+    assert energy(theta) < 0.01 * energy(torch.zeros(2, 7))
+    assert energy(theta) <= energy(-move)

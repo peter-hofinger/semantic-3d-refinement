@@ -1,9 +1,10 @@
 """Joint refinement of all views by Gauss-Newton: the default refiner.
 
-Cameras stay fixed: Déjà View's, each with the pinhole fitted to its rays
-(`fit_pinhole`). All views share one normalization, d_i = s / D_i with s the scene's
-median depth, so a residual means the same in every view. Inverse depth is refined per
-pixel, d_i(p) = d0_i(p) + δ_i(p), minimizing
+The cameras are Déjà View's, each with the pinhole fitted to its rays (`fit_pinhole`);
+they stay fixed unless `camera_rounds` > 0, which alternates the depth solve with one of
+the ray maps (`refine_scene_and_cameras`). All views share one normalization,
+d_i = s / D_i with s the scene's median depth, so a residual means the same in every
+view. Inverse depth is refined per pixel, d_i(p) = d0_i(p) + δ_i(p), minimizing
 
   E = E_d + λ_mv E_mv + λ_n E_n + λ_δ ‖δ‖²,   per-pixel terms as means.
 
@@ -55,6 +56,7 @@ five entries per match, the source pixel and j's four interpolated pixels. On 20
 of 504 x 378 a solve (5 steps of 10 CG iterations) takes about 2 s on an RTX 3080.
 """
 
+import dataclasses
 import logging
 import math
 import time
@@ -118,6 +120,10 @@ class RefineConfig:
     gn_iters: int = 5
     cg_iters: int = 10
     cg_tol: float = 1e-3
+    # ray maps: rounds of (camera solve, depth solve); 0 keeps the cameras fixed
+    camera_rounds: int = 0
+    camera_iters: int = 30  # L-BFGS iterations of each camera solve
+    camera_matches: int = 200_000  # E_mv matches it samples: 7 unknowns per view
     device: str = "cuda"
 
     def __post_init__(self) -> None:
@@ -126,6 +132,8 @@ class RefineConfig:
         assert self.huber > 0 and self.edge_tol > 0
         assert self.neighbors >= 1
         assert self.gn_iters >= 0 and self.cg_iters >= 1 and 0 < self.cg_tol < 1
+        assert self.camera_rounds >= 0
+        assert self.camera_iters >= 1 and self.camera_matches >= 1
 
 
 def points_from_rays(depth: Tensor, rays: Tensor) -> Tensor:
@@ -946,6 +954,128 @@ def gauss_newton(
     return x, log, cg_total
 
 
+def skew(w: Tensor) -> Tensor:
+    """Cross-product matrices (..., 3, 3) of vectors (..., 3): [w]x v = w x v."""
+    z = torch.zeros_like(w[..., 0])
+    return torch.stack(
+        [z, -w[..., 2], w[..., 1], w[..., 2], z, -w[..., 0], -w[..., 1], w[..., 0], z],
+        -1,
+    ).unflatten(-1, (3, 3))
+
+
+def pinhole_rays(k: Tensor, rotation: Tensor, center: Tensor, h: int, w: int) -> Tensor:
+    """Ray maps (V, H, W, 6) of pinholes: center, R K^-1 (u, v, 1), as `fit_pinhole`."""
+    v, u = torch.meshgrid(
+        torch.arange(h, device=k.device, dtype=k.dtype),
+        torch.arange(w, device=k.device, dtype=k.dtype),
+        indexing="ij",
+    )
+    fx, fy = k[:, 0, 0, None, None], k[:, 1, 1, None, None]
+    cx, cy = k[:, 0, 2, None, None], k[:, 1, 2, None, None]
+    cam = torch.stack([(u - cx) / fx, (v - cy) / fy, torch.ones_like(u - cx)], -1)
+    dirs = torch.einsum("vij,vhwj->vhwi", rotation, cam)
+    return torch.cat([center[:, None, None].expand_as(dirs), dirs], -1)
+
+
+def moved_cameras(scene: Scene, theta: Tensor, scale: Tensor) -> Scene:
+    """Scene with camera v moved by θ_v = (ω, t, φ): R e^[ω]x, c + s t, f e^φ.
+
+    ω turns the camera in its own frame, t moves it in units of the scene's median
+    depth s, φ scales both focal lengths; the principal point stays (Déjà View's is
+    centred). θ = 0 is the scene's own cameras, up to float rounding of the rays.
+    """
+    n, h, w = scene.depth.shape
+    assert theta.shape == (n, 7) and theta.isfinite().all(), theta.shape
+    rotation = scene.rotation @ torch.linalg.matrix_exp(skew(theta[:, :3]))
+    center = scene.center + scale * theta[:, 3:6]
+    f = theta[:, 6].exp()
+    one = torch.ones_like(f)
+    k = scene.k * torch.stack([f, one, one, one, f, one, one, one, one], -1).view(
+        n, 3, 3
+    )
+    rays = pinhole_rays(k, rotation, center, h, w)
+    return Scene(scene.depth, rays, scene.conf, k, rotation, center)
+
+
+def matches_in(scene: Scene, m: Matches) -> Matches:
+    """Return the same matches with their rays in j's frame from the scene's cameras."""
+    rays = scene.rays.reshape(-1, 6)[m.src]
+    rot = scene.rotation[m.dst]
+    offset = torch.einsum("mk,mkl->ml", rays[:, :3] - scene.center[m.dst], rot)
+    return Matches(m.src, m.dst, offset, torch.einsum("mk,mkl->ml", rays[:, 3:], rot))
+
+
+def solve_cameras(
+    scene: Scene, d: Tensor, scale: Tensor, m: Matches, cfg: RefineConfig
+) -> Tensor:
+    """θ (V, 7) minimizing E_mv at fixed inverse depth d over the cameras, by L-BFGS.
+
+    View 0's camera stays: E_mv cannot see a motion of all cameras together. The
+    matches stay those found on the input, their rays follow the cameras (`matches_in`);
+    `camera_matches` of them, drawn once, fix 7 unknowns per view with ample margin.
+    E_mv compares depths, so it sees a camera's motion only through the depth's
+    gradient: on a plane several motions are nearly free, and the minimizer need not be
+    the true camera (its test in `test_multiview.py` shows it).
+    """
+    n = len(d)
+    generator = torch.Generator().manual_seed(0)
+    pick = torch.randperm(len(m.src), generator=generator)[: cfg.camera_matches]
+    pick = pick.to(m.src.device)
+    sample = Matches(m.src[pick], m.dst[pick], m.offset[pick], m.direction[pick])
+    free = torch.zeros(n - 1, 7, device=d.device, dtype=d.dtype, requires_grad=True)
+    optimizer = torch.optim.LBFGS(
+        [free], max_iter=cfg.camera_iters, line_search_fn="strong_wolfe"
+    )
+
+    def energy() -> Tensor:
+        optimizer.zero_grad()
+        theta = torch.cat([torch.zeros_like(free[:1]), free])
+        moved = moved_cameras(scene, theta, scale)
+        e = residuals(d, scale, moved, matches_in(moved, sample)).square().mean()
+        e.backward()
+        return e
+
+    optimizer.step(energy)
+    theta = torch.cat([torch.zeros_like(free[:1]), free]).detach()
+    assert theta.isfinite().all()
+    return theta
+
+
+def refine_scene_and_cameras(
+    scene: Scene,
+    cfg: RefineConfig,
+    normals: Tensor | None = None,
+    segments: Tensor | None = None,
+) -> tuple[Scene, Tensor, list[dict[str, float]], dict[str, int]]:
+    """`refine_scene`, after each of `camera_rounds` solves of the ray maps.
+
+    Each round fits the cameras to E_mv at the current depth (the input's first, so
+    the depth has not yet absorbed the cameras' errors; `solve_cameras` on the matches
+    found there), turns DSINE's normals with them, and refines the depth from the input
+    on the moved cameras: E_d still anchors to Déjà View's depth, so only the rays and
+    the multi-view terms see the new cameras. Returns the scene with the final cameras,
+    depth, the last solve's log and counts; 0 rounds is `refine_scene` itself.
+    """
+    ids = None if segments is None else segments.to(scene.depth.device)
+    scale = scene.depth.median()
+    depth = scene.depth
+    for _ in range(cfg.camera_rounds):
+        m = find_matches(scene, scale / depth, scale, cfg.neighbors)
+        if ids is not None:
+            m = same_segment_matches(m, scene, scale / depth, scale, ids)
+        theta = solve_cameras(scene, scale / depth, scale, m, cfg)
+        moved = moved_cameras(scene, theta, scale)
+        if normals is not None:
+            turn = moved.rotation @ scene.rotation.transpose(1, 2)
+            normals = torch.einsum("vij,vhwj->vhwi", turn, normals)
+        scene = Scene(*(t.detach() for t in dataclasses.astuple(moved)))
+        log_info("cameras moved: %s", theta.abs().amax(0).tolist())
+        depth, log, counts = refine_scene(scene, cfg, normals, segments)
+    if cfg.camera_rounds == 0:
+        depth, log, counts = refine_scene(scene, cfg, normals, segments)
+    return scene, depth, log, counts
+
+
 def scene_normals(camera: np.ndarray, geometry: Geometry, scene: Scene) -> Tensor:
     """DSINE's camera-frame normals (V, H, W, 3) rotated into the frame of the rays."""
     return torch.stack(
@@ -960,11 +1090,12 @@ def scene_normals(camera: np.ndarray, geometry: Geometry, scene: Scene) -> Tenso
 
 @dataclass
 class JointRefiner:
-    """The pipeline's refiner: all views at once by Gauss-Newton, cameras fixed.
+    """The pipeline's refiner: all views at once by Gauss-Newton, cameras optional.
 
     E_n runs DSINE on the views (`dsine_repo`, needed when λ_n > 0); the linked instance
     ids are the segments. The output keeps the backbone's cameras with each ray map
-    replaced by its fitted pinhole (`fit_pinhole`).
+    replaced by its fitted pinhole (`fit_pinhole`), moved by the camera solve if
+    `camera_rounds` > 0.
     """
 
     cfg: RefineConfig
@@ -1000,7 +1131,9 @@ class JointRefiner:
             normals = scene_normals(camera, geometry, scene)
         t0 = time.perf_counter()
         segments = torch.from_numpy(segmentation.instance_ids.astype(np.int64))
-        depth, log, counts = refine_scene(scene, self.cfg, normals, segments)
+        scene, depth, log, counts = refine_scene_and_cameras(
+            scene, self.cfg, normals, segments
+        )
         log_info(
             "refined %d views in %.1f s: E %.4g -> %.4g, %d Gauss-Newton steps, %s",
             len(views),
