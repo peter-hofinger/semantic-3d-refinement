@@ -1,11 +1,67 @@
 # semantic-3d-refinement
-Semantic-guided refinement of feed-forward 3D reconstruction (Déjà View), evaluated on Hypersim
+
+Can multi-view panoptic segments (SAM 3 masks linked across views) refine a frozen
+feed-forward 3D reconstruction (Déjà View) into surfaces more accurate than its raw
+output? **Not in our experiments, and our controls say the semantics are not what helps.** This
+repository holds the pipeline, an evaluation protocol on Hypersim, and the experiments
+behind that answer, negative results included.
+
+![Déjà View and the refined output on the shared bedroom, views 18, 0, 12, 6: image, ground-truth objects, linked SAM 3 objects, each output's distance to the nearest ground-truth point (cm), and refined minus Déjà View. Blue is closer, red further. Refinement helps in patches (bed frame, far wall in view 6) and hurts in others (walls in views 18 and 12).](figures/eval_hypersim-20261110-093416/presentation/ai_006_007_cam_00_views.png)
+
+## Results
+
+Chamfer distance in cm, lower is better, after one Sim(3) alignment per scene (protocol:
+[Evaluation](#evaluation-hypersim)). Hypersim: 20 views at 504 px; **dev** is 3 scenes
+where choices were made, **val** 11 scenes that checked them; `test` has not been run.
+Noise floor 0.036 cm (E40).
+
+| Question | Baseline | Result | Where |
+|---|---|---|---|
+| Does joint refinement (Gauss-Newton on inverse depth) beat the raw prediction? | Déjà View: dev 3.50, val 5.10 | No: dev 3.93, val 5.64. Accuracy improves (4.68 → 4.20 on dev), completeness loses more (2.32 → 3.66). On ETH3D it is worse on 13 of 13 scenes | [Evaluation](#evaluation-hypersim), E26a |
+| Does it beat simply dropping Déjà View's least dense points, at equal completeness? | Voxel-density filter | No: dev accuracy 3.09 cm for the filter, 4.20 for the refiner. Val was not run | E45 |
+| Do the segments explain what small gain there is? | The same refiner with no segments | No: ids permuted at random beat SAM 3 beyond noise, and ground-truth ids gain less than SAM 3's. Chamfer against no segments, dev: SAM 3 -0.069, ground truth -0.021, permuted -0.249 (val: -0.119, -0.043, -0.346) | E8a, E26a |
+| Does a learned refiner do better? | Déjà View | Per-view U-Net: val Chamfer 5.06 against 5.10, the size of the noise floor, masks or not. Fused voxel grid with a 3D U-Net: no model beats Déjà View on val | E11a, E41b |
+
+In the current energy the segments only switch off part of the cross-view term (E8a-E8c);
+`experiments/LOG.md` holds every setting we kept and why.
+
+## Reproduce
+
+Needs an RTX 3080-class GPU and access to the gated `facebook/sam3` weights
+(`uv run hf auth login`). Not re-run from a clean clone since the last change; the
+numbers above come from the runs named in `experiments/LOG.md`.
+
+```bash
+uv sync --all-groups
+uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
+uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --splits dev
+```
+
+`scene_eval` reads cached Déjà View, SAM 3 and DSINE outputs; the commands that write them
+are listed under [Evaluation](#evaluation-hypersim).
+
+## Team and credits
+
+Pouya Shekarchizadeh Esfahani, Peter Hofinger, Mircea-Alexandru Răuțoiu. Project at TUM,
+Niessner Lab, supervised by Umut Kocasarı and Robin Borth. Everyone worked on every part.
+
+Built on, none of it copied in (third-party code lives in `data/third_party/`, git-ignored,
+at a pinned commit):
+
+- [Déjà View](https://github.com/nv-tlabs/dvlt) (NVIDIA, `dvlt` at f59bb18), the frozen
+  backbone; SAM 3 (Meta, gated weights) for masks.
+- BiNI's normal term (Cao et al., ECCV 2022), re-implemented from the paper in
+  `src/refinement/normals.py`; no BiNI code (GPL-3) is used. Normals from DSINE (Bae and
+  Davison, CVPR 2024; non-commercial licence), run outside git.
+- Hypersim (Roberts et al., ICCV 2021) and ETH3D for evaluation; the protocol follows
+  PanSt3R and Pano3D. PanSt3R, EPS3D and IGGT are run from their released code as
+  competitors in E26a. Alignment is Umeyama's (1991) similarity transform.
 
 ## Setup
 
 ```bash
-uv sync
-cp .env.example .env   # then add your ScanNet++ token
+uv sync --all-groups
+cp .env.example .env   # only for ScanNet++: add your ScanNet++ token
 ```
 
 ## Data (ScanNet++)
