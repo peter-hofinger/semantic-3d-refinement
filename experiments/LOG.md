@@ -4555,3 +4555,54 @@ Interim entry: the check that the plan puts before any table.
   - The best of 15 on 3 scenes favours noise; val decides whether it holds.
 - **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, GT instances, Déjà View's per-pixel error and
   the best variant's on one shared scale (cm).
+
+## E51a: token averaging within GT instances inside Déjà View's loop -> worse than Déjà View for every α and step set on all 3 dev scenes; the route is closed without SAM 3 (issue #51, 13.11.2026)
+- **Goal, setting:** as the plan above. GT instances, Hypersim dev (3 scenes), 20 views at 504 px, K = 16,
+  α in {0.01, 0.03, 0.1, 0.3, 1} x steps in {all 16, first 4, last 4}; mixed depth and confidence scored
+  on the plain run's cameras and rays, the protocol's Sim(3) and `surface_metrics`.
+- **Commits, commands:** c6659e6 (the cluster run's commit; reapplied unchanged as c501e5c on the topic
+  branch after its revert on main), cluster job 2620 (RTX 5090, 4.6 min):
+  `uv run python experiments/scripts/e51a_token_mix.py --cfg configs/eval_hypersim.yaml --splits dev --segments gt --out runs/e51a_gt`;
+  figures `uv run python experiments/scripts/e51a_figures.py runs/e51a_gt`; the camera check
+  `uv run python experiments/scripts/e51a_own_cameras.py` (laptop 3050). Raw output
+  `results/e51a_dev_gt.txt`, `results/e51a_own_cameras.txt`.
+- **Checks:** α = 0 on all 16 steps reproduced Déjà View bit for bit (depth, confidence, rays) on all three
+  scenes, on the 5090 and on the laptop's 3050; the unit tests of `tests/test_dejaview.py` pass. The plain
+  run's Chamfer on the 5090 (3.479 cm, dev mean) is within 0.01 cm of the laptop's (3.488).
+  Patches with a segment: living room 98%, bedroom 94%, lobby 84%.
+- **Results** (Chamfer, cm; Déjà View: living room 1.606, bedroom 1.837, lobby 6.995, mean 3.479):
+  - No variant beats Déjà View on any scene: 0 of 3 for all 15. The loss grows with α in every step set.
+  - Mildest variant, α = 0.01 after the first 4 steps: +0.030, +0.024, +0.150 (mean +0.068); accuracy and
+    completeness both worse in all three; depth moves 0.15% (median), rays 0.04-0.07°.
+  - α = 0.01 after the last 4 steps: +0.18, +0.09, +1.47; after all 16: +0.75, +0.41, +4.02.
+  - α = 0.1: +2.6 (first 4), +10.1 (last 4), +24.8 (all) on the mean; α = 1: +32 to +35.
+  - Mixing bends the rays: median turn 0.04-0.3° at α = 0.01, 1.2-3.3° at α = 0.1-0.3 (bedroom), up to
+    8.8° at α = 1; each patch token carries its ray, as the depth.
+  - On their own cameras (first 4 steps, α <= 0.1, where the pinhole fit holds) the variants lose by about
+    as much: e.g. α = 0.01: living room 1.615 vs 1.627 on the fixed cameras, bedroom 1.893 vs 1.870, lobby
+    7.170 vs 7.165 (laptop; Déjà View 1.589, 1.848, 7.028). The loss is the depth's, not the pairing's.
+  - Mixed runs are not bit-reproducible on one GPU: `index_add_` on CUDA sums with atomic adds in no fixed
+    order, so a rerun of the camera check moved its mixed Chamfers by up to 0.03 cm (plain Déjà View and
+    α = 0 stay bit-identical); far below every loss above.
+  - The hook costs 1-12% of the forward pass (0.36 s plain, 0.37-0.41 s mixed, 5090).
+- **Reading, by the rules fixed in the plan:** the best GT variant loses 0.068 cm Chamfer on the mean and
+  wins 0 of 3 scenes -> token averaging does not help even with the oracle. Negative result; the
+  wrong-scene control, SAM 3 and val are not run (the plan runs them only after a gain).
+- **What the figures show:** at α = 0.1 after the last 4 steps the error grows over whole walls and the
+  ceiling, each one GT instance (Hypersim's walls, floors and ceilings are one instance per class, E29):
+  pulling their tokens to one mean pulls their depth towards one value, though a wall's depth varies
+  across the image. At α = 0.01 the error maps look like Déjà View's; the loss there is spread thin.
+- **Conclusion:**
+  - Averaging Déjà View's tokens within GT instances makes its depth worse at every strength and step set
+    tried. A token holds more than "what object": its own ray and depth, which differ inside a segment;
+    a segment mean overwrites that, and the largest segments (walls, floors, ceilings) lose most.
+  - This closes the cheapest route of #50 for within-view means. It does not test segments that keep the
+    token's content: #53's attention bias changes only whom a token listens to, which is the next step.
+- **Limits:** 3 dev scenes; within-view means only (a cross-view mean, E51b, was planned as a follow-up and
+  is not worth running after this); one fixed patch rule (> half the patch); GT walls are one segment per
+  class, so smaller structural segments might lose less, untested; mixed depth scored on Déjà View's
+  cameras (checked on own cameras for the first 4 steps).
+- **Figures:** `figures/e51a_scores.jpg`: Chamfer minus Déjà View's per scene over α, one panel per step
+  set (above 0 = worse), and the bedroom's ray turn; `figures/e51a_bedroom.jpg`: bedroom views 18, 0, 12, 6:
+  image, GT instances per patch, the per-pixel error of Déjà View, α = 0.01 first 4 and α = 0.1 last 4 on
+  one 0-30 cm scale. Look at the walls and ceiling in the last row.

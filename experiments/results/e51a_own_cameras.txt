@@ -1,0 +1,12 @@
+ai_010_007_cam_00 DV chamfer 1.589
+  a=0.01 first4: fixed cameras 1.627  own cameras 1.615
+  a=0.03 first4: fixed cameras 1.818  own cameras 1.734
+  a=0.1 first4: fixed cameras 3.751  own cameras 3.725
+ai_006_007_cam_00 DV chamfer 1.848
+  a=0.01 first4: fixed cameras 1.870  own cameras 1.893
+  a=0.03 first4: fixed cameras 1.985  own cameras 2.055
+  a=0.1 first4: fixed cameras 2.618  own cameras 2.789
+ai_044_001_cam_00 DV chamfer 7.028
+  a=0.01 first4: fixed cameras 7.165  own cameras 7.170
+  a=0.03 first4: fixed cameras 7.749  own cameras 7.750
+  a=0.1 first4: fixed cameras 12.129  own cameras 11.831
