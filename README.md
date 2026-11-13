@@ -1,11 +1,67 @@
 # semantic-3d-refinement
-Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)
+
+Can multi-view panoptic segments (SAM 3 masks linked across views) refine a frozen
+feed-forward 3D reconstruction (Déjà View) into surfaces more accurate than its raw
+output? **Not in our experiments, and our controls say the semantics are not what helps.** This
+repository holds the pipeline, an evaluation protocol on Hypersim, and the experiments
+behind that answer, negative results included.
+
+![Déjà View and the refined output on the shared bedroom, views 18, 0, 12, 6: image, ground-truth objects, linked SAM 3 objects, each output's distance to the nearest ground-truth point (cm), and refined minus Déjà View. Blue is closer, red further. Refinement helps in patches (bed frame, far wall in view 6) and hurts in others (walls in views 18 and 12).](figures/eval_hypersim-20261110-093416/presentation/ai_006_007_cam_00_views.png)
+
+## Results
+
+Chamfer distance in cm, lower is better, after one Sim(3) alignment per scene (protocol:
+[Evaluation](#evaluation-hypersim)). Hypersim: 20 views at 504 px; **dev** is 3 scenes
+where choices were made, **val** 11 scenes that checked them; `test` has not been run.
+Noise floor 0.036 cm (E40).
+
+| Question | Baseline | Result | Where |
+|---|---|---|---|
+| Does joint refinement (Gauss-Newton on inverse depth) beat the raw prediction? | Déjà View: dev 3.50, val 5.10 | No: dev 3.93, val 5.64. Accuracy improves (4.68 → 4.20 on dev), completeness loses more (2.32 → 3.66). On ETH3D it is worse on 13 of 13 scenes | [Evaluation](#evaluation-hypersim), E26a |
+| Does it beat simply dropping Déjà View's least dense points, at equal completeness? | Voxel-density filter | No: dev accuracy 3.09 cm for the filter, 4.20 for the refiner. Val was not run | E45 |
+| Do the segments explain what small gain there is? | The same refiner with no segments | No: ids permuted at random beat SAM 3 beyond noise, and ground-truth ids gain less than SAM 3's. Chamfer against no segments, dev: SAM 3 -0.069, ground truth -0.021, permuted -0.249 (val: -0.119, -0.043, -0.346) | E8a, E26a |
+| Does a learned refiner do better? | Déjà View | Per-view U-Net: val Chamfer 5.06 against 5.10, the size of the noise floor, masks or not. Fused voxel grid with a 3D U-Net: no model beats Déjà View on val | E11a, E41b |
+
+In the current energy the segments only switch off part of the cross-view term (E8a-E8c);
+`experiments/LOG.md` holds every setting we kept and why.
+
+## Reproduce
+
+Needs an RTX 3080-class GPU and access to the gated `facebook/sam3` weights
+(`uv run hf auth login`). Not re-run from a clean clone since the last change; the
+numbers above come from the runs named in `experiments/LOG.md`.
+
+```bash
+uv sync --all-groups
+uv run hypersim-download --splits dev && uv run hypersim-prepare --splits dev
+uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --splits dev
+```
+
+`scene_eval` reads cached Déjà View, SAM 3 and DSINE outputs; the commands that write them
+are listed under [Evaluation](#evaluation-hypersim).
+
+## Team and credits
+
+Pouya Shekarchizadeh Esfahani, Peter Hofinger, Mircea-Alexandru Răuțoiu. Project at TUM,
+Niessner Lab, supervised by Umut Kocasarı and Robin Borth. Everyone worked on every part.
+
+Built on, none of it copied in (third-party code lives in `data/third_party/`, git-ignored,
+at a pinned commit):
+
+- [Déjà View](https://github.com/nv-tlabs/dvlt) (NVIDIA, `dvlt` at f59bb18), the frozen
+  backbone; SAM 3 (Meta, gated weights) for masks.
+- BiNI's normal term (Cao et al., ECCV 2022), re-implemented from the paper in
+  `src/refinement/normals.py`; no BiNI code (GPL-3) is used. Normals from DSINE (Bae and
+  Davison, CVPR 2024; non-commercial licence), run outside git.
+- Hypersim (Roberts et al., ICCV 2021) and ETH3D for evaluation; the protocol follows
+  PanSt3R and Pano3D. PanSt3R, EPS3D and IGGT are run from their released code as
+  competitors in E26a. Alignment is Umeyama's (1991) similarity transform.
 
 ## Setup
 
 ```bash
-uv sync
-cp .env.example .env   # then add your ScanNet++ token
+uv sync --all-groups
+cp .env.example .env   # only for ScanNet++: add your ScanNet++ token
 ```
 
 ## Data (ScanNet++)
@@ -70,8 +126,8 @@ Views --backbone--> Geometry --segmenter--> Segmentation --refiner--> Geometry -
 | `PointCloud` | points, colors, instance id per point, class per id |
 
 Each stage is a small interface (`Backbone.predict`, `Segmenter.segment`,
-`Refiner.refine`) with a placeholder implementation, so the pipeline runs end to
-end before the real models exist:
+`Refiner.refine`). Each also has a trivial implementation (flat depth, no objects,
+identity) so the pipeline's plumbing runs without a GPU or model weights:
 
 ```bash
 uv run run-pipeline data/processed/scannetpp/7b6477cb95/views_n20_uniform_504.npz
@@ -172,7 +228,8 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
 Geometry comes first, segmentation second.
 
 - **Data:** the splits of `configs/hypersim.yaml`, 20 evenly spaced views per scene, 504 px.
-  No weight is tuned: every energy term has weight 1.
+  Every energy weight is 1 except λ_n = 1e-4, which sets E_n's units; E40 and E21a varied
+  them on dev and kept these values.
 - **Output:** per input pixel, a 3D point in view 0's frame (V, H, W, 3) and an instance id
   (V, H, W). The same id means the same object in every view. Each id has a class and a
   confidence.
@@ -210,8 +267,8 @@ it needs more than the 3080's 10 GB, and we dropped it rather than wait on the c
 
 | | accuracy | completeness | Chamfer |
 |---|---|---|---|
-| Déjà View | **12.22** / 8.99 | **7.76** / **5.54** | **9.99** / **7.26** |
-| Refined, no segments | 12.15 / **8.71** | 9.50 / 6.58 | 10.82 / 7.65 |
+| Déjà View | 12.22 / 8.99 | **7.76** / **5.54** | **9.99** / **7.26** |
+| Refined, no segments | **12.15** / **8.71** | 9.50 / 6.58 | 10.82 / 7.65 |
 | Refined, SAM 3 (ours) | 12.22 / 8.76 | 9.29 / 6.37 | 10.75 / 7.56 |
 | Refined, permuted SAM 3 | 12.32 / 8.80 | 8.89 / 6.18 | 10.60 / 7.49 |
 | Déjà View, filtered (instance voxel density, q 0.5) | **6.11** / 4.41 | 7.86 / 5.73 | **6.99** / 5.38 |
@@ -234,7 +291,7 @@ uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --spli
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Every energy weight 1, none tuned, Gauss-Newton 5 × 10 (`figures/eval_hypersim-20261110-093416`;
+Every energy weight 1 but λ_n, Gauss-Newton 5 × 10 (`figures/eval_hypersim-20261110-093416`;
 about 1 min for both splits on an RTX 3080, refinement 2 s per scene). Its `presentation/` folder holds the shared bedroom at the views of
 issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 
@@ -267,7 +324,7 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   Averaging each voxel's points into one (voxel fusion) does not help either; the best of seven voxel
   variants counts only the points of the pixel's own SAM 3 instance (3.00 cm, dev; chosen on dev, gain over
   voxel density beyond noise only in the lobby).
-- **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
+- **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.37 in
   the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
   SAM 3 finds but the scene lacks (4-5 per dev scene) as 0. The dev mIoU is pooled over 29
@@ -290,7 +347,7 @@ src/                the code, imported as `src`
     scannetpp/      download, scene loading, preprocessing
     hypersim/       download, scene loading, preprocessing + ground truth
   geometry.py       Geometry (depth + cameras), lifting to 3D
-  backbone/         Backbone interface; Déjà View goes here
+  backbone/         Backbone interface, Déjà View (dejaview.py), SegVGGT (segvggt.py)
   segmentation/     Segmentation, Segmenter interface, SAM 3 + association
   refinement/       Refiner interface; joint refinement by Gauss-Newton (multiview.py),
                     the normal term on DSINE normals (normals.py)
@@ -299,7 +356,7 @@ src/                the code, imported as `src`
   evaluation/       metrics against ground truth: instances (instances.py), labeled
                     output (labeled.py: accuracy, completeness, Chamfer, mIoU, PQ, AP)
   analysis/         the Hypersim protocol (scene_eval.py), its figures and point renders
-experiments/        SAM 3 study (LOG.md, scripts, results, figures)
+experiments/        the experiment log (LOG.md), one script per experiment, results, figures
 figures/            refinement figures, one folder per run with a README
 tests/
 ```

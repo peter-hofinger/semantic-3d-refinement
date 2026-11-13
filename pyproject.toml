@@ -1,7 +1,7 @@
 [project]
 name = "semantic-3d-refinement"
 version = "0.1.0"
-description = "Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)"
+description = "Semantic-guided refinement of feed-forward 3D reconstruction (Déjà View), evaluated on Hypersim"
 readme = "README.md"
 authors = [
     { name = "Pouya Shekarchizadeh Esfahani", email = "pouya.esfahani@tum.de" },
@@ -134,8 +134,6 @@ ignore = [
     "PLR0915",  # too-many-statements
     "PLR0917",  # too-many-positional-arguments
 ]
-# Peter's refinement code: design by contract, asserts state shapes, ranges and
-# finiteness on entry and exit
 # design by contract: asserts state shapes, ranges and finiteness on entry and exit
 "src/{analysis/*,refinement/{multiview,normals,learned,volume},evaluation/labeled,backbone/segvggt}.py" = [
     "S101",     # contract asserts

@@ -1,4 +1,4 @@
-"""Refiner interface and a placeholder implementation."""
+"""Refiner interface and the identity refiner."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class Refiner(Protocol):
 
 
 class IdentityRefiner:
-    """Placeholder until the optimizer is wired in: changes nothing."""
+    """Return the input unchanged: the baseline every refiner is scored against."""
 
     def refine(
         self,

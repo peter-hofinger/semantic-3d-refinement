@@ -1,4 +1,4 @@
-"""Backbone interface and a placeholder implementation."""
+"""Backbone interface, a flat-depth stand-in and a cache reader."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class Backbone(Protocol):
 
 @dataclass
 class ConstantDepthBackbone:
-    """Placeholder until Déjà View is wired in: flat depth, ground-truth cameras."""
+    """Flat depth with ground-truth cameras: runs the pipeline without a model."""
 
     depth: float = 2.0
 

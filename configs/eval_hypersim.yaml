@@ -15,7 +15,7 @@ views: views_n20_uniform_504
 backbone: dejaview_k16
 segmentation: sam3image-nyu40-t0.3
 vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
-refine: configs/refine.yaml          # the refined variant: every weight 1, none tuned
+refine: configs/refine.yaml          # the refined variant: every weight 1 but λ_n (E40, E21a)
 variants:
   - name: Déjà View
     refiner: none
