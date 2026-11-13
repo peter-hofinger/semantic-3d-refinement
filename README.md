@@ -172,7 +172,8 @@ One protocol for every variant (`src/analysis/scene_eval.py`, `configs/eval_hype
 Geometry comes first, segmentation second.
 
 - **Data:** the splits of `configs/hypersim.yaml`, 20 evenly spaced views per scene, 504 px.
-  No weight is tuned: every energy term has weight 1.
+  Every energy weight is 1 except λ_n = 1e-4, which sets E_n's units; E40 and E21a varied
+  them on dev and kept these values.
 - **Output:** per input pixel, a 3D point in view 0's frame (V, H, W, 3) and an instance id
   (V, H, W). The same id means the same object in every view. Each id has a class and a
   confidence.
@@ -210,8 +211,8 @@ it needs more than the 3080's 10 GB, and we dropped it rather than wait on the c
 
 | | accuracy | completeness | Chamfer |
 |---|---|---|---|
-| Déjà View | **12.22** / 8.99 | **7.76** / **5.54** | **9.99** / **7.26** |
-| Refined, no segments | 12.15 / **8.71** | 9.50 / 6.58 | 10.82 / 7.65 |
+| Déjà View | 12.22 / 8.99 | **7.76** / **5.54** | **9.99** / **7.26** |
+| Refined, no segments | **12.15** / **8.71** | 9.50 / 6.58 | 10.82 / 7.65 |
 | Refined, SAM 3 (ours) | 12.22 / 8.76 | 9.29 / 6.37 | 10.75 / 7.56 |
 | Refined, permuted SAM 3 | 12.32 / 8.80 | 8.89 / 6.18 | 10.60 / 7.49 |
 | Déjà View, filtered (instance voxel density, q 0.5) | **6.11** / 4.41 | 7.86 / 5.73 | **6.99** / 5.38 |
@@ -234,7 +235,7 @@ uv run python -m src.analysis.scene_eval --cfg configs/eval_hypersim.yaml --spli
 uv run python -m src.analysis.scene_figures --run runs/eval_hypersim-<time>
 ```
 
-Every energy weight 1, none tuned, Gauss-Newton 5 × 10 (`figures/eval_hypersim-20261110-093416`;
+Every energy weight 1 but λ_n, Gauss-Newton 5 × 10 (`figures/eval_hypersim-20261110-093416`;
 about 1 min for both splits on an RTX 3080, refinement 2 s per scene). Its `presentation/` folder holds the shared bedroom at the views of
 issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
 
@@ -267,7 +268,7 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   Averaging each voxel's points into one (voxel fusion) does not help either; the best of seven voxel
   variants counts only the points of the pixel's own SAM 3 instance (3.00 cm, dev; chosen on dev, gain over
   voxel density beyond noise only in the lobby).
-- **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.39 in
+- **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.37 in
   the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
   SAM 3 finds but the scene lacks (4-5 per dev scene) as 0. The dev mIoU is pooled over 29
