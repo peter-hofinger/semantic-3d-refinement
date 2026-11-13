@@ -4566,6 +4566,8 @@ Interim entry: the check that the plan puts before any table.
   figures `uv run python experiments/scripts/e51a_figures.py runs/e51a_gt`; the camera check
   `uv run python experiments/scripts/e51a_own_cameras.py` (laptop 3050). Raw output
   `results/e51a_dev_gt.txt`, `results/e51a_own_cameras.txt`.
+- **Rerun at 6cb1b0f:** after this result the hook, its tests and `predict`'s `mix` argument
+  left `src` (the scripts need them); #53 brings back what it needs.
 - **Checks:** α = 0 on all 16 steps reproduced Déjà View bit for bit (depth, confidence, rays) on all three
   scenes, on the 5090 and on the laptop's 3050; the unit tests of `tests/test_dejaview.py` pass. The plain
   run's Chamfer on the 5090 (3.479 cm, dev mean) is within 0.01 cm of the laptop's (3.488).
