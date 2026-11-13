@@ -1,11 +1,11 @@
-# Experiment log: SAM 3 for cross-view instance masks (branch `sam3`)
+# Experiment log: semantic-guided refinement of Déjà View, from SAM 3 masks to the joint refiner
 
 Every experiment gets an entry: goal, code version, command, settings, results, figures, conclusion.
 Raw script output is in `results/`, figures in `figures/`, one-off scripts in `scripts/`.
 Data, caches and model outputs stay local under `data/processed/scannetpp/<scene>/` (git-ignored).
 
 **Numbering:** E1-E45 are numbered in order. From 10.11.2026 on an experiment is named after the issue it works on
-plus a letter in run order (E8a, E8b, ...; Mircea's proposal, adopted 10.11.2026), as `Claude.md` says.
+plus a letter in run order (E8a, E8b, ...; Mircea's proposal, adopted 10.11.2026), as `CLAUDE.md` says.
 
 **Common setup** unless stated otherwise:
 - Scenes (ScanNet++ `nvs_sem_val`, held out from Déjà View training): `5ee7c22ba0` kitchen, `7b6477cb95` office.
@@ -2396,7 +2396,7 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   part of the final combination.
 - **Consistency u (decided with Peter before running):** u is one of the energy's semantic parts; removing it is
   adopted only if dev is better beyond noise. On a tie it stays: whether semantics help is its own ablation
-  (Claude.md step 5), not a constant to tidy away.
+  (CLAUDE.md step 5), not a constant to tidy away.
 - **Check:** the final configuration on val (11 scenes) once, with the unchanged refiner in the same run. Val's
   inputs are prepared on this machine first (`hypersim-download`, `hypersim-prepare`, `dejaview-predict`,
   `sam3-segment --prompts configs/prompts/nyu40.txt --threshold 0.3`, `dsine-predict`, E34's settings). No test
@@ -3201,7 +3201,7 @@ Decided with the user after E27: cap the answer length instead of a stronger pen
   of 11 val scenes worse): the energy gains next to nothing from correct segments. SAM 3 beats GT (dev -0.048, val
   -0.076 Chamfer), and both corruptions beat or tie SAM 3, permuted by far. So SAM 3 is not the bottleneck, and
   "the segments help" does not hold in the sense the method claims: SAM 3's gain over Off comes from cutting
-  about 9% of E_mv's matches, and a scrambled segmentation that cuts 80-90% gains more. Claude.md's step 5
+  about 9% of E_mv's matches, and a scrambled segmentation that cuts 80-90% gains more. CLAUDE.md's step 5
   (shuffle the semantics; if the gain does not drop, semantics are not what helps) fails.
 - **Not separated here:** the gate and u move together (both read the same ids); E40 found removing u a tie, so the
   gate is the likely carrier, not measured. The next step down is a control without semantics: Off with E_mv's

@@ -1,4 +1,4 @@
-"""Segmentation result, segmenter interface and a placeholder implementation."""
+"""Segmentation result, segmenter interface and the empty segmenter."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ class Segmenter(Protocol):
 
 
 class EmptySegmenter:
-    """Placeholder until SAM 3 is wired in: finds no objects."""
+    """Find no objects: the no-semantics baseline."""
 
     def segment(self, views: Views, geometry: Geometry) -> Segmentation:  # noqa: ARG002
         """Return an empty segmentation."""

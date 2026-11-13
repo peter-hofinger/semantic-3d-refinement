@@ -1,7 +1,7 @@
 [project]
 name = "semantic-3d-refinement"
 version = "0.1.0"
-description = "Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)"
+description = "Semantic-guided refinement of feed-forward 3D reconstruction (Déjà View), evaluated on Hypersim"
 readme = "README.md"
 authors = [
     { name = "Pouya Shekarchizadeh Esfahani", email = "pouya.esfahani@tum.de" },

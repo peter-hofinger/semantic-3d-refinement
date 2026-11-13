@@ -1,5 +1,5 @@
 # semantic-3d-refinement
-Semantic-guided geometry refinement and post-optimization for feed-forward 3D reconstruction models (VGGT, DejaView, DA3)
+Semantic-guided refinement of feed-forward 3D reconstruction (Déjà View), evaluated on Hypersim
 
 ## Setup
 
@@ -70,8 +70,8 @@ Views --backbone--> Geometry --segmenter--> Segmentation --refiner--> Geometry -
 | `PointCloud` | points, colors, instance id per point, class per id |
 
 Each stage is a small interface (`Backbone.predict`, `Segmenter.segment`,
-`Refiner.refine`) with a placeholder implementation, so the pipeline runs end to
-end before the real models exist:
+`Refiner.refine`). Each also has a trivial implementation (flat depth, no objects,
+identity) so the pipeline's plumbing runs without a GPU or model weights:
 
 ```bash
 uv run run-pipeline data/processed/scannetpp/7b6477cb95/views_n20_uniform_504.npz
@@ -290,7 +290,7 @@ src/                the code, imported as `src`
     scannetpp/      download, scene loading, preprocessing
     hypersim/       download, scene loading, preprocessing + ground truth
   geometry.py       Geometry (depth + cameras), lifting to 3D
-  backbone/         Backbone interface; Déjà View goes here
+  backbone/         Backbone interface, Déjà View (dejaview.py), SegVGGT (segvggt.py)
   segmentation/     Segmentation, Segmenter interface, SAM 3 + association
   refinement/       Refiner interface; joint refinement by Gauss-Newton (multiview.py),
                     the normal term on DSINE normals (normals.py)
@@ -299,7 +299,7 @@ src/                the code, imported as `src`
   evaluation/       metrics against ground truth: instances (instances.py), labeled
                     output (labeled.py: accuracy, completeness, Chamfer, mIoU, PQ, AP)
   analysis/         the Hypersim protocol (scene_eval.py), its figures and point renders
-experiments/        SAM 3 study (LOG.md, scripts, results, figures)
+experiments/        the experiment log (LOG.md), one script per experiment, results, figures
 figures/            refinement figures, one folder per run with a README
 tests/
 ```

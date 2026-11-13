@@ -52,7 +52,7 @@ def main() -> None:
         "--backbone",
         choices=["constant", "dejaview"],
         default="constant",
-        help="constant: flat depth + GT cameras (placeholder); dejaview: Déjà View",
+        help="constant: flat depth + GT cameras (no model); dejaview: Déjà View",
     )
     parser.add_argument(
         "--geometry",
@@ -63,7 +63,7 @@ def main() -> None:
         "--segmenter",
         choices=["empty", "sam3"],
         default="empty",
-        help="empty: no objects (placeholder); sam3: SAM 3 per view + association",
+        help="empty: no objects; sam3: SAM 3 per view + association",
     )
     parser.add_argument(
         "--prompts",
@@ -75,7 +75,7 @@ def main() -> None:
         "--refiner",
         choices=["identity", "joint"],
         default="identity",
-        help="identity: unchanged depth (placeholder); joint: all views by "
+        help="identity: unchanged depth; joint: all views by "
         "Gauss-Newton, E_d + E_mv + E_n (src/refinement/multiview.py)",
     )
     parser.add_argument(
