@@ -4510,3 +4510,48 @@ Interim entry: the check that the plan puts before any table.
   views 0, 5, 10, 15: image, Déjà View's t in the edge band, the error of Déjà View and of each snap on
   one 0-30 cm scale. Look at the stake gaps and the outline in Truck, the smooth error over Caterpillar's
   bucket, the trusses in the meeting room. `figures/e45b_gt_check.jpg`: the ground truth.
+
+## Plan: E51a = token averaging within segments inside Déjà View's loop, GT instances as the oracle (issue #51, 13.11.2026)
+- **Goal:** used on Déjà View's output, semantics have little headroom by oracle bounds (E25a, E25b, E45a,
+  E45b; #50). Untested is semantics inside the model. The cheapest test: after some of the loop's steps,
+  pull each patch token towards the mean of its segment in its view. If GT instances do not improve Déjà
+  View's depth this way, token averaging is closed without SAM 3 and #53 (attention bias) is next.
+- **Where it acts:** Déjà View runs one shared `LoopedAABlock` (frame attention, then global attention over
+  all views) K = 16 times on tokens (V, P, C) = (20, 977, 768): per view 1 camera + 4 register tokens, then
+  27 x 36 = 972 patch tokens of 14 px; then decodes depth and rays. A forward hook on that block
+  (`recurrent_blocks[0]`) sees every step's output and returns the mixed tokens; dvlt is not changed.
+- **Method:** after each chosen step, for every view and segment s, every patch token t of s becomes
+  (1 - α) t + α mean_s(t), the mean over s's patch tokens in that view only. Camera and register tokens
+  never change. A patch belongs to the id that covers more than half of its 14 x 14 pixels; a patch
+  without one, or whose majority is unlabeled (-1), keeps its token. Constants fixed here, not tuned.
+- **Segments:** GT instances (Hypersim's; walls, floors and ceilings one instance per class, E29).
+- **Grid (coarse):** α in {0.01, 0.03, 0.1, 0.3, 1.0} x steps in {all 16, first 4, last 4} = 15 variants plus
+  Déjà View unchanged. Hypersim dev (3 scenes), 20 views at 504 px, K = 16, run on the cluster's 5090; the
+  baseline is rerun there in the same process (bf16 differs across GPUs, so not compared to the cache).
+- **Control (wrong-scene masks):** permuting ids does not change a within-view average (it depends only on
+  the grouping), so the control is the GT instances of another dev scene at the same view index (living
+  room -> bedroom -> lobby -> living room): realistic shapes in the wrong place, the same α and steps as the
+  best GT variant. Permuting ids per view becomes the control once the mean spans views (E51b).
+- **Changed before the run (13.11, after a smoke test on the laptop's 3050, bedroom):** each patch token
+  also carries its ray, so mixing bends Déjà View's rays: after the last 4 steps α = 0.1 turns them 1.6°
+  (median) and leaves the ray map 6.9 px off a pinhole (1.8 px plain), α = 1 8.6° and 93 px; the
+  protocol's pinhole fit fails. A mixed run's depth and confidence are therefore scored on the plain
+  run's cameras and rays (the project keeps Déjà View's cameras fixed; the question is the depth), and
+  how far the rays and the depth moved is reported per variant. α = 0.1 already moves the depth 1-4%
+  (median; Déjà View's median 3D error on the bedroom is 1.1%), so the grid starts at 0.01 instead of 0.1.
+- **Scores per variant:** each output, as the protocol, aligned onto the GT by one Umeyama Sim(3) on its
+  pixels (`align_output`, pinhole rays `scene_from_geometry`) and scored by `surface_metrics`: accuracy,
+  completeness, Chamfer (cm), and the mean per-pixel 3D error (cm); the forward time with and without the
+  hook.
+- **Checks:** α = 0 on all 16 steps (the hook runs its arithmetic) reproduces Déjà View without a hook bit
+  for bit on the same GPU (depth and rays); unit tests on CPU: α = 0 returns the tokens, α = 1 gives each
+  segment its mean, special and unlabeled tokens unchanged, the mean of a segment preserved for any α,
+  patch ids on a synthetic mask (majority, impure, unlabeled).
+- **Reading, fixed before running:**
+  - The best GT variant beats Déjà View on Chamfer by less than 0.05 cm, or in fewer than 2 of 3 dev scenes
+    -> token averaging does not help even with the oracle: negative result, go to #53.
+  - Otherwise the gain must drop by at least half with the wrong-scene masks; then SAM 3's linked masks
+    (the protocol's), then val once. If it does not drop, the gain is smoothing, not semantics.
+  - The best of 15 on 3 scenes favours noise; val decides whether it holds.
+- **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, GT instances, Déjà View's per-pixel error and
+  the best variant's on one shared scale (cm).
