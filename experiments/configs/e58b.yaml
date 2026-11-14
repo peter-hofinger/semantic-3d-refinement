@@ -1,0 +1,35 @@
+# E58b (issue #58): E58a's fills after a lighter filter, keep 0.9 and 0.75, against the filter alone.
+# Evaluation protocol as E27a's (experiments/configs/e27a.yaml): `--splits dev val`.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+variants:
+  - name: Deja View, kept 0.9
+    refiner: none
+    keep: 0.9
+  - name: Deja View, kept 0.9, fill plain
+    refiner: none
+    keep: 0.9
+    fill: plain
+  - name: Deja View, kept 0.9, fill sam3
+    refiner: none
+    keep: 0.9
+    fill: sam3
+  - name: Deja View, kept 0.75
+    refiner: none
+    keep: 0.75
+  - name: Deja View, kept 0.75, fill plain
+    refiner: none
+    keep: 0.75
+    fill: plain
+  - name: Deja View, kept 0.75, fill sam3
+    refiner: none
+    keep: 0.75
+    fill: sam3
