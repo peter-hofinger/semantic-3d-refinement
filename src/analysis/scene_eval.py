@@ -28,7 +28,9 @@ kept pixels instead (`filters.fill_harmonic`, E58a): `plain`, `rgb` (edges weigh
 colour), `sam3` or `gt` (edges cut between the linked masks' or the ground truth's
 instances).
 The config names the splits that get an aggregate (`split_scores`) and those that keep
-per-scene records.
+per-scene records. `surface: tsdf` with `tsdf: {voxel, trunc}` (metres) adds the fused
+surface scores (`fused_*`, `evaluation.labeled`) next to the per-pixel ones; without
+it (`surface: pixels`, the default) nothing changes.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
 between overlapping views; it is not a score of the output.
 
@@ -58,9 +60,11 @@ from src.analysis.filters import (
 )
 from src.evaluation.labeled import (
     LabeledCloud,
+    fused_metrics,
     ground_truth_cloud,
     score_output,
     split_scores,
+    tsdf_points,
 )
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
@@ -180,17 +184,58 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs:
 
 
 @dataclasses.dataclass(frozen=True)
+class Fusion:
+    """The fused-surface score's inputs: GT surface, output pinholes, TSDF settings."""
+
+    truth: np.ndarray  # (M, 3) the ground truth's fused surface
+    k: np.ndarray  # (V, 3, 3) the output's pinholes, pixel centers at integers
+    cam_to_world: np.ndarray  # (V, 4, 4)
+    tsdf: dict[str, float]  # voxel, trunc in metres
+
+
+@dataclasses.dataclass(frozen=True)
 class Scoring:
     """What scoring one scene's outputs needs; sent to the worker processes."""
 
     truth: LabeledCloud
     labels: Segmentation
     evaluated: list[str]
+    fusion: Fusion | None = None  # `surface: tsdf` only
 
 
 def score(scoring: Scoring, points: np.ndarray) -> dict:
     """Score per-pixel points (V, H, W, 3) with the SAM 3 labels; `align` is s R | t."""
-    return score_output(scoring.truth, points, scoring.labels, scoring.evaluated)
+    out = score_output(scoring.truth, points, scoring.labels, scoring.evaluated)
+    f = scoring.fusion
+    if f is not None:
+        cameras = (f.k, f.cam_to_world)
+        out |= fused_metrics(
+            points.astype(np.float64), cameras, out["align"], f.truth, f.tsdf
+        )
+    return out
+
+
+def fusion(raw: dict, inputs: SceneInputs) -> Fusion | None:
+    """Return the scene's Fusion if the config asks for `surface: tsdf`, else None."""
+    surface = raw.get("surface", "pixels")
+    assert surface in {"pixels", "tsdf"}, surface
+    if surface == "pixels":
+        return None
+    tsdf = {"voxel": float(raw["tsdf"]["voxel"]), "trunc": float(raw["tsdf"]["trunc"])}
+    gt_k = inputs.views.intrinsics.astype(np.float64).copy()
+    gt_k[:, :2, 2] -= 0.5  # COLMAP's pixel centers at +0.5 to Open3D's at integers
+    truth = tsdf_points(
+        inputs.gt.depth.astype(np.float64),
+        gt_k,
+        inputs.views.cam_to_world.astype(np.float64),
+        tsdf["voxel"],
+        tsdf["trunc"],
+    )
+    scene = inputs.scene
+    cam_to_world = np.tile(np.eye(4), (len(scene.k), 1, 1))
+    cam_to_world[:, :3, :3] = scene.rotation.double().cpu().numpy()
+    cam_to_world[:, :3, 3] = scene.center.double().cpu().numpy()
+    return Fusion(truth, scene.k.double().cpu().numpy(), cam_to_world, tsdf)
 
 
 def tiers(scores: dict) -> dict[str, dict]:
@@ -379,7 +424,9 @@ def evaluate_scenes(
                         dataclasses.replace(base, gn_iters=1, cg_iters=1),
                         inputs.normals,
                     )
-                scoring = Scoring(inputs.truth, inputs.labels, evaluated)
+                scoring = Scoring(
+                    inputs.truth, inputs.labels, evaluated, fusion(raw, inputs)
+                )
                 keep = split in raw["per_scene"]
                 if keep:
                     arrays[f"{name}/labels"] = inputs.labels.instance_ids

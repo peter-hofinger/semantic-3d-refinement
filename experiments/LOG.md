@@ -5017,3 +5017,20 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion:** absorbing closes about another third of the gap to perfect grouping on val (0.286 -> 0.336
   of 0.415), with PQ things +0.05 and mIoU +0.03; AP drops 0.02 (absorbed parts lose their own scores). All
   hosts is better on val (0.359) but was not the dev choice. Linked 0.258 -> 0.336 in total from E59c and E59d.
+## Plan: E25c = an opt-in fused-surface score, and the filter and flag-refine-filter under it (issue #25's question, 14.11.2026)
+- **Goal:** issue #25 (E38) asked whether to score one fused surface next to the per-pixel cloud: Déjà View's
+  views leave every surface as scattered layers and completeness takes the nearest one, so the per-pixel score
+  rewards a thick shell, and deleting points (E45's filter, E27a's flag-refine-filter) may gain partly from that.
+  This is an evaluation addition, off by default: no existing number changes.
+- **Setting:** `surface: tsdf` in an evaluation config fuses each output's depth maps, after the run's Umeyama
+  alignment, and the GT's depth maps into one Open3D TSDF each (Curless and Levoy 1996), takes the marching-cubes
+  vertices as the surface and scores accuracy / completeness / Chamfer between the two (`fused_*` keys). Dropped
+  pixels are not fused. Voxel size chosen on dev's GT alone, before any output is fused: the size at which the
+  GT's fused surface lies closest to the GT's own pixels; truncation 4 voxels.
+- **Variants** (`experiments/configs/e25c_fused.yaml`): Déjà View, Déjà View kept 0.5 (E45's instance voxel
+  density filter), tangent 4e-2 kept 0.5 (E27a's flag-refine-filter). Dev, then val.
+- **Checks:** tests (a plane fuses onto itself, camera depth inverts the lift, fused scores are 0 on the truth,
+  invariant to the output's scale, 3 cm off reads 3 cm, no fused keys without the flag); the per-pixel scores of
+  this run must equal E27a's.
+- **Baselines (per pixel, E27a):** Chamfer dev 3.500 / 3.30 / 3.21, val 5.102 / 3.82 / 3.67 (Déjà View / filter /
+  flag-refine-filter).

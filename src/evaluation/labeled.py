@@ -54,6 +54,17 @@ included, as the geometry protocols do.
 
 Over a split, mIoU pools as above and every other score is the mean over its scenes;
 a per-class score is the mean over the scenes that have the class (`split_scores`).
+
+Fused surface (opt-in, `surface: tsdf` in the evaluation config; off by default). The
+per-pixel cloud gives every surface one layer per view that sees it, and completeness
+takes the nearest layer, so a thick, scattered shell scores well (E38, issue #25). The
+fused scores fuse the output's depth maps, after the same alignment, and the ground
+truth's into one truncated signed distance volume each (Curless and Levoy 1996, as
+KinectFusion and TSDF-based MVS benchmarks fuse depth), take each volume's zero
+crossings as its surface and score these two point sets like the per-pixel ones, under
+`fused_*` keys. Unlike the scores above this one has a grid: the voxel size and the
+truncation distance, in the ground truth's metres, set in the config and recorded with
+the run. Pixels without an output point are not fused.
 """
 
 from __future__ import annotations
@@ -62,6 +73,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
+import open3d as o3d
 from scipy.spatial import cKDTree
 
 from src.segmentation.base import Segmentation, count_pairs
@@ -177,6 +189,84 @@ def surface_scores(acc: np.ndarray, comp: np.ndarray) -> dict[str, float]:
         acc_k, comp_k = out[f"accuracy{k}_cm"], out[f"completeness{k}_cm"]
         out[f"chamfer{k}_cm"] = (acc_k + comp_k) / 2
     return out
+
+
+def camera_depth(points: np.ndarray, cam_to_world: np.ndarray) -> np.ndarray:
+    """Camera z (V, H, W) of per-pixel world points (V, H, W, 3); 0 where NaN."""
+    rot, center = cam_to_world[:, :3, :3], cam_to_world[:, :3, 3]
+    z = np.einsum("vhwi,vi->vhw", points - center[:, None, None], rot[:, :, 2])
+    return np.where(np.isfinite(z), z, 0.0)
+
+
+def tsdf_points(
+    depth: np.ndarray,
+    k: np.ndarray,
+    cam_to_world: np.ndarray,
+    voxel: float,
+    trunc: float,
+) -> np.ndarray:
+    """Surface points (M, 3) of the z-depth maps (V, H, W) fused into one TSDF.
+
+    k puts pixel centers at integers (Open3D's convention); depth <= 0 is not fused.
+    The surface is the marching-cubes mesh's vertices: Open3D's `extract_point_cloud`
+    returns nothing for a plane midway between voxel centres.
+    """
+    assert depth.ndim == 3 and k.shape == (len(depth), 3, 3), (depth.shape, k.shape)  # noqa: PLR2004
+    assert 0 < voxel < trunc, (voxel, trunc)
+    integration = o3d.pipelines.integration
+    volume = integration.ScalableTSDFVolume(
+        voxel_length=voxel,
+        sdf_trunc=trunc,
+        color_type=integration.TSDFVolumeColorType.NoColor,
+    )
+    _, h, w = depth.shape
+    color = o3d.geometry.Image(np.zeros((h, w, 3), dtype=np.uint8))
+    for d, kk, c2w in zip(depth, k, cam_to_world, strict=True):
+        d32 = np.ascontiguousarray(np.where(d > 0, d, 0), dtype=np.float32)
+        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            color,
+            o3d.geometry.Image(d32),
+            depth_scale=1.0,
+            depth_trunc=float(d32.max()) + 1.0,
+            convert_rgb_to_intensity=False,
+        )
+        intrinsic = o3d.camera.PinholeCameraIntrinsic(
+            w, h, kk[0, 0], kk[1, 1], kk[0, 2], kk[1, 2]
+        )
+        volume.integrate(rgbd, intrinsic, np.linalg.inv(c2w.astype(np.float64)))
+    points = np.asarray(volume.extract_triangle_mesh().vertices, dtype=np.float64)
+    assert np.isfinite(points).all()
+    return points
+
+
+def fused_metrics(
+    points: np.ndarray,
+    cameras: tuple[np.ndarray, np.ndarray],
+    align: np.ndarray,
+    truth: np.ndarray,
+    tsdf: dict[str, float],
+) -> dict[str, float]:
+    """Fused-surface scores (see module), `fused_` before surface_scores' keys.
+
+    points: the output per pixel (V, H, W, 3) in its own frame, NaN where none, on the
+    pinholes `cameras` (k, cam_to_world); align: its s R | t onto the ground truth;
+    truth: the ground truth's fused surface (M, 3); tsdf: voxel and trunc in metres.
+    """
+    k, cam_to_world = cameras
+    scale = float(np.cbrt(np.linalg.det(align[:3, :3])))
+    fused = tsdf_points(
+        camera_depth(points, cam_to_world),
+        k,
+        cam_to_world,
+        tsdf["voxel"] / scale,
+        tsdf["trunc"] / scale,
+    )
+    fused = fused @ align[:3, :3].T + align[:3, 3]
+    acc = nearest_distances(truth, fused)
+    comp = nearest_distances(fused, truth)
+    return {f"fused_{key}": v for key, v in surface_scores(acc, comp).items()} | {
+        "fused_points": len(fused)
+    }
 
 
 def surface_metrics(
