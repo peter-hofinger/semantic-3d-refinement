@@ -1,0 +1,8 @@
+git 0c2f90fff70608e6a754c86770c799f8896a13f7
+# per labelled patch query, mean over queries; share/uniform/logit_std as in the script docstring
+ai_006_007_cam_00 step 1 frame share_mean 0.305 share_min_head 0.192 share_max_head 0.578 uniform 0.258 logit_std 1.530
+ai_006_007_cam_00 step 1 global share_mean 0.380 share_min_head 0.203 share_max_head 0.754 uniform 0.220 logit_std 3.704
+ai_006_007_cam_00 step 8 frame share_mean 0.273 share_min_head 0.118 share_max_head 0.657 uniform 0.258 logit_std 1.184
+ai_006_007_cam_00 step 8 global share_mean 0.396 share_min_head 0.189 share_max_head 0.818 uniform 0.220 logit_std 4.919
+ai_006_007_cam_00 step 16 frame share_mean 0.255 share_min_head 0.109 share_max_head 0.585 uniform 0.258 logit_std 1.101
+ai_006_007_cam_00 step 16 global share_mean 0.360 share_min_head 0.180 share_max_head 0.807 uniform 0.220 logit_std 5.064

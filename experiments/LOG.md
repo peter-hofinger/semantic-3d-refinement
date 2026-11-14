@@ -4608,3 +4608,116 @@ Interim entry: the check that the plan puts before any table.
   set (above 0 = worse), and the bedroom's ray turn; `figures/e51a_bedroom.jpg`: bedroom views 18, 0, 12, 6:
   image, GT instances per patch, the per-pixel error of Déjà View, α = 0.01 first 4 and α = 0.1 last 4 on
   one 0-30 cm scale. Look at the walls and ceiling in the last row.
+
+## Plan: E53a = attention bias within segments inside Déjà View's loop, GT instances as the oracle (issue #53, 13.11.2026)
+- **Goal:** E51a overwrote what a token holds (its own ray and depth) and lost on every variant. A bias on
+  the attention scores leaves the content alone and changes only whom a token listens to. If GT instances
+  do not improve Déjà View's depth this way either, semantics inside the frozen model are closed without
+  training, and #52 (LoRA) loses its motivation.
+- **Where it acts:** the shared `LoopedAABlock` runs frame attention (per view, 977 tokens) and then global
+  attention (all 20 views, 19,540 tokens) K = 16 times. Our runs never pass a `block_mask` and use the
+  `auto` backend, so both go through plain `F.scaled_dot_product_attention`, not `flex_attention` as #53
+  assumed. The wrapper replaces the two attention modules' `forward` with the same computation (qkv,
+  q/k norm, RoPE, SDPA, projection) plus an `attn_mask`; dvlt is not changed.
+- **Method:** at the chosen steps, +β on the logit of every pair of patch tokens with the same segment id
+  (frame: in one view; global: across views), so each such key weighs e^β more. Camera and register tokens
+  and unlabelled patches get no bias; all 16 heads the same. Patch ids as E51a (`patch_segments`: the id
+  on more than half of the 14 px patch, else none).
+- **Step 0, look first:** plain Déjà View on the bedroom at steps 1, 8 and 16: per head, the share of a
+  labelled patch query's attention that already falls on keys of its own segment, against the share a
+  uniform attention would give, frame and global; and the spread (std) of a query's logits. If the share
+  is already near 1 the bias has little to move; the logit spread says whether β in the grid is small or
+  large. The grid may be shifted after this, before the run, with the reason noted here.
+- **Segments:** Hypersim's GT instances (scene-wide ids, so the same object has one id in every view; walls,
+  floors and ceilings one instance per class, E29).
+- **Grid (coarse):** β in {0.25, 0.5, 1, 2, 4} x steps in {all 16, first 4, last 4} x attention in {frame,
+  global} = 30 variants. Hypersim dev (3 scenes), 20 views at 504 px, K = 16, cluster RTX 5090. Frame and
+  global together only if each helps alone.
+- **Baselines:** Déjà View plain; and per (steps, attention) the same hook at β = 0, which passes a zero
+  mask. A float mask moves SDPA from the flash kernel to the memory-efficient one, so β = 0 is not Déjà
+  View bit for bit; each variant is read against its matching β = 0 run so that only β differs, and the
+  kernel's own gap to Déjà View is reported.
+- **Control (wrong-scene masks):** the bias depends only on which tokens share an id, so permuting ids
+  changes nothing; as E51a, the control is the GT instances of the next dev scene at the same view index,
+  with the best GT variant's β, steps and attention.
+- **Scores per variant:** as E51a (`fixed_cameras`, `score`): depth and confidence on the plain run's
+  cameras and rays, the protocol's Sim(3) and `surface_metrics` (accuracy, completeness, Chamfer, cm), mean
+  per-pixel 3D error; the rays' median turn and depth's median relative change against the plain run (does
+  the bias bend the rays, as mixing did?); forward time.
+- **Checks:** the hook with no chosen step (the replaced `forward` without a mask) reproduces Déjà View bit
+  for bit on the same GPU (depth, confidence, rays); unit tests on CPU: the replaced `forward` equals
+  dvlt's `Attention` bit for bit without a mask, the biased SDPA equals softmax(q kᵀ / √d + B) v written
+  out, the bias matrix on synthetic ids (frame vs global, special tokens, unlabelled patches, padding).
+- **Reading, fixed before running** (thresholds as E51a):
+  - The best GT variant beats its β = 0 run on Chamfer by less than 0.05 cm on the dev mean, or in fewer
+    than 2 of 3 scenes -> the attention bias does not help even with the oracle: negative result.
+  - Otherwise the gain must drop by at least half with the wrong-scene masks; then SAM 3's linked masks
+    (the protocol's), then val once. If it does not drop, the gain is not the segments'.
+  - The best of 30 on 3 scenes favours noise; val decides whether it holds.
+- **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, GT instances per patch, Déjà View's per-pixel
+  error and the best variant's on one shared scale (cm); Chamfer minus β = 0 over β, one panel per step
+  set, frame and global as two lines.
+- **Step 0 done (14.11, laptop 3050, bedroom, 0c2f90f, `results/e53a_probe.txt`):**
+  `uv run python experiments/scripts/e53a_attention_bias.py --cfg configs/eval_hypersim.yaml --probe --scenes ai_006_007_cam_00 --out runs/e53a_probe`.
+  A labelled patch query puts 0.26-0.31 of its frame attention on its own GT segment, about what
+  uniform attention would (0.26; walls, floor and ceiling are large segments), and 0.36-0.40 of its
+  global attention (uniform 0.22, x1.6-1.8); single heads range 0.11-0.82. So Déjà View does not already
+  attend within segments, and a bias has room to move. The logits' spread (median std per query) is
+  1.1-1.5 in frame and 3.7-5.1 in global attention: β in {0.25, ..., 4} spans a fifth to three times
+  a frame std and up to about one global std. The grid stays as planned.
+
+## E53a: attention bias within GT instances inside Déjà View's loop -> no β, step set or attention gains 0.05 cm Chamfer; the best gain (0.014 cm) is the size of the kernel's own noise (issue #53, 14.11.2026)
+- **Goal, setting:** as the plan above. GT instances, Hypersim dev (3 scenes), 20 views at 504 px, K = 16;
+  +β on same-instance patch pairs in frame or global attention, β in {0.25, 0.5, 1, 2, 4} x steps in {all
+  16, first 4, last 4}, each against the same hook at β = 0; biased depth and confidence scored on the
+  plain run's cameras and rays, the protocol's Sim(3) and `surface_metrics`.
+- **Commits, commands:** 59e8e6f (hook 0c2f90f), cluster job 2722 (RTX 5090, 6.5 min):
+  `uv run python experiments/scripts/e53a_attention_bias.py --cfg configs/eval_hypersim.yaml --splits dev --segments gt --out runs/e53a_gt`;
+  figures `uv run python experiments/scripts/e53a_figures.py runs/e53a_gt`. Raw output
+  `results/e53a_dev_gt.txt` (mean table and every variant per scene), step 0 `results/e53a_probe.txt`.
+- **Rerun at 246d203:** after this result the hook (`AttentionBias`), its tests and `predict`'s `bias`
+  argument left `src` (the scripts need them).
+- **Checks:** the hook without a mask reproduced Déjà View bit for bit (depth, confidence, rays) on all
+  three scenes; unit tests in `tests/test_dejaview.py` pass. The plain run's Chamfer (3.479 cm, dev mean)
+  equals E51a's on the same GPU. Patches with a segment: living room 98%, bedroom 94%, lobby 84%.
+- **The kernel's own noise:** β = 0 (a zero mask: SDPA's memory-efficient kernel instead of flash) moves
+  Chamfer by -0.002 to +0.006 cm on the dev mean and by up to 0.02 cm on one scene (bedroom 1.837 ->
+  1.854, global all steps), the rays by 0.03-0.04° (median). Gains below about 0.02 cm are not readable.
+- **Results** (Chamfer, cm; Déjà View: living room 1.606, bedroom 1.837, lobby 6.995, mean 3.479; change
+  against the matching β = 0 run, dev mean, wins of 3):
+  - Best: global attention, first 4 steps, β = 0.25: -0.014 (3 of 3: 1.603, 1.823, 6.989 against 1.604,
+    1.843, 7.008); frame, first 4, β = 0.25: -0.013 (2 of 3). Against plain Déjà View both are -0.008.
+    Every other variant is worse on the mean.
+  - Biasing the first 4 steps is mildest: β = 1 +0.05 (global) / +0.10 (frame), β = 4 +0.80 / +1.25.
+  - The last 4 steps: β = 0.25 +0.04 (frame) / +0.08 (global), β = 4 +2.8 / +3.7.
+  - All 16 steps: global +0.03 (β = 0.25) to +3.6 (β = 4); frame +0.39 to +14.9, the worst of the grid.
+  - The bias bends the rays, as mixing did in E51a, though less: median turn (dev mean) 0.04-0.18° on the
+    first 4 steps, up to 2.0° on the last 4 and 4.0° on all 16 (frame, β = 4; bedroom 6.0°).
+  - Cost: global bias on all steps 0.47 s against 0.36 s plain, 9.8 GB peak against 9.5 (5090); frame
+    bias costs nothing measurable.
+- **Reading, by the rules fixed in the plan:** the best GT variant gains 0.014 cm Chamfer on its β = 0 run,
+  below the 0.05 cm bar, and within the 0.02 cm the kernel switch alone moves a scene -> the attention
+  bias does not help even with the oracle. Negative result; the wrong-scene control, SAM 3 and val are not
+  run (the plan runs them only after a gain).
+- **What the figures show:** the best variant's error maps look like Déjà View's. Frame attention biased
+  on the last 4 steps at β = 1 is not worse everywhere: on the bedroom (views 18, 0, 12, 6) the ceiling's
+  mean error falls from 8.2 to 6.6 cm and the wall's barely moves (6.6 -> 6.9), but the floor's rises from
+  11.6 to 13.9 and the largest furniture instances' by 0.9 to 2.7 cm; overall 8.8 -> 10.0 cm.
+- **Conclusion:**
+  - Making Déjà View's tokens listen more to their own GT instance, within a view or across views, does
+    not improve its depth at any strength or step set tried; mild biases early in the loop change nothing
+    measurable, stronger or later ones hurt. Step 0 showed Déjà View does not already attend within
+    segments (frame share at uniform), so the bias did change the attention; the model does not use it.
+  - With E51a (token averaging) this closes both training-free routes of #50 with GT segments as the
+    oracle. It does not bound a trained model: a LoRA or adapter (#52) can learn to read segments, the
+    frozen model cannot. #52 names two reasons to run: training-free headroom with GT segments (not met)
+    or ruling out that Déjà View cannot use segments without training, which is now the open question.
+    The plan above said #52 "loses its motivation"; that was too strong.
+- **Limits:** 3 dev scenes; one β for all 16 heads, although heads differ widely (own-segment share
+  0.11-0.82); a positive bias only (no repulsion between segments); GT walls, floors and ceilings one
+  segment per class (the ceiling gained under a strong frame bias, which a finer split might keep);
+  biased depth scored on Déjà View's cameras.
+- **Figures:** `figures/e53a_scores.jpg`: Chamfer minus β = 0's over β per step set, frame and global (mean
+  line, one dot per scene), and the bedroom's ray turn; `figures/e53a_bedroom.jpg`: bedroom views 18, 0, 12,
+  6: image, GT instances per patch, the per-pixel error of Déjà View, of global first 4 β = 0.25 and of
+  frame last 4 β = 1 on one 0-30 cm scale. Look at the ceiling against the bed and floor in the last row.
