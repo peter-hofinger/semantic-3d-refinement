@@ -4789,3 +4789,25 @@ Interim entry: the check that the plan puts before any table.
 - **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: Déjà View's per-pixel error, the best GT model's and
   its grid control's on one 0-30 cm scale; the learned β per head over steps (frame, global); held-out
   error over training for all 6 models.
+- **Step 0 done (14.11, cluster job 2731, RTX 5090, 12c945d, train scene `ai_001_001`,
+  `results/e52a_probe.yaml`):**
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe`.
+  - Identity: a zero adapter through `predict` is Déjà View bit for bit (depth, confidence, rays). The
+    training path at zero (bf16, decoders one view at a time, bias: head dim 256) moves depth by a
+    median 0.03-0.04% (max 10-21% on single pixels): gains are read against the trained-at-zero gap,
+    not against zero.
+  - Gradients finite and non-zero for β and B (A gets none at the first step, as LoRA's down-projection
+    while B = 0); no frozen weight has a gradient.
+  - Cost per training step (forward + backward): 8 views 0.52 s at 3.1 GB peak, 12 views 0.87 s at
+    3.4 GB, 20 views 1.79 s at 4.5 GB. Memory is no constraint; 8-12 views stay for augmentation, as
+    planned.
+  - 20 steps on the scene's fixed 12 views (relative 3D error, start 0.01270): bias at lr 1e-4 and
+    3e-4 does not move (0.01268), at 1e-3 falls slowly and steadily (0.01244, -2%); pooling at 1e-4
+    falls to 0.01058 (-17%) and holds, at 3e-4 reaches 0.01035 then rises, at 1e-3 oscillates
+    (0.01181 after 20). So the modules can act, pooling far more than the bias, and the planned single
+    lr 1e-3 would destabilise pooling (the laptop smoke's rising loss).
+  - **Changes before the run, from these numbers:** a learning rate per module, bias 1e-3 and pooling
+    1e-4 (the "both" model gets both); 3000 steps per model (~0.7 s per step at 8-12 views plus
+    held-out evaluation: about 40 min a model, 6 models about 4 h on one 5090).
+  - The one-scene drop of pooling says nothing about segments yet: the grid control can fit a scene
+    as well, which the run will show.

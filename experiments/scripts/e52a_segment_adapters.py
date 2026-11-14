@@ -160,9 +160,15 @@ def train(
     kind: str,
     cfg: dict,
 ) -> dict:
-    """AdamW on the adapter; the state of least held-out error is loaded at the end."""
+    """AdamW, a learning rate per module; the state of least held-out error is kept."""
     rng = np.random.default_rng(cfg["seed"])
-    opt = torch.optim.AdamW(adapter.parameters(), lr=cfg["lr"], weight_decay=0.0)
+    groups = [
+        {"params": [q for q in (adapter.beta,) if q is not None], "lr": cfg["lr_bias"]},
+        {"params": [q for q in (adapter.up,) if q is not None]
+         + ([] if adapter.down is None else list(adapter.down.parameters())),
+         "lr": cfg["lr_pool"]},
+    ]  # fmt: skip
+    opt = torch.optim.AdamW([g for g in groups if g["params"]], weight_decay=0.0)
     curve = {0: held_out_error(net, adapter, held, kind, cfg)}
     best, best_state = curve[0], copy.deepcopy(adapter.state_dict())
     t0, losses, dropped = time.perf_counter(), [], 0

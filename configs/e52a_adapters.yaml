@@ -29,9 +29,10 @@ segments: [gt, grid]                 # grid: 3 x 3 patch tiles per view, the con
 grid_block: 3
 view_subset: [8, 12]                 # views per training step, drawn uniformly
 rank: 16                             # pooling's A: 768 -> rank
-steps: 2000                          # set from step 0's timing, see LOG.md
+steps: 3000                          # step 0: ~0.7 s per step at 8-12 views, ~40 min a model
 eval_every: 250
-lr: 1.0e-3
+lr_bias: 1.0e-3                      # step 0's overfit sweep: bias falls only at 1e-3,
+lr_pool: 1.0e-4                      # pooling falls at 1e-4 and oscillates at 1e-3
 max_error: 0.5                       # relative 3D error clipped above this (E41b)
 umeyama_pixels: 20000                # per step, for the detached Sim(3)
 seed: 0
