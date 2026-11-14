@@ -10,7 +10,7 @@ from src.loaders import Views
 from src.pipeline import Pipeline
 from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
-from src.segmentation.associate import Associator, merge_touching
+from src.segmentation.associate import Associator, absorb_parts, merge_touching
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import compact, resolve_overlaps
@@ -260,3 +260,22 @@ def test_touching_objects_of_one_class_merge_and_others_stay_apart() -> None:
     apart = merge_touching(other, geometry, side, 0.05)
     assert len(np.unique(apart.instance_ids[apart.instance_ids >= 0])) == 3
     assert merged.classes[int(merged.instance_ids[0, 0, 0])] == "chair"
+
+
+def test_a_small_part_of_another_class_is_absorbed_and_a_large_one_is_not() -> None:
+    h, w = 8, 40
+    k = np.array([[[20.0, 0, w / 2], [0, 20.0, h / 2], [0, 0, 1]]])
+    geometry = Geometry(np.full((1, h, w), 2.0), np.ones((1, h, w)), k, np.eye(4)[None])
+    ids = np.zeros((1, h, w), dtype=np.int32)  # sofa
+    ids[0, :2, 30:32] = 1  # small "pillow" part inside it
+    ids[0, :, :8] = 2  # large "chair" next to it
+    seg = Segmentation(ids, {0: "sofa", 1: "pillow", 2: "chair"})
+    side = 2.0 / 20
+    merged = merge_touching(seg, geometry, side, 0.3)
+    out = absorb_parts(merged, geometry, side, (0.5, 0.05))
+    assert out.instance_ids[0, 0, 30] == out.instance_ids[0, 5, 20]
+    assert out.classes[int(out.instance_ids[0, 0, 30])] == "sofa"
+    assert out.instance_ids[0, 0, 0] != out.instance_ids[0, 5, 20]
+    assert len(np.unique(merged.instance_ids)) == 3
+    kept = absorb_parts(merged, geometry, side, (0.5, 0.05), hosts={"chair"})
+    assert len(np.unique(kept.instance_ids)) == 3
