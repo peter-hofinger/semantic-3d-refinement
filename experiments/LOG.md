@@ -4721,3 +4721,71 @@ Interim entry: the check that the plan puts before any table.
   line, one dot per scene), and the bedroom's ray turn; `figures/e53a_bedroom.jpg`: bedroom views 18, 0, 12,
   6: image, GT instances per patch, the per-pixel error of Déjà View, of global first 4 β = 0.25 and of
   frame last 4 β = 1 on one 0-30 cm scale. Look at the ceiling against the bed and floor in the last row.
+
+## Plan: #52 = learned segment conditioning inside Déjà View, three steps; E52a first (issue #52, 14.11.2026)
+- **Why:** E51a and E53a closed the training-free routes of #50: with GT instances, neither averaging
+  tokens within a segment nor a hand-set attention bias improves the frozen model. They do not show that
+  Déjà View cannot use segments once something is trained. #52 asks exactly that, with the control that a
+  gain from training alone (adapting to Hypersim) is not counted as the segments'.
+- **Order** (one change per step, each its own entry; a later step runs only if it still asks a question):
+  - **E52a:** Déjà View frozen; only small segment modules are trained, each starting at zero (below).
+  - **E52b:** E52a's best module plus a LoRA on the shared block, against the same LoRA without segments.
+  - **E52c:** segments only in the loss (agreement within a GT instance across views), no segment input at
+    test time, against the same fine-tuning without that term.
+  Kept back: segment tokens shared across views (only if E52a/b show a gain and identity across views is
+  the open part); class embeddings (no class headroom, E25a/E45a); per-scene test-time training.
+
+## Plan: E52a = learned per-head attention bias and gated segment pooling, Déjà View frozen, GT instances (issue #52, 14.11.2026)
+- **Goal:** is there a learned, segment-conditioned change to Déjà View's loop that improves its depth when
+  the model itself stays frozen? E53a set one β for all 12 heads and every chosen step by hand, although
+  heads differ widely (own-segment share 0.11-0.82); E51a averaged tokens blindly and bent their rays. Here
+  gradient descent sets both per head and per step, with the freedom to use a negative bias or none.
+- **Modules** (both act inside the released shared `LoopedAABlock`, dvlt unchanged, wrapper as in E53a):
+  - **Bias:** β[k, a, h] for loop step k (16), attention a (frame, global) and head h (12): 384 scalars,
+    added to the logit of every pair of patch tokens with the same segment id. Exact without an N x N mask:
+    each labelled token gets a one-hot code e of its segment, q' = [q, β √d e], k' = [k, e], v padded with
+    zeros, SDPA with scale 1/√d, so q'·k'/√d = q·k/√d + β [same segment]. Special and unlabelled tokens get
+    e = 0. Codes up to 192 segments per sample (head dim 64 + 192 = 256, flash's limit); beyond that the
+    smallest segments are dropped to unlabelled and their count is logged.
+  - **Pooling:** after loop step k, x_i += B_k A (m_s(i) - x_i), m_s the mean token of segment s over all
+    views (GT ids are scene-wide, so this passes information between views of one object), A: 768 -> 16
+    shared, B_k: 16 -> 768 per step and zero at the start (LoRA's init): ~0.21 M parameters.
+  - At zero (the start) both return Déjà View: with all parameters exactly zero the wrapper takes the plain
+    path (bit for bit); the training path at zero differs only by the kernel (head dim 256), measured and
+    reported as noise, as E53a's β = 0.
+- **Models** (same steps, data, seeds): bias only, pooling only, both; each with GT instances, and the
+  control: the same model trained with **grid segments** (blocks of 3 x 3 patches per view, not linked
+  across views, about as many as GT instances): the same parameters and training, no semantics. A gain
+  over the grid control is the segments'; a gain over Déjà View only is adaptation.
+- **Data:** the 136 Hypersim train scenes of E41b (`train`, `train_extra`; same 17 skipped), the last 8
+  held out for model selection; no dev, val or test scene. Views and GT copied from the 3080 server
+  (~3 GB) to the cluster. Each step: one scene, a random 8-12 of its 20 views (memory and augmentation, as
+  E41b), 504 px, K = 16.
+- **Loss:** the conditioned model's points x = o + D d (its own rays and depth), one Umeyama Sim(3) of them
+  onto the GT's pixels (detached), L1 of the relative 3D error |S x - x_gt| / depth_gt, pixels with GT,
+  errors above 0.5 clipped (misregistered pixels, as E41b's MAX_RESIDUAL). Frame-free, so no cached target
+  is needed for a view subset; it trains depth and rays together.
+- **Training:** full backprop through the 16 steps, dvlt's checkpointing on the looped block, bf16
+  autocast, AdamW (lr 1e-3, no weight decay), held-out error every 250 steps, the state of least held-out
+  error kept. Step budget set by step 0's timing, about 1 h per model on the RTX 5090, written here before
+  the run.
+- **Step 0, look first:** (1) identity: zero parameters equal Déjà View bit for bit on the bedroom; the
+  training path at zero, its gap; (2) gradients: finite, non-zero for B and β after one step, zero for
+  every frozen weight; (3) peak memory and seconds per step on the 5090 at 8, 12 and 20 views; (4) a
+  20-step overfit on one train scene must lower its loss (else the modules cannot act at all).
+- **Scores:** dev (3 scenes, 20 views, GT instances), each model as a backbone: the protocol's pinhole
+  fit, Sim(3), `surface_metrics` (Chamfer, accuracy, completeness, cm); plus scored on Déjà View's plain
+  cameras (as E53a), the rays' median turn, the learned β per head and step, |B_k| per step, time.
+- **Checks:** unit tests on CPU: the augmented SDPA equals softmax(q kᵀ / √d + β [same]) v written out per
+  head; segment means and the pooling update on synthetic ids; zero parameters return dvlt's output bit
+  for bit; the grid segments' layout.
+- **Reading, fixed before running:**
+  - The best GT model must beat both Déjà View and its grid control by at least 0.05 cm Chamfer on the dev
+    mean and in 2 of 3 scenes. Otherwise: negative; E52b's question (does a LoRA let it read segments)
+    stays, E52a gives it no lead.
+  - If it does: SAM 3's linked masks (the protocol's) in place of GT at test time, then val once; a model
+    trained on GT and tested on SAM 3 is stated as such.
+  - 6 models on 3 scenes; one seed first, a second seed for any model that passes.
+- **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: Déjà View's per-pixel error, the best GT model's and
+  its grid control's on one 0-30 cm scale; the learned β per head over steps (frame, global); held-out
+  error over training for all 6 models.
