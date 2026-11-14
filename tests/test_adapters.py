@@ -1,3 +1,4 @@
+import gc
 from collections.abc import Callable
 
 import numpy as np
@@ -118,6 +119,17 @@ def test_gradients_reach_only_the_adapter(net: torch.nn.Module) -> None:
     assert adapter.beta.grad.abs().sum() > 0
     assert adapter.up.grad.abs().sum() > 0
     assert all(p.grad is None for p in net.parameters())
+
+
+def test_a_pass_leaves_no_loop_state_alive(net: torch.nn.Module) -> None:
+    images, codes = inputs(6)
+    adapter = SegmentAdapter(bias=True, pool=True)
+    forward(net, images, adapter, codes)["depth"].square().mean().backward()
+    with torch.no_grad():
+        adapter.up.normal_(0, 0.01)
+        forward(net, images, adapter, codes)
+    gc.collect()
+    assert not [o for o in gc.get_objects() if isinstance(o, adapters.Loop)]
 
 
 def test_checkpoint_recomputes_with_the_same_step(

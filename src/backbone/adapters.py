@@ -18,7 +18,10 @@ With grad, each loop step is checkpointed (Chen et al. 2016) with its step index
 argument and patches the attention only while it runs, so the recomputation in
 backward (after `forward` has returned) reads the same step's parameters; the frozen
 full-resolution decoders run one view at a time, each call checkpointed, so their
-activations are held for one view only.
+activations are held for one view only. The loop's helpers live at module level and get
+their per-pass state as a `Loop` argument: beartype decorates and keeps every function
+it sees, so closures made per pass kept each pass's codes alive (E52a's job 2738 ran out
+of GPU memory after ~6500 steps).
 """
 
 from __future__ import annotations
@@ -190,6 +193,59 @@ def plain_forward(net: nn.Module, images: Tensor) -> dict[str, Tensor]:
     return net._decode(features, h, w, b, s, rope)  # noqa: SLF001
 
 
+class Loop:
+    """One pass's adapter, looped block, attentions and codes; its step count."""
+
+    def __init__(
+        self,
+        adapter: SegmentAdapter,
+        block: Callable,
+        attns: list[Attention],
+        frame: Tensor,
+        joint: Tensor,
+    ) -> None:
+        """Codes per view (V, T, S) for frame attention, (1, V T, S) for global."""
+        self.adapter, self.block, self.attns = adapter, block, attns
+        self.codes = (frame, joint)
+        self.step, self.k = -1, -1
+
+
+def attend(
+    loop: Loop, a: int, attn: Attention, x: Tensor, pos: Tensor | None = None
+) -> Tensor:
+    """Dvlt's `Attention.forward` with loop step k's segment bias in attention a."""
+    n, c = x.shape[1:]
+    q, k, v = qkv(attn, x, pos)
+    assert loop.adapter.beta is not None
+    out = biased_attention(q, k, v, loop.codes[a], loop.adapter.beta[loop.k, a])
+    return attn.proj_drop(attn.proj(out.transpose(1, 2).reshape(-1, n, c)))
+
+
+def run(loop: Loop, k: int, *args: Any) -> Tensor:  # noqa: ANN401 (dvlt block args)
+    """Loop step k: the block with biased attention, then segment pooling."""
+    loop.k = k
+    biased = [] if loop.adapter.beta is None else loop.attns
+    with replaced(
+        {m: functools.partial(attend, loop, a, m) for a, m in enumerate(biased)}
+    ):
+        x = loop.block(*args)
+    up, down = loop.adapter.up, loop.adapter.down
+    if up is None or down is None:
+        return x
+    joint = loop.codes[1]
+    flat = x.reshape(1, joint.shape[1], -1)
+    delta = down(segment_offsets(flat, joint)) @ up[k]
+    return (flat + delta.to(flat.dtype)).reshape(x.shape)
+
+
+def looped(loop: Loop, *args: Any) -> Tensor:  # noqa: ANN401 (dvlt block args)
+    """Run the next loop step, checkpointed with its index when grad is on."""
+    loop.step += 1
+    if torch.is_grad_enabled():
+        return checkpoint(run, loop, loop.step, *args, use_reentrant=False)
+    return run(loop, loop.step, *args)
+
+
 def forward(
     net: nn.Module, images: Tensor, adapter: SegmentAdapter, codes: Tensor
 ) -> dict[str, Tensor]:
@@ -204,43 +260,12 @@ def forward(
     blocks = net.recurrent_blocks
     assert len(blocks) == 1, "Déjà View's released model shares one looped block"
     block = blocks[0]
-    codes = codes.to(images.device)
-    by = {"frame": codes, "global": codes.reshape(1, s * tokens, -1)}
-    state = {"step": -1, "k": -1}
-    loop = block.forward
     attns = [block.frame_attn.attn, block.global_attn.attn]
-
-    def attend(a: int, attn: Attention, x: Tensor, pos: Tensor | None = None) -> Tensor:
-        n, c = x.shape[1:]
-        q, k, v = qkv(attn, x, pos)
-        assert adapter.beta is not None
-        beta = adapter.beta[state["k"], a]
-        out = biased_attention(q, k, v, by[ATTENTIONS[a]], beta)
-        return attn.proj_drop(attn.proj(out.transpose(1, 2).reshape(-1, n, c)))
-
-    biased = [] if adapter.beta is None else attns
-
-    def run(k: int, *args: Any) -> Tensor:  # noqa: ANN401 (dvlt block args, passed on)
-        state["k"] = k
-        with replaced(
-            {m: functools.partial(attend, a, m) for a, m in enumerate(biased)}
-        ):
-            x = loop(*args)
-        if adapter.up is None or adapter.down is None:
-            return x
-        flat = x.reshape(1, s * tokens, -1)
-        delta = adapter.down(segment_offsets(flat, by["global"])) @ adapter.up[k]
-        return (flat + delta.to(flat.dtype)).reshape(x.shape)
-
-    def looped(*args: Any) -> Tensor:  # noqa: ANN401 (dvlt block args, passed on)
-        state["step"] += 1
-        if torch.is_grad_enabled():
-            return checkpoint(run, state["step"], *args, use_reentrant=False)
-        return run(state["step"], *args)
-
     assert _attn_state["backend"] == "auto", _attn_state
     assert all(attn.fused_attn for attn in attns)
-    swaps = {block: looped}
+    codes = codes.to(images.device)
+    loop = Loop(adapter, block.forward, attns, codes, codes.reshape(1, s * tokens, -1))
+    swaps: dict[nn.Module, Callable] = {block: functools.partial(looped, loop)}
     chunk = net.decode_chunk_size
     if torch.is_grad_enabled():  # frozen full-resolution decoders: one view at a time
         net.decode_chunk_size = 1
@@ -251,7 +276,7 @@ def forward(
             out = plain_forward(net, images)
     finally:
         net.decode_chunk_size = chunk
-    assert state["step"] == net.inference_steps - 1, state
+    assert loop.step == net.inference_steps - 1, loop.step
     return out
 
 
