@@ -21,7 +21,8 @@ backbone's cloud: flag, refine every pixel, then drop the flagged (E27a). The dr
 pixels have no point, so they count for completeness only; the label scores are per
 pixel and stay as they are. With `keep_by: <name>` the pixels are ranked instead by the
 score `<name>_<views>.npz` holds in the scene's folder (key `keep`, higher keeps), such
-as the 3D refiner's keep logit (issue #57), at the same fraction.
+as the 3D refiner's keep logit (issue #57), at the same fraction; `keep_with: density`
+ranks by both scores (`filters.both`), and `keep_per: instance` cuts each instance to q.
 The config names the splits that get an aggregate (`split_scores`) and those that keep
 per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
@@ -43,7 +44,13 @@ import numpy as np
 import torch
 import yaml
 
-from src.analysis.filters import instance_voxel_density, keep_top, ranks
+from src.analysis.filters import (
+    both,
+    instance_voxel_density,
+    keep_top,
+    keep_top_within,
+    ranks,
+)
 from src.evaluation.labeled import (
     LabeledCloud,
     ground_truth_cloud,
@@ -299,16 +306,22 @@ def refine_variant(
     log_record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
     points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
     if "keep" in variant:
-        if keep_score is None:
+        ids = inputs.labels.instance_ids
+        if keep_score is None or variant.get("keep_with") == "density":
             start = points_from_rays(scene.depth.double(), scene.rays.double())
-            keep_score = instance_voxel_density(
+            density = instance_voxel_density(
                 start.cpu().numpy(),
                 scene.depth.cpu().numpy(),
                 scene.k.cpu().numpy(),
-                inputs.labels.instance_ids,
+                ids,
             )
+            keep_score = density if keep_score is None else both(density, keep_score)
         assert keep_score.shape == points.shape[:3], keep_score.shape
-        points[~keep_top(ranks(keep_score), variant["keep"])] = np.nan
+        if variant.get("keep_per") == "instance":
+            kept = keep_top_within(keep_score, ids, variant["keep"])
+        else:
+            kept = keep_top(ranks(keep_score), variant["keep"])
+        points[~kept] = np.nan
     return seconds, log_record, depth.cpu().numpy(), points
 
 

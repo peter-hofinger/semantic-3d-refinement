@@ -1,0 +1,27 @@
+# E57a rescore: the keep head cut within each SAM 3 instance, and combined with density (filters.both);
+# density within each instance as its baseline. Same models and logits as e57a_volume.yaml.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml       # the scenes of each split
+aggregated: [dev, val, test]         # splits that get a split aggregate
+per_scene: [dev, val, stress]        # splits that also keep per-scene scores
+views: views_n20_uniform_504
+backbone: MODEL
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim   # evaluated classes: the dataset's full label set, all 40 NYU40 classes
+refine: configs/refine.yaml          # unused: no variant refines
+variants:
+  - name: MODEL, kept 0.5 by density per instance
+    refiner: none
+    keep: 0.5
+    keep_per: instance
+  - name: MODEL, kept 0.5 by keep head per instance
+    refiner: none
+    keep: 0.5
+    keep_by: MODEL_keep
+    keep_per: instance
+  - name: MODEL, kept 0.5 by keep head and density
+    refiner: none
+    keep: 0.5
+    keep_by: MODEL_keep
+    keep_with: density
