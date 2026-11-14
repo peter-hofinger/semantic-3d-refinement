@@ -10,7 +10,7 @@ from src.loaders import Views
 from src.pipeline import Pipeline
 from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
-from src.segmentation.associate import Associator
+from src.segmentation.associate import Associator, merge_touching
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import compact, resolve_overlaps
@@ -243,3 +243,20 @@ def test_fallback_masks_only_take_uncovered_pixels() -> None:
     assert plain.tolist() == [[1, 1, 1, 1]]
     weak = resolve_overlaps(masks, scores, torch.tensor([False, True]))
     assert weak.tolist() == [[0, 0, 1, 1]]
+
+
+def test_touching_objects_of_one_class_merge_and_others_stay_apart() -> None:
+    h, w = 8, 40
+    k = np.array([[[20.0, 0, w / 2], [0, 20.0, h / 2], [0, 0, 1]]])
+    geometry = Geometry(np.full((1, h, w), 2.0), np.ones((1, h, w)), k, np.eye(4)[None])
+    ids = np.full((1, h, w), NO_INSTANCE, dtype=np.int32)
+    ids[0, :, :10], ids[0, :, 10:20], ids[0, :, 30:] = 0, 1, 2  # 0 | 1, gap, 2
+    seg = Segmentation(ids, {0: "chair", 1: "chair", 2: "chair"})
+    side = 2.0 / 20  # one pixel's footprint
+    merged = merge_touching(seg, geometry, side, 0.05)
+    assert merged.instance_ids[0, 0, 0] == merged.instance_ids[0, 0, 15]
+    assert merged.instance_ids[0, 0, 0] != merged.instance_ids[0, 0, 35]
+    other = Segmentation(ids, {0: "chair", 1: "table", 2: "chair"})
+    apart = merge_touching(other, geometry, side, 0.05)
+    assert len(np.unique(apart.instance_ids[apart.instance_ids >= 0])) == 3
+    assert merged.classes[int(merged.instance_ids[0, 0, 0])] == "chair"

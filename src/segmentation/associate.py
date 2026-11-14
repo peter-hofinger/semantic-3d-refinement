@@ -181,6 +181,66 @@ class Associator:
         )
 
 
+def merge_touching(
+    seg: Segmentation, geometry: Geometry, side: float, contact: float
+) -> Segmentation:
+    """Merge objects of one class whose points touch in 3D (issue #59, E59c).
+
+    Each object's points fall into cubes of the given side; objects a and b touch by
+    the share of the smaller one's cubes that lie in or next to (26-neighbourhood) a
+    cube of the other. Objects of one class touching by at least `contact` merge,
+    transitively. SAM 3 often splits one object into part masks in a view, which the
+    linking keeps apart (it never joins two masks of one view).
+    """
+    assert side > 0, side  # noqa: S101
+    assert 0 < contact <= 1, contact  # noqa: S101
+    ids = seg.instance_ids
+    assert ids.shape == geometry.depth.shape, (ids.shape, geometry.depth.shape)  # noqa: S101
+    labeled = (ids >= 0) & (geometry.depth > 0)
+    cells = np.floor(geometry.world_points()[labeled] / side).astype(np.int64)
+    cells -= cells.min(0) - 1
+    span = int(cells.max()) + 2
+    key = (cells[:, 0] * span + cells[:, 1]) * span + cells[:, 2]
+    owner = ids[labeled]
+    cubes = {
+        int(m): np.unique(key[owner == m]) for m in np.unique(owner) if m in seg.classes
+    }
+    steps = np.array(
+        [
+            (a * span + b) * span + c
+            for a in (-1, 0, 1)
+            for b in (-1, 0, 1)
+            for c in (-1, 0, 1)
+        ]
+    )
+    near = {m: np.unique((c[:, None] + steps).ravel()) for m, c in cubes.items()}
+    parent = {m: m for m in seg.classes}
+
+    def root(m: int) -> int:
+        while parent[m] != m:
+            parent[m] = parent[parent[m]]
+            m = parent[m]
+        return m
+
+    by_class: dict[str, list[int]] = defaultdict(list)
+    for m in cubes:
+        by_class[seg.classes[m]].append(m)
+    for members in by_class.values():
+        for i, a in enumerate(members):
+            for b in members[i + 1 :]:
+                small, big = sorted((a, b), key=lambda m: len(cubes[m]))
+                share = np.isin(cubes[small], near[big]).mean()
+                if share >= contact:
+                    parent[root(b)] = root(a)
+    roots = {m: root(m) for m in seg.classes}
+    new_id = {r: n for n, r in enumerate(sorted(set(roots.values())))}
+    lookup = np.full(max(seg.classes) + 2, NO_INSTANCE, dtype=np.int32)
+    for m, r in roots.items():
+        lookup[m] = new_id[r]
+    owner_of = {m: new_id[r] for m, r in roots.items()}
+    return Segmentation(lookup[ids], *object_labels(seg, owner_of))
+
+
 def object_labels(
     seg: Segmentation, owner: dict[int, int]
 ) -> tuple[dict[int, str], dict[int, float]]:

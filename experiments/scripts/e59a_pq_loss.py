@@ -27,7 +27,8 @@ uv run python experiments/scripts/e59a_pq_loss.py --splits dev val
 
 `--segmentation <name>` scores another cached segmentation (E59b); its results get the
 name as suffix. With the catch-all prompts (`catchall` in the name) the catch-alls
-count as prompted.
+count as prompted. `--merge <contact> ...` adds the linked labels after
+`merge_touching` (E59c) at each contact share, cubes of `MERGE_SIDE` pixel footprints.
 """
 
 import argparse
@@ -42,6 +43,7 @@ from scipy.ndimage import binary_dilation
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 
+from src.analysis.filters import pixel_footprint
 from src.analysis.scene_eval import VOCABULARIES, git_hash
 from src.evaluation.labeled import (
     NONE,
@@ -56,6 +58,7 @@ from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config
 from src.loaders.views import Views
+from src.segmentation.associate import merge_touching
 from src.segmentation.base import Segmentation, count_pairs
 from src.segmentation.linked import working_associator
 
@@ -67,6 +70,8 @@ FIGURES = Path("experiments/figures")
 RESULTS = Path("experiments/results")
 BEDROOM, BEDROOM_VIEWS = "ai_006_007_cam_00", (18, 0, 12, 6)
 CATCH_ALL = ("otherstructure", "otherfurniture", "otherprop")
+MERGE_SIDE = 4  # cube side of merge_touching, in pixel footprints
+MERGES: list[float] = []  # contact shares, set by main
 UNPROMPTED = set(CATCH_ALL)  # emptied by main for a segmentation that prompts them
 MIN_VIEW_PIXELS, MIN_VIEW_SHARE = (
     20,
@@ -288,12 +293,12 @@ def scene_inputs(name: str) -> tuple:
     truth = ground_truth_cloud(
         gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
     )
-    return views, truth, masks, linked
+    return views, truth, masks, linked, geometry
 
 
 def run_scene(name: str) -> tuple[dict, dict]:
     """All oracle scores and the cause counts of one scene; maps for the figure."""
-    views, truth, masks, linked = scene_inputs(name)
+    views, truth, masks, linked, geometry = scene_inputs(name)
     view_of = np.nonzero(truth.pixels)[0]
     gt_seg, gt_class = segments(truth.instance, truth.classes, EVALUATED)
     mask_px = masks.instance_ids[truth.pixels].astype(np.int64)
@@ -320,6 +325,10 @@ def run_scene(name: str) -> tuple[dict, dict]:
         ),
         "group oracle": scores(truth, grouped),
     }
+    side = MERGE_SIDE * pixel_footprint(geometry.depth, geometry.intrinsics)
+    for contact in MERGES:
+        merged = merge_touching(linked, geometry, side, contact)
+        variants[f"merged {contact:g}"] = scores(truth, merged)
     for k in (2, 5):
         keep = ~band(gt_full, linked.instance_ids, k)[truth.pixels]
         variants[f"boundary {k}"] = scores(truth, linked, keep)
@@ -433,9 +442,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--splits", nargs="+", default=["dev"])
     parser.add_argument("--segmentation", default=SEGMENTATION[0])
+    parser.add_argument("--merge", type=float, nargs="*", default=[])
     args = parser.parse_args()
     default = args.segmentation == SEGMENTATION[0]
     SEGMENTATION[0] = args.segmentation
+    MERGES.extend(args.merge)
     if "catchall" in args.segmentation:
         UNPROMPTED.clear()
     config = load_config(Path("configs/hypersim.yaml"))
@@ -456,6 +467,7 @@ def main() -> None:
                 figure(maps, FIGURES / "e59a_bedroom.jpg")
     RESULTS.mkdir(parents=True, exist_ok=True)
     tag = "_".join(args.splits) + ("" if default else f"_{args.segmentation}")
+    tag += "_merge" if args.merge else ""
     (RESULTS / f"e59a_{tag}.yaml").write_text(
         yaml.safe_dump({"git": git_hash(), "results": results}, sort_keys=False)
     )
