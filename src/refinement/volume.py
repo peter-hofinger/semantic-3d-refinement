@@ -656,12 +656,14 @@ def main() -> None:
     that died (out of memory, a reboot) is restarted without losing finished models. On
     CUDA the process first takes `--reserve-gb` of GPU memory and frees it into
     PyTorch's cache, which keeps it, so a job started later on the shared GPU cannot
-    take the memory this one needs.
+    take the memory this one needs. `--only` restricts the run to the named models
+    (with -s<seed>), one SLURM task each, each with its own `--out`.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/e41b_volume.yaml"))
     parser.add_argument("--out", type=Path, help="run folder to create or resume")
     parser.add_argument("--reserve-gb", type=float, default=6.0)
+    parser.add_argument("--only", nargs="*", help="model names (with -s<seed>)")
     args = parser.parse_args()
     cfg = VolumeConfig.load(args.config)
     device = best_device()
@@ -678,6 +680,7 @@ def main() -> None:
     for base, semantics in cfg.models.items():
         sem = semantics != "none"
         names = {s: f"{base}-s{s}" if len(cfg.seeds) > 1 else base for s in cfg.seeds}
+        names = {s: n for s, n in names.items() if not args.only or n in args.only}
         todo = [
             s
             for s, n in names.items()
