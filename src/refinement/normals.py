@@ -377,11 +377,14 @@ def main() -> None:
         "--backbone", default="dejaview_k16", help="geometry next to the views"
     )
     parser.add_argument("--repo", type=Path, default=DSINE_REPO)
+    parser.add_argument(
+        "--name", default="dsine", help="cache name, scene_eval's `normals` key"
+    )
     args = parser.parse_args()
     for path in args.views:
         geometry = Geometry.load(path.with_name(f"{args.backbone}_{path.stem}.npz"))
         normals = dsine_normals(Views.load(path).images, geometry.intrinsics, args.repo)
-        out = path.with_name(f"dsine_{path.stem}.npz")
+        out = path.with_name(f"{args.name}_{path.stem}.npz")
         np.savez_compressed(out, normals=normals)
         print(f"{path.parent.name}: {len(normals)} views -> {out}")  # noqa: T201
 
