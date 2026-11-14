@@ -4987,3 +4987,33 @@ Interim entry: the check that the plan puts before any table.
   same on dev and val; mIoU cannot change (classes stay). With the fallback catch-alls dev gains more (0.341)
   but val does not (0.284). Still open: the 395 fragments of another class than their object (a part mask
   named differently, e.g. a pillow mask on a sofa) and the catch-alls.
+
+## Plan and result: E59d = absorbing part masks of another class into their host -> val PQ 0.286 -> 0.336 (15.11.2026)
+- Planned after E59c, before running, from E59a's 395 val fragments of another class than their GT segment's:
+  top pairs sofa/chair 32, shelves/otherstructure 29, desk/table 23, pillow/chair 22; 255 lie on a matched
+  prediction (the host), median contact share 0.91, far smaller than the host.
+- **Setting:** `associate.absorb_parts` after `merge_touching` (contact 0.3): an object joins the other-class
+  object it touches most if its contact share is at least `need` and it has at most `ratio` times the host's
+  cubes; the joined object takes the majority class by pixels. Hosts either any class or things only (no
+  wall, floor, ceiling). Opt-in (`e59a_pq_loss.py --absorb need:ratio`), defaults unchanged. Commit e44d0ae,
+  3080 CPU.
+- **Bug fixed before the sweep:** a first version absorbed during the merge, so a part's union with its host
+  pulled in the host's whole same-class group (stuff PQ 0.92 -> 0.38 on dev). Now a separate pass on the
+  merged objects.
+- **Dev sweep** (PQ; merged 0.3 0.321): need 0.5 / 0.8 x ratio 0.01 / 0.03 / 0.1, all hosts 0.356 to 0.370,
+  things only 0.343 to 0.373. 0.5:0.1 into things chosen on dev (0.373); val run once, both host modes.
+- **Results** (`experiments/results/e59d_{dev_sweep,val}.txt`):
+
+  | labels | dev PQ / PQ things / AP / mIoU | val PQ / PQ things / AP / mIoU |
+  |---|---|---|
+  | linked (E59a) | 0.292 / 0.159 / 0.216 / 0.405 | 0.258 / 0.162 / 0.345 / 0.349 |
+  | merged 0.3 (E59c) | 0.321 / 0.193 / 0.239 / 0.405 | 0.286 / 0.198 / 0.347 / 0.349 |
+  | + absorbed 0.5:0.1 into things | 0.373 / 0.244 / 0.230 / 0.418 | 0.336 / 0.252 / 0.325 / 0.381 |
+  | + absorbed 0.5:0.1, all hosts | 0.365 / 0.233 / 0.212 / 0.390 | 0.359 / 0.275 / 0.309 / 0.403 |
+  | perfect grouping (oracle) | 0.421 / 0.297 / 0.300 / 0.471 | 0.415 / 0.335 / 0.389 / 0.438 |
+
+- **Checks:** unit test (a small pillow on a chair joins it, a sofa does not; hosts restrict). Labels only,
+  geometry untouched.
+- **Conclusion:** absorbing closes about another third of the gap to perfect grouping on val (0.286 -> 0.336
+  of 0.415), with PQ things +0.05 and mIoU +0.03; AP drops 0.02 (absorbed parts lose their own scores). All
+  hosts is better on val (0.359) but was not the dev choice. Linked 0.258 -> 0.336 in total from E59c and E59d.
