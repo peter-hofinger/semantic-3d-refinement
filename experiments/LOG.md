@@ -4816,3 +4816,37 @@ Interim entry: the check that the plan puts before any table.
   predict exactly as before (the keep head is off unless `keep` is set).
 - **Baselines:** Deja View (dev 3.500, val 5.102), instance voxel density kept 0.5 and flag-refine-filter (E27a),
   E41b.
+
+## E57a: a keep head on the 3D refiner -> its cut loses badly to instance voxel density (14.11.2026)
+- **Commits:** 1dd9d4d, 4c95ad7; 3d-cluster (RTX 5090), one SLURM task per model and seed, about 25 min each.
+- **Results** (val Chamfer cm, range over seeds 0, 1 and none / SAM 3 classes, keep 0.5):
+
+  | cut | keep only | keep + residual |
+  |---|---|---|
+  | no cut | 5.102 (Deja View) | 5.211 to 5.694 |
+  | instance voxel density | 3.817 | 3.991 to 4.443 |
+  | keep head | 9.493 to 12.367 | 11.527 to 14.131 |
+
+- The head ranks pixels sensibly (held-out kept error 0.115 -> 0.102; dev accuracy after the cut 2.80 vs 3.00
+  cm by density) but deletes whole regions: completeness 15 to 39 cm. In ai_010_007, 8 of the 14 GT instances
+  above 0.5 % of the pixels keep under 5 % of them.
+- keep + residual picks its state by kept error alone, so the residual is unchecked: dev Chamfer 3.49 to 4.97.
+- **Checks:** residuals are applied as in E41b (|r| p99 under 5 %); the logits are not inverted.
+
+## Plan and result: E57b = E57a's logits cut per instance or with density -> still far behind (14.11.2026)
+- Planned after E57a, before running: does the per-pixel cut alone cause E57a's holes?
+- **Setting:** no retraining; `scene_eval` on E57a's saved logits: `keep_per: instance` cuts every linked SAM 3
+  instance to q, `keep_with: density` ranks by `filters.both` of the logit and density. Density per instance
+  as the baseline. Commit e015eb0, 3d-cluster job 2740, about 4 min per model.
+- **Results** (val Chamfer cm, ranges as above):
+
+  | cut | keep only | keep + residual |
+  |---|---|---|
+  | density, per instance | 5.190 | 5.312 to 5.774 |
+  | keep head, per instance | 6.706 to 7.310 | 6.969 to 7.235 |
+  | keep head and density | 6.229 to 7.521 | 6.652 to 8.005 |
+
+- **Conclusion:** at equal kept fraction a learned keep score loses to instance voxel density in every form.
+  Density wins by removing redundant points where the cloud is dense, which costs little completeness;
+  forced to cut every instance equally it falls to 5.19. An error label is spatially smooth, so cutting by it
+  opens holes. Issue #57 closed.
