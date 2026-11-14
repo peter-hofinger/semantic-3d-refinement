@@ -135,7 +135,7 @@ ignore = [
     "PLR0917",  # too-many-positional-arguments
 ]
 # design by contract: asserts state shapes, ranges and finiteness on entry and exit
-"src/{analysis/*,refinement/{multiview,normals,learned,volume},evaluation/labeled,backbone/{segvggt,dejaview}}.py" = [
+"src/{analysis/*,refinement/{multiview,normals,learned,volume},evaluation/labeled,backbone/segvggt}.py" = [
     "S101",     # contract asserts
     "PT018",    # composite contract asserts
 ]

@@ -4675,6 +4675,8 @@ Interim entry: the check that the plan puts before any table.
   `uv run python experiments/scripts/e53a_attention_bias.py --cfg configs/eval_hypersim.yaml --splits dev --segments gt --out runs/e53a_gt`;
   figures `uv run python experiments/scripts/e53a_figures.py runs/e53a_gt`. Raw output
   `results/e53a_dev_gt.txt` (mean table and every variant per scene), step 0 `results/e53a_probe.txt`.
+- **Rerun at 246d203:** after this result the hook (`AttentionBias`), its tests and `predict`'s `bias`
+  argument left `src` (the scripts need them).
 - **Checks:** the hook without a mask reproduced Déjà View bit for bit (depth, confidence, rays) on all
   three scenes; unit tests in `tests/test_dejaview.py` pass. The plain run's Chamfer (3.479 cm, dev mean)
   equals E51a's on the same GPU. Patches with a segment: living room 98%, bedroom 94%, lobby 84%.
