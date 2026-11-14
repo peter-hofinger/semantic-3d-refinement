@@ -4793,3 +4793,26 @@ Interim entry: the check that the plan puts before any table.
   alpha times its mean vote helps at no alpha in {0.1, ..., 1}.
 - **Conclusion:** Deja View's views already agree; their remaining error is shared across views, so the other
   views' points cannot reveal it. Same wall as E11a (2D) and E41b (3D). Issue #56 closed.
+## Plan: E57a = a keep head on the 3D refiner: a learned filter against instance voxel density (issue #57, 14.11.2026)
+- **Goal:** issue #57: E41b's refiner can only move points, while the voxel density filter (E45) and
+  flag-refine-filter (E27a, val Chamfer 3.82 and 3.67 at kept 0.5) win by dropping them. Does a learned keep score,
+  from the same fused grid, rank Deja View's pixels better than instance voxel density at the same kept fraction,
+  and do SAM 3's classes help it?
+- **Setting** (`src/refinement/volume.py`, `configs/e57a_volume.yaml`, `configs/e57a_volume_keep.yaml`): E41b's
+  data, grid, U-Net, steps, view subsets and seeds; the head gets a second output, a keep logit, trained by binary
+  cross-entropy on whether each pixel's remaining error |r* - r| is in the lower half of the step's pixels
+  (pixels with ground truth but no valid r* count as errors). Two head sets: keep head alone (the depth stays
+  Deja View's) and keep head plus residual. The kept step is the one with the least mean error of the held-out
+  pixels its logit keeps (top half). No dev or val scene takes part.
+- **Models:** keep alone and keep plus residual, each without and with SAM 3 classes, seeds 0 and 1 (8 models).
+  GT classes and a permuted control only if SAM 3 beats no classes beyond seed noise.
+- **Evaluation** (`experiments/configs/e57a_volume.yaml`, `scene_eval`'s new `keep_by`): each model's output
+  whole, kept 0.5 by instance voxel density and kept 0.5 by its keep logit, on dev and val. For the keep-alone
+  models the output is Deja View's depth, so the density cut is E27a's filter on the same pixels.
+- **Commands:** one SLURM task per model on the 3d-cluster (RTX 5090), `uv run volume-refine --config <config>
+  --out runs/volume-e57a`, then `scene_eval --splits dev val` per model.
+- **Checks:** tests (untrained keep head leaves the depth bit for bit and scores all pixels alike, keep labels mark
+  the least errors and count invalid pixels as errors, E41b's config has no keep head); E41b's configs train and
+  predict exactly as before (the keep head is off unless `keep` is set).
+- **Baselines:** Deja View (dev 3.500, val 5.102), instance voxel density kept 0.5 and flag-refine-filter (E27a),
+  E41b.
