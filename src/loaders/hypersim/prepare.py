@@ -120,7 +120,7 @@ def output_path(cfg: HypersimConfig, scene_id: str) -> Path:
 
 
 def main() -> None:
-    """Prepare the trajectories of the chosen splits after checking the split."""
+    """Prepare the trajectories of the chosen splits; a scene that fails is logged."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/hypersim.yaml"))
     parser.add_argument(
@@ -133,7 +133,11 @@ def main() -> None:
     check_splits(cfg)
     for scene, camera in cfg.scenes(args.splits).items():
         hs = HypersimScene(cfg.data_root, cfg.metadata_root, scene, camera)
-        views, gt = build(hs, cfg.prepare)
+        try:
+            views, gt = build(hs, cfg.prepare)
+        except ValueError as err:  # skewed camera, unreadable poses
+            log.error("%s: not prepared: %s", hs.scene_id, err)  # noqa: TRY400
+            continue
         path = output_path(cfg, hs.scene_id)
         views.save(path)
         gt.save(path.with_name(f"gt_{path.stem}.npz"))
