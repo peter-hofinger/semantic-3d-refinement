@@ -232,3 +232,14 @@ def test_count_pairs_matches_unique_rows() -> None:
     np.testing.assert_array_equal(np.stack([got_a, got_b]), pairs)
     np.testing.assert_array_equal(got_counts, counts)
     assert count_pairs(a[:0], b[:0])[2].size == 0
+
+
+def test_fallback_masks_only_take_uncovered_pixels() -> None:
+    masks = torch.zeros(2, 1, 4, dtype=torch.bool)
+    masks[0, 0, :2] = True  # specific mask, low score
+    masks[1, 0, :] = True  # fallback mask, high score
+    scores = torch.tensor([0.4, 0.9])
+    plain = resolve_overlaps(masks, scores)
+    assert plain.tolist() == [[1, 1, 1, 1]]
+    weak = resolve_overlaps(masks, scores, torch.tensor([False, True]))
+    assert weak.tolist() == [[0, 0, 1, 1]]

@@ -4912,3 +4912,35 @@ Interim entry: the check that the plan puts before any table.
 - **Scenes:** dev first, then val once. No geometry is refined; Deja View's depth only enters the linking.
 - **Checks:** the bedroom figure (`experiments/figures/e59a_bedroom.jpg`), and that `linked` reproduces the
   evaluation's PQ.
+
+## E59a: where SAM 3 + linking lose panoptic quality -> classes first (the unprompted catch-alls), then fragments (14.11.2026)
+- **Commits:** 8578486; dev and val on the 3080 server's CPU (`--splits dev val`), about 20 s per scene.
+- **Checks:** `linked` reproduces the evaluation's PQ (dev 0.292, val 0.258).
+- **Results** (PQ, mean over scenes; `experiments/results/e59a_dev_val.txt`):
+
+  | oracle | dev | val |
+  |---|---|---|
+  | per-view masks, unlinked | 0.129 | 0.114 |
+  | linked (the evaluation) | 0.292 | 0.258 |
+  | perfect classes, prompted ones only | 0.411 | 0.342 |
+  | perfect classes | 0.436 | 0.462 |
+  | perfect linking | 0.372 | 0.342 |
+  | perfect grouping | 0.421 | 0.415 |
+  | 2 px borders void | 0.405 | 0.362 |
+  | grouping + classes + 2 px | 0.779 | 0.724 |
+
+- Val: 317 of 471 GT segments unmatched, 187 of them in the three catch-all classes that are never prompted;
+  merged 25, split across views 16, wrong class 11, missed 76. Of 674 unmatched predictions 577 are fragments
+  of one GT segment.
+- **Conclusion:** classes are the largest share (+0.20 val), most of it the catch-alls (+0.12 of it); then
+  grouping fragments (+0.16). Linking alone is +0.08. Next: prompt the catch-alls (E59b).
+
+## Plan: E59b = prompting the catch-all classes (issue #59, 14.11.2026)
+- **Goal:** win back E59a's largest share: GT segments of otherstructure, otherfurniture and otherprop that no
+  prompt can find.
+- **Setting:** SAM 3 image mode at 0.3 with `configs/prompts/nyu40.txt` plus `configs/prompts/catchall.txt`
+  (12 generic and frequent words, each mapped to a catch-all), two ways: competing with the NYU40 masks by
+  score, and as fallback (`--fallback`: their masks only take pixels no NYU40 mask covers). Scored by
+  `e59a_pq_loss.py --segmentation`, same oracles and causes. Defaults unchanged.
+- **Scenes:** dev decides, val once.
+- **Checks:** NYU40 PQ of the fallback variant on the prompted classes must not drop (it only adds pixels).

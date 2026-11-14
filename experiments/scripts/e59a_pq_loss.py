@@ -24,6 +24,10 @@ needs no geometry beyond the linking. Per scene:
    segment), `merger` (it covers more than half of a GT segment), `spurious`.
 
 uv run python experiments/scripts/e59a_pq_loss.py --splits dev val
+
+`--segmentation <name>` scores another cached segmentation (E59b); its results get the
+name as suffix. With the catch-all prompts (`catchall` in the name) the catch-alls
+count as prompted.
 """
 
 import argparse
@@ -57,12 +61,13 @@ from src.segmentation.linked import working_associator
 
 ROOT = Path("data/processed/hypersim")
 VIEWS = "views_n20_uniform_504"
-SEGMENTATION = "sam3image-nyu40-t0.3"
+SEGMENTATION = ["sam3image-nyu40-t0.3"]  # set by main
 EVALUATED = list(VOCABULARIES["hypersim"])
 FIGURES = Path("experiments/figures")
 RESULTS = Path("experiments/results")
 BEDROOM, BEDROOM_VIEWS = "ai_006_007_cam_00", (18, 0, 12, 6)
-CATCH_ALL = ("otherstructure", "otherfurniture", "otherprop")  # not prompted
+CATCH_ALL = ("otherstructure", "otherfurniture", "otherprop")
+UNPROMPTED = set(CATCH_ALL)  # emptied by main for a segmentation that prompts them
 MIN_VIEW_PIXELS, MIN_VIEW_SHARE = (
     20,
     0.01,
@@ -152,7 +157,7 @@ def class_oracle(labels: Segmentation, pred_px: np.ndarray, gt_seg: np.ndarray,
     target = majority(pred_px, gt_seg)
     classes = {
         i: gt_class[target[i]]
-        if i in target and not (prompted and gt_class[target[i]] in CATCH_ALL)
+        if i in target and not (prompted and gt_class[target[i]] in UNPROMPTED)
         else c
         for i, c in labels.classes.items()
     }
@@ -239,7 +244,7 @@ def causes(
         cov = sorted(
             ((k / ov.gt_size[g], p, k) for p, k in by_g.get(g, [])), reverse=True
         )
-        if gt_class[g] in CATCH_ALL:
+        if gt_class[g] in UNPROMPTED:
             fn[g] = "not prompted"
         elif any(iou(p, g, k) > PQ_IOU for _, p, k in cov):
             fn[g] = "class"
@@ -278,7 +283,7 @@ def scene_inputs(name: str) -> tuple:
     views = Views.load(folder / f"{VIEWS}.npz")
     gt = GroundTruth.load(folder / f"gt_{VIEWS}.npz")
     geometry = Geometry.load(folder / f"dejaview_k16_{VIEWS}.npz")
-    masks = Segmentation.load(folder / f"{SEGMENTATION}_{VIEWS}.npz")
+    masks = Segmentation.load(folder / f"{SEGMENTATION[0]}_{VIEWS}.npz")
     linked = working_associator().associate(masks, geometry)
     truth = ground_truth_cloud(
         gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
@@ -427,7 +432,12 @@ def main() -> None:
     """Run the splits, write the results, the table and the bedroom figure."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--splits", nargs="+", default=["dev"])
+    parser.add_argument("--segmentation", default=SEGMENTATION[0])
     args = parser.parse_args()
+    default = args.segmentation == SEGMENTATION[0]
+    SEGMENTATION[0] = args.segmentation
+    if "catchall" in args.segmentation:
+        UNPROMPTED.clear()
     config = load_config(Path("configs/hypersim.yaml"))
     results: dict[str, dict] = {}
     for split in args.splits:
@@ -441,11 +451,11 @@ def main() -> None:
                 f"{split} {name}: PQ linked {pq['linked']['pq']:.3f}, all {pq['all']['pq']:.3f}, fn {out['fn']}",
                 flush=True,
             )
-            if maps:
+            if maps and default:
                 FIGURES.mkdir(parents=True, exist_ok=True)
                 figure(maps, FIGURES / "e59a_bedroom.jpg")
     RESULTS.mkdir(parents=True, exist_ok=True)
-    tag = "_".join(args.splits)
+    tag = "_".join(args.splits) + ("" if default else f"_{args.segmentation}")
     (RESULTS / f"e59a_{tag}.yaml").write_text(
         yaml.safe_dump({"git": git_hash(), "results": results}, sort_keys=False)
     )
