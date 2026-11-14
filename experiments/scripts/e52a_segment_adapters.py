@@ -139,6 +139,7 @@ def held_out_error(
     cfg: dict,
 ) -> float:
     """Mean loss on the held-out scenes' fixed views, no grad."""
+    assert all(len(s.images) == 20 for s in scenes), "held-out scenes need 20 views"
     sel = np.linspace(0, 19, cfg["held_out_views"]).round().astype(int)
     rng = np.random.default_rng(0)
     with torch.no_grad():
@@ -175,7 +176,7 @@ def train(
     for it in range(1, cfg["steps"] + 1):
         scene = train_scenes[rng.integers(len(train_scenes))]
         lo, hi = cfg["view_subset"]
-        k = int(rng.integers(lo, hi + 1))
+        k = min(int(rng.integers(lo, hi + 1)), len(scene.images))
         sel = np.sort(rng.choice(len(scene.images), size=k, replace=False))
         loss, d = step_loss(net, adapter, scene, sel, kind, cfg, rng)
         opt.zero_grad(set_to_none=True)

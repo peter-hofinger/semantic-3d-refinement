@@ -27,7 +27,8 @@ models:                              # name -> (bias, pool)
   both: [true, true]
 segments: [gt, grid]                 # grid: 3 x 3 patch tiles per view, the control
 grid_block: 3
-view_subset: [8, 12]                 # views per training step, drawn uniformly
+view_subset: [8, 12]                 # views per training step, drawn uniformly, at most the
+                                     # scene's (ai_011_010 has 9, ai_047_008 16 views)
 rank: 16                             # pooling's A: 768 -> rank
 steps: 3000                          # step 0: ~0.7 s per step at 8-12 views, ~40 min a model
 eval_every: 250
