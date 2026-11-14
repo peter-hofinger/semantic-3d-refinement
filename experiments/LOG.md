@@ -4657,3 +4657,11 @@ Interim entry: the check that the plan puts before any table.
 - **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: image, GT instances per patch, Déjà View's per-pixel
   error and the best variant's on one shared scale (cm); Chamfer minus β = 0 over β, one panel per step
   set, frame and global as two lines.
+- **Step 0 done (14.11, laptop 3050, bedroom, 0c2f90f, `results/e53a_probe.txt`):**
+  `uv run python experiments/scripts/e53a_attention_bias.py --cfg configs/eval_hypersim.yaml --probe --scenes ai_006_007_cam_00 --out runs/e53a_probe`.
+  A labelled patch query puts 0.26-0.31 of its frame attention on its own GT segment, about what
+  uniform attention would (0.26; walls, floor and ceiling are large segments), and 0.36-0.40 of its
+  global attention (uniform 0.22, x1.6-1.8); single heads range 0.11-0.82. So Déjà View does not already
+  attend within segments, and a bias has room to move. The logits' spread (median std per query) is
+  1.1-1.5 in frame and 3.7-5.1 in global attention: β in {0.25, ..., 4} spans a fifth to three times
+  a frame std and up to about one global std. The grid stays as planned.
