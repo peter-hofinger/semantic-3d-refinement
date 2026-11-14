@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 
@@ -19,6 +20,7 @@ from src.loaders.hypersim.prepare import (
 )
 from src.loaders.hypersim.scene import (
     FrameLabels,
+    HypersimScene,
     camera_from_cam_from_uv,
     distance_to_depth,
     unscaled_rotation,
@@ -214,3 +216,27 @@ def test_config_rejects_scene_in_two_splits(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="more than one split"):
         load_config(path)
+
+
+def test_frame_without_a_rotation_is_left_out(tmp_path: Path) -> None:
+    write_metadata(tmp_path)
+    with (tmp_path / "metadata_images_split_scene_v1.csv").open("a") as f:
+        f.write("ai_v_plain,cam_00,1,True,,val\n")
+    cam = tmp_path / "ai_v_plain" / "_detail" / "cam_00"
+    cam.mkdir(parents=True)
+    (cam.parent / "metadata_scene.csv").write_text(
+        "parameter_name,parameter_value\nmeters_per_asset_unit,0.5\n"
+    )
+    sheared = np.eye(3)
+    sheared[0, 1] = 0.01
+    data = {
+        "frame_indices": np.array([0, 1]),
+        "orientations": np.stack([sheared, 2 * np.eye(3)]),
+        "positions": np.array([[0.0, 0, 0], [2, 0, 0]]),
+    }
+    for name, array in data.items():
+        with h5py.File(cam / f"camera_keyframe_{name}.hdf5", "w") as f:
+            f["dataset"] = array
+    frames = HypersimScene(tmp_path, tmp_path, "ai_v_plain", "cam_00").frames()
+    assert [f.frame_id for f in frames] == [1]
+    np.testing.assert_allclose(frames[0].cam_to_world[:3, 3], [1, 0, 0])

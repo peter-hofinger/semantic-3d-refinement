@@ -10,12 +10,16 @@ Hypersim conventions (github.com/apple/ml-hypersim, README and contrib/mikerober
 - `semantic` holds NYU40 class ids, `semantic_instance` instance ids, -1 = none;
 - a stored orientation can be a uniformly scaled rotation (ai_031_004 cam_00 keyframe 0
   is 10 R, singular values 10, 10, 10; every other prepared frame is orthonormal to
-  1e-6): it is divided by cbrt(det), anything else is rejected (`unscaled_rotation`).
+  1e-6): it is divided by cbrt(det), anything else is rejected (`unscaled_rotation`);
+- a stored orientation can also be no rotation at all (ai_047_006 cam_00 keyframe 0,
+  |R^T R - I| = 8.7e-3; its other 99 frames are orthonormal to 1e-15): the frame's pose
+  is unknown, so `frames` leaves it out like a frame missing from the public release.
 """
 
 from __future__ import annotations
 
 import csv
+import logging
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -27,6 +31,8 @@ from PIL import Image
 OPENGL_TO_OPENCV = np.diag([1.0, -1.0, -1.0, 1.0])
 SKEW_TOL = 1e-3  # pixels; larger K[0, 1] = skewed tilt-shift camera, rejected
 ROTATION_TOL = 1e-5  # max |R^T R - I| after removing a uniform scale
+
+log = logging.getLogger(__name__)
 
 # NYU40 class names, index = class id (0 unused)
 NYU40 = (
@@ -189,7 +195,7 @@ class HypersimScene:
             )
 
     def frames(self) -> list[Frame]:
-        """Return all public frames in trajectory order with OpenCV poses in meters."""
+        """Return the public frames with a valid pose, in order, OpenCV poses in m."""
         cam_dir = self.detail_dir / self.camera
         keyframe_ids = read_hdf5(cam_dir / "camera_keyframe_frame_indices.hdf5")
         rotations = read_hdf5(cam_dir / "camera_keyframe_orientations.hdf5")
@@ -201,7 +207,11 @@ class HypersimScene:
         for frame_id in self.public_frame_ids():
             k = keyframe_of[frame_id]
             pose = np.eye(4)
-            pose[:3, :3] = unscaled_rotation(rotations[k])
+            try:
+                pose[:3, :3] = unscaled_rotation(rotations[k])
+            except ValueError as err:
+                log.warning("%s frame %d left out: %s", self.scene_id, frame_id, err)
+                continue
             pose[:3, 3] = positions[k] * self.meters_per_asset_unit
             frames.append(
                 Frame(
