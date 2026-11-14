@@ -19,6 +19,17 @@ onto each pixel's ray, t* = (x_gt - o) . d / |d|^2, and r* = log(t* / D); pixels
 ground truth or with |r*| > `MAX_RESIDUAL` are left out. Loss: L1 on r. `volume-refine`
 trains every model of the config on the Hypersim train split and writes
 `<model>_<views>.npz` for the prediction scenes, scored by `scene_eval` like a backbone.
+
+Keep head (issue #57, config `keep`): the voxel density filter (E45) wins by deleting
+points, which this refiner cannot. With `keep` the head has a second output, a keep
+logit per pixel, trained by binary cross-entropy to tell whether the pixel's remaining
+error |r* - r| (r = 0 without the residual) lies in the lower `quantile` of the step's
+pixels; pixels with ground truth but no valid r* (|r*| > `MAX_RESIDUAL`, behind the
+camera) count as errors. The cut is a quantile, not a length, so the label needs no
+unit and matches the evaluation's per-scene cut. The logit is written per pixel as
+`<model>_keep_<views>.npz`, and `scene_eval`'s `keep_by` ranks by it instead of instance
+voxel density, at the same kept fraction. The held-out step kept is then the one whose
+kept pixels (top `quantile` by logit) have the least mean error.
 """
 
 from __future__ import annotations
@@ -52,6 +63,15 @@ CHUNK = 500_000  # pixels per forward pass at prediction
 
 
 @dataclasses.dataclass(frozen=True)
+class KeepHead:
+    """The keep logit's training (issue #57)."""
+
+    quantile: float  # fraction of each step's pixels labeled keep, by least error
+    residual: bool  # also train the depth residual; else the depth stays the backbone's
+    weight: float  # of the cross-entropy next to the L1
+
+
+@dataclasses.dataclass(frozen=True)
 class VolumeConfig:
     """Data, models and training settings (`configs/e41b_volume.yaml`)."""
 
@@ -75,6 +95,7 @@ class VolumeConfig:
     amp: bool  # U-Net in bfloat16 on CUDA
     lr: float
     seeds: list[int]  # one model per seed; with several, names end in -s<seed>
+    keep: KeepHead | None = None  # a keep logit next to the residual (issue #57)
 
     @classmethod
     def load(cls, path: Path) -> VolumeConfig:
@@ -87,6 +108,9 @@ class VolumeConfig:
         raw["predict"] = [f"{s}_{c}" for s, c in predict.items()]
         raw["root"] = Path(raw["root"])
         assert all(s in SEMANTICS for s in raw["models"].values()), raw["models"]
+        if "keep" in raw:
+            raw["keep"] = KeepHead(**raw["keep"])
+            assert 0 < raw["keep"].quantile < 1, raw["keep"]
         return cls(**raw)
 
 
@@ -247,9 +271,15 @@ class VolumeRefiner(nn.Module):
     """3D U-Net on the grid, then a per-pixel head on the sampled features."""
 
     def __init__(
-        self, grid_channels: int, widths: list[int], head: int, *, semantics: bool
+        self,
+        grid_channels: int,
+        widths: list[int],
+        head: int,
+        *,
+        semantics: bool,
+        outputs: int = 1,
     ) -> None:
-        """Widths per U-Net level; the head's last layer starts at zero (identity)."""
+        """Widths per U-Net level; outputs r (and the keep logit), zero at the start."""
         super().__init__()
         self.down = nn.ModuleList()
         c = grid_channels
@@ -266,7 +296,7 @@ class VolumeRefiner(nn.Module):
             nn.GELU(),
             nn.Linear(head, head),
             nn.GELU(),
-            nn.Linear(head, 1),
+            nn.Linear(head, outputs),
         )
         nn.init.zeros_(self.head[-1].weight)
         nn.init.zeros_(self.head[-1].bias)
@@ -275,6 +305,11 @@ class VolumeRefiner(nn.Module):
     def semantics(self) -> bool:
         """Whether the refiner sees classes: grid histogram and per-pixel embedding."""
         return self.embed is not None
+
+    @property
+    def outputs(self) -> int:
+        """Head outputs: 1 (r) or 2 (r and the keep logit)."""
+        return self.head[-1].out_features
 
     def features(self, grid: Tensor, *, amp: bool = False) -> Tensor:
         """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X); bfloat16 with amp."""
@@ -294,6 +329,10 @@ class VolumeRefiner(nn.Module):
 
     def forward(self, feats: Tensor, pts: ScenePoints, sel: Tensor) -> Tensor:
         """Residual r (n,) of the selected pixels from U-Net features (C, Z, Y, X)."""
+        return self.heads(feats, pts, sel)[:, 0]
+
+    def heads(self, feats: Tensor, pts: ScenePoints, sel: Tensor) -> Tensor:
+        """Head outputs (n, outputs) of the selected pixels: r, then the keep logit."""
         p = pts.points[sel]
         extent = torch.tensor(pts.dims, dtype=p.dtype, device=p.device) * pts.cell
         coords = 2 * (p - pts.lo) / extent - 1
@@ -317,7 +356,7 @@ class VolumeRefiner(nn.Module):
         ]
         if self.embed is not None:
             own.append(self.embed(pts.classes[sel]))
-        return self.head(torch.cat(own, 1))[:, 0]
+        return self.head(torch.cat(own, 1))
 
 
 def to_device(pts: ScenePoints, device: torch.device) -> ScenePoints:
@@ -360,6 +399,7 @@ class TrainScene:
     views: int
     pixels: int  # per view
     held: Tensor  # pixels the held-out error is reported on
+    has: Tensor | None = None  # (N,) pixels with ground truth; only with a keep head
 
 
 def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], list[str]]:
@@ -378,13 +418,45 @@ def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], lis
             print(f"{scene}: skipped, missing input ({err})", flush=True)  # noqa: T201
             continue
         views, h, w = geometry.depth.shape
+        has = None
+        if cfg.keep is not None:  # the keep head also learns from the invalid pixels
+            folder = cfg.root / scene
+            has = GroundTruth.load(folder / f"gt_{cfg.views}.npz").depth.reshape(-1) > 0
+        pool = valid if has is None else has
         keep = rng.choice(
-            np.flatnonzero(valid), size=min(cfg.kept_points, int(valid.sum()))
+            np.flatnonzero(pool), size=min(cfg.kept_points, int(pool.sum()))
         )
+        truth = None if has is None else torch.from_numpy(has)
         data.append(TrainScene(compact(pts), torch.from_numpy(r).half(),
                                torch.from_numpy(valid), views, h * w,
-                               torch.from_numpy(np.sort(keep))))  # fmt: skip
+                               torch.from_numpy(np.sort(keep)), truth))  # fmt: skip
     return data, skipped
+
+
+def keep_labels(err: Tensor, quantile: float) -> Tensor:
+    """1 for the round(quantile n) pixels of least error (n,), else 0; inf: an error."""
+    assert err.ndim == 1 and 0 < quantile < 1, (err.shape, quantile)
+    k = max(1, round(quantile * len(err)))
+    rank = torch.empty_like(err, dtype=torch.long)
+    rank[err.argsort(stable=True)] = torch.arange(len(err), device=err.device)
+    return (rank < k).float()
+
+
+def keep_loss(
+    model: VolumeRefiner,
+    feats: Tensor,
+    pts: ScenePoints,
+    pick: Tensor,
+    target: tuple[Tensor, Tensor, KeepHead],
+) -> Tensor:
+    """L1 on r (valid pixels, if the residual trains) plus the keep cross-entropy."""
+    r_star, valid, keep = target
+    out = model.heads(feats, pts, pick)
+    r = out[:, 0] if keep.residual else torch.zeros_like(r_star)
+    err = torch.where(valid, (r.detach() - r_star).abs(), torch.inf)
+    bce = F.binary_cross_entropy_with_logits(out[:, 1], keep_labels(err, keep.quantile))
+    l1 = (r - r_star).abs()[valid].mean() if keep.residual else 0.0
+    return l1 + keep.weight * bce
 
 
 def step_loss(
@@ -400,13 +472,18 @@ def step_loss(
         np.sort(rng.choice(scene.views, size=k, replace=False)), scene.pixels
     )
     pts = expand(scene.pts, sel, device)
-    candidates = torch.nonzero(scene.valid[sel])[:, 0]
+    pool = scene.valid if scene.has is None else scene.has
+    candidates = torch.nonzero(pool[sel])[:, 0]
     pick = candidates[
         torch.from_numpy(rng.integers(len(candidates), size=cfg.batch_points))
     ]
     feats = model.features(voxelize(pts, semantics=model.semantics), amp=cfg.amp)
+    r_star = scene.r[sel][pick].to(device).float()
+    if cfg.keep is not None:
+        valid = scene.valid[sel][pick].to(device)
+        return keep_loss(model, feats, pts, pick.to(device), (r_star, valid, cfg.keep))
     pred = model(feats, pts, pick.to(device))
-    return (pred - scene.r[sel][pick].to(device).float()).abs().mean()
+    return (pred - r_star).abs().mean()
 
 
 def train(
@@ -427,9 +504,9 @@ def train(
     rng = np.random.default_rng(seed)
     fit, held = data[: -cfg.held_out], data[-cfg.held_out :]
     channels = grid_channels(semantics=semantics)
-    model = VolumeRefiner(channels, cfg.widths, cfg.head, semantics=semantics).to(
-        device
-    )
+    model = VolumeRefiner(
+        channels, cfg.widths, cfg.head, semantics=semantics, outputs=outputs(cfg)
+    ).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, cfg.lr, total_steps=cfg.steps)
     log: list[dict] = []
@@ -440,8 +517,9 @@ def train(
             err = held_out_error(model, held, cfg, device)
             log.append({"step": step, "seconds": time.perf_counter() - t0, **err})
             print(f"step {step}: {log[-1]}", flush=True)  # noqa: T201
-            if err["abs_log_after"] < best:
-                best = err["abs_log_after"]
+            metric = err["abs_log_after" if cfg.keep is None else "kept_error"]
+            if metric < best:
+                best = metric
                 best_state = {
                     k: v.detach().cpu().clone() for k, v in model.state_dict().items()
                 }
@@ -465,20 +543,34 @@ def held_out_error(
     cfg: VolumeConfig,
     device: torch.device,
 ) -> dict[str, float]:
-    """Mean |r* - r| before (r = 0) and after on the held-out scenes, all views."""
+    """Mean |r* - r| before (r = 0) and after on the held-out scenes, all views.
+
+    With a keep head also the mean error of the kept pixels, the top `quantile` by
+    logit (`kept_error`), against all pixels (`all_error`); an invalid pixel's error is
+    `MAX_RESIDUAL`.
+    """
     model.eval()
-    before = after = 0.0
+    out = dict.fromkeys(["abs_log_before", "abs_log_after"], 0.0)
     with torch.no_grad():
         for scene in held:
             pts = expand(scene.pts, torch.arange(len(scene.r)), device)
             feats = model.features(
                 voxelize(pts, semantics=model.semantics), amp=cfg.amp
             )
-            pred = model(feats, pts, scene.held.to(device)).cpu()
+            heads = model.heads(feats, pts, scene.held.to(device)).cpu()
+            valid = scene.valid[scene.held]
             r = scene.r[scene.held].float()
-            before += float(r.abs().mean()) / len(held)
-            after += float((pred - r).abs().mean()) / len(held)
-    return {"abs_log_before": before, "abs_log_after": after}
+            pred = heads[:, 0]
+            out["abs_log_before"] += float(r[valid].abs().mean()) / len(held)
+            out["abs_log_after"] += float((pred - r)[valid].abs().mean()) / len(held)
+            if cfg.keep is not None:
+                used = pred if cfg.keep.residual else torch.zeros_like(pred)
+                err = torch.where(valid, (used - r).abs(), MAX_RESIDUAL)
+                k = max(1, round(cfg.keep.quantile * len(err)))
+                kept = heads[:, 1].argsort(descending=True, stable=True)[:k]
+                for key, value in (("kept_error", err[kept]), ("all_error", err)):
+                    out[key] = out.get(key, 0.0) + float(value.mean()) / len(held)
+    return out
 
 
 def refine(
@@ -490,25 +582,65 @@ def refine(
     amp: bool = False,
 ) -> Geometry:
     """Return the backbone geometry with depth D exp(r); all else kept."""
+    r = predict_heads(model, pts, device, amp=amp)[:, 0]
+    return with_residual(geometry, r)
+
+
+def predict_heads(
+    model: VolumeRefiner, pts: ScenePoints, device: torch.device, *, amp: bool = False
+) -> Tensor:
+    """Head outputs (N, outputs) of every pixel of the scene, on the CPU."""
     model.eval()
     with torch.no_grad():
         on = expand(compact(pts), torch.arange(len(pts.points)), device)
         feats = model.features(voxelize(on, semantics=model.semantics), amp=amp)
         n = len(pts.points)
-        r = torch.cat(
+        return torch.cat(
             [
-                model(
+                model.heads(
                     feats, on, torch.arange(i, min(i + CHUNK, n), device=device)
                 ).cpu()
                 for i in range(0, n, CHUNK)
             ]
         )
+
+
+def with_residual(geometry: Geometry, r: Tensor) -> Geometry:
+    """Return the geometry with depth D exp(r), r flat (N,); all else kept."""
     depth = (geometry.depth * np.exp(r.numpy().reshape(geometry.depth.shape))).astype(
         np.float32
     )
     assert np.all(np.isfinite(depth))
     assert np.all(depth > 0)
     return dataclasses.replace(geometry, depth=depth)
+
+
+def write_prediction(
+    model: VolumeRefiner,
+    cfg: VolumeConfig,
+    scene: tuple[str, str],
+    name: str,
+    device: torch.device,
+) -> None:
+    """Write `<name>_<views>.npz` of a (scene, semantics), and the keep logit if any."""
+    folder, semantics = cfg.root / scene[0], scene[1]
+    pts, geometry, _, _ = load_scene(cfg, scene[0], semantics)
+    if cfg.keep is None:
+        refined = refine(model, pts, geometry, device, amp=cfg.amp)
+    else:
+        heads = predict_heads(model, pts, device, amp=cfg.amp)
+        r = heads[:, 0] if cfg.keep.residual else torch.zeros(len(heads))
+        refined = with_residual(geometry, r)
+        logit = heads[:, 1].numpy().reshape(geometry.depth.shape)
+        np.savez_compressed(
+            folder / f"{name}_keep_{cfg.views}.npz", keep=logit.astype(np.float32)
+        )
+    refined.save(folder / f"{name}_{cfg.views}.npz")
+
+
+def outputs(cfg: VolumeConfig) -> int:
+    """Head outputs: r, and the keep logit with a keep head."""
+    return 1 if cfg.keep is None else 2
 
 
 def grid_channels(*, semantics: bool) -> int:
@@ -565,14 +697,13 @@ def main() -> None:
                 torch.save(model.state_dict(), saved)
                 run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))
             else:
-                model = VolumeRefiner(channels, cfg.widths, cfg.head, semantics=sem)
-                model = model.to(device)
+                model = VolumeRefiner(
+                    channels, cfg.widths, cfg.head, semantics=sem, outputs=outputs(cfg)
+                ).to(device)
                 model.load_state_dict(torch.load(saved, map_location=device))
                 print(f"{name}: loaded from {saved}")  # noqa: T201
             for scene in cfg.predict:
-                pts, geometry, _, _ = load_scene(cfg, scene, semantics)
-                refined = refine(model, pts, geometry, device, amp=cfg.amp)
-                refined.save(cfg.root / scene / f"{name}_{cfg.views}.npz")
+                write_prediction(model, cfg, (scene, semantics), name, device)
             print(f"{name}: wrote {len(cfg.predict)} scenes", flush=True)  # noqa: T201
         del data
     run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))

@@ -19,7 +19,9 @@ A variant's `keep: q` cuts its output to the top fraction q of the pixels by ins
 voxel density (`filters.instance_voxel_density`, E45's best filter), flagged on the
 backbone's cloud: flag, refine every pixel, then drop the flagged (E27a). The dropped
 pixels have no point, so they count for completeness only; the label scores are per
-pixel and stay as they are.
+pixel and stay as they are. With `keep_by: <name>` the pixels are ranked instead by the
+score `<name>_<views>.npz` holds in the scene's folder (key `keep`, higher keeps), such
+as the 3D refiner's keep logit (issue #57), at the same fraction.
 The config names the splits that get an aggregate (`split_scores`) and those that keep
 per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
@@ -264,9 +266,15 @@ def variant_segments(inputs: SceneInputs, variant: dict) -> torch.Tensor | None:
 
 
 def refine_variant(
-    inputs: SceneInputs, variant: dict, base: RefineConfig
+    inputs: SceneInputs,
+    variant: dict,
+    base: RefineConfig,
+    keep_score: np.ndarray | None = None,
 ) -> tuple[float, dict, np.ndarray, np.ndarray]:
-    """Refine (or not) as the variant says: runtime, log, depth and per-pixel points."""
+    """Refine (or not) as the variant says: runtime, log, depth and per-pixel points.
+
+    `keep_score` (V, H, W) replaces instance voxel density as the cut's ranking.
+    """
     scene = inputs.scene
     seconds, log_record = 0.0, {}
     depth = scene.depth
@@ -291,16 +299,16 @@ def refine_variant(
     log_record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
     points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
     if "keep" in variant:
-        start = (
-            points_from_rays(scene.depth.double(), scene.rays.double()).cpu().numpy()
-        )
-        density = instance_voxel_density(
-            start,
-            scene.depth.cpu().numpy(),
-            scene.k.cpu().numpy(),
-            inputs.labels.instance_ids,
-        )
-        points[~keep_top(ranks(density), variant["keep"])] = np.nan
+        if keep_score is None:
+            start = points_from_rays(scene.depth.double(), scene.rays.double())
+            keep_score = instance_voxel_density(
+                start.cpu().numpy(),
+                scene.depth.cpu().numpy(),
+                scene.k.cpu().numpy(),
+                inputs.labels.instance_ids,
+            )
+        assert keep_score.shape == points.shape[:3], keep_score.shape
+        points[~keep_top(ranks(keep_score), variant["keep"])] = np.nan
     return seconds, log_record, depth.cpu().numpy(), points
 
 
@@ -335,7 +343,17 @@ def evaluate_scenes(
                 if keep:
                     arrays[f"{name}/labels"] = inputs.labels.instance_ids
                 for i, variant in enumerate(raw["variants"]):
-                    seconds, log, depth, points = refine_variant(inputs, variant, base)
+                    score_file = (
+                        Path(raw["root"])
+                        / name
+                        / (f"{variant.get('keep_by')}_{raw['views']}.npz")
+                    )
+                    keep_score = (
+                        np.load(score_file)["keep"] if "keep_by" in variant else None
+                    )
+                    seconds, log, depth, points = refine_variant(
+                        inputs, variant, base, keep_score
+                    )
                     if keep:
                         arrays[f"{name}/{i}"] = depth.astype(np.float32)
                         arrays[f"{name}/{i}/kept"] = np.isfinite(points).all(-1)
