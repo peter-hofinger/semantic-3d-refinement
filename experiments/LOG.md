@@ -4899,3 +4899,16 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion:** a fill from the kept neighbours cannot beat what the backbone already predicts at the flagged
   pixels; filling within an instance helps the fill but not enough. Dropping (or refining) them stays better.
   Issue #58 closed.
+## Plan: E59a = where SAM 3 + linking lose panoptic quality (issue #59, 14.11.2026)
+- **Goal:** issue #59's first step: split the PQ that SAM 3 + linking lose on Hypersim into wrong class, objects
+  split across views (linking), split within a view, merged, missed, and pixels at segment borders, so the fix
+  goes where the loss is.
+- **Setting:** `experiments/scripts/e59a_pq_loss.py`; the evaluation's labels (SAM 3 image mode, NYU40 prompts at
+  0.3, working association, E17) scored per GT pixel by `label_metrics`, all 40 NYU40 classes. Oracles: per-view
+  masks unlinked, linked, perfect classes, perfect linking (masks of one GT segment share an id across views),
+  perfect grouping (also within a view), pixels within 2 or 5 px of a GT or predicted border made void, and all
+  of perfect grouping + classes + 2 px border. A cause for every unmatched GT segment and prediction of the
+  linked labels.
+- **Scenes:** dev first, then val once. No geometry is refined; Deja View's depth only enters the linking.
+- **Checks:** the bedroom figure (`experiments/figures/e59a_bedroom.jpg`), and that `linked` reproduces the
+  evaluation's PQ.
