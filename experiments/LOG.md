@@ -4944,3 +4944,46 @@ Interim entry: the check that the plan puts before any table.
   `e59a_pq_loss.py --segmentation`, same oracles and causes. Defaults unchanged.
 - **Scenes:** dev decides, val once.
 - **Checks:** NYU40 PQ of the fallback variant on the prompted classes must not drop (it only adds pixels).
+
+## E59b: prompting the catch-all classes -> competing hurts PQ, as fallback PQ is flat, mIoU and AP rise a little (14.11.2026)
+- **Commits:** e241b55 (SAM 3 runs), scored at 6c394f5 (adds only the opt-in merge to the script); 3080 server,
+  SAM 3 about 21 s per scene and variant, `~/pouya/e59b_run.sh`.
+- **Results** (linked labels; `experiments/results/e59b_{competing,fallback}.txt`):
+
+  | prompts | dev PQ / AP / mIoU | val PQ / AP / mIoU |
+  |---|---|---|
+  | NYU40 (E59a) | 0.292 / 0.216 / 0.405 | 0.258 / 0.345 / 0.349 |
+  | + catch-alls, competing | 0.248 / 0.202 / 0.342 | 0.212 / 0.227 / 0.304 |
+  | + catch-alls, fallback | 0.298 / 0.254 / 0.444 | 0.254 / 0.351 / 0.365 |
+
+- Val, fallback: unmatched GT segments 317 -> 291, but unmatched predictions 674 -> 2021 (fragments 577 ->
+  1757); the generic words fire on parts of objects. Competing, they also take pixels from the NYU40 masks.
+- The planned check (PQ of the prompted classes alone) was not computed separately.
+- **Conclusion:** the catch-alls are not found by generic words; as fallback they add labeled pixels (mIoU)
+  but as many fragments as objects. Prompts stay NYU40 by default.
+
+## Plan and result: E59c = merging touching objects of one class -> PQ +0.03 on dev and val (14.11.2026)
+- Planned after E59b, before running, from a split of E59a's 577 val fragments: 530 share a view with another
+  prediction on the same GT segment (SAM 3 part masks, which the linking never joins within a view); 182 have
+  the GT segment's class, among them 51 GT segments split into same-class parts none of which matches
+  (5.7 % of the labeled pixels).
+- **Setting:** `associate.merge_touching` after the linking: cubes of 4 pixel footprints, objects of one class
+  merge when the share of the smaller one's cubes in or next to the other's is at least the contact share.
+  Opt-in (`e59a_pq_loss.py --merge`), defaults unchanged. Commit 6c394f5, 3080 CPU.
+- **Dev sweep** (PQ, NYU40 prompts; linked 0.292): contact 0.02 0.286, 0.05 0.289, 0.1 0.304, 0.2 0.308,
+  0.3 0.321, 0.4 0.320, 0.6 0.319, 0.8 0.317. 0.3 chosen on dev; val run once.
+- **Results** (`experiments/results/e59c_*.txt`):
+
+  | labels | dev PQ / PQ things / AP / mIoU | val PQ / PQ things / AP / mIoU |
+  |---|---|---|
+  | linked (E59a) | 0.292 / 0.159 / 0.216 / 0.405 | 0.258 / 0.162 / 0.345 / 0.349 |
+  | merged 0.3 | 0.321 / 0.193 / 0.239 / 0.405 | 0.286 / 0.198 / 0.347 / 0.349 |
+  | fallback catch-alls + merged 0.3 | 0.341 / 0.227 / 0.298 / 0.444 | 0.284 / 0.198 / 0.348 / 0.365 |
+  | perfect grouping (oracle) | 0.421 / 0.297 / 0.300 / 0.471 | 0.415 / 0.335 / 0.389 / 0.438 |
+
+- **Checks:** unit test (touching same-class objects merge, separated or other-class ones stay apart). The
+  geometry is untouched (labels only), so the surface scores are Deja View's.
+- **Conclusion:** the merge closes about a fifth of the gap to perfect grouping (val +0.028 of +0.157), the
+  same on dev and val; mIoU cannot change (classes stay). With the fallback catch-alls dev gains more (0.341)
+  but val does not (0.284). Still open: the 395 fragments of another class than their object (a part mask
+  named differently, e.g. a pillow mask on a sofa) and the catch-alls.
