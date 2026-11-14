@@ -4850,3 +4850,17 @@ Interim entry: the check that the plan puts before any table.
   Density wins by removing redundant points where the cloud is dense, which costs little completeness;
   forced to cut every instance equally it falls to 5.19. An error label is spatially smooth, so cutting by it
   opens holes. Issue #57 closed.
+## Plan: E58a = densify after filtering: the flagged pixels filled from their view's kept pixels (issue #58, 14.11.2026)
+- **Goal:** issue #58: the instance voxel density filter buys accuracy with completeness (val 6.061 -> 3.013 and
+  4.142 -> 4.621 cm at q 0.5, E27a). Does giving the flagged pixels a new depth from the kept ones, instead of
+  dropping them, keep the accuracy and win the completeness back, and does filling within an instance beat plain?
+- **Setting** (`filters.fill_harmonic`, `scene_eval`'s `fill`, `experiments/configs/e58a.yaml`): E27a's flag (q 0.5,
+  instance voxel density on Déjà View's cloud, linked SAM 3 masks). Per view the flagged pixels' inverse depth
+  solves the weighted Laplace equation with the kept pixels fixed (exact for planes): `plain` (equal weights),
+  `rgb` (Levin et al.'s colour affinity, as NYU Depth v2's fill), `sam3` and `gt` (edges between instances cut to
+  1e-3). Flag, refine, fill: E27a's tangent 4e-2 refiner, then the SAM 3 fill from the refined kept pixels.
+  Nothing tuned; every pixel keeps a point, so all fills score the full pixel set like Déjà View.
+- **Commands:** `scene_eval --cfg experiments/configs/e58a.yaml --splits dev val` (Mac, CPU).
+- **Checks:** tests (no flag returns the input bit for bit, a planar hole filled to 1e-4, a hole on an instance's
+  border filled from its own plane); `Déjà View, kept 0.5` and `tangent 4e-2, kept 0.5` reproduce E27a.
+- **Baselines:** Déjà View (val 5.102, completeness 4.142), the filter (3.817 / 4.621), flag-refine-filter (3.669).

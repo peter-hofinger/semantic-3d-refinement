@@ -23,6 +23,10 @@ pixel and stay as they are. With `keep_by: <name>` the pixels are ranked instead
 score `<name>_<views>.npz` holds in the scene's folder (key `keep`, higher keeps), such
 as the 3D refiner's keep logit (issue #57), at the same fraction; `keep_with: density`
 ranks by both scores (`filters.both`), and `keep_per: instance` cuts each instance to q.
+With `fill` the pixels the cut drops are kept and get a new depth from their view's
+kept pixels instead (`filters.fill_harmonic`, E58a): `plain`, `rgb` (edges weighted by
+colour), `sam3` or `gt` (edges cut between the linked masks' or the ground truth's
+instances).
 The config names the splits that get an aggregate (`split_scores`) and those that keep
 per-scene records.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
@@ -46,6 +50,7 @@ import yaml
 
 from src.analysis.filters import (
     both,
+    fill_harmonic,
     instance_voxel_density,
     keep_top,
     keep_top_within,
@@ -321,8 +326,31 @@ def refine_variant(
             kept = keep_top_within(keep_score, ids, variant["keep"])
         else:
             kept = keep_top(ranks(keep_score), variant["keep"])
-        points[~kept] = np.nan
+        if "fill" in variant:
+            filled = fill_variant(inputs, variant["fill"], depth.cpu().numpy(), kept)
+            depth = torch.from_numpy(filled).to(scene.rays.device)
+            points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
+        else:
+            points[~kept] = np.nan
     return seconds, log_record, depth.cpu().numpy(), points
+
+
+def fill_variant(
+    inputs: SceneInputs, kind: str, depth: np.ndarray, kept: np.ndarray
+) -> np.ndarray:
+    """Depth with the flagged pixels filled from the kept ones, as `fill` says."""
+    match kind:
+        case "plain":
+            return fill_harmonic(depth, kept)
+        case "rgb":
+            return fill_harmonic(depth, kept, images=inputs.views.images)
+        case "sam3":
+            return fill_harmonic(depth, kept, ids=inputs.labels.instance_ids)
+        case "gt":
+            return fill_harmonic(depth, kept, ids=inputs.gt.instance_ids)
+        case _:
+            msg = f"unknown fill: {kind}"
+            raise ValueError(msg)
 
 
 def evaluate_scenes(

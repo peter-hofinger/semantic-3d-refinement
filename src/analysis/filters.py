@@ -27,11 +27,25 @@ Ties are broken by one fixed random permutation; within a tie a filter has no pr
   so the protocol scores it.
 - grazing angle: |cos| between the pixel's ray and its normal (`facing`), the weight
   Curless and Levoy (1996) give a range sample.
+
+Fill (E58a, issue #58): instead of dropping the flagged pixels, each gets a new depth
+from its view's kept pixels (`fill_harmonic`), so every pixel keeps a point and the
+completeness stays comparable. The fill is the membrane: inverse depth f minimizes
+sum_ij w_ij (f_i - f_j)^2 over 4-neighbours with the kept pixels fixed, so it solves
+the weighted Laplace equation on the holes. A plane's inverse depth is affine in the
+pixel, hence harmonic, so with equal weights a planar hole is filled exactly. With an
+image the weights are exp(-|I_i - I_j|^2 / (2 s^2)), s^2 the view's mean squared colour
+step, the affinity of Levin et al.'s colorization (2004) that NYU Depth v2 fills its
+holes with (Silberman et al. 2012). With instance ids an edge between two instances
+keeps only `CUT_WEIGHT`, so a hole fills from its own object. `FILL_ANCHOR` ties every
+filled pixel weakly to its own depth, which only matters where no kept pixel reaches.
 """
 
 import numpy as np
 import torch
+from scipy import sparse
 from scipy.ndimage import maximum_filter, minimum_filter
+from scipy.sparse.linalg import spsolve
 from scipy.spatial import cKDTree
 from torch import Tensor
 
@@ -39,6 +53,8 @@ from src.refinement.multiview import Scene, match_candidates, occlusion_threshol
 
 SOR_NEIGHBORS = 20  # Open3D's documented default for remove_statistical_outlier
 TIE_SEED = 0  # the one permutation that breaks ties
+CUT_WEIGHT = 1e-3  # an edge between two instances, against 1 within one
+FILL_ANCHOR = 1e-6  # pull of a filled pixel to its own inverse depth
 
 
 def ranks(score: np.ndarray) -> np.ndarray:
@@ -196,3 +212,80 @@ def consistent_views(
         count[i, pixels[(gap.abs() < tol) & (spread < tol)]] += 1
     assert (count <= n - 1).all()
     return count.view(n, h, w)
+
+
+def grid_edges(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    """Flat pixel indices (E,) of both ends of every 4-neighbour edge of an h x w grid."""
+    index = np.arange(h * w).reshape(h, w)
+    a = np.concatenate([index[:, :-1].ravel(), index[:-1].ravel()])
+    b = np.concatenate([index[:, 1:].ravel(), index[1:].ravel()])
+    return a, b
+
+
+def edge_weights(
+    a: np.ndarray, b: np.ndarray, image: np.ndarray | None, ids: np.ndarray | None
+) -> np.ndarray:
+    """Weight (E,) of each edge: 1, colour affinity with an image, cut across ids."""
+    weight = np.ones(len(a))
+    if image is not None:
+        rgb = image.reshape(-1, 3).astype(np.float64) / 255
+        step = ((rgb[a] - rgb[b]) ** 2).sum(1)
+        weight *= np.exp(-step / (2 * max(step.mean(), 1e-12)))
+    if ids is not None:
+        flat = ids.ravel()
+        weight *= np.where(flat[a] == flat[b], 1.0, CUT_WEIGHT)
+    return weight
+
+
+def fill_view(
+    depth: np.ndarray,
+    known: np.ndarray,
+    image: np.ndarray | None = None,
+    ids: np.ndarray | None = None,
+) -> np.ndarray:
+    """One view's depth (H, W) with the unknown pixels filled by the weighted membrane."""
+    assert depth.ndim == 2 and known.shape == depth.shape and (depth > 0).all()  # noqa: PLR2004
+    if known.all():
+        return depth
+    h, w = depth.shape
+    f = 1 / depth.astype(np.float64).ravel()
+    a, b = grid_edges(h, w)
+    weight = edge_weights(a, b, image, ids)
+    n = h * w
+    adjacency = sparse.coo_matrix(
+        (
+            np.concatenate([weight, weight]),
+            (np.concatenate([a, b]), np.concatenate([b, a])),
+        ),
+        shape=(n, n),
+    ).tocsr()
+    laplacian = sparse.diags(np.asarray(adjacency.sum(1)).ravel()) - adjacency
+    unknown = np.flatnonzero(~known.ravel())
+    fixed = np.flatnonzero(known.ravel())
+    system = laplacian[unknown][:, unknown] + FILL_ANCHOR * sparse.eye(len(unknown))
+    rhs = -laplacian[unknown][:, fixed] @ f[fixed] + FILL_ANCHOR * f[unknown]
+    out = f.copy()
+    out[unknown] = spsolve(system.tocsc(), rhs)
+    assert np.isfinite(out).all() and (out > 0).all()
+    return (1 / out).reshape(h, w).astype(depth.dtype)
+
+
+def fill_harmonic(
+    depth: np.ndarray,
+    known: np.ndarray,
+    images: np.ndarray | None = None,
+    ids: np.ndarray | None = None,
+) -> np.ndarray:
+    """Depth (V, H, W) with the pixels not `known` filled per view (`fill_view`)."""
+    assert depth.ndim == 3 and known.shape == depth.shape, (depth.shape, known.shape)  # noqa: PLR2004
+    return np.stack(
+        [
+            fill_view(
+                depth[v],
+                known[v],
+                None if images is None else images[v],
+                None if ids is None else ids[v],
+            )
+            for v in range(len(depth))
+        ]
+    )
