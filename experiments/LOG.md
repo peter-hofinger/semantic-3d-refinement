@@ -4775,3 +4775,21 @@ Interim entry: the check that the plan puts before any table.
   0.2, votes invariant to scene scale, same-class votes a subset, untrained refiner returns its input bit for bit);
   one scene's step time and memory before the full run.
 - **Baselines:** Deja View (dev 3.500, val 5.102), E36 / E11a, E41b (val 5.24 / 5.29 / 5.25).
+
+## E56a: each view refined from the other views' points -> no gain over Deja View (14.11.2026)
+- **Commits:** 83ea14c, 8bc6276; 3d-cluster (RTX 5090), one SLURM task per model and seed, about 15 min of
+  training each (20k steps), 133 train rooms (15 new ones not yet staged, 2 without a pinhole fit).
+- **Results** (Chamfer cm, seeds 0 / 1; Deja View dev 3.500, val 5.102):
+
+  | model | dev | val |
+  |---|---|---|
+  | no classes | 3.495 / 3.480 | 5.353 / 5.448 |
+  | SAM 3 classes | 3.572 / 3.490 | 5.561 / 5.261 |
+  | GT classes | 3.552 / 3.522 | 5.505 / 5.202 |
+
+- Held-out error barely moves (0.0824 -> 0.080 at best); seeds differ by up to 0.3 cm, more than the classes.
+- **Checks:** unit tests (soft histogram mass and mean, consistent views vote 0, scale invariance, identity at
+  zero weights). On three rooms the mean vote correlates with r* at 0.13 to 0.16, and moving each pixel by
+  alpha times its mean vote helps at no alpha in {0.1, ..., 1}.
+- **Conclusion:** Deja View's views already agree; their remaining error is shared across views, so the other
+  views' points cannot reveal it. Same wall as E11a (2D) and E41b (3D). Issue #56 closed.
