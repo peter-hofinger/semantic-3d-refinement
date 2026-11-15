@@ -64,7 +64,8 @@ KinectFusion and TSDF-based MVS benchmarks fuse depth), take each volume's zero
 crossings as its surface and score these two point sets like the per-pixel ones, under
 `fused_*` keys. Unlike the scores above this one has a grid: the voxel size and the
 truncation distance, in the ground truth's metres, set in the config and recorded with
-the run. Pixels without an output point are not fused.
+the run. Pixels without an output point, or without GT depth (as in the per-pixel
+scores), are not fused.
 """
 
 from __future__ import annotations

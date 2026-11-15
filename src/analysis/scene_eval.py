@@ -204,13 +204,17 @@ class Scoring:
 
 
 def score(scoring: Scoring, points: np.ndarray) -> dict:
-    """Score per-pixel points (V, H, W, 3) with the SAM 3 labels; `align` is s R | t."""
+    """Score per-pixel points (V, H, W, 3) with the SAM 3 labels; `align` is s R | t.
+
+    The fused score fuses the same pixels as the per-pixel one, those with GT depth.
+    """
     out = score_output(scoring.truth, points, scoring.labels, scoring.evaluated)
     f = scoring.fusion
     if f is not None:
         cameras = (f.k, f.cam_to_world)
+        scored = np.where(scoring.truth.pixels[..., None], points, np.nan)
         out |= fused_metrics(
-            points.astype(np.float64), cameras, out["align"], f.truth, f.tsdf
+            scored.astype(np.float64), cameras, out["align"], f.truth, f.tsdf
         )
     return out
 

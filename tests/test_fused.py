@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from src.analysis.scene_eval import Scoring, score
+from src.analysis.scene_eval import Fusion, Scoring, score
 from src.evaluation.labeled import (
     LabeledCloud,
     camera_depth,
@@ -86,3 +86,22 @@ def test_without_fusion_the_scores_have_no_fused_keys() -> None:
     out = score(Scoring(truth, seg, ["floor"]), plane_points(k, c2w, 2.0))
     assert out["chamfer_cm"] < 1e-9
     assert not any(key.startswith("fused") for key in out)
+
+
+def test_pixels_without_gt_depth_are_not_fused() -> None:
+    k, c2w = cameras()
+    depth = np.full((3, 24, 32), 2.0, dtype=np.float32)
+    depth[:, :, :8] = 0  # a window: no GT depth
+    ids = np.zeros((3, 24, 32), dtype=np.int32)
+    k_colmap = k.copy()
+    k_colmap[:, :2, 2] += 0.5
+    truth = ground_truth_cloud(depth, ids, {0: "floor"}, k_colmap, c2w)
+    seg = Segmentation(ids, {0: "floor"}, {})
+    fusion = Fusion(
+        tsdf_points(depth.astype(np.float64), k, c2w, VOXEL, TRUNC), k, c2w, TSDF
+    )
+    points = plane_points(k, c2w, 2.0)
+    points[:, :, :8] = plane_points(k, c2w, 4.0)[:, :, :8]  # the output sees outside
+    out = score(Scoring(truth, seg, ["floor"], fusion), points)
+    assert out["chamfer_cm"] < 1e-9
+    assert out["fused_accuracy_cm"] < 1.0
