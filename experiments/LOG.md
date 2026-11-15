@@ -4811,3 +4811,83 @@ Interim entry: the check that the plan puts before any table.
     held-out evaluation: about 40 min a model, 6 models about 4 h on one 5090).
   - The one-scene drop of pooling says nothing about segments yet: the grid control can fit a scene
     as well, which the run will show.
+
+## E52a: learned segment adapters inside frozen Déjà View -> no GT model beats Déjà View on any dev scene; the held-out gain came from the 3 scenes where Déjà View fails, pooling diverged and the grid control lost most of its segments (issue #52, 15.11.2026)
+- **Goal, setting:** as the plan above, with step 0's changes (lr bias 1e-3, pooling 1e-4, 3000 steps
+  per model). 128 train + 8 held-out Hypersim scenes (E41b's 136), 8-12 random views per step at 504 px,
+  K = 16; 6 models (bias, pool, both x GT instances, grid); dev: 3 scenes, 20 views, GT instances.
+- **Commits, commands:** training at 42fcf97, cluster job 2761 (RTX 5090, 3 h 52 min; per model 27-53
+  min, the grid models slowest):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a`;
+  check at a0e5c82, job 2788:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a --out runs/e52a_check`;
+  figures `uv run python experiments/scripts/e52a_figures.py runs/e52a runs/e52a_check`. Raw output
+  `results/e52a_train.yaml` (held-out curves, dev scores), `results/e52a_check.yaml` (loss per scene).
+- **Three failed starts before the run of record:**
+  - Job 2736 stopped at step 1: two train scenes have fewer than 20 views (`ai_011_010` 9,
+    `ai_047_008` 16), and 12 of 9 cannot be drawn. e636823 caps a step's views at the scene's.
+  - Job 2737 refused the empty output folder 2736 left behind.
+  - Job 2738 ran out of GPU memory after 1.5 h (pool-gt's held-out evaluation, 28 GB allocated):
+    `beartype_this_package` decorates and keeps every function it sees, including the closures
+    `forward` made anew on each pass, so each pass's segment codes stayed on the GPU (2-4 MB per step,
+    diagnostic job 2759). 42fcf97 moves them to module level; memory then stays flat (6.75 GB used on
+    the 5090 over the first 3500 steps). The maths was unchanged: bias-gt's held-out curve matches
+    2738's within 0.0005 (bf16 kernels).
+- **Checks:** unit tests in `tests/test_adapters.py` pass, including that no per-pass state survives a
+  pass; every model at step 0 has Déjà View's held-out error (0.14047); a model whose kept state is zero
+  scores exactly Déjà View on dev.
+- **Results, dev** (Chamfer, cm; living room / bedroom / lobby, mean):
+  - Déjà View 1.606 / 1.837 / 6.995, 3.479.
+  - bias-gt (kept at step 2250) 1.828 / 1.986 / 7.453, 3.756: worse on 3 of 3 (+0.28 cm on the mean).
+    Rays turn 0.15-0.31° (median).
+  - both-gt (kept at step 250) 4.320 / 2.788 / 14.849, 7.319: worse on 3 of 3 (+3.8 cm). Rays turn
+    0.49-0.86°.
+  - pool-gt and all three grid models kept their zero start (no held-out step beat it), so they are
+    Déjà View exactly.
+- **Held-out error over training** (mean over 8 scenes, 12 fixed views; Déjà View 0.1405):
+  - bias-gt falls slowly to 0.1384 at step 2250 (-1.5%); bias-grid rises steadily to 0.1419.
+  - Pooling diverges at lr 1e-4 on all 128 scenes, although it was stable on one scene in step 0:
+    pool-gt 0.149 after 250 steps and 0.20-0.27 from step 1000, pool-grid 0.16-0.23; both-gt dips to
+    0.1312 at step 250 and then jumps to 0.20-0.28.
+- **Why the held-out gain did not carry over (the check, 20 fixed views per scene; 12 views give the same
+  picture, so the dev scores' 20 views are not the cause):**
+  - Déjà View's loss is 0.24-0.43 on 3 of the 8 held-out scenes (`ai_038_004`, `ai_038_005`,
+    `ai_039_010`) and 0.02-0.06 on the other 5 and on dev (0.009-0.027). The mean held-out error, and so
+    the model choice, is set by those 3.
+  - There the models gain: both-gt 0.423 -> 0.348, 0.296 -> 0.215; bias-gt 0.423 -> 0.402.
+  - On the other 5 held-out scenes bias-gt is +2 to +13% on 4 and -0.7% on 1 (`ai_046_006`), both-gt
+    +23 to +86%; on dev bias-gt is +4 to +19% and both-gt +49 to +148%.
+- **The grid control was not the planned control:** at 8-12 views, 3 x 3 tiles give 860-1300 segments
+  per pass, and codes hold 192 (the flash kernel's head dimension), so about 80% of tiles were
+  unlabelled (2.65 M dropped over 3000 training steps). GT instances never hit the cap. With no GT model ahead of Déjà View
+  this does not change the reading, but a grid-control comparison from this run means nothing.
+- **What bias-gt learned** (`figures/e52a_beta.jpg`): β between -0.76 and +0.66, differing more by head
+  than by step: in global attention heads 3, 6 and 7 pull tokens towards their own segment in the later
+  steps (up to +0.66), heads 9 and 11 push them away throughout; frame attention up to ±0.5. Unlike
+  E53a's one β for all heads, gradient descent did use the freedom per head, and it still did not help.
+- **Reading, by the rule fixed in the plan:** the best GT model must beat Déjà View and its grid control
+  by 0.05 cm Chamfer on the dev mean and in 2 of 3 scenes. No GT model beats Déjà View on any dev scene
+  -> negative. SAM 3 and val are not run.
+- **What the figures show:** on the bedroom (views 18, 0, 12, 6) bias-gt looks like Déjà View (mean
+  per-pixel error 9.0 against 8.8 cm); both-gt raises the error over whole walls and the ceiling (11.2
+  cm), a smooth change of shape rather than errors at edges.
+- **Conclusion:**
+  - With Déjà View frozen, a learned per-head attention bias within GT instances, trained on 128 Hypersim
+    scenes, does not improve its depth on dev; it learns to fix scenes where Déjà View fails badly, at a
+    small cost on the scenes where it works. Pooling as set up here could not be trained stably, so
+    pooling is untested, not negative.
+  - The run says less than planned, for three reasons of setup, not of the idea: the mean loss over
+    scenes lets a few failing scenes decide both the gradient and the model choice; pooling's lr from a
+    one-scene sweep was too high for 128 scenes; the grid control was capped. A rerun would need a loss
+    and selection per scene relative to Déjà View's (or the failing scenes excluded), a lower pooling
+    lr, and a grid with at most 192 tiles per pass.
+  - For #52: E52a gives E52b no lead (the plan's rule), and its question (does a LoRA let Déjà View read
+    segments) stays open; the same three setup points would apply to it.
+- **Limits:** one seed; 3 dev scenes; 8 held-out scenes, 3 of them failures of Déjà View; GT walls,
+  floors and ceilings one segment per class; trained with 8-12 views, scored at 20 (the check shows the
+  same ordering at 12 and 20 views).
+- **Figures:** `figures/e52a_training.jpg`: held-out error over steps for all 6 models, and per scene
+  each trained GT model's loss over Déjà View's against Déjà View's own loss (held-out and dev);
+  `figures/e52a_beta.jpg`: bias-gt's β per loop step and head, frame and global;
+  `figures/e52a_bedroom.jpg`: bedroom views 18, 0, 12, 6: image, GT instances per patch, per-pixel error
+  of Déjà View, bias-gt and both-gt on one 0-30 cm scale. Look at the walls and ceiling in the last row.
