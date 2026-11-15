@@ -4922,3 +4922,23 @@ Interim entry: the check that the plan puts before any table.
   dev / val scenes as train data (not of record) for the ratio at step 0 (= 1) and on the first steps.
 - **Reading, unchanged:** the best GT model must beat Déjà View and its grid control by 0.05 cm Chamfer on
   the dev mean and in 2 of 3 scenes; otherwise negative. SAM 3 and val only if it passes.
+- **Pooling lr sweep done (15.11, cluster job 2790, RTX 5090, fe8bfff, 18 min,
+  `results/e52a2_sweep.yaml`):** pool-gt alone, 400 steps instead of the planned 500 to keep the job
+  under 30 min, held-out every 50 (ratio to Déjà View, mean over the 16 held-out scenes):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set steps=400 eval_every=50 "segments=[gt]" "models={pool: [false, true]}" lr_pool=<lr> --out runs/e52a2_sweep_<lr>`
+  (an earlier job, 2789, stopped at step 1: PyYAML read `1e-5` as a string; `--set` now converts it).
+  - lr 1e-5: 0.9997 at step 50, falls slowly and almost steadily to 0.9939 at step 400, still falling.
+    Kept step 400: lower than Déjà View on 11 of 16 held-out scenes (ratio 0.965-1.034).
+  - lr 3e-5: minimum 0.9955 at step 100, then rises to 1.0114 at step 400.
+  - lr 1e-4: rises from step 50 (1.021) to 1.10-1.20, kept its zero start: the first run's divergence
+    again, now with the per-scene loss, so it was the lr, not the absolute loss.
+  - Time: 0.73 s per step on average, the extra Déjà View pass and the held-out evaluations (16 scenes
+    x 12 views, every 50 steps) included.
+  - **Changes before the run, by the rule above:** pooling lr 1e-5 (the only lr whose curve does not
+    rise after its minimum), for pool and both; 3000 steps stay, since 1e-5 is still falling at 400.
+    Six models at ~0.75 s per step: about 4-5 h on one 5090.
+  - The sweep also scored dev (it runs the default scoring after training). pool-gt Chamfer at lr 1e-5:
+    1.590 / 1.791 / 6.737 cm against Déjà View's 1.606 / 1.837 / 6.995 (mean 3.373 against 3.479,
+    lower on 3 of 3), rays turned 0.10-0.13°. The lr was **not** chosen from these numbers, and they
+    are not read: without the grid control trained the same way, a gain may be adaptation alone. The
+    run of record decides.
