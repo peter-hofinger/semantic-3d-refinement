@@ -8,6 +8,7 @@ from src.evaluation.labeled import (
     camera_depth,
     fused_metrics,
     ground_truth_cloud,
+    mean_over_scenes,
     tsdf_points,
 )
 from src.segmentation.base import Segmentation
@@ -60,6 +61,7 @@ def test_fused_scores_are_zero_on_the_truth_and_follow_the_alignment() -> None:
     truth = tsdf_points(np.full((3, 24, 32), 2.0), k, c2w, VOXEL, TRUNC)
     same = fused_metrics(plane_points(k, c2w, 2.0), (k, c2w), np.eye(4), truth, TSDF)
     assert same["fused_chamfer_cm"] < 0.1
+    assert mean_over_scenes([same, same])["fused_points"] == same["fused_points"]
     # the output in a frame half the size, aligned back by s = 2: the same scores
     half = c2w.copy()
     half[:, :3, 3] /= 2

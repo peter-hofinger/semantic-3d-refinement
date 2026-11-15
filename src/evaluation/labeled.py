@@ -265,7 +265,7 @@ def fused_metrics(
     acc = nearest_distances(truth, fused)
     comp = nearest_distances(fused, truth)
     return {f"fused_{key}": v for key, v in surface_scores(acc, comp).items()} | {
-        "fused_points": len(fused)
+        "fused_points": float(len(fused))
     }
 
 
