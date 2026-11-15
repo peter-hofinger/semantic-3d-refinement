@@ -1,0 +1,73 @@
+Solv3R as a backbone, git 1871e30, 3080 (runs/solv3r_c16-20261115-032550, runs/solv3r_a0.02-20261115-033235); cm, mean over scenes
+
+solv3r_c16 predict 93 s for 14 scenes
+dsine 53 s
+dev | Solv3R | accuracy_cm 5.451 | completeness_cm 2.665 | chamfer_cm 4.058 | miou 0.362 | pq 0.296 | ap 0.211 | 0.0 s
+dev | Solv3R, kept 0.5 | accuracy_cm 3.449 | completeness_cm 3.802 | chamfer_cm 3.626 | miou 0.362 | pq 0.296 | ap 0.211 | 0.0 s
+dev | flag-refine-filter | accuracy_cm 3.376 | completeness_cm 3.750 | chamfer_cm 3.563 | miou 0.362 | pq 0.296 | ap 0.211 | 3.3 s
+val | Solv3R | accuracy_cm 6.928 | completeness_cm 4.541 | chamfer_cm 5.735 | miou 0.406 | pq 0.258 | ap 0.338 | 0.0 s
+val | Solv3R, kept 0.5 | accuracy_cm 3.559 | completeness_cm 4.923 | chamfer_cm 4.241 | miou 0.406 | pq 0.258 | ap 0.338 | 0.0 s
+val | flag-refine-filter | accuracy_cm 3.503 | completeness_cm 4.690 | chamfer_cm 4.097 | miou 0.406 | pq 0.258 | ap 0.338 | 3.3 s
+wrote runs/solv3r_c16-20261115-032550
+eval 268 s
+solv3r_a0.02 predict 84 s for 14 scenes
+dsine 54 s
+dev | Solv3R | accuracy_cm 5.493 | completeness_cm 2.672 | chamfer_cm 4.082 | miou 0.362 | pq 0.293 | ap 0.211 | 0.0 s
+dev | Solv3R, kept 0.5 | accuracy_cm 3.459 | completeness_cm 3.789 | chamfer_cm 3.624 | miou 0.362 | pq 0.293 | ap 0.211 | 0.0 s
+dev | flag-refine-filter | accuracy_cm 3.381 | completeness_cm 3.734 | chamfer_cm 3.557 | miou 0.362 | pq 0.293 | ap 0.211 | 3.3 s
+val | Solv3R | accuracy_cm 6.784 | completeness_cm 4.428 | chamfer_cm 5.606 | miou 0.396 | pq 0.258 | ap 0.342 | 0.0 s
+val | Solv3R, kept 0.5 | accuracy_cm 3.516 | completeness_cm 4.875 | chamfer_cm 4.196 | miou 0.396 | pq 0.258 | ap 0.342 | 0.0 s
+val | flag-refine-filter | accuracy_cm 3.461 | completeness_cm 4.638 | chamfer_cm 4.049 | miou 0.396 | pq 0.258 | ap 0.342 | 3.3 s
+wrote runs/solv3r_a0.02-20261115-033235
+eval 266 s
+SOLV3R DONE 03:36
+
+
+per scene Chamfer, no filter: Deja View (E25c run, same protocol) vs Solv3R 16 calls
+ai_010_007_cam_00 1.60 vs 1.99
+ai_006_007_cam_00 1.85 vs 2.06
+ai_044_001_cam_00 7.05 vs 8.12
+ai_003_010_cam_00 2.96 vs 3.14
+ai_004_003_cam_00 9.12 vs 8.84
+ai_004_004_cam_00 2.28 vs 2.75
+ai_004_010_cam_00 1.83 vs 2.10
+ai_005_005_cam_00 4.44 vs 6.62
+ai_007_001_cam_00 3.51 vs 6.28
+ai_009_007_cam_00 4.02 vs 4.21
+ai_009_009_cam_00 16.36 vs 16.14
+ai_031_004_cam_00 4.64 vs 4.83
+ai_044_003_cam_01 3.97 vs 4.40
+ai_050_002_cam_00 2.98 vs 3.77
+
+calls of the adaptive solve (tau 0.02, 4 to 64):
+adaptive: ai_010_007_cam_00: 20 views, 15 calls
+adaptive: ai_006_007_cam_00: 20 views, 25 calls
+adaptive: ai_044_001_cam_00: 20 views, 16 calls
+adaptive: ai_003_010_cam_00: 20 views, 19 calls
+adaptive: ai_004_003_cam_00: 20 views, 16 calls
+adaptive: ai_004_004_cam_00: 20 views, 17 calls
+adaptive: ai_004_010_cam_00: 20 views, 17 calls
+adaptive: ai_005_005_cam_00: 20 views, 18 calls
+adaptive: ai_007_001_cam_00: 20 views, 15 calls
+adaptive: ai_009_007_cam_00: 20 views, 18 calls
+adaptive: ai_009_009_cam_00: 20 views, 22 calls
+adaptive: ai_031_004_cam_00: 20 views, 18 calls
+adaptive: ai_044_003_cam_01: 20 views, 16 calls
+adaptive: ai_050_002_cam_00: 20 views, 18 calls
+
+Check (one-off, not committed): per-view depth error after a per-view scale (median |log| deviation, %) and camera centre error after a Sim(3) on the centres (cm)
+ai_010_007_cam_00  depth |log| %: DV 0.46 S3R 1.07   camera centre cm: DV 0.42 S3R 0.95
+ai_006_007_cam_00  depth |log| %: DV 0.74 S3R 1.84   camera centre cm: DV 0.80 S3R 1.95
+ai_044_001_cam_00  depth |log| %: DV 0.88 S3R 2.77   camera centre cm: DV 0.98 S3R 2.91
+ai_003_010_cam_00  depth |log| %: DV 0.70 S3R 1.44   camera centre cm: DV 0.71 S3R 1.68
+ai_004_003_cam_00  depth |log| %: DV 0.40 S3R 0.94   camera centre cm: DV 0.43 S3R 0.88
+ai_004_004_cam_00  depth |log| %: DV 0.92 S3R 1.73   camera centre cm: DV 0.97 S3R 3.09
+ai_004_010_cam_00  depth |log| %: DV 0.45 S3R 1.30   camera centre cm: DV 0.68 S3R 1.79
+ai_005_005_cam_00  depth |log| %: DV 1.56 S3R 1.18   camera centre cm: DV 2.31 S3R 1.22
+ai_007_001_cam_00  depth |log| %: DV 0.87 S3R 1.11   camera centre cm: DV 0.86 S3R 1.31
+ai_009_007_cam_00  depth |log| %: DV 0.91 S3R 2.25   camera centre cm: DV 0.92 S3R 3.03
+ai_009_009_cam_00  depth |log| %: DV 1.37 S3R 1.48   camera centre cm: DV 1.33 S3R 2.25
+ai_031_004_cam_00  depth |log| %: DV 1.08 S3R 1.27   camera centre cm: DV 1.21 S3R 1.27
+ai_044_003_cam_01  depth |log| %: DV 0.63 S3R 1.51   camera centre cm: DV 0.75 S3R 1.25
+ai_050_002_cam_00  depth |log| %: DV 1.01 S3R 1.94   camera centre cm: DV 1.19 S3R 2.07
+mean  depth DV 0.86 S3R 1.56   centre DV 0.97 S3R 1.83
