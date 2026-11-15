@@ -25,8 +25,10 @@ every GT pixel, clipped at `max_error`. Training loss per step (E52a, second run
 scene, a random subset of its views, the model's error over Déjà View's on the same
 views and pixel subset (one extra no-grad pass), so a scene where Déjà View fails
 (first run: error 0.24-0.43 against 0.01-0.06) weighs no more than one where it works;
-Adam's step is invariant to that rescaling up to its epsilon. Held-out error: the mean
-over held-out scenes of the same ratio on fixed views (1 at step 0, which is Déjà View).
+Adam's step is invariant to that rescaling up to its epsilon. `ratio_floor` > 0 divides
+by max(Déjà View's error, floor) instead, which bounds how much more a scene that Déjà View
+nearly solves weighs (stability probe). Held-out error: the mean over held-out scenes of
+the plain ratio on fixed views (1 at step 0, which is Déjà View).
 
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
@@ -204,7 +206,7 @@ def train(
         with torch.no_grad():
             base = step_loss(net, zero, scene, sel, kind, cfg, seed)[0]
         error, d = step_loss(net, adapter, scene, sel, kind, cfg, seed)
-        loss = error / base
+        loss = error / base.clamp(min=cfg["ratio_floor"])
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
@@ -458,7 +460,7 @@ def main() -> None:
     """Parse the arguments; run the probe, the training or the check."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
-    parser.add_argument("--splits", nargs="+", default=["dev"])
+    parser.add_argument("--splits", nargs="*", default=["dev"], help="none: no scoring")
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("--scene", help="probe scene (default: the first train scene)")
     parser.add_argument("--probe-views", type=int, nargs="+", default=list(PROBE_VIEWS))

@@ -5008,3 +5008,17 @@ Interim entry: the check that the plan puts before any table.
 - **Limits:** one seed; 3 dev scenes, one of which carries most of the gain; kept states at 250-500 steps;
   the sweep's 400 steps did not reveal 1e-5's later divergence; GT walls, floors and ceilings one segment
   per class.
+
+## Plan: E52a, second run, stability probe = can the adapters train past ~500 steps? (issue #52, 15.11.2026)
+- **Goal:** the second run's "GT equals grid" holds only for adapters kept at 250-500 steps before every
+  model's training loss rose. Find a setting under which both-gt trains stably for 1000 steps; only
+  then is a full GT-against-grid comparison worth running.
+- **Arms** (both-gt, so both modules are tested; 1000 steps, held-out every 100, no dev scoring):
+  - A, lower lrs: bias 3e-4, pooling 3e-6 (the second run's / 3.3), plain ratio.
+  - B, the second run's lrs (1e-3, 1e-5), loss = error / max(Déjà View's error, 0.03): Déjà View's error
+    is 0.009-0.43 per scene, so the plain ratio weights a near-solved scene up to ~45x a failing one; the
+    floor (about the typical held-out error) caps that at ~3x. A log-ratio loss would not do this: its
+    gradient ∇e / e equals the ratio's ∇e / b while the model stays near Déjà View (e ≈ b).
+- **Reading:** an arm is stable if its held-out ratio (plain, as before) does not rise after its minimum
+  and its training loss shows no upward trend over the last 500 steps. If one is, run pool and both x GT,
+  grid with it (~3 h, ask first); if neither, PR as is, the instability stated as a limit.
