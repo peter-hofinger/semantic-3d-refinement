@@ -72,14 +72,17 @@ def patch_segments(ids: np.ndarray, patch: int = PATCH_SIZE) -> np.ndarray:
     return out.reshape(v, -1)
 
 
-def grid_segments(views: int, rows: int, cols: int, block: int = 3) -> np.ndarray:
-    """(V, rows * cols) ids of block x block patch tiles, apart per view (control)."""
-    assert min(views, rows, cols, block) > 0, (views, rows, cols, block)
-    tiles = (np.arange(rows)[:, None] // block) * -(-cols // block) + (
-        np.arange(cols)[None, :] // block
-    )
-    per_view = int(tiles.max()) + 1
-    return np.arange(views)[:, None] * per_view + tiles.reshape(1, -1)
+def grid_segments(
+    views: int, rows: int, cols: int, tiles: tuple[int, int] = (3, 3)
+) -> np.ndarray:
+    """(V, rows * cols) ids of tr x tc even patch tiles, apart per view (control)."""
+    tr, tc = tiles
+    assert 0 < tr <= rows, (tr, rows)
+    assert 0 < tc <= cols, (tc, cols)
+    assert views > 0, views
+    row, col = np.arange(rows)[:, None] * tr // rows, np.arange(cols)[None] * tc // cols
+    ids = row * tc + col
+    return np.arange(views)[:, None] * tr * tc + ids.reshape(1, -1)
 
 
 def segment_codes(

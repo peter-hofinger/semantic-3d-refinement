@@ -48,10 +48,12 @@ def test_patch_segments_majority_impure_and_unlabeled() -> None:
 
 
 def test_grid_segments_tile_each_view_apart() -> None:
-    ids = grid_segments(2, 4, 5, block=3).reshape(2, 4, 5)
-    assert ids[0, 0, 0] == ids[0, 2, 2] != ids[0, 0, 3]
-    assert ids[0, 3, 0] != ids[0, 0, 0]
-    assert len(np.unique(ids[0])) == 4
+    ids = grid_segments(2, 27, 36, tiles=(3, 3)).reshape(2, 27, 36)
+    assert ids[0, 0, 0] == ids[0, 8, 11] != ids[0, 0, 12]
+    assert ids[0, 9, 0] != ids[0, 0, 0]
+    _, counts = np.unique(ids[0], return_counts=True)
+    assert len(counts) == 9
+    assert (counts == 9 * 12).all()
     assert not set(ids[0].ravel()) & set(ids[1].ravel())
 
 

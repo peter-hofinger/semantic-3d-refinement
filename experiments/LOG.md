@@ -4891,3 +4891,34 @@ Interim entry: the check that the plan puts before any table.
   `figures/e52a_beta.jpg`: bias-gt's β per loop step and head, frame and global;
   `figures/e52a_bedroom.jpg`: bedroom views 18, 0, 12, 6: image, GT instances per patch, per-pixel error
   of Déjà View, bias-gt and both-gt on one 0-30 cm scale. Look at the walls and ceiling in the last row.
+
+## Plan: E52a, second run = the same 6 adapters with the first run's three setup flaws fixed (issue #52, 15.11.2026)
+- **Goal:** the first run (above) was negative but said less than planned, for three reasons of setup.
+  Fix exactly those, keep everything else, and read the result by the same rule.
+- **Fix 1, loss and selection relative to Déjà View per scene.** First run: the absolute error, so the 3
+  held-out scenes where Déjà View fails (0.24-0.43, others 0.02-0.06) set the gradient and the kept step.
+  Now each step's loss is the model's error over Déjà View's on the same scene, views and Umeyama pixel
+  subset (one extra no-grad pass of plain Déjà View, about +30% time), and the held-out error is the mean
+  over scenes of the same ratio on fixed views (1 at step 0). Chosen over dropping the failing scenes:
+  it keeps the training set and E41b's split, and still tests those scenes. Adam's update does not
+  depend on the loss's per-scene scale except through its epsilon, so the learning rates carry over.
+- **Held-out scenes 8 -> 16** (120 train + 16 held out, the last 16 of the same ordered 136, all with 20
+  views), so that no single scene decides the kept step.
+- **Fix 2, pooling lr.** 1e-4 (from step 0's one-scene sweep) diverged on 128 scenes. Before the run: a
+  multi-scene sweep of pool-gt alone, lr 1e-5, 3e-5 and 1e-4 with the new loss, 500 steps, held-out
+  every 50 (one cluster job, ~25 min). The highest lr whose held-out curve does not rise after its
+  minimum is used for pool and both, and the step budget is reset if the sweep shows a plateau earlier;
+  both are written here before the run. The sweep reads only held-out train scenes, never dev.
+- **Fix 3, grid control.** First run: 3 x 3 *patch* blocks, 108 per view, 860-1300 per pass, ~80%
+  dropped at the 192-code cap. GT instances give a scene's views a median of 6-54 segments each (~13
+  in most of the 17 local dev / val scenes) and 13-169 per 20-view pass, because GT links views.
+  The grid now splits each view evenly into 3 x 3 tiles (9 x 12 patches each): 9 per view, near GT's
+  per-view count, 180 per pass at dev's 20 views, under the cap; tiles stay unlinked across views, as
+  planned. The script asserts that the grid never loses a tile.
+- **Kept:** 136 scenes and their order, 8-12 random views per step, bias lr 1e-3, 3000 steps (unless the
+  sweep says otherwise), 6 models (bias, pool, both x GT, grid), one seed, dev scoring as before,
+  `--check` after training, `e52a_figures.py`.
+- **Checks before the run:** unit tests (grid layout, 9 even tiles, apart per view); a laptop smoke run on
+  dev / val scenes as train data (not of record) for the ratio at step 0 (= 1) and on the first steps.
+- **Reading, unchanged:** the best GT model must beat Déjà View and its grid control by 0.05 cm Chamfer on
+  the dev mean and in 2 of 3 scenes; otherwise negative. SAM 3 and val only if it passes.

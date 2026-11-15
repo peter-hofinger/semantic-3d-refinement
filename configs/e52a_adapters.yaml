@@ -1,4 +1,5 @@
 # E52a (issue #52): learned segment adapters in frozen Déjà View's loop, experiments/LOG.md.
+# Second run (15.11): loss over Déjà View's per step, 16 held out, even 3 x 3 grid.
 eval: configs/eval_hypersim.yaml     # dev scenes, views, root and the scoring protocol
 train_splits: [train, train_extra]   # E41b's 136 scenes; the last `held_out` select the step
 skip:                                # E41b's 17, so that the same 136 train scenes are used
@@ -19,14 +20,16 @@ skip:                                # E41b's 17, so that the same 136 train sce
   - ai_055_002_cam_00
   - ai_055_004_cam_00
   - ai_055_008_cam_00
-held_out: 8
+held_out: 16                         # first run 8: 3 scenes where DV fails decided
 held_out_views: 12                   # evenly spaced of the 20, the same every evaluation
 models:                              # name -> (bias, pool)
   bias: [true, false]
   pool: [false, true]
   both: [true, true]
-segments: [gt, grid]                 # grid: 3 x 3 patch tiles per view, the control
-grid_block: 3
+segments: [gt, grid]                 # grid: even patch tiles per view, the control
+grid_tiles: [3, 3]                   # 9 per view (GT median ~13), 180 per pass at 20
+                                     # views, under the 192-code cap (first run: 3 x 3
+                                     # patch blocks, 108 per view, ~80% dropped)
 view_subset: [8, 12]                 # views per training step, drawn uniformly, at most the
                                      # scene's (ai_011_010 has 9, ai_047_008 16 views)
 rank: 16                             # pooling's A: 768 -> rank

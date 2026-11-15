@@ -8,28 +8,36 @@ seconds per training step at 8, 12 and 20 views; (4) 20 steps of bias only and o
 only on that scene's fixed 12 views at each of --overfit-lrs, the loss at every step.
 
 Default: every model of the config (bias, pool, both) with every segment kind (GT
-instances; grid: 3 x 3 patch tiles per view, the control) is trained on the train
-scenes, the state of least held-out error kept, then scored on the eval splits like a
-backbone: the protocol (pinhole fit of its own rays, Umeyama Sim(3), `surface_metrics`)
-and on Déjà View's plain cameras (as E53a), with how far the rays turned.
+instances; grid: `grid_tiles` even patch tiles per view, the control) is trained on the
+train scenes, the state of least held-out error kept, then scored on the eval splits
+like a backbone: the protocol (pinhole fit of its own rays, Umeyama Sim(3),
+`surface_metrics`) and on Déjà View's plain cameras (as E53a), with how far the rays
+turned. The grid never loses a tile to the code cap (asserted).
 
 `--check <run>` after training: the training loss of Déjà View and of every GT model
 whose kept state is not zero, per held-out and dev scene at 12 and 20 fixed views (does
 the held-out gain hold per scene and at the dev scores' 20 views?), and the bedroom's
 per-pixel error maps at views 18, 0, 12, 6 (`<out>/e52a_maps.npz`).
 
-Loss per step: one scene, a random subset of its views; the conditioned model's points
-x = o + D d, one Umeyama Sim(3) (detached) of a random pixel subset onto the GT points,
-L1 of |S x - x_gt| / depth_gt on every GT pixel, clipped at `max_error`.
+Error of one pass: the conditioned model's points x = o + D d, one Umeyama Sim(3)
+(detached) of a random pixel subset onto the GT points, L1 of |S x - x_gt| / depth_gt on
+every GT pixel, clipped at `max_error`. Training loss per step (E52a, second run): one
+scene, a random subset of its views, the model's error over Déjà View's on the same
+views and pixel subset (one extra no-grad pass), so a scene where Déjà View fails
+(first run: error 0.24-0.43 against 0.01-0.06) weighs no more than one where it works;
+Adam's step is invariant to that rescaling up to its epsilon. Held-out error: the mean
+over held-out scenes of the same ratio on fixed views (1 at step 0, which is Déjà View).
 
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
+uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a --out runs/e52a_check
 writes `<out>/e52a.yaml` (records, config, git hash) and, for the default, every
 model's adapter and held-out curve `<out>/<model>-<segments>.pt`.
 """
 
 import argparse
+import contextlib
 import copy
 import dataclasses
 import time
@@ -98,12 +106,20 @@ def load_scene(raw: dict, name: str) -> Scene:
     return Scene(name, views.images, gt.depth, points, patch_segments(gt.instance_ids))
 
 
-def segments_of(scene: Scene, kind: str, sel: np.ndarray, block: int) -> np.ndarray:
+def segments_of(scene: Scene, kind: str, sel: np.ndarray, cfg: dict) -> np.ndarray:
     """(len(sel), P) segment ids of the chosen views: GT instances or the grid."""
     if kind == "gt":
         return scene.segments[sel]
     h, w = scene.images.shape[1:3]
-    return grid_segments(len(sel), h // PATCH_SIZE, w // PATCH_SIZE, block)
+    tiles = tuple(cfg["grid_tiles"])
+    return grid_segments(len(sel), h // PATCH_SIZE, w // PATCH_SIZE, tiles)
+
+
+def codes_of(segments: np.ndarray, kind: str) -> tuple[Tensor, int]:
+    """Segment codes and how many segments were dropped; the grid drops none."""
+    codes, dropped = segment_codes(segments)
+    assert kind == "gt" or dropped == 0, f"grid lost {dropped} tiles to the code cap"
+    return codes, dropped
 
 
 def step_loss(
@@ -113,12 +129,12 @@ def step_loss(
     sel: np.ndarray,
     kind: str,
     cfg: dict,
-    rng: np.random.Generator,
+    seed: int,
 ) -> tuple[Tensor, int]:
-    """Return one forward pass's loss on the chosen views, and segments dropped."""
+    """Return one pass's error on the chosen views (pixel subset from seed), drops."""
     device = next(net.parameters()).device
     images = torch.from_numpy(scene.images[sel]).permute(0, 3, 1, 2).float() / 255
-    codes, dropped = segment_codes(segments_of(scene, kind, sel, cfg["grid_block"]))
+    codes, dropped = codes_of(segments_of(scene, kind, sel, cfg), kind)
     with torch.autocast(
         device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
     ):
@@ -128,6 +144,7 @@ def step_loss(
     x = pred[valid]
     y = torch.from_numpy(scene.points[sel]).to(device)[valid]
     depth = torch.from_numpy(scene.depth[sel]).to(device)[valid]
+    rng = np.random.default_rng(seed)
     pick = rng.choice(len(x), size=min(cfg["umeyama_pixels"], len(x)), replace=False)
     s, r, t = umeyama(
         x[pick].detach().double().cpu().numpy(), y[pick].double().cpu().numpy()
@@ -145,20 +162,14 @@ def held_out_error(
     scenes: list[Scene],
     kind: str,
     cfg: dict,
-) -> float:
-    """Mean loss on the held-out scenes' fixed views, no grad."""
+) -> list[float]:
+    """Error per held-out scene on its fixed views, no grad."""
     assert all(len(s.images) == 20 for s in scenes), "held-out scenes need 20 views"
     sel = np.linspace(0, 19, cfg["held_out_views"]).round().astype(int)
-    rng = np.random.default_rng(0)
     with torch.no_grad():
-        return float(
-            np.mean(
-                [
-                    step_loss(net, adapter, sc, sel, kind, cfg, rng)[0].item()
-                    for sc in scenes
-                ]
-            )
-        )
+        return [
+            step_loss(net, adapter, sc, sel, kind, cfg, 0)[0].item() for sc in scenes
+        ]
 
 
 def train(
@@ -169,8 +180,9 @@ def train(
     kind: str,
     cfg: dict,
 ) -> dict:
-    """AdamW, a learning rate per module; the state of least held-out error is kept."""
+    """AdamW, a learning rate per module, loss over Déjà View's; least held-out kept."""
     rng = np.random.default_rng(cfg["seed"])
+    zero = SegmentAdapter(bias=True, pool=False, rank=cfg["rank"])
     groups = [
         {"params": [q for q in (adapter.beta,) if q is not None], "lr": cfg["lr_bias"]},
         {"params": [q for q in (adapter.up,) if q is not None]
@@ -178,22 +190,29 @@ def train(
          "lr": cfg["lr_pool"]},
     ]  # fmt: skip
     opt = torch.optim.AdamW([g for g in groups if g["params"]], weight_decay=0.0)
-    curve = {0: held_out_error(net, adapter, held, kind, cfg)}
-    best, best_state = curve[0], copy.deepcopy(adapter.state_dict())
+    assert adapter.is_zero()  # so the reference is Déjà View's own error, bit for bit
+    reference = held_out_error(net, adapter, held, kind, cfg)
+    per_scene, curve = {0: reference}, {0: 1.0}
+    best, best_state = 1.0, copy.deepcopy(adapter.state_dict())
     t0, losses, dropped = time.perf_counter(), [], 0
     for it in range(1, cfg["steps"] + 1):
         scene = train_scenes[rng.integers(len(train_scenes))]
         lo, hi = cfg["view_subset"]
         k = min(int(rng.integers(lo, hi + 1)), len(scene.images))
         sel = np.sort(rng.choice(len(scene.images), size=k, replace=False))
-        loss, d = step_loss(net, adapter, scene, sel, kind, cfg, rng)
+        seed = int(rng.integers(2**31))
+        with torch.no_grad():
+            base = step_loss(net, zero, scene, sel, kind, cfg, seed)[0]
+        error, d = step_loss(net, adapter, scene, sel, kind, cfg, seed)
+        loss = error / base
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
         losses.append(loss.item())
         dropped += d
         if it % cfg["eval_every"] == 0:
-            curve[it] = held_out_error(net, adapter, held, kind, cfg)
+            per_scene[it] = held_out_error(net, adapter, held, kind, cfg)
+            curve[it] = float(np.mean(np.array(per_scene[it]) / reference))
             if curve[it] < best:
                 best, best_state = curve[it], copy.deepcopy(adapter.state_dict())
             print(f"  step {it}: train {np.mean(losses[-cfg['eval_every']:]):.5f}, "
@@ -202,6 +221,8 @@ def train(
     adapter.load_state_dict(best_state)
     return {
         "held_out": curve,
+        "held_out_scenes": [s.name for s in held],
+        "held_out_error": per_scene,
         "best_step": min(curve, key=curve.get),
         "seconds": time.perf_counter() - t0,
         "segments_dropped": dropped,
@@ -270,7 +291,7 @@ def probe(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
     views = Views.load(input_paths(raw, name)["views"])
     rec: dict = {"scene": name}
 
-    codes, _ = segment_codes(scene.segments)
+    codes, _ = codes_of(scene.segments, "gt")
     plain = backbone.predict(views)
     zero = adapter_for(cfg, "both", device)
     same = backbone.predict(views, conditioned(zero, codes))
@@ -302,7 +323,7 @@ def probe(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
                 torch.cuda.synchronize()
                 torch.cuda.reset_peak_memory_stats()
             t0 = time.perf_counter()
-            loss, _ = step_loss(net, adapter, scene, sel, "gt", cfg, rng)
+            loss, _ = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
             loss.backward()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -325,9 +346,7 @@ def probe(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
             opt = torch.optim.AdamW(adapter.parameters(), lr=lr, weight_decay=0.0)
             losses = []
             for _ in range(OVERFIT_STEPS + 1):
-                loss, _ = step_loss(
-                    net, adapter, scene, sel, "gt", cfg, np.random.default_rng(0)
-                )
+                loss, _ = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
                 losses.append(loss.item())
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
@@ -374,11 +393,12 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
         segments = {"gt": patch_segments(gt.instance_ids)}
         segments["grid"] = segments_of(
             Scene(name, views.images, gt.depth, np.empty(0), segments["gt"]),
-            "grid", np.arange(len(views)), cfg["grid_block"])  # fmt: skip
+            "grid", np.arange(len(views)), cfg)  # fmt: skip
         plain = backbone.predict(views)
         scene_rec = {BASE: score(plain, truth)[0] | {"ray_deg": 0.0}}
         for label, adapter in adapters.items():
-            codes, _ = segment_codes(segments[label.split("-")[1]])
+            kind = label.split("-")[1]
+            codes, _ = codes_of(segments[kind], kind)
             with torch.no_grad():
                 out = backbone.predict(views, conditioned(adapter, codes))
             fixed, turn = on_plain_cameras(out, plain)
@@ -410,9 +430,8 @@ def check(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
                 sel = np.linspace(0, 19, v).round().astype(int)
                 row = {}
                 for label, adapter in ({BASE: zero} | adapters).items():
-                    rng = np.random.default_rng(0)
                     with torch.no_grad():
-                        loss = step_loss(net, adapter, scene, sel, "gt", cfg, rng)
+                        loss = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
                     row[label] = loss[0].item()
                 rec["loss"].setdefault(split, {}).setdefault(name, {})[v] = row
                 print(f"{split} {name} {v} views: "
@@ -422,7 +441,7 @@ def check(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
     truth = ground_truth_cloud(
         gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
     )
-    codes, _ = segment_codes(patch_segments(gt.instance_ids))
+    codes, _ = codes_of(patch_segments(gt.instance_ids), "gt")
     maps = {BASE: score(backbone.predict(views), truth)[1]}
     for label, adapter in adapters.items():
         with torch.no_grad():
@@ -447,13 +466,20 @@ def main() -> None:
     parser.add_argument(
         "--overfit-lrs", type=float, nargs="+", default=[1e-4, 3e-4, 1e-3]
     )
-    parser.add_argument("--steps", type=int, help="override the config's steps (smoke)")
+    parser.add_argument(
+        "--set", nargs="+", default=[], metavar="KEY=YAML",
+        help="override config keys (smoke, lr sweep), recorded with the run")  # fmt: skip
     parser.add_argument("--check", type=Path, help="a training run's dir to check")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     cfg = yaml.safe_load(args.cfg.read_text(encoding="utf-8"))
-    if args.steps is not None:
-        cfg["steps"] = args.steps
+    for item in args.set:
+        key, value = item.split("=", 1)
+        assert key in cfg, f"unknown config key {key}"
+        cfg[key] = yaml.safe_load(value)
+        if isinstance(cfg[key], str):  # PyYAML (YAML 1.1) reads 1e-5 as a string
+            with contextlib.suppress(ValueError):
+                cfg[key] = float(cfg[key])
     raw = yaml.safe_load(Path(cfg["eval"]).read_text(encoding="utf-8"))
     assert raw["backbone"] == "dejaview_k16", raw["backbone"]
     args.out.mkdir(parents=True, exist_ok=False)
