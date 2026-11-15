@@ -13,12 +13,18 @@ scenes, the state of least held-out error kept, then scored on the eval splits l
 backbone: the protocol (pinhole fit of its own rays, Umeyama Sim(3), `surface_metrics`)
 and on Déjà View's plain cameras (as E53a), with how far the rays turned.
 
+`--check <run>` after training: the training loss of Déjà View and of every GT model
+whose kept state is not zero, per held-out and dev scene at 12 and 20 fixed views (does
+the held-out gain hold per scene and at the dev scores' 20 views?), and the bedroom's
+per-pixel error maps at views 18, 0, 12, 6 (`<out>/e52a_maps.npz`).
+
 Loss per step: one scene, a random subset of its views; the conditioned model's points
 x = o + D d, one Umeyama Sim(3) (detached) of a random pixel subset onto the GT points,
 L1 of |S x - x_gt| / depth_gt on every GT pixel, clipped at `max_error`.
 
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
+uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a --out runs/e52a_check
 writes `<out>/e52a.yaml` (records, config, git hash) and, for the default, every
 model's adapter and held-out curve `<out>/<model>-<segments>.pt`.
 """
@@ -62,6 +68,8 @@ from src.refinement.multiview import points_from_rays, scene_from_geometry
 PROBE_VIEWS = (8, 12, 20)
 OVERFIT_STEPS = 20
 BASE = "Déjà View"
+CHECK_VIEWS = (12, 20)  # the training runs' held-out views, the dev scores' views
+MAP_SCENE, MAP_VIEWS = "ai_006_007_cam_00", (18, 0, 12, 6)  # bedroom, issue #7
 
 
 @dataclasses.dataclass(frozen=True)
@@ -200,8 +208,8 @@ def train(
     }
 
 
-def score(geometry: Geometry, truth: LabeledCloud) -> dict:
-    """Score one output as the protocol (cm), as E53a."""
+def score(geometry: Geometry, truth: LabeledCloud) -> tuple[dict, np.ndarray]:
+    """Score one output as the protocol (cm), as E53a; its per-pixel error map (m)."""
     scene = scene_from_geometry(geometry)
     points = points_from_rays(scene.depth, scene.rays).numpy()
     pred, scale, _ = align_output(truth, points)
@@ -211,7 +219,9 @@ def score(geometry: Geometry, truth: LabeledCloud) -> dict:
     rec = {
         k: float(surface[k]) for k in ("accuracy_cm", "completeness_cm", "chamfer_cm")
     }
-    return rec | {"error_cm": 100 * float(e.mean()), "scale": float(scale)}
+    err = np.full(truth.pixels.shape, np.nan, dtype=np.float32)
+    err[truth.pixels] = e
+    return rec | {"error_cm": 100 * float(e.mean()), "scale": float(scale)}, err
 
 
 def on_plain_cameras(out: Geometry, plain: Geometry) -> tuple[Geometry, float]:
@@ -366,22 +376,67 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
             Scene(name, views.images, gt.depth, np.empty(0), segments["gt"]),
             "grid", np.arange(len(views)), cfg["grid_block"])  # fmt: skip
         plain = backbone.predict(views)
-        scene_rec = {BASE: score(plain, truth) | {"ray_deg": 0.0}}
+        scene_rec = {BASE: score(plain, truth)[0] | {"ray_deg": 0.0}}
         for label, adapter in adapters.items():
             codes, _ = segment_codes(segments[label.split("-")[1]])
             with torch.no_grad():
                 out = backbone.predict(views, conditioned(adapter, codes))
             fixed, turn = on_plain_cameras(out, plain)
-            scene_rec[label] = score(out, truth) | {"ray_deg": turn} | {
-                f"plain_cameras_{k}": v for k, v in score(fixed, truth).items()}  # fmt: skip
+            scene_rec[label] = score(out, truth)[0] | {"ray_deg": turn} | {
+                f"plain_cameras_{k}": v for k, v in score(fixed, truth)[0].items()}  # fmt: skip
             print(f"{name} {label}: Chamfer {scene_rec[label]['chamfer_cm']:.3f} "
                   f"(DV {scene_rec[BASE]['chamfer_cm']:.3f})", flush=True)  # fmt: skip
         rec["eval"][name] = scene_rec
     return rec
 
 
+def check(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
+    """Training loss of Déjà View and each trained model per scene; bedroom maps."""
+    backbone, net = setup(cfg)
+    device = next(net.parameters()).device
+    adapters = {}
+    for path in sorted(args.check.glob("*-gt.pt")):
+        adapter = adapter_for(cfg, path.stem.split("-")[0], device)
+        adapter.load_state_dict(torch.load(path, map_location=device)["state"])
+        if not adapter.is_zero():
+            adapters[path.stem] = adapter
+    zero = adapter_for(cfg, "bias", device)
+    held = scenes_of(cfg, raw, cfg["train_splits"])[-cfg["held_out"] :]
+    rec: dict = {"loss": {}}
+    for split, names in (("held_out", held), ("dev", scenes_of(cfg, raw, ["dev"]))):
+        for name in names:
+            scene = load_scene(raw, name)
+            for v in CHECK_VIEWS:
+                sel = np.linspace(0, 19, v).round().astype(int)
+                row = {}
+                for label, adapter in ({BASE: zero} | adapters).items():
+                    rng = np.random.default_rng(0)
+                    with torch.no_grad():
+                        loss = step_loss(net, adapter, scene, sel, "gt", cfg, rng)
+                    row[label] = loss[0].item()
+                rec["loss"].setdefault(split, {}).setdefault(name, {})[v] = row
+                print(f"{split} {name} {v} views: "
+                      + ", ".join(f"{k} {x:.5f}" for k, x in row.items()), flush=True)  # fmt: skip
+    paths = input_paths(raw, MAP_SCENE)
+    views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
+    truth = ground_truth_cloud(
+        gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
+    )
+    codes, _ = segment_codes(patch_segments(gt.instance_ids))
+    maps = {BASE: score(backbone.predict(views), truth)[1]}
+    for label, adapter in adapters.items():
+        with torch.no_grad():
+            out = backbone.predict(views, conditioned(adapter, codes))
+        maps[label] = score(out, truth)[1]
+    np.savez_compressed(
+        args.out / "e52a_maps.npz",
+        **{k: m[list(MAP_VIEWS)].astype(np.float16) for k, m in maps.items()},
+    )
+    return rec
+
+
 def main() -> None:
-    """Parse the arguments; run the probe or the training."""
+    """Parse the arguments; run the probe, the training or the check."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=Path, required=True)
     parser.add_argument("--splits", nargs="+", default=["dev"])
@@ -393,6 +448,7 @@ def main() -> None:
         "--overfit-lrs", type=float, nargs="+", default=[1e-4, 3e-4, 1e-3]
     )
     parser.add_argument("--steps", type=int, help="override the config's steps (smoke)")
+    parser.add_argument("--check", type=Path, help="a training run's dir to check")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     cfg = yaml.safe_load(args.cfg.read_text(encoding="utf-8"))
@@ -401,7 +457,8 @@ def main() -> None:
     raw = yaml.safe_load(Path(cfg["eval"]).read_text(encoding="utf-8"))
     assert raw["backbone"] == "dejaview_k16", raw["backbone"]
     args.out.mkdir(parents=True, exist_ok=False)
-    rec = (probe if args.probe else run)(args, cfg, raw)
+    mode = probe if args.probe else check if args.check else run
+    rec = mode(args, cfg, raw)
     summary = {"args": {k: str(v) for k, v in vars(args).items()}, "git": git_hash()}
     summary |= {"config": cfg, "records": rec}
     (args.out / "e52a.yaml").write_text(
