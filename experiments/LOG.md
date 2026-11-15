@@ -4942,3 +4942,69 @@ Interim entry: the check that the plan puts before any table.
     lower on 3 of 3), rays turned 0.10-0.13°. The lr was **not** chosen from these numbers, and they
     are not read: without the grid control trained the same way, a gain may be adaptation alone. The
     run of record decides.
+
+## E52a, second run: the first run's setup flaws fixed -> pooling gains ~0.1 cm Chamfer on dev, but the grid control gains as much: adaptation, not segments; every model's training turns unstable after ~500 steps (issue #52, 15.11.2026)
+- **Goal, setting:** as the plan above: the first run's 6 models, now with the loss over Déjà View's per
+  step, 120 train + 16 held-out scenes, an even 3 x 3 grid control, pooling lr 1e-5 (sweep), bias lr
+  1e-3, 3000 steps, one seed. Dev: 3 scenes, 20 views, GT instances.
+- **Commits, commands:** training at 0b8a718, split by segment kind because the partition caps a job at
+  6 h (each model seeds its own stream, so the split changes no model's training): cluster jobs 2791
+  (GT models, 1 h 59 min) and 2792 (grid models, 2 h 18 min), RTX 5090:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "segments=[gt]" --out runs/e52a2_gt`
+  (and `"segments=[grid]" --out runs/e52a2_grid`); check, job 2823:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a2_gt --out runs/e52a2_check`;
+  figures `uv run python experiments/scripts/e52a2_figures.py runs/e52a2_gt runs/e52a2_grid runs/e52a2_check`.
+  Raw output `results/e52a2_train.yaml` (both jobs), `results/e52a2_check.yaml`.
+- **Checks:** both jobs scored Déjà View identically on dev (1.606 / 1.837 / 6.995 cm); a model whose kept
+  state is zero equals it exactly; the grid lost no tile (0 dropped in training and at dev's 20 views),
+  GT none either.
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes, 12 fixed views; 1 = Déjà View):
+  - pool-gt 0.9971 (step 250), 0.9950 (500), then up: 1.011 (1000), 1.086 (2000), 2.63 (3000).
+  - both-gt 0.9958, 0.9947 (500), then 1.011, 1.056, 1.21.
+  - pool-grid 0.9968 (250), 1.000 (500), then 1.076, 2.67, 4.08.
+  - bias-gt never below 1: 1.001 (250) rising to 1.015; bias-grid 1.009 rising to 1.084; both-grid 1.004
+    rising to 5.32.
+  - The training loss rises with the held-out error in every model, so this is unstable optimisation,
+    not overfitting: at the sweep's 1e-5 pooling still diverges, only later (the sweep stopped at 400).
+    Kept: pool-gt and both-gt step 500, pool-grid step 250, bias-gt, bias-grid and both-grid their zero
+    start (= Déjà View).
+- **Results, dev** (Chamfer, cm; living room / bedroom / lobby, mean; Déjà View 1.606 / 1.837 / 6.995,
+  3.479):
+  - pool-gt 1.619 / 1.778 / 6.734, **3.377** (-0.102; 2 of 3 better). Rays turn 0.13-0.15°.
+  - pool-grid 1.588 / 1.802 / 6.694, **3.362** (-0.117; 3 of 3 better). Rays turn 0.09-0.11°.
+  - both-gt 1.634 / 1.787 / 6.808, 3.409 (-0.070; 2 of 3). Its grid control both-grid kept zero.
+  - Most of each gain is the lobby (-0.19 to -0.30 cm), Déjà View's worst dev scene.
+  - Depth alone does not carry it: each pooling model's depth on Déjà View's plain cameras scores
+    4.19-4.25 cm (mean), worse than Déjà View; the gain needs its own, slightly turned rays.
+- **Per scene (the check, GT models, 20 fixed views):** pool-gt and both-gt change the training loss by
+  -6% to +5% on the 16 held-out scenes (lower on 11 and 9 of 16), 0 to -2% on Déjà View's 3 failing
+  scenes (first run: up to -27%); on dev -7 to -8% on the lobby, -1.4 to -1.7% on the bedroom, -3% and
+  +4% on the living room (pool-gt, both-gt).
+- **Reading, by the rule fixed in the plan:** the best GT model (pool-gt, 3.377) beats Déjà View by
+  0.10 cm in 2 of 3 scenes, but not its grid control (pool-grid 3.362, better on 2 of 3 scenes than
+  pool-gt) -> **negative for segments**. both-gt beats its control (zero) by 0.07 cm in 2 of 3, but that
+  control never trained; pool-grid shows the same gain without segments, so both-gt's is not read as the
+  segments' either.
+- **What the figures show:** `figures/e52a2_training.jpg`: left, every curve dips by at most 0.5% before
+  rising; right, per dev scene the pooling models' Chamfer change with GT (solid) and grid (hatched) is
+  of the same size and sign. `figures/e52a2_bedroom.jpg` (views 18, 0, 12, 6): mean per-pixel error 8.8
+  cm (Déjà View) -> 8.7 cm (both models); the change is smooth over whole surfaces, ±2-4 cm, both signs
+  (ceiling and floor of view 6 better, its back wall worse), not along instance boundaries.
+- **Conclusion:**
+  - With the setup fixed, a pooling adapter inside frozen Déjà View improves dev Chamfer by ~3% (0.10-0.12
+    cm), mostly on one scene, and it does so equally with GT instances and with unlinked grid tiles. The
+    gain is adaptation of Déjà View to Hypersim through a small learned module, not information from
+    segments. With E51a and E53a (training-free, negative) and the first run, GT segments inside the
+    frozen model have now shown no effect beyond a segment-free control in any form we tried.
+  - The adaptation gain is a lead of its own, not a result: one seed, 3 dev scenes, kept after 250-500
+    steps of a training that then diverges, val not run. It belongs with E52b's segment-free LoRA
+    control.
+  - The instability (training loss rising after ~500 steps at bias lr 1e-3 and pooling lr 1e-5, also in
+    the bias models, which were stable in the first run's absolute loss) is not explained. A guess, not
+    tested: the ratio to Déjà View's error weights scenes where Déjà View is near-perfect (error ~0.01)
+    up to ~45x more than the failing ones (0.009 against 0.42), so their noise dominates the gradient.
+  - So "GT equals grid" holds for briefly trained adapters only; a stable training (lower lr, warm-up,
+    or the ratio bounded) could still separate them. Not planned without a team decision.
+- **Limits:** one seed; 3 dev scenes, one of which carries most of the gain; kept states at 250-500 steps;
+  the sweep's 400 steps did not reveal 1e-5's later divergence; GT walls, floors and ceilings one segment
+  per class.
