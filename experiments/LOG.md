@@ -4721,3 +4721,39 @@ Interim entry: the check that the plan puts before any table.
   line, one dot per scene), and the bedroom's ray turn; `figures/e53a_bedroom.jpg`: bedroom views 18, 0, 12,
   6: image, GT instances per patch, the per-pixel error of Déjà View, of global first 4 β = 0.25 and of
   frame last 4 β = 1 on one 0-30 cm scale. Look at the ceiling against the bed and floor in the last row.
+## Plan: Solv3R as a backbone (no issue, 14.11.2026)
+- **Goal:** Solv3R (Kwak et al., arXiv 2611.02857) is Déjà View fine-tuned into a stationary looped solver and
+  beats it on ETH3D poses (AUC@3 70.4 vs 66.0). Is its geometry better than Déjà View's on Hypersim dev and val,
+  and do the filter and flag-refine-filter still help on top of it?
+- **Setting:** `src/backbone/solv3r.py` (`solv3r-predict`), released weights (jgkwak/solv3r, NVIDIA License,
+  research only), code pinned at c3851d3 in the `solv3r` dependency group. Same views as Déjà View (20 at 504 px),
+  cameras fitted to the rays by DVLT's post-processing as for Déjà View. Two solves: 16 calls (`solv3r_c16`) and
+  adaptive at 0.02, 4-64 calls (`solv3r_a0.02`), the paper's two settings. DSINE on each backbone's intrinsics.
+- **Variants** (`experiments/configs/solv3r.yaml`, weights as chosen for Déjà View in E27a, none retuned):
+  Solv3R as is, kept 0.5 by instance voxel density, flag-refine-filter (λ_t = 4e-2, E_n off, q = 0.5).
+- **Baselines:** Déjà View dev 3.500 / val 5.102 Chamfer; its filter 3.30 / 3.82, flag-refine-filter 3.21 / 3.67.
+- **Commands:** 3d-cluster (RTX 5090): `solv3r-predict <views> [--adaptive 0.02]`, `dsine-predict <views>
+  --backbone <b> --name dsine-<b>`, `scene_eval --cfg experiments/configs/solv3r.yaml --splits dev val` per solve.
+- **Checks:** tests of the solve (zero calls return the start state, fixed calls reach the known fixed point of a
+  contraction, the adaptive stop at the first change under tau, its call bounds); time per scene.
+
+## Solv3R as a backbone -> worse than Deja View on Hypersim, dev and val; the filters help it as much (15.11.2026)
+- **Commits:** 66844ff, 1871e30. Run on the 3080 (`~/pouya/solv3r_run.sh`, the cluster was full), same
+  views, SAM 3 masks and evaluation as E27a. Times for 14 scenes: predict 93 s (16 calls) / 84 s (adaptive),
+  DSINE 53 s, scoring 4.5 min. `experiments/results/solv3r.txt`.
+- **Results** (Chamfer in cm; Deja View from E27a):
+
+  | variant | Deja View dev / val | Solv3R 16 calls dev / val | Solv3R adaptive 0.02 dev / val |
+  |---|---|---|---|
+  | as is | 3.500 / 5.102 | 4.058 / 5.735 | 4.082 / 5.606 |
+  | kept 0.5 (instance voxel density) | 3.30 / 3.82 | 3.626 / 4.241 | 3.624 / 4.196 |
+  | flag-refine-filter | 3.21 / 3.67 | 3.563 / 4.097 | 3.557 / 4.049 |
+
+- Solv3R is worse on 12 of 14 scenes. The adaptive solve stops after 15 to 25 calls (mean 17.9) and scores
+  like 16 calls. PQ is unchanged (0.296 / 0.258 vs 0.292 / 0.258), as the masks are the same.
+- **Checks:** the inputs are Solv3R's own preprocessing (RGB in [0, 1], long side 504). The loss is in the
+  network's output, not in fitting cameras to the rays: per-view depth after a per-view scale is off by 1.56 %
+  (Deja View 0.86 %), camera centres after a Sim(3) by 1.83 cm (0.97 cm), mean over the 14 scenes.
+- **Conclusion:** Solv3R's pose gain on ETH3D does not carry over to Hypersim's geometry; Deja View stays the
+  backbone. The filter and flag-refine-filter gain about as much on Solv3R (dev -0.43 / -0.50) as on Deja View
+  (-0.20 / -0.29), so they are not tied to one backbone.
