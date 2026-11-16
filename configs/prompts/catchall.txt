@@ -1,0 +1,13 @@
+# Hypersim's three NYU40 catch-alls (issue #59): generic and frequent words, each `prompt = class`.
+object = otherprop
+decoration = otherprop
+plant = otherprop
+vase = otherprop
+furniture = otherfurniture
+stool = otherfurniture
+bench = otherfurniture
+structure = otherstructure
+column = otherstructure
+railing = otherstructure
+stairs = otherstructure
+fireplace = otherstructure
