@@ -5162,3 +5162,34 @@ Interim entry: the check that the plan puts before any table.
 - **Limits:** one seed; 3 dev scenes, the lobby carrying most of each gain; kept states early in a
   diverging training; val not run (the plan's rule: no positive GT result); GT walls, floors and ceilings
   one segment per class.
+
+## Plan: E52d = why do E52a's adapters diverge? Diagnostics and four one-change arms (issue #52, 16.11.2026)
+- **Goal:** in E52a's three runs every adapter's held-out and training loss rose after 500-2000 steps;
+  lower lrs only delayed it, a floored ratio did not help. E52b (LoRA) and E52c train the same way, so
+  find the cause first. A stable setting is what those runs start from.
+- **Model and setting:** pool-grid at the third run's lr (pooling 3e-6), 3000 steps, held-out every 250,
+  no dev scoring (`--splits`): its divergence was the largest (held-out 0.9950 at 1000 -> 1.0470 at
+  3000) and it has one module; grid, so no segment question is mixed in. Each step now records the
+  gradient norm per parameter and Déjà View's error on the step's scene; every 50 steps each parameter's
+  norm.
+- **Arms** (one change each against A; the defaults train as E52a did):
+  - A, as the third run, diagnostics only. Also the identity check: its curve should repeat the third
+    run's pool-grid (same seed; not bit for bit across runs on one GPU, E51a).
+  - B, `autocast=false`: fp32 forward instead of bf16 (16 loop steps of bf16 rounding in the gradient).
+  - C, `weight_decay_up=100`: AdamW's decoupled decay on B_k only. Adam moves each coordinate by about
+    the lr per step, so the decay caps |B_k| near 1/wd = 0.01, ~6x the kept state's largest entry
+    (1.7e-3 at step 1000); its pull lr x wd = 3e-4 per step halves an unused weight in ~2300 steps.
+  - D, `clip_factor=3`: gradient norm clipped at 3x the median of the last 100 steps' (the norm's scale
+    is not known before this run, so the limit is relative).
+  - E, `lr_decay=cosine`: lr from 3e-6 to 0 over 3000 steps. Not in the first list; added because the
+    third run's kept B_k already moved 58% of the most Adam allows (lr x steps) in 1000 steps: Adam's
+    step does not shrink with the gradient, so at a constant lr the weights keep walking once the loss
+    is near its floor, which a decay stops and a lower lr only delays.
+- **Reading:** an arm is stable, as the probe's rule, if its held-out ratio does not rise after its
+  minimum and its training loss has no upward trend over the last 500 steps. A's diagnostics are read
+  against the rise: gradient spikes before it point to D, parameter norms growing at a flat gradient to
+  C / E, a change only in fp32 to B. If an arm is stable, pool-gt and pool-grid are rerun with it (ask
+  first) and E52b starts from it; if none is, the cause stays open and E52b uses E (decay) by default,
+  stated as a limit.
+- **Cost:** five cluster jobs on one RTX 5090 each, ~40 min each in bf16 (third run: 1 h 27 for two
+  models plus dev scoring), B perhaps 2-3x longer.

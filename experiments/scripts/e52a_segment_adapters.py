@@ -30,6 +30,13 @@ by max(Déjà View's error, floor) instead, which bounds how much more a scene t
 nearly solves weighs (stability probe). Held-out error: the mean over held-out scenes of
 the plain ratio on fixed views (1 at step 0, which is Déjà View).
 
+E52d (why does every adapter diverge after 500-2000 steps?): each step records the
+gradient norm per parameter and Déjà View's error, every `diag_every` steps the norm of
+each parameter. One change per arm, each off by default: `autocast: false` (fp32 forward);
+`weight_decay_up` (AdamW's decoupled decay on B_k alone, A's scale stays LoRA's init);
+`clip_factor` (the gradient norm clipped at that multiple of the last 100 steps' median,
+scale-free, as the norm's scale is not known before the run); `lr_decay: cosine`.
+
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
@@ -77,6 +84,7 @@ from src.refinement.multiview import points_from_rays, scene_from_geometry
 
 PROBE_VIEWS = (8, 12, 20)
 OVERFIT_STEPS = 20
+CLIP_WINDOW = 100  # gradient norms the clip limit's median is taken over (E52d)
 BASE = "Déjà View"
 CHECK_VIEWS = (12, 20)  # the training runs' held-out views, the dev scores' views
 MAP_SCENE, MAP_VIEWS = "ai_006_007_cam_00", (18, 0, 12, 6)  # bedroom, issue #7
@@ -138,7 +146,9 @@ def step_loss(
     images = torch.from_numpy(scene.images[sel]).permute(0, 3, 1, 2).float() / 255
     codes, dropped = codes_of(segments_of(scene, kind, sel, cfg), kind)
     with torch.autocast(
-        device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
+        device.type,
+        dtype=torch.bfloat16,
+        enabled=device.type == "cuda" and cfg["autocast"],
     ):
         out = forward(net, images[None].to(device), adapter, codes)
     pred = out["world_points"][0].float()
@@ -185,18 +195,23 @@ def train(
     """AdamW, a learning rate per module, loss over Déjà View's; least held-out kept."""
     rng = np.random.default_rng(cfg["seed"])
     zero = SegmentAdapter(bias=True, pool=False, rank=cfg["rank"])
+    named = {"beta": adapter.beta, "up": adapter.up,
+             "down": None if adapter.down is None else adapter.down.weight}  # fmt: skip
     groups = [
-        {"params": [q for q in (adapter.beta,) if q is not None], "lr": cfg["lr_bias"]},
-        {"params": [q for q in (adapter.up,) if q is not None]
-         + ([] if adapter.down is None else list(adapter.down.parameters())),
-         "lr": cfg["lr_pool"]},
+        {"params": [p], "name": n, "weight_decay": cfg["weight_decay_up"] * (n == "up"),
+         "lr": cfg["lr_bias"] if n == "beta" else cfg["lr_pool"]}
+        for n, p in named.items() if p is not None
     ]  # fmt: skip
-    opt = torch.optim.AdamW([g for g in groups if g["params"]], weight_decay=0.0)
+    opt = torch.optim.AdamW(groups)
+    decay = torch.optim.lr_scheduler.LambdaLR(opt, lambda it: lr_factor(it, cfg))
     assert adapter.is_zero()  # so the reference is Déjà View's own error, bit for bit
     reference = held_out_error(net, adapter, held, kind, cfg)
     per_scene, curve = {0: reference}, {0: 1.0}
     best, best_state = 1.0, copy.deepcopy(adapter.state_dict())
     t0, losses, dropped = time.perf_counter(), [], 0
+    diag: dict = {"base": [], "grad": {g["name"]: [] for g in groups}, "clipped": 0,
+                  "norm": {g["name"]: {} for g in groups}}  # fmt: skip
+    totals: list[float] = []
     for it in range(1, cfg["steps"] + 1):
         scene = train_scenes[rng.integers(len(train_scenes))]
         lo, hi = cfg["view_subset"]
@@ -209,8 +224,22 @@ def train(
         loss = error / base.clamp(min=cfg["ratio_floor"])
         opt.zero_grad(set_to_none=True)
         loss.backward()
+        for g in groups:
+            diag["grad"][g["name"]].append(g["params"][0].grad.norm().item())
+        total = float(np.linalg.norm([diag["grad"][g["name"]][-1] for g in groups]))
+        limit = clip_limit(totals, cfg)
+        if total > limit:
+            for g in groups:
+                g["params"][0].grad.mul_(limit / total)
+            diag["clipped"] += 1
+        totals.append(total)
         opt.step()
+        decay.step()
         losses.append(loss.item())
+        diag["base"].append(base.item())
+        if it % cfg["diag_every"] == 0:
+            for g in groups:
+                diag["norm"][g["name"]][it] = g["params"][0].detach().norm().item()
         dropped += d
         if it % cfg["eval_every"] == 0:
             per_scene[it] = held_out_error(net, adapter, held, kind, cfg)
@@ -228,7 +257,25 @@ def train(
         "best_step": min(curve, key=curve.get),
         "seconds": time.perf_counter() - t0,
         "segments_dropped": dropped,
+        "train_loss": losses,
+        "diagnostics": diag,
     }
+
+
+def lr_factor(it: int, cfg: dict) -> float:
+    """Learning-rate factor after `it` steps: 1, or cosine from 1 to 0 over the run."""
+    assert cfg["lr_decay"] in ("constant", "cosine"), cfg["lr_decay"]
+    if cfg["lr_decay"] == "constant":
+        return 1.0
+    return 0.5 * (1 + float(np.cos(np.pi * min(it, cfg["steps"]) / cfg["steps"])))
+
+
+def clip_limit(totals: list[float], cfg: dict) -> float:
+    """Gradient-norm limit: `clip_factor` x the median of the last 100 norms, or none."""
+    if cfg["clip_factor"] is None or len(totals) < CLIP_WINDOW:
+        return float("inf")
+    assert cfg["clip_factor"] > 1
+    return cfg["clip_factor"] * float(np.median(totals[-CLIP_WINDOW:]))
 
 
 def score(geometry: Geometry, truth: LabeledCloud) -> tuple[dict, np.ndarray]:

@@ -42,3 +42,9 @@ max_error: 0.5                       # relative 3D error clipped above this (E41
 ratio_floor: 0.0                     # loss = error / max(DV's error, floor); 0: plain ratio
 umeyama_pixels: 20000                # per step, for the detached Sim(3)
 seed: 0
+# E52d (stability diagnosis): the defaults train as E52a's three runs did
+autocast: true                       # bf16 forward on CUDA; false: fp32 throughout
+weight_decay_up: 0.0                 # AdamW's decoupled decay on B_k only (its cap ~ 1/wd)
+clip_factor: null                    # clip the gradient norm at this x the last 100's median
+lr_decay: constant                   # or cosine: from the lr to 0 over `steps`
+diag_every: 50                       # parameter norms every this many steps
