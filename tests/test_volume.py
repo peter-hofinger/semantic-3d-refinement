@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import torch
 
@@ -6,10 +8,14 @@ from src.loaders.ground_truth import GroundTruth
 from src.loaders.views import Views
 from src.refinement.volume import (
     CLASSES,
+    KeepHead,
     ScenePoints,
+    VolumeConfig,
     VolumeRefiner,
     grid_channels,
+    keep_labels,
     pixel_classes,
+    predict_heads,
     refine,
     scene_points,
     target_residual,
@@ -132,3 +138,32 @@ def test_grid_channels_match_voxelize() -> None:
     for semantics in (False, True):
         grid = voxelize(pts, semantics=semantics)
         assert grid.shape[0] == grid_channels(semantics=semantics)
+
+
+def test_untrained_keep_head_keeps_the_depth_and_scores_every_pixel_alike() -> None:
+    geometry, images = scene()
+    pts, _, _, _ = scene_points(
+        geometry, images, np.full(geometry.depth.shape, -1), {}, 8
+    )
+    model = VolumeRefiner(
+        voxelize(pts, semantics=False).shape[0], [8, 16], 16, semantics=False, outputs=2
+    )
+    heads = predict_heads(model, pts, torch.device("cpu"))
+    assert heads.shape == (len(pts.points), 2)
+    assert (heads == 0).all()
+    out = refine(model, pts, geometry, torch.device("cpu"))
+    np.testing.assert_array_equal(out.depth, geometry.depth)
+
+
+def test_keep_labels_mark_the_least_errors_and_count_invalid_as_errors() -> None:
+    err = torch.tensor([0.3, torch.inf, 0.1, 0.2, 0.0, torch.inf])
+    labels = keep_labels(err, 0.5)
+    torch.testing.assert_close(labels, torch.tensor([0.0, 0, 1, 1, 1, 0]))
+    assert keep_labels(torch.full((4,), torch.inf), 0.5).sum() == 2
+
+
+def test_keep_head_is_off_in_the_e41b_config_and_on_in_e57a() -> None:
+    assert VolumeConfig.load(Path("configs/e41b_volume.yaml")).keep is None
+    keep = VolumeConfig.load(Path("configs/e57a_volume.yaml")).keep
+    assert isinstance(keep, KeepHead)
+    assert keep.residual

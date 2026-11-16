@@ -8,6 +8,7 @@ from src.analysis.filters import (
     facing,
     instance_voxel_density,
     keep_top,
+    keep_top_within,
     log_gradient,
     neighbor_distance,
     pixel_footprint,
@@ -113,3 +114,12 @@ def test_instance_voxel_density_counts_only_the_own_instance_in_a_voxel() -> Non
     ids = np.array([[[3, 3], [4, -1]]])
     count = instance_voxel_density(points, depth, k, ids)
     np.testing.assert_array_equal(count, [[[2, 2], [1, 1]]])
+
+
+def test_the_cut_within_groups_keeps_the_top_fraction_of_each() -> None:
+    score = np.array([[5.0, 1.0, 3.0, 2.0, 9.0, 8.0, 7.0, 0.0]])
+    groups = np.array([[0, 0, 0, 0, 1, 1, 1, 1]])
+    kept = keep_top_within(score, groups, 0.5)
+    np.testing.assert_array_equal(kept[0], [1, 0, 1, 0, 1, 1, 0, 0])
+    assert keep_top_within(score, groups, 1.0).all()
+    assert not keep_top_within(score, groups, 0.0).any()

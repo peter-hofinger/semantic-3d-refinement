@@ -57,6 +57,20 @@ def keep_top(rank: np.ndarray, q: float) -> np.ndarray:
     return rank >= rank.size - round(q * rank.size)
 
 
+def keep_top_within(score: np.ndarray, groups: np.ndarray, q: float) -> np.ndarray:
+    """Return the top fraction q of each group's pixels by score, round(q n) of n."""
+    assert score.shape == groups.shape and 0 <= q <= 1, (score.shape, groups.shape, q)
+    flat, g = score.ravel(), groups.ravel()
+    tie = np.random.default_rng(TIE_SEED).permutation(flat.size)
+    order = np.lexsort((tie, flat, g))
+    _, start, count = np.unique(g[order], return_index=True, return_counts=True)
+    pos = np.arange(flat.size) - np.repeat(start, count)
+    cut = np.repeat(count - np.round(q * count).astype(np.int64), count)
+    out = np.empty(flat.size, dtype=bool)
+    out[order] = pos >= cut
+    return out.reshape(score.shape)
+
+
 def both(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Score of two filters at once, the lower of a pixel's two ranks.
 

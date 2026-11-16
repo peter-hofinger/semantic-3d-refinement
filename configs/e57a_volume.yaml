@@ -1,0 +1,30 @@
+# E57a (issue #57, src/refinement/volume.py, volume-refine): E41b's volumetric refiner with a keep head, a
+# per-pixel keep logit trained to tell the lower half of the pixels by remaining error from the rest. This
+# config trains it next to the depth residual; configs/e57a_volume_keep.yaml trains the keep head alone (the
+# depth stays Deja View's). Everything else is E41b's. Written for dev and val, scored by
+# experiments/configs/e57a_volume.yaml: kept 0.5 by the keep logit vs by instance voxel density (E45, E27a).
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml
+train_splits: [train, train_extra]
+held_out: 8                          # last train scenes: error, and the kept step (least kept error)
+predict_splits: [dev, val]
+models:                              # name -> classes it sees: none, sam3 (per-view masks)
+  volume-keepres-none: none
+  volume-keepres-sam3: sam3
+resolution: 128
+widths: [32, 64, 128]
+head: 128
+steps: 20000
+batch_points: 200000
+kept_points: 400000
+view_subset: [8, 20]
+amp: true
+lr: 1.0e-3
+seeds: [0, 1]
+keep:
+  quantile: 0.5    # E27a's and E45's kept fraction
+  residual: true
+  weight: 1.0

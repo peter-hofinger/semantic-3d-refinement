@@ -4793,3 +4793,60 @@ Interim entry: the check that the plan puts before any table.
   alpha times its mean vote helps at no alpha in {0.1, ..., 1}.
 - **Conclusion:** Deja View's views already agree; their remaining error is shared across views, so the other
   views' points cannot reveal it. Same wall as E11a (2D) and E41b (3D). Issue #56 closed.
+## Plan: E57a = a keep head on the 3D refiner: a learned filter against instance voxel density (issue #57, 14.11.2026)
+- **Goal:** issue #57: E41b's refiner can only move points, while the voxel density filter (E45) and
+  flag-refine-filter (E27a, val Chamfer 3.82 and 3.67 at kept 0.5) win by dropping them. Does a learned keep score,
+  from the same fused grid, rank Deja View's pixels better than instance voxel density at the same kept fraction,
+  and do SAM 3's classes help it?
+- **Setting** (`src/refinement/volume.py`, `configs/e57a_volume.yaml`, `configs/e57a_volume_keep.yaml`): E41b's
+  data, grid, U-Net, steps, view subsets and seeds; the head gets a second output, a keep logit, trained by binary
+  cross-entropy on whether each pixel's remaining error |r* - r| is in the lower half of the step's pixels
+  (pixels with ground truth but no valid r* count as errors). Two head sets: keep head alone (the depth stays
+  Deja View's) and keep head plus residual. The kept step is the one with the least mean error of the held-out
+  pixels its logit keeps (top half). No dev or val scene takes part.
+- **Models:** keep alone and keep plus residual, each without and with SAM 3 classes, seeds 0 and 1 (8 models).
+  GT classes and a permuted control only if SAM 3 beats no classes beyond seed noise.
+- **Evaluation** (`experiments/configs/e57a_volume.yaml`, `scene_eval`'s new `keep_by`): each model's output
+  whole, kept 0.5 by instance voxel density and kept 0.5 by its keep logit, on dev and val. For the keep-alone
+  models the output is Deja View's depth, so the density cut is E27a's filter on the same pixels.
+- **Commands:** one SLURM task per model on the 3d-cluster (RTX 5090), `uv run volume-refine --config <config>
+  --out runs/volume-e57a`, then `scene_eval --splits dev val` per model.
+- **Checks:** tests (untrained keep head leaves the depth bit for bit and scores all pixels alike, keep labels mark
+  the least errors and count invalid pixels as errors, E41b's config has no keep head); E41b's configs train and
+  predict exactly as before (the keep head is off unless `keep` is set).
+- **Baselines:** Deja View (dev 3.500, val 5.102), instance voxel density kept 0.5 and flag-refine-filter (E27a),
+  E41b.
+
+## E57a: a keep head on the 3D refiner -> its cut loses badly to instance voxel density (14.11.2026)
+- **Commits:** 1dd9d4d, 4c95ad7; 3d-cluster (RTX 5090), one SLURM task per model and seed, about 25 min each.
+- **Results** (val Chamfer cm, range over seeds 0, 1 and none / SAM 3 classes, keep 0.5):
+
+  | cut | keep only | keep + residual |
+  |---|---|---|
+  | no cut | 5.102 (Deja View) | 5.211 to 5.694 |
+  | instance voxel density | 3.817 | 3.991 to 4.443 |
+  | keep head | 9.493 to 12.367 | 11.527 to 14.131 |
+
+- The head ranks pixels sensibly (held-out kept error 0.115 -> 0.102; dev accuracy after the cut 2.80 vs 3.00
+  cm by density) but deletes whole regions: completeness 15 to 39 cm. In ai_010_007, 8 of the 14 GT instances
+  above 0.5 % of the pixels keep under 5 % of them.
+- keep + residual picks its state by kept error alone, so the residual is unchecked: dev Chamfer 3.49 to 4.97.
+- **Checks:** residuals are applied as in E41b (|r| p99 under 5 %); the logits are not inverted.
+
+## Plan and result: E57b = E57a's logits cut per instance or with density -> still far behind (14.11.2026)
+- Planned after E57a, before running: does the per-pixel cut alone cause E57a's holes?
+- **Setting:** no retraining; `scene_eval` on E57a's saved logits: `keep_per: instance` cuts every linked SAM 3
+  instance to q, `keep_with: density` ranks by `filters.both` of the logit and density. Density per instance
+  as the baseline. Commit e015eb0, 3d-cluster job 2740, about 4 min per model.
+- **Results** (val Chamfer cm, ranges as above):
+
+  | cut | keep only | keep + residual |
+  |---|---|---|
+  | density, per instance | 5.190 | 5.312 to 5.774 |
+  | keep head, per instance | 6.706 to 7.310 | 6.969 to 7.235 |
+  | keep head and density | 6.229 to 7.521 | 6.652 to 8.005 |
+
+- **Conclusion:** at equal kept fraction a learned keep score loses to instance voxel density in every form.
+  Density wins by removing redundant points where the cloud is dense, which costs little completeness;
+  forced to cut every instance equally it falls to 5.19. An error label is spatially smooth, so cutting by it
+  opens holes. Issue #57 closed.

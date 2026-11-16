@@ -1,0 +1,29 @@
+# E57a (issue #57, src/refinement/volume.py, volume-refine): E41b's volumetric refiner with a keep head, the
+# keep head alone: no residual, the depth stays Deja View's, so the model only ranks its pixels.
+# configs/e57a_volume.yaml trains the same head next to the residual. Everything else is E41b's. Written for
+# dev and val, scored by experiments/configs/e57a_volume.yaml.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml
+train_splits: [train, train_extra]
+held_out: 8                          # last train scenes: error, and the kept step (least kept error)
+predict_splits: [dev, val]
+models:                              # name -> classes it sees: none, sam3 (per-view masks)
+  volume-keep-none: none
+  volume-keep-sam3: sam3
+resolution: 128
+widths: [32, 64, 128]
+head: 128
+steps: 20000
+batch_points: 200000
+kept_points: 400000
+view_subset: [8, 20]
+amp: true
+lr: 1.0e-3
+seeds: [0, 1]
+keep:
+  quantile: 0.5    # E27a's and E45's kept fraction
+  residual: false
+  weight: 1.0
