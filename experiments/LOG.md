@@ -5066,3 +5066,62 @@ Interim entry: the check that the plan puts before any table.
   control by >= 0.05 cm dev mean Chamfer and on 2 of 3 dev scenes; else negative for segments.
   Stability is reported per model with the probe's rule (held-out not rising after its minimum,
   training loss without upward trend over the last 500 steps).
+
+## E52a, third run: at the probe's lower lrs all four adapters still diverge, only later; GT instances again gain no more than the grid control -> negative for segments (issue #52, 16.11.2026)
+- **Setting, commits, commands:** as the plan above, at cbeb5d0; cluster jobs 2863 (GT models, 1 h 18
+  min), 2864 (grid models, 1 h 27 min), 2865 (check of the GT models, 1 min), RTX 5090:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "segments=[gt]" "models={pool: [false, true], both: [true, true]}" lr_bias=3e-4 lr_pool=3e-6 --out runs/e52a3_gt`
+  (and `"segments=[grid]" ... --out runs/e52a3_grid`); check
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a3_gt --out runs/e52a3_check`
+  (the check's config records the default lrs; it trains nothing); figures
+  `uv run python experiments/scripts/e52a2_figures.py runs/e52a3_gt runs/e52a3_grid runs/e52a3_check --run e52a3`.
+  Raw output `results/e52a3_train.yaml` (both jobs), `results/e52a3_check.yaml`.
+- **Checks:** both jobs scored Déjà View identically on dev (1.606 / 1.837 / 6.995 cm); no segment dropped
+  (GT or grid); the second run's figures redrawn by the extended script are byte-identical.
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes, every 250 steps):
+  - pool-gt min **0.9945** (1000), 0.9947 (1500), then up to 1.0001 (2250), 1.0061 (3000).
+  - both-gt min **0.9935** (1500), then up to 1.0003 (2250), 1.0040 (3000).
+  - pool-grid min **0.9950** (1000), then up to 1.0042 (2000), 1.0470 (3000).
+  - both-grid min **0.9983** (500), then up from step 750 to 1.0459 (3000).
+  - The training loss rises with them (pool-grid 0.9875 at 1000 -> 1.0357 at 3000, both-grid 0.9902 ->
+    1.0499; GT models 0.98 -> 0.99). So no model is stable by the probe's rule: lowering the lrs by 3.3x
+    delays the divergence by 500-1500 steps, it does not remove it. The probe's 1000 steps ended before
+    it, as the sweep's 400 had in the second run. **This corrects the probe's conclusion** ("the
+    divergence is the learning rate"): its cause is not known; neither lower lrs nor the floored ratio
+    removes it.
+- **Results, dev** (Chamfer, cm; living room / bedroom / lobby, mean; Déjà View 1.606 / 1.837 / 6.995,
+  3.479):
+  - pool-gt 1.590 / 1.791 / 6.809, **3.397** (-0.083; 3 of 3 better). Rays turn 0.08-0.12°.
+  - both-gt 1.601 / 1.795 / 6.857, 3.418 (-0.062; 3 of 3). Rays 0.16-0.19°.
+  - pool-grid 1.564 / 1.810 / 6.826, **3.400** (-0.079; 3 of 3). Rays 0.13-0.15°.
+  - both-grid 1.603 / 1.778 / 6.634, **3.338** (-0.141; 3 of 3). Rays 0.10-0.13°.
+  - Again most of each gain is the lobby (-0.14 to -0.36 cm). On Déjà View's plain cameras every model is
+    worse than Déjà View (3.53-4.19 cm mean): the gain needs the model's own, slightly turned rays.
+  - both-grid, the model with the weakest held-out gain (0.998), is the best on dev: model-to-model
+    differences of ~0.1 cm on these 3 scenes are not resolved by the held-out selection.
+- **Per scene (the check, GT models):** training loss over Déjà View's on the 16 held-out scenes -3.6% to
+  +3.6% (lower on 9-13 of 16, at 12 and 20 views), 0 to -2% on Déjà View's 3 failing scenes; on dev at 20
+  views pool-gt -2.4 / -1.0 / -5.8% (living room, bedroom, lobby), both-gt +1.7 / -1.1 / -7.7%.
+- **Reading, by the rule fixed in the plan:** the best GT model (pool-gt, 3.397) beats Déjà View by 0.08
+  cm on 3 of 3 scenes, but its grid control (pool-grid, 3.400) by 0.003 cm, under the 0.05 bar; both-gt
+  is 0.08 cm worse than its control both-grid -> **negative for segments**, the same reading as the
+  second run, now with all four controls trained.
+- **What the figures show:** `figures/e52a3_training.jpg`: left, all four curves dip to 0.994-0.998 and
+  rise after 500-2000 steps, the grid models earlier; right, per dev scene the four models change Chamfer
+  in the same direction, the grid bars as large as the GT bars or larger. `figures/e52a3_bedroom.jpg`
+  (views 18, 0, 12, 6): mean per-pixel error 8.8 cm (Déjà View) -> 8.8 / 8.7 cm (both-gt / pool-gt);
+  the change is ±2-4 cm smooth over whole surfaces (view 6's back wall worse, its ceiling and floor
+  better), not along instance boundaries, as in the second run.
+- **Conclusion:**
+  - Three runs of E52a, the last two with fixed setup flaws and trained controls, give the same answer:
+    adapters inside frozen Déjà View improve dev Chamfer by 2-4% (0.06-0.14 cm, 3 of 3 scenes in this run),
+    and an even 3 x 3 grid of unlinked tiles does so as much as GT instances. The gain is adaptation to
+    Hypersim, not segment information. With E51a and E53a, GT segments injected into frozen Déjà View
+    have shown no effect beyond a segment-free control in any form we tried.
+  - No model trains stably past 500-2000 steps at any setting tried (two lrs, plain and floored ratio),
+    so every kept state is early. Whether a stable training would separate GT from grid stays open;
+    E52a stops here: finding the instability's cause is a project of its own, and a larger, longer
+    training is what E52b (LoRA, with its segment-free control) would test anyway.
+- **Limits:** one seed; 3 dev scenes, the lobby carrying most of each gain; kept states early in a
+  diverging training; val not run (the plan's rule: no positive GT result); GT walls, floors and ceilings
+  one segment per class.

@@ -1,16 +1,17 @@
-"""E52a, second run, figures: segment adapters trained on the loss over Déjà View's.
+"""E52a, second and third run, figures: segment adapters trained on the loss over Déjà View's.
 
 Reads the two training runs (GT models, grid models: `e52a.yaml` each) and the check run
 of the GT models (`e52a_maps.npz`) of `e52a_segment_adapters.py`, and the bedroom's views
-and GT.
+and GT. `--run` names the run: e52a2 (second, 6 models) or e52a3 (third, 4 models).
 
-1. `e52a2_training.jpg`: held-out error (over Déjà View's, mean of 16 scenes) over training
-   steps for all 6 models; dev Chamfer of each kept model minus Déjà View's, per scene,
+1. `<run>_training.jpg`: held-out error (over Déjà View's, mean of 16 scenes) over training
+   steps for every model; dev Chamfer of each kept model minus Déjà View's, per scene,
    GT instances next to the grid control.
-2. `e52a2_bedroom.jpg`: bedroom ai_006_007 views 18, 0, 12, 6: image, GT instances per
+2. `<run>_bedroom.jpg`: bedroom ai_006_007 views 18, 0, 12, 6: image, GT instances per
    patch, Déjà View's per-pixel 3D error, and each trained GT model's error minus it.
 
 uv run python experiments/scripts/e52a2_figures.py runs/e52a2_gt runs/e52a2_grid runs/e52a2_check
+uv run python experiments/scripts/e52a2_figures.py runs/e52a3_gt runs/e52a3_grid runs/e52a3_check --run e52a3
 """
 
 import argparse
@@ -34,9 +35,19 @@ Y_MAX = 1.1  # held-out axis cut: the pooling curves go on to 2.6-5.3
 D_MAX = 5.0  # cm, shared scale of the error change maps
 SHORT = {"ai_010_007_cam_00": "living room", "ai_006_007_cam_00": "bedroom",
          "ai_044_001_cam_00": "lobby"}  # fmt: skip
+RUNS = {  # run -> name in the titles, the training figure's claim
+    "e52a2": ("E52a, second run",
+              ("every model's training turns unstable after ~500 steps (left), so all kept"
+              " states are early or zero.\nPooling gains on 2-3 dev scenes with GT instances"
+              " and with the grid alike (right): adaptation, not segments")),
+    "e52a3": ("E52a, third run",
+              ("at lrs / 3.3 every model still turns unstable, after 500-2000 steps"
+              " (left).\nAll four gain on 3 of 3 dev scenes, the grid controls as much as"
+              " GT instances or more (right): adaptation, not segments")),
+}  # fmt: skip
 
 
-def training(models: dict, evals: dict) -> None:
+def training(models: dict, evals: dict, run: str) -> None:
     """Figure 1 of the module docstring."""
     fig, (left, right) = plt.subplots(1, 2, figsize=(13, 4.4))
     for label, rec in models.items():
@@ -57,7 +68,9 @@ def training(models: dict, evals: dict) -> None:
     left.legend(fontsize=7, frameon=False)
     style(left)
     scenes = list(SHORT)
-    labels = [f"{m}-{k}" for m in COLOURS for k in ("gt", "grid")]
+    labels = [
+        f"{m}-{k}" for m in COLOURS for k in ("gt", "grid") if f"{m}-{k}" in models
+    ]
     width = 0.8 / len(labels)
     for i, label in enumerate(labels):
         model, kind = label.split("-")
@@ -83,19 +96,14 @@ def training(models: dict, evals: dict) -> None:
                     fontsize=10)  # fmt: skip
     right.legend(fontsize=7, frameon=False, ncol=3)
     style(right)
-    fig.suptitle(
-        "E52a, second run: every model's training turns unstable after ~500 steps"
-        " (left), so all kept states are early or zero.\nPooling gains on 2-3 dev"
-        " scenes with GT instances and with the grid alike (right): adaptation, not"
-        " segments",
-        fontsize=11,
-    )
+    name, claim = RUNS[run]
+    fig.suptitle(f"{name}: {claim}", fontsize=11)
     fig.tight_layout()
-    fig.savefig(FIGURES / "e52a2_training.jpg", dpi=110, bbox_inches="tight")
+    fig.savefig(FIGURES / f"{run}_training.jpg", dpi=110, bbox_inches="tight")
     plt.close(fig)
 
 
-def bedroom(check: Path, raw: dict) -> None:
+def bedroom(check: Path, raw: dict, run: str) -> None:
     """Figure 2 of the module docstring."""
     with np.load(check / "e52a_maps.npz") as f:
         maps = {k: f[k].astype(np.float32) for k in f.files}
@@ -133,13 +141,13 @@ def bedroom(check: Path, raw: dict) -> None:
     bar.set_label("error change (cm), blue = better")
     means = {k: 100 * float(np.nanmean(m)) for k, m in maps.items()}
     fig.suptitle(
-        "E52a, second run, bedroom: mean per-pixel error "
+        f"{RUNS[run][0]}, bedroom: mean per-pixel error "
         + ", ".join(f"{k} {x:.1f} cm" for k, x in means.items())
         + ".\nEach model on its own cameras, after the protocol's Sim(3)."
         " Black patches: no instance on > half the patch",
         fontsize=11,
     )
-    fig.savefig(FIGURES / "e52a2_bedroom.jpg", dpi=110, bbox_inches="tight")
+    fig.savefig(FIGURES / f"{run}_bedroom.jpg", dpi=110, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -149,6 +157,7 @@ def main() -> None:
     parser.add_argument("gt", type=Path)
     parser.add_argument("grid", type=Path)
     parser.add_argument("check", type=Path)
+    parser.add_argument("--run", choices=RUNS, default="e52a2")
     args = parser.parse_args()
     runs = {
         k: yaml.safe_load((p / "e52a.yaml").read_text(encoding="utf-8"))
@@ -156,8 +165,8 @@ def main() -> None:
     }
     raw = yaml.safe_load(Path(runs["gt"]["config"]["eval"]).read_text(encoding="utf-8"))
     models = runs["gt"]["records"]["models"] | runs["grid"]["records"]["models"]
-    training(models, {k: r["records"]["eval"] for k, r in runs.items()})
-    bedroom(args.check, raw)
+    training(models, {k: r["records"]["eval"] for k, r in runs.items()}, args.run)
+    bedroom(args.check, raw, args.run)
 
 
 if __name__ == "__main__":
