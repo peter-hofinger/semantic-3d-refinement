@@ -5052,3 +5052,17 @@ Interim entry: the check that the plan puts before any table.
     comparison without the early-stopping caveat; whether it is worth ~3 h is open.
 - **Limits:** one seed, one model (both-gt), 1000 steps; no dev scoring and no grid arm, so this says
   nothing yet about segments.
+
+## Plan: E52a, third run = pool and both x GT, grid at the probe's stable lrs (issue #52, 16.11.2026)
+- **Goal:** the second run's "GT equals grid" was read on models kept after 250-500 steps of a training
+  that then diverged. Arm A of the stability probe trains stably; rerun the comparison at its lrs, so
+  that the kept states are chosen from a training that does not diverge.
+- **Setting:** the second run's (120 train + 16 held-out scenes, loss over Déjà View's, plain ratio,
+  3 x 3 grid, 3000 steps, held-out every 250, one seed, dev 3 scenes at 20 views), with lr_bias 3e-4 and
+  lr_pool 3e-6 (probe arm A). Models pool and both x {gt, grid} = 4; the bias-only models are left out
+  (never below Déjà View in either run). Two jobs (GT, grid; the partition caps 6 h), then `--check` of
+  the GT models. Estimated ~45 min per model, ~1.5 h per job.
+- **Reading (the second run's rule, unchanged):** the best GT model must beat Déjà View AND its grid
+  control by >= 0.05 cm dev mean Chamfer and on 2 of 3 dev scenes; else negative for segments.
+  Stability is reported per model with the probe's rule (held-out not rising after its minimum,
+  training loss without upward trend over the last 500 steps).
