@@ -1,0 +1,26 @@
+# Solv3R as a backbone (no issue, experiments/LOG.md): its output scored as Déjà View's is in
+# E27a (experiments/configs/e27a.yaml), with the instance voxel density filter at q = 0.5 and
+# flag-refine-filter (λ_t = 4e-2 with E_n off, q = 0.5), all weights as chosen for Déjà View.
+# `backbone` and `normals` are set per solve (solv3r_c16: 16 calls, solv3r_a0.02: adaptive);
+# DSINE runs on that backbone's intrinsics (`dsine-predict --backbone <b> --name dsine-<b>`).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: solv3r_c16
+normals: dsine-solv3r_c16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+variants:
+  - name: Solv3R
+    refiner: none
+  - name: Solv3R, kept 0.5
+    refiner: none
+    keep: 0.5
+  - name: flag-refine-filter
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
