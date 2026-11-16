@@ -5017,3 +5017,46 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion:** absorbing closes about another third of the gap to perfect grouping on val (0.286 -> 0.336
   of 0.415), with PQ things +0.05 and mIoU +0.03; AP drops 0.02 (absorbed parts lose their own scores). All
   hosts is better on val (0.359) but was not the dev choice. Linked 0.258 -> 0.336 in total from E59c and E59d.
+## Plan: E25c = an opt-in fused-surface score, and the filter and flag-refine-filter under it (issue #25's question, 14.11.2026)
+- **Goal:** issue #25 (E38) asked whether to score one fused surface next to the per-pixel cloud: Déjà View's
+  views leave every surface as scattered layers and completeness takes the nearest one, so the per-pixel score
+  rewards a thick shell, and deleting points (E45's filter, E27a's flag-refine-filter) may gain partly from that.
+  This is an evaluation addition, off by default: no existing number changes.
+- **Setting:** `surface: tsdf` in an evaluation config fuses each output's depth maps, after the run's Umeyama
+  alignment, and the GT's depth maps into one Open3D TSDF each (Curless and Levoy 1996), takes the marching-cubes
+  vertices as the surface and scores accuracy / completeness / Chamfer between the two (`fused_*` keys). Dropped
+  pixels are not fused. Voxel size chosen on dev's GT alone, before any output is fused: the size at which the
+  GT's fused surface lies closest to the GT's own pixels; truncation 4 voxels.
+- **Variants** (`experiments/configs/e25c_fused.yaml`): Déjà View, Déjà View kept 0.5 (E45's instance voxel
+  density filter), tangent 4e-2 kept 0.5 (E27a's flag-refine-filter). Dev, then val.
+- **Checks:** tests (a plane fuses onto itself, camera depth inverts the lift, fused scores are 0 on the truth,
+  invariant to the output's scale, 3 cm off reads 3 cm, no fused keys without the flag); the per-pixel scores of
+  this run must equal E27a's.
+- **Baselines (per pixel, E27a):** Chamfer dev 3.500 / 3.30 / 3.21, val 5.102 / 3.82 / 3.67 (Déjà View / filter /
+  flag-refine-filter).
+
+## E25c: fused-surface score -> the filter's gain is per pixel only; fused, it loses a third of the surface (15.11.2026)
+- **Commits:** f827fc1 (score), d9af412 (the point count is a float, else the split mean failed after all
+  scenes were scored), 0ef90ce (fuse only the pixels with GT depth, as the per-pixel score: before, output
+  surfaces at windows and missing GT inflated fused accuracy, ai_004_010 31 -> 3.0 cm Chamfer). 3080, about
+  10 min with one scoring process (6 ran out of the 61 GB). `experiments/results/e25c_{fused,checks}.txt`.
+- **Results** (Chamfer in cm, mean / median over the surface, mean over scenes):
+
+  | variant | dev per pixel | dev fused | val per pixel | val fused |
+  |---|---|---|---|---|
+  | Deja View | 3.50 / 2.04 | 5.43 / 2.96 | 5.10 / 2.61 | 17.01 / 4.95 |
+  | Deja View, kept 0.5 | 3.30 / 1.95 | 8.58 / 3.54 | 3.82 / 1.60 | 18.08 / 4.93 |
+  | flag-refine-filter | 3.21 / 1.86 | 8.62 / 3.49 | 3.67 / 1.57 | 17.89 / 4.95 |
+
+  Fused completeness: dev 4.29 -> 13.90 / 13.98, val 22.63 -> 31.88 / 31.44; fused accuracy improves
+  (dev 6.57 -> 3.25, val 11.39 -> 4.28 / 4.33).
+- **Checks:** the per-pixel scores equal E27a's. Each fused surface lies within 1 to 2 cm (mean) of its own
+  pixels, the GT's within 0.4 to 1.4 cm. The GT's own depth with half its pixels dropped at random fuses
+  without loss (completeness 0.5 to 1.0 cm), with the filter's half it loses a third of the surface by over 5
+  cm (5.5 to 12.3 cm): the loss is where the filter cuts, not a fusion artifact. Val's mean is dominated by
+  ai_004_003 (74 cm): GT beyond 5 m (through openings) is about 1 % of its pixels but 12 % of its fused
+  surface, and Deja View misses it; the medians are not affected.
+- **Conclusion:** on one fused surface the filter and flag-refine-filter trade completeness for accuracy and
+  lose on dev (5.43 -> 8.6) and tie on val's median (4.95 -> 4.93). Their per-pixel gain comes mostly from
+  removing points that the per-pixel completeness does not miss. The fused score stays opt-in
+  (`surface: tsdf`); no existing number changes.
