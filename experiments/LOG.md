@@ -4757,3 +4757,39 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion:** Solv3R's pose gain on ETH3D does not carry over to Hypersim's geometry; Deja View stays the
   backbone. The filter and flag-refine-filter gain about as much on Solv3R (dev -0.43 / -0.50) as on Deja View
   (-0.20 / -0.29), so they are not tied to one backbone.
+## Plan: E56a = each view's depth refined from the other views' points projected into it (issue #56, 14.11.2026)
+- **Goal:** issue #56: E36's 2D refiner never sees the other views, E41b's volume sees them only at 5 cm cells.
+  Does a 2D U-Net that gets, per pixel, the other views' depths along its ray beat Deja View on dev and val, and
+  do classes help it?
+- **Setting** (`src/refinement/reproject.py`, `configs/e56a_reproject.yaml`): E41b's data, split and protocol (all
+  centred train scenes, last 8 held out, state of least held-out error kept, seeds 0 and 1, 20000 steps). Per pixel:
+  RGB, log depth, log confidence, a 33-bin soft histogram of log(z / D) over [-0.5, 0.5] of the other views'
+  points that land on it, counts in front of and behind that range, their mean log confidence; with classes a
+  second histogram of the votes of the pixel's own NYU40 class. E36's U-Net (width 32), 4 target views per step,
+  votes from a random 8-20 views. Target and loss: E41b's r* along the pinhole ray, E36's L1 with gradient term.
+- **Models:** no classes, SAM 3 classes (per-view masks), GT classes. A permuted-classes control only if SAM 3 or
+  GT beats no classes beyond seed noise.
+- **Commands:** one SLURM task per model and seed on the 3d-cluster (RTX 5090), `uv run reproject-refine --out
+  runs/reproject-e56a --only <model>-s<seed>`, then `scene_eval --splits dev val` per model as in E41b.
+- **Checks:** tests (soft histogram keeps mass and mean, consistent views vote for 0 and a view 0.2 farther for
+  0.2, votes invariant to scene scale, same-class votes a subset, untrained refiner returns its input bit for bit);
+  one scene's step time and memory before the full run.
+- **Baselines:** Deja View (dev 3.500, val 5.102), E36 / E11a, E41b (val 5.24 / 5.29 / 5.25).
+
+## E56a: each view refined from the other views' points -> no gain over Deja View (14.11.2026)
+- **Commits:** 83ea14c, 8bc6276; 3d-cluster (RTX 5090), one SLURM task per model and seed, about 15 min of
+  training each (20k steps), 133 train rooms (15 new ones not yet staged, 2 without a pinhole fit).
+- **Results** (Chamfer cm, seeds 0 / 1; Deja View dev 3.500, val 5.102):
+
+  | model | dev | val |
+  |---|---|---|
+  | no classes | 3.495 / 3.480 | 5.353 / 5.448 |
+  | SAM 3 classes | 3.572 / 3.490 | 5.561 / 5.261 |
+  | GT classes | 3.552 / 3.522 | 5.505 / 5.202 |
+
+- Held-out error barely moves (0.0824 -> 0.080 at best); seeds differ by up to 0.3 cm, more than the classes.
+- **Checks:** unit tests (soft histogram mass and mean, consistent views vote 0, scale invariance, identity at
+  zero weights). On three rooms the mean vote correlates with r* at 0.13 to 0.16, and moving each pixel by
+  alpha times its mean vote helps at no alpha in {0.1, ..., 1}.
+- **Conclusion:** Deja View's views already agree; their remaining error is shared across views, so the other
+  views' points cannot reveal it. Same wall as E11a (2D) and E41b (3D). Issue #56 closed.

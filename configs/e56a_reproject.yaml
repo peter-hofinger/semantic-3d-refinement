@@ -1,0 +1,26 @@
+# E56a (issue #56, src/refinement/reproject.py, reproject-refine): each view's depth refined by a 2D U-Net
+# from the votes of the other views' points along its rays. E41b's data and protocol: all centred train
+# scenes (train + train_extra), each step's votes from a random subset of 8-20 views, the state of least
+# held-out error kept, two seeds per model. The three models differ only in the classes they see. Written
+# for dev and val, scored as backbones by scene_eval.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml
+train_splits: [train, train_extra]
+held_out: 8                          # last train scenes: error, and the kept step (least error)
+predict_splits: [dev, val]
+models:                              # name -> classes it sees: none, sam3 (per-view masks), gt (Hypersim)
+  reproject-none: none
+  reproject-sam3: sam3
+  reproject-gt: gt
+bins: 33           # odd, so rho = 0 is a bin centre; 3.1 % of depth per bin
+max_ratio: 0.5     # volume.py's MAX_RESIDUAL
+width: 32          # as E36 (~7.8M parameters)
+steps: 20000       # as E41b
+batch: 4           # target views per step
+view_subset: [8, 20]
+lr: 1.0e-3
+grad_weight: 0.5   # as E36
+seeds: [0, 1]
