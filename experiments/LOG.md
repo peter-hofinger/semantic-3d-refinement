@@ -5022,3 +5022,33 @@ Interim entry: the check that the plan puts before any table.
 - **Reading:** an arm is stable if its held-out ratio (plain, as before) does not rise after its minimum
   and its training loss shows no upward trend over the last 500 steps. If one is, run pool and both x GT,
   grid with it (~3 h, ask first); if neither, PR as is, the instability stated as a limit.
+
+## E52a, second run, stability probe: lower lrs train both-gt without divergence for 1000 steps, but its held-out gain stays at 0.5%; the floored ratio diverges like the second run (issue #52, 16.11.2026)
+- **Setting, commits, commands:** as the plan above, at 7e278dc; cluster jobs 2834 (A, 15 min 51 s) and
+  2835 (B, 15 min 15 s), RTX 5090:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set steps=1000 eval_every=100 "segments=[gt]" "models={both: [true, true]}" lr_bias=3e-4 lr_pool=3e-6 --out runs/e52a2_probeA`
+  (B: `lr_bias`, `lr_pool` from the config and `ratio_floor=0.03`, `--out runs/e52a2_probeB`). Raw output
+  `results/e52a2_probe.yaml`.
+- **Checks:** no segment dropped; held-out reference (step 0) is Déjà View's error, as in the second run.
+- **Held-out error** (over Déjà View's, mean of 16 scenes, 12 fixed views), steps 100 to 1000:
+  - A: 0.9993, 0.9987, 0.9987, 0.9975, **0.9949** (500), 0.9970, 0.9971, 0.9961, 0.9962, 0.9950.
+  - B: 1.0012, 1.0024, 0.9996, 0.9970, **0.9968** (500), 1.0034, 1.0090, 1.0093, 1.0135, 1.0168.
+  - Per scene at step 1000: A lower on 12 of 16 (median 0.998, range 0.965-1.027); B on 7 of 16
+    (median 1.009, range 0.967-1.11).
+- **Training loss** (mean over each 100 steps): A 0.9991 falling to 0.9818, last 500 steps 0.9887,
+  0.9914, 0.9921, 0.9886, 0.9818: no upward trend. B (floored, so not on A's scale) 0.75-0.82 throughout,
+  no trend in either direction while its held-out error rises.
+- **Reading, by the plan's rule:** B is unstable. A meets the training-loss part; its held-out ratio rose
+  by 0.002 after its minimum at step 500 and was back to it at step 1000 (0.9950 against 0.9949), about
+  the step-to-step spread of the curve. For comparison, the second run's both-gt was at 1.011 by step
+  1000. A is read as **stable, but not improving after step 500**: its gain (0.5% held-out) is the size
+  of the second run's kept states.
+- **Conclusion:**
+  - The second run's divergence is the learning rate, not the ratio's weighting: lowering both lrs by
+    3.3x removes it, while bounding the weights (B) does not. The untested guess in the second run's
+    entry is refuted.
+  - A stable training does not by itself buy a larger gain: within 1000 steps A plateaus where the
+    second run's early-kept models were. A full GT-against-grid run at A's lrs would read the same
+    comparison without the early-stopping caveat; whether it is worth ~3 h is open.
+- **Limits:** one seed, one model (both-gt), 1000 steps; no dev scoring and no grid arm, so this says
+  nothing yet about segments.
