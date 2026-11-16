@@ -1,0 +1,47 @@
+# E58a (experiments/LOG.md, issue #58): densify after filtering. The pixels are flagged by instance
+# voxel density on Déjà View's cloud at E27a's q = 0.5 (`keep`); instead of being dropped, the flagged
+# pixels get a new depth from their view's kept pixels (`fill`, src/analysis/filters.fill_harmonic):
+# plain, colour-weighted, or within the linked SAM 3 masks' or the GT's instances. Flag, refine, fill
+# fills from the refined kept pixels. Every variant at once, dev and then val: `--splits dev val`.
+# Evaluation protocol as E27a's (experiments/configs/e27a.yaml).
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: Déjà View, kept 0.5
+    refiner: none
+    keep: 0.5
+  - name: fill plain
+    refiner: none
+    keep: 0.5
+    fill: plain
+  - name: fill rgb
+    refiner: none
+    keep: 0.5
+    fill: rgb
+  - name: fill sam3
+    refiner: none
+    keep: 0.5
+    fill: sam3
+  - name: fill gt
+    refiner: none
+    keep: 0.5
+    fill: gt
+  - name: tangent 4e-2, kept 0.5
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+  - name: tangent 4e-2, kept 0.5, fill sam3
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+    fill: sam3

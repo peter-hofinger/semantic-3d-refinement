@@ -4850,3 +4850,52 @@ Interim entry: the check that the plan puts before any table.
   Density wins by removing redundant points where the cloud is dense, which costs little completeness;
   forced to cut every instance equally it falls to 5.19. An error label is spatially smooth, so cutting by it
   opens holes. Issue #57 closed.
+## Plan: E58a = densify after filtering: the flagged pixels filled from their view's kept pixels (issue #58, 14.11.2026)
+- **Goal:** issue #58: the instance voxel density filter buys accuracy with completeness (val 6.061 -> 3.013 and
+  4.142 -> 4.621 cm at q 0.5, E27a). Does giving the flagged pixels a new depth from the kept ones, instead of
+  dropping them, keep the accuracy and win the completeness back, and does filling within an instance beat plain?
+- **Setting** (`filters.fill_harmonic`, `scene_eval`'s `fill`, `experiments/configs/e58a.yaml`): E27a's flag (q 0.5,
+  instance voxel density on Déjà View's cloud, linked SAM 3 masks). Per view the flagged pixels' inverse depth
+  solves the weighted Laplace equation with the kept pixels fixed (exact for planes): `plain` (equal weights),
+  `rgb` (Levin et al.'s colour affinity, as NYU Depth v2's fill), `sam3` and `gt` (edges between instances cut to
+  1e-3). Flag, refine, fill: E27a's tangent 4e-2 refiner, then the SAM 3 fill from the refined kept pixels.
+  Nothing tuned; every pixel keeps a point, so all fills score the full pixel set like Déjà View.
+- **Commands:** `scene_eval --cfg experiments/configs/e58a.yaml --splits dev val` (Mac, CPU).
+- **Checks:** tests (no flag returns the input bit for bit, a planar hole filled to 1e-4, a hole on an instance's
+  border filled from its own plane); `Déjà View, kept 0.5` and `tangent 4e-2, kept 0.5` reproduce E27a.
+- **Baselines:** Déjà View (val 5.102, completeness 4.142), the filter (3.817 / 4.621), flag-refine-filter (3.669).
+
+## E58a: densify after filtering -> every fill is worse than the filter alone and than Deja View (14.11.2026)
+- **Commits:** 4bbe699; 3080 server, dev and val in one run, 927 s.
+- **Results** (Chamfer cm, keep 0.5):
+
+  | variant | dev | val |
+  |---|---|---|
+  | Deja View | 3.500 | 5.102 |
+  | density filter | 3.298 | 3.817 |
+  | flag-refine-filter (tangent 4e-2) | 3.209 | 3.669 |
+  | filter + fill plain | 5.227 | 6.697 |
+  | filter + fill RGB | 4.396 | 6.119 |
+  | filter + fill SAM 3 | 4.009 | 5.808 |
+  | filter + fill GT instances | 4.213 | 6.037 |
+  | flag-refine-filter + fill SAM 3 | 3.962 | 5.720 |
+
+- **Checks** (4 views per scene, dev + val, from the run's saved depths): the fill recovers GT depth (half of
+  the GT pixels dropped at random: mean |log error| 0.88 %; the density drop within GT instances 1.02 %, plain
+  2.78 %). On the dropped pixels Deja View's own depth (3.20 %) beats every fill, even within GT instances
+  (3.43 %; SAM 3 3.61 %, RGB 3.84 %, plain 4.50 %).
+
+## Plan and result: E58b = the fill after a lighter filter -> still worse (14.11.2026)
+- Planned after E58a, before running: are E58a's holes just too large to fill?
+- **Setting:** `experiments/configs/e58b.yaml`, keep 0.9 and 0.75, plain and SAM 3 fill; commit 648e647, 3080.
+- **Results** (Chamfer cm, dev / val):
+
+  | kept | filter alone | + fill plain | + fill SAM 3 |
+  |---|---|---|---|
+  | 0.9 | 3.430 / 4.932 | 3.536 / 5.150 | 3.520 / 5.139 |
+  | 0.75 | 3.293 / 4.576 | 3.654 / 5.257 | 3.565 / 5.209 |
+
+- The fill does not even buy back completeness (val 4.11 to 4.14 cm filter alone, 4.15 to 4.19 with a fill).
+- **Conclusion:** a fill from the kept neighbours cannot beat what the backbone already predicts at the flagged
+  pixels; filling within an instance helps the fill but not enough. Dropping (or refining) them stays better.
+  Issue #58 closed.
