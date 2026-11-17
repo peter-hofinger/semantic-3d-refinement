@@ -4721,6 +4721,7 @@ Interim entry: the check that the plan puts before any table.
   line, one dot per scene), and the bedroom's ray turn; `figures/e53a_bedroom.jpg`: bedroom views 18, 0, 12,
   6: image, GT instances per patch, the per-pixel error of Déjà View, of global first 4 β = 0.25 and of
   frame last 4 β = 1 on one 0-30 cm scale. Look at the ceiling against the bed and floor in the last row.
+
 ## Plan: Solv3R as a backbone (no issue, 14.11.2026)
 - **Goal:** Solv3R (Kwak et al., arXiv 2611.02857) is Déjà View fine-tuned into a stationary looped solver and
   beats it on ETH3D poses (AUC@3 70.4 vs 66.0). Is its geometry better than Déjà View's on Hypersim dev and val,
@@ -5060,3 +5061,407 @@ Interim entry: the check that the plan puts before any table.
   lose on dev (5.43 -> 8.6) and tie on val's median (4.95 -> 4.93). Their per-pixel gain comes mostly from
   removing points that the per-pixel completeness does not miss. The fused score stays opt-in
   (`surface: tsdf`); no existing number changes.
+
+## Plan: #52 = learned segment conditioning inside Déjà View, three steps; E52a first (issue #52, 14.11.2026)
+- **Why:** E51a and E53a closed the training-free routes of #50: with GT instances, neither averaging
+  tokens within a segment nor a hand-set attention bias improves the frozen model. They do not show that
+  Déjà View cannot use segments once something is trained. #52 asks exactly that, with the control that a
+  gain from training alone (adapting to Hypersim) is not counted as the segments'.
+- **Order** (one change per step, each its own entry; a later step runs only if it still asks a question):
+  - **E52a:** Déjà View frozen; only small segment modules are trained, each starting at zero (below).
+  - **E52b:** E52a's best module plus a LoRA on the shared block, against the same LoRA without segments.
+  - **E52c:** segments only in the loss (agreement within a GT instance across views), no segment input at
+    test time, against the same fine-tuning without that term.
+  Kept back: segment tokens shared across views (only if E52a/b show a gain and identity across views is
+  the open part); class embeddings (no class headroom, E25a/E45a); per-scene test-time training.
+
+## Plan: E52a = learned per-head attention bias and gated segment pooling, Déjà View frozen, GT instances (issue #52, 14.11.2026)
+- **Goal:** is there a learned, segment-conditioned change to Déjà View's loop that improves its depth when
+  the model itself stays frozen? E53a set one β for all 12 heads and every chosen step by hand, although
+  heads differ widely (own-segment share 0.11-0.82); E51a averaged tokens blindly and bent their rays. Here
+  gradient descent sets both per head and per step, with the freedom to use a negative bias or none.
+- **Modules** (both act inside the released shared `LoopedAABlock`, dvlt unchanged, wrapper as in E53a):
+  - **Bias:** β[k, a, h] for loop step k (16), attention a (frame, global) and head h (12): 384 scalars,
+    added to the logit of every pair of patch tokens with the same segment id. Exact without an N x N mask:
+    each labelled token gets a one-hot code e of its segment, q' = [q, β √d e], k' = [k, e], v padded with
+    zeros, SDPA with scale 1/√d, so q'·k'/√d = q·k/√d + β [same segment]. Special and unlabelled tokens get
+    e = 0. Codes up to 192 segments per sample (head dim 64 + 192 = 256, flash's limit); beyond that the
+    smallest segments are dropped to unlabelled and their count is logged.
+  - **Pooling:** after loop step k, x_i += B_k A (m_s(i) - x_i), m_s the mean token of segment s over all
+    views (GT ids are scene-wide, so this passes information between views of one object), A: 768 -> 16
+    shared, B_k: 16 -> 768 per step and zero at the start (LoRA's init): ~0.21 M parameters.
+  - At zero (the start) both return Déjà View: with all parameters exactly zero the wrapper takes the plain
+    path (bit for bit); the training path at zero differs only by the kernel (head dim 256), measured and
+    reported as noise, as E53a's β = 0.
+- **Models** (same steps, data, seeds): bias only, pooling only, both; each with GT instances, and the
+  control: the same model trained with **grid segments** (blocks of 3 x 3 patches per view, not linked
+  across views, about as many as GT instances): the same parameters and training, no semantics. A gain
+  over the grid control is the segments'; a gain over Déjà View only is adaptation.
+- **Data:** the 136 Hypersim train scenes of E41b (`train`, `train_extra`; same 17 skipped), the last 8
+  held out for model selection; no dev, val or test scene. Views and GT copied from the 3080 server
+  (~3 GB) to the cluster. Each step: one scene, a random 8-12 of its 20 views (memory and augmentation, as
+  E41b), 504 px, K = 16.
+- **Loss:** the conditioned model's points x = o + D d (its own rays and depth), one Umeyama Sim(3) of them
+  onto the GT's pixels (detached), L1 of the relative 3D error |S x - x_gt| / depth_gt, pixels with GT,
+  errors above 0.5 clipped (misregistered pixels, as E41b's MAX_RESIDUAL). Frame-free, so no cached target
+  is needed for a view subset; it trains depth and rays together.
+- **Training:** full backprop through the 16 steps, dvlt's checkpointing on the looped block, bf16
+  autocast, AdamW (lr 1e-3, no weight decay), held-out error every 250 steps, the state of least held-out
+  error kept. Step budget set by step 0's timing, about 1 h per model on the RTX 5090, written here before
+  the run.
+- **Step 0, look first:** (1) identity: zero parameters equal Déjà View bit for bit on the bedroom; the
+  training path at zero, its gap; (2) gradients: finite, non-zero for B and β after one step, zero for
+  every frozen weight; (3) peak memory and seconds per step on the 5090 at 8, 12 and 20 views; (4) a
+  20-step overfit on one train scene must lower its loss (else the modules cannot act at all).
+- **Scores:** dev (3 scenes, 20 views, GT instances), each model as a backbone: the protocol's pinhole
+  fit, Sim(3), `surface_metrics` (Chamfer, accuracy, completeness, cm); plus scored on Déjà View's plain
+  cameras (as E53a), the rays' median turn, the learned β per head and step, |B_k| per step, time.
+- **Checks:** unit tests on CPU: the augmented SDPA equals softmax(q kᵀ / √d + β [same]) v written out per
+  head; segment means and the pooling update on synthetic ids; zero parameters return dvlt's output bit
+  for bit; the grid segments' layout.
+- **Reading, fixed before running:**
+  - The best GT model must beat both Déjà View and its grid control by at least 0.05 cm Chamfer on the dev
+    mean and in 2 of 3 scenes. Otherwise: negative; E52b's question (does a LoRA let it read segments)
+    stays, E52a gives it no lead.
+  - If it does: SAM 3's linked masks (the protocol's) in place of GT at test time, then val once; a model
+    trained on GT and tested on SAM 3 is stated as such.
+  - 6 models on 3 scenes; one seed first, a second seed for any model that passes.
+- **Figure:** bedroom `ai_006_007` views 18, 0, 12, 6: Déjà View's per-pixel error, the best GT model's and
+  its grid control's on one 0-30 cm scale; the learned β per head over steps (frame, global); held-out
+  error over training for all 6 models.
+- **Step 0 done (14.11, cluster job 2731, RTX 5090, 12c945d, train scene `ai_001_001`,
+  `results/e52a_probe.yaml`):**
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe`.
+  - Identity: a zero adapter through `predict` is Déjà View bit for bit (depth, confidence, rays). The
+    training path at zero (bf16, decoders one view at a time, bias: head dim 256) moves depth by a
+    median 0.03-0.04% (max 10-21% on single pixels): gains are read against the trained-at-zero gap,
+    not against zero.
+  - Gradients finite and non-zero for β and B (A gets none at the first step, as LoRA's down-projection
+    while B = 0); no frozen weight has a gradient.
+  - Cost per training step (forward + backward): 8 views 0.52 s at 3.1 GB peak, 12 views 0.87 s at
+    3.4 GB, 20 views 1.79 s at 4.5 GB. Memory is no constraint; 8-12 views stay for augmentation, as
+    planned.
+  - 20 steps on the scene's fixed 12 views (relative 3D error, start 0.01270): bias at lr 1e-4 and
+    3e-4 does not move (0.01268), at 1e-3 falls slowly and steadily (0.01244, -2%); pooling at 1e-4
+    falls to 0.01058 (-17%) and holds, at 3e-4 reaches 0.01035 then rises, at 1e-3 oscillates
+    (0.01181 after 20). So the modules can act, pooling far more than the bias, and the planned single
+    lr 1e-3 would destabilise pooling (the laptop smoke's rising loss).
+  - **Changes before the run, from these numbers:** a learning rate per module, bias 1e-3 and pooling
+    1e-4 (the "both" model gets both); 3000 steps per model (~0.7 s per step at 8-12 views plus
+    held-out evaluation: about 40 min a model, 6 models about 4 h on one 5090).
+  - The one-scene drop of pooling says nothing about segments yet: the grid control can fit a scene
+    as well, which the run will show.
+
+## E52a: learned segment adapters inside frozen Déjà View -> no GT model beats Déjà View on any dev scene; the held-out gain came from the 3 scenes where Déjà View fails, pooling diverged and the grid control lost most of its segments (issue #52, 15.11.2026)
+- **Goal, setting:** as the plan above, with step 0's changes (lr bias 1e-3, pooling 1e-4, 3000 steps
+  per model). 128 train + 8 held-out Hypersim scenes (E41b's 136), 8-12 random views per step at 504 px,
+  K = 16; 6 models (bias, pool, both x GT instances, grid); dev: 3 scenes, 20 views, GT instances.
+- **Commits, commands:** training at 42fcf97, cluster job 2761 (RTX 5090, 3 h 52 min; per model 27-53
+  min, the grid models slowest):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a`;
+  check at a0e5c82, job 2788:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a --out runs/e52a_check`;
+  figures `uv run python experiments/scripts/e52a_figures.py runs/e52a runs/e52a_check`. Raw output
+  `results/e52a_train.yaml` (held-out curves, dev scores), `results/e52a_check.yaml` (loss per scene).
+- **Three failed starts before the run of record:**
+  - Job 2736 stopped at step 1: two train scenes have fewer than 20 views (`ai_011_010` 9,
+    `ai_047_008` 16), and 12 of 9 cannot be drawn. e636823 caps a step's views at the scene's.
+  - Job 2737 refused the empty output folder 2736 left behind.
+  - Job 2738 ran out of GPU memory after 1.5 h (pool-gt's held-out evaluation, 28 GB allocated):
+    `beartype_this_package` decorates and keeps every function it sees, including the closures
+    `forward` made anew on each pass, so each pass's segment codes stayed on the GPU (2-4 MB per step,
+    diagnostic job 2759). 42fcf97 moves them to module level; memory then stays flat (6.75 GB used on
+    the 5090 over the first 3500 steps). The maths was unchanged: bias-gt's held-out curve matches
+    2738's within 0.0005 (bf16 kernels).
+- **Checks:** unit tests in `tests/test_adapters.py` pass, including that no per-pass state survives a
+  pass; every model at step 0 has Déjà View's held-out error (0.14047); a model whose kept state is zero
+  scores exactly Déjà View on dev.
+- **Results, dev** (Chamfer, cm; living room / bedroom / lobby, mean):
+  - Déjà View 1.606 / 1.837 / 6.995, 3.479.
+  - bias-gt (kept at step 2250) 1.828 / 1.986 / 7.453, 3.756: worse on 3 of 3 (+0.28 cm on the mean).
+    Rays turn 0.15-0.31° (median).
+  - both-gt (kept at step 250) 4.320 / 2.788 / 14.849, 7.319: worse on 3 of 3 (+3.8 cm). Rays turn
+    0.49-0.86°.
+  - pool-gt and all three grid models kept their zero start (no held-out step beat it), so they are
+    Déjà View exactly.
+- **Held-out error over training** (mean over 8 scenes, 12 fixed views; Déjà View 0.1405):
+  - bias-gt falls slowly to 0.1384 at step 2250 (-1.5%); bias-grid rises steadily to 0.1419.
+  - Pooling diverges at lr 1e-4 on all 128 scenes, although it was stable on one scene in step 0:
+    pool-gt 0.149 after 250 steps and 0.20-0.27 from step 1000, pool-grid 0.16-0.23; both-gt dips to
+    0.1312 at step 250 and then jumps to 0.20-0.28.
+- **Why the held-out gain did not carry over (the check, 20 fixed views per scene; 12 views give the same
+  picture, so the dev scores' 20 views are not the cause):**
+  - Déjà View's loss is 0.24-0.43 on 3 of the 8 held-out scenes (`ai_038_004`, `ai_038_005`,
+    `ai_039_010`) and 0.02-0.06 on the other 5 and on dev (0.009-0.027). The mean held-out error, and so
+    the model choice, is set by those 3.
+  - There the models gain: both-gt 0.423 -> 0.348, 0.296 -> 0.215; bias-gt 0.423 -> 0.402.
+  - On the other 5 held-out scenes bias-gt is +2 to +13% on 4 and -0.7% on 1 (`ai_046_006`), both-gt
+    +23 to +86%; on dev bias-gt is +4 to +19% and both-gt +49 to +148%.
+- **The grid control was not the planned control:** at 8-12 views, 3 x 3 tiles give 860-1300 segments
+  per pass, and codes hold 192 (the flash kernel's head dimension), so about 80% of tiles were
+  unlabelled (2.65 M dropped over 3000 training steps). GT instances never hit the cap. With no GT model ahead of Déjà View
+  this does not change the reading, but a grid-control comparison from this run means nothing.
+- **What bias-gt learned** (`figures/e52a_beta.jpg`): β between -0.76 and +0.66, differing more by head
+  than by step: in global attention heads 3, 6 and 7 pull tokens towards their own segment in the later
+  steps (up to +0.66), heads 9 and 11 push them away throughout; frame attention up to ±0.5. Unlike
+  E53a's one β for all heads, gradient descent did use the freedom per head, and it still did not help.
+- **Reading, by the rule fixed in the plan:** the best GT model must beat Déjà View and its grid control
+  by 0.05 cm Chamfer on the dev mean and in 2 of 3 scenes. No GT model beats Déjà View on any dev scene
+  -> negative. SAM 3 and val are not run.
+- **What the figures show:** on the bedroom (views 18, 0, 12, 6) bias-gt looks like Déjà View (mean
+  per-pixel error 9.0 against 8.8 cm); both-gt raises the error over whole walls and the ceiling (11.2
+  cm), a smooth change of shape rather than errors at edges.
+- **Conclusion:**
+  - With Déjà View frozen, a learned per-head attention bias within GT instances, trained on 128 Hypersim
+    scenes, does not improve its depth on dev; it learns to fix scenes where Déjà View fails badly, at a
+    small cost on the scenes where it works. Pooling as set up here could not be trained stably, so
+    pooling is untested, not negative.
+  - The run says less than planned, for three reasons of setup, not of the idea: the mean loss over
+    scenes lets a few failing scenes decide both the gradient and the model choice; pooling's lr from a
+    one-scene sweep was too high for 128 scenes; the grid control was capped. A rerun would need a loss
+    and selection per scene relative to Déjà View's (or the failing scenes excluded), a lower pooling
+    lr, and a grid with at most 192 tiles per pass.
+  - For #52: E52a gives E52b no lead (the plan's rule), and its question (does a LoRA let Déjà View read
+    segments) stays open; the same three setup points would apply to it.
+- **Limits:** one seed; 3 dev scenes; 8 held-out scenes, 3 of them failures of Déjà View; GT walls,
+  floors and ceilings one segment per class; trained with 8-12 views, scored at 20 (the check shows the
+  same ordering at 12 and 20 views).
+- **Figures:** `figures/e52a_training.jpg`: held-out error over steps for all 6 models, and per scene
+  each trained GT model's loss over Déjà View's against Déjà View's own loss (held-out and dev);
+  `figures/e52a_beta.jpg`: bias-gt's β per loop step and head, frame and global;
+  `figures/e52a_bedroom.jpg`: bedroom views 18, 0, 12, 6: image, GT instances per patch, per-pixel error
+  of Déjà View, bias-gt and both-gt on one 0-30 cm scale. Look at the walls and ceiling in the last row.
+
+## Plan: E52a, second run = the same 6 adapters with the first run's three setup flaws fixed (issue #52, 15.11.2026)
+- **Goal:** the first run (above) was negative but said less than planned, for three reasons of setup.
+  Fix exactly those, keep everything else, and read the result by the same rule.
+- **Fix 1, loss and selection relative to Déjà View per scene.** First run: the absolute error, so the 3
+  held-out scenes where Déjà View fails (0.24-0.43, others 0.02-0.06) set the gradient and the kept step.
+  Now each step's loss is the model's error over Déjà View's on the same scene, views and Umeyama pixel
+  subset (one extra no-grad pass of plain Déjà View, about +30% time), and the held-out error is the mean
+  over scenes of the same ratio on fixed views (1 at step 0). Chosen over dropping the failing scenes:
+  it keeps the training set and E41b's split, and still tests those scenes. Adam's update does not
+  depend on the loss's per-scene scale except through its epsilon, so the learning rates carry over.
+- **Held-out scenes 8 -> 16** (120 train + 16 held out, the last 16 of the same ordered 136, all with 20
+  views), so that no single scene decides the kept step.
+- **Fix 2, pooling lr.** 1e-4 (from step 0's one-scene sweep) diverged on 128 scenes. Before the run: a
+  multi-scene sweep of pool-gt alone, lr 1e-5, 3e-5 and 1e-4 with the new loss, 500 steps, held-out
+  every 50 (one cluster job, ~25 min). The highest lr whose held-out curve does not rise after its
+  minimum is used for pool and both, and the step budget is reset if the sweep shows a plateau earlier;
+  both are written here before the run. The sweep reads only held-out train scenes, never dev.
+- **Fix 3, grid control.** First run: 3 x 3 *patch* blocks, 108 per view, 860-1300 per pass, ~80%
+  dropped at the 192-code cap. GT instances give a scene's views a median of 6-54 segments each (~13
+  in most of the 17 local dev / val scenes) and 13-169 per 20-view pass, because GT links views.
+  The grid now splits each view evenly into 3 x 3 tiles (9 x 12 patches each): 9 per view, near GT's
+  per-view count, 180 per pass at dev's 20 views, under the cap; tiles stay unlinked across views, as
+  planned. The script asserts that the grid never loses a tile.
+- **Kept:** 136 scenes and their order, 8-12 random views per step, bias lr 1e-3, 3000 steps (unless the
+  sweep says otherwise), 6 models (bias, pool, both x GT, grid), one seed, dev scoring as before,
+  `--check` after training, `e52a_figures.py`.
+- **Checks before the run:** unit tests (grid layout, 9 even tiles, apart per view); a laptop smoke run on
+  dev / val scenes as train data (not of record) for the ratio at step 0 (= 1) and on the first steps.
+- **Reading, unchanged:** the best GT model must beat Déjà View and its grid control by 0.05 cm Chamfer on
+  the dev mean and in 2 of 3 scenes; otherwise negative. SAM 3 and val only if it passes.
+- **Pooling lr sweep done (15.11, cluster job 2790, RTX 5090, fe8bfff, 18 min,
+  `results/e52a2_sweep.yaml`):** pool-gt alone, 400 steps instead of the planned 500 to keep the job
+  under 30 min, held-out every 50 (ratio to Déjà View, mean over the 16 held-out scenes):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set steps=400 eval_every=50 "segments=[gt]" "models={pool: [false, true]}" lr_pool=<lr> --out runs/e52a2_sweep_<lr>`
+  (an earlier job, 2789, stopped at step 1: PyYAML read `1e-5` as a string; `--set` now converts it).
+  - lr 1e-5: 0.9997 at step 50, falls slowly and almost steadily to 0.9939 at step 400, still falling.
+    Kept step 400: lower than Déjà View on 11 of 16 held-out scenes (ratio 0.965-1.034).
+  - lr 3e-5: minimum 0.9955 at step 100, then rises to 1.0114 at step 400.
+  - lr 1e-4: rises from step 50 (1.021) to 1.10-1.20, kept its zero start: the first run's divergence
+    again, now with the per-scene loss, so it was the lr, not the absolute loss.
+  - Time: 0.73 s per step on average, the extra Déjà View pass and the held-out evaluations (16 scenes
+    x 12 views, every 50 steps) included.
+  - **Changes before the run, by the rule above:** pooling lr 1e-5 (the only lr whose curve does not
+    rise after its minimum), for pool and both; 3000 steps stay, since 1e-5 is still falling at 400.
+    Six models at ~0.75 s per step: about 4-5 h on one 5090.
+  - The sweep also scored dev (it runs the default scoring after training). pool-gt Chamfer at lr 1e-5:
+    1.590 / 1.791 / 6.737 cm against Déjà View's 1.606 / 1.837 / 6.995 (mean 3.373 against 3.479,
+    lower on 3 of 3), rays turned 0.10-0.13°. The lr was **not** chosen from these numbers, and they
+    are not read: without the grid control trained the same way, a gain may be adaptation alone. The
+    run of record decides.
+
+## E52a, second run: the first run's setup flaws fixed -> pooling gains ~0.1 cm Chamfer on dev, but the grid control gains as much: adaptation, not segments; every model's training turns unstable after ~500 steps (issue #52, 15.11.2026)
+- **Goal, setting:** as the plan above: the first run's 6 models, now with the loss over Déjà View's per
+  step, 120 train + 16 held-out scenes, an even 3 x 3 grid control, pooling lr 1e-5 (sweep), bias lr
+  1e-3, 3000 steps, one seed. Dev: 3 scenes, 20 views, GT instances.
+- **Commits, commands:** training at 0b8a718, split by segment kind because the partition caps a job at
+  6 h (each model seeds its own stream, so the split changes no model's training): cluster jobs 2791
+  (GT models, 1 h 59 min) and 2792 (grid models, 2 h 18 min), RTX 5090:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "segments=[gt]" --out runs/e52a2_gt`
+  (and `"segments=[grid]" --out runs/e52a2_grid`); check, job 2823:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a2_gt --out runs/e52a2_check`;
+  figures `uv run python experiments/scripts/e52a2_figures.py runs/e52a2_gt runs/e52a2_grid runs/e52a2_check`.
+  Raw output `results/e52a2_train.yaml` (both jobs), `results/e52a2_check.yaml`.
+- **Checks:** both jobs scored Déjà View identically on dev (1.606 / 1.837 / 6.995 cm); a model whose kept
+  state is zero equals it exactly; the grid lost no tile (0 dropped in training and at dev's 20 views),
+  GT none either.
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes, 12 fixed views; 1 = Déjà View):
+  - pool-gt 0.9971 (step 250), 0.9950 (500), then up: 1.011 (1000), 1.086 (2000), 2.63 (3000).
+  - both-gt 0.9958, 0.9947 (500), then 1.011, 1.056, 1.21.
+  - pool-grid 0.9968 (250), 1.000 (500), then 1.076, 2.67, 4.08.
+  - bias-gt never below 1: 1.001 (250) rising to 1.015; bias-grid 1.009 rising to 1.084; both-grid 1.004
+    rising to 5.32.
+  - The training loss rises with the held-out error in every model, so this is unstable optimisation,
+    not overfitting: at the sweep's 1e-5 pooling still diverges, only later (the sweep stopped at 400).
+    Kept: pool-gt and both-gt step 500, pool-grid step 250, bias-gt, bias-grid and both-grid their zero
+    start (= Déjà View).
+- **Results, dev** (Chamfer, cm; living room / bedroom / lobby, mean; Déjà View 1.606 / 1.837 / 6.995,
+  3.479):
+  - pool-gt 1.619 / 1.778 / 6.734, **3.377** (-0.102; 2 of 3 better). Rays turn 0.13-0.15°.
+  - pool-grid 1.588 / 1.802 / 6.694, **3.362** (-0.117; 3 of 3 better). Rays turn 0.09-0.11°.
+  - both-gt 1.634 / 1.787 / 6.808, 3.409 (-0.070; 2 of 3). Its grid control both-grid kept zero.
+  - Most of each gain is the lobby (-0.19 to -0.30 cm), Déjà View's worst dev scene.
+  - Depth alone does not carry it: each pooling model's depth on Déjà View's plain cameras scores
+    4.19-4.25 cm (mean), worse than Déjà View; the gain needs its own, slightly turned rays.
+- **Per scene (the check, GT models, 20 fixed views):** pool-gt and both-gt change the training loss by
+  -6% to +5% on the 16 held-out scenes (lower on 11 and 9 of 16), 0 to -2% on Déjà View's 3 failing
+  scenes (first run: up to -27%); on dev -7 to -8% on the lobby, -1.4 to -1.7% on the bedroom, -3% and
+  +4% on the living room (pool-gt, both-gt).
+- **Reading, by the rule fixed in the plan:** the best GT model (pool-gt, 3.377) beats Déjà View by
+  0.10 cm in 2 of 3 scenes, but not its grid control (pool-grid 3.362, better on 2 of 3 scenes than
+  pool-gt) -> **negative for segments**. both-gt beats its control (zero) by 0.07 cm in 2 of 3, but that
+  control never trained; pool-grid shows the same gain without segments, so both-gt's is not read as the
+  segments' either.
+- **What the figures show:** `figures/e52a2_training.jpg`: left, every curve dips by at most 0.5% before
+  rising; right, per dev scene the pooling models' Chamfer change with GT (solid) and grid (hatched) is
+  of the same size and sign. `figures/e52a2_bedroom.jpg` (views 18, 0, 12, 6): mean per-pixel error 8.8
+  cm (Déjà View) -> 8.7 cm (both models); the change is smooth over whole surfaces, ±2-4 cm, both signs
+  (ceiling and floor of view 6 better, its back wall worse), not along instance boundaries.
+- **Conclusion:**
+  - With the setup fixed, a pooling adapter inside frozen Déjà View improves dev Chamfer by ~3% (0.10-0.12
+    cm), mostly on one scene, and it does so equally with GT instances and with unlinked grid tiles. The
+    gain is adaptation of Déjà View to Hypersim through a small learned module, not information from
+    segments. With E51a and E53a (training-free, negative) and the first run, GT segments inside the
+    frozen model have now shown no effect beyond a segment-free control in any form we tried.
+  - The adaptation gain is a lead of its own, not a result: one seed, 3 dev scenes, kept after 250-500
+    steps of a training that then diverges, val not run. It belongs with E52b's segment-free LoRA
+    control.
+  - The instability (training loss rising after ~500 steps at bias lr 1e-3 and pooling lr 1e-5, also in
+    the bias models, which were stable in the first run's absolute loss) is not explained. A guess, not
+    tested: the ratio to Déjà View's error weights scenes where Déjà View is near-perfect (error ~0.01)
+    up to ~45x more than the failing ones (0.009 against 0.42), so their noise dominates the gradient.
+  - So "GT equals grid" holds for briefly trained adapters only; a stable training (lower lr, warm-up,
+    or the ratio bounded) could still separate them. Not planned without a team decision.
+- **Limits:** one seed; 3 dev scenes, one of which carries most of the gain; kept states at 250-500 steps;
+  the sweep's 400 steps did not reveal 1e-5's later divergence; GT walls, floors and ceilings one segment
+  per class.
+
+## Plan: E52a, second run, stability probe = can the adapters train past ~500 steps? (issue #52, 15.11.2026)
+- **Goal:** the second run's "GT equals grid" holds only for adapters kept at 250-500 steps before every
+  model's training loss rose. Find a setting under which both-gt trains stably for 1000 steps; only
+  then is a full GT-against-grid comparison worth running.
+- **Arms** (both-gt, so both modules are tested; 1000 steps, held-out every 100, no dev scoring):
+  - A, lower lrs: bias 3e-4, pooling 3e-6 (the second run's / 3.3), plain ratio.
+  - B, the second run's lrs (1e-3, 1e-5), loss = error / max(Déjà View's error, 0.03): Déjà View's error
+    is 0.009-0.43 per scene, so the plain ratio weights a near-solved scene up to ~45x a failing one; the
+    floor (about the typical held-out error) caps that at ~3x. A log-ratio loss would not do this: its
+    gradient ∇e / e equals the ratio's ∇e / b while the model stays near Déjà View (e ≈ b).
+- **Reading:** an arm is stable if its held-out ratio (plain, as before) does not rise after its minimum
+  and its training loss shows no upward trend over the last 500 steps. If one is, run pool and both x GT,
+  grid with it (~3 h, ask first); if neither, PR as is, the instability stated as a limit.
+
+## E52a, second run, stability probe: lower lrs train both-gt without divergence for 1000 steps, but its held-out gain stays at 0.5%; the floored ratio diverges like the second run (issue #52, 16.11.2026)
+- **Setting, commits, commands:** as the plan above, at 7e278dc; cluster jobs 2834 (A, 15 min 51 s) and
+  2835 (B, 15 min 15 s), RTX 5090:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set steps=1000 eval_every=100 "segments=[gt]" "models={both: [true, true]}" lr_bias=3e-4 lr_pool=3e-6 --out runs/e52a2_probeA`
+  (B: `lr_bias`, `lr_pool` from the config and `ratio_floor=0.03`, `--out runs/e52a2_probeB`). Raw output
+  `results/e52a2_probe.yaml`.
+- **Checks:** no segment dropped; held-out reference (step 0) is Déjà View's error, as in the second run.
+- **Held-out error** (over Déjà View's, mean of 16 scenes, 12 fixed views), steps 100 to 1000:
+  - A: 0.9993, 0.9987, 0.9987, 0.9975, **0.9949** (500), 0.9970, 0.9971, 0.9961, 0.9962, 0.9950.
+  - B: 1.0012, 1.0024, 0.9996, 0.9970, **0.9968** (500), 1.0034, 1.0090, 1.0093, 1.0135, 1.0168.
+  - Per scene at step 1000: A lower on 12 of 16 (median 0.998, range 0.965-1.027); B on 7 of 16
+    (median 1.009, range 0.967-1.11).
+- **Training loss** (mean over each 100 steps): A 0.9991 falling to 0.9818, last 500 steps 0.9887,
+  0.9914, 0.9921, 0.9886, 0.9818: no upward trend. B (floored, so not on A's scale) 0.75-0.82 throughout,
+  no trend in either direction while its held-out error rises.
+- **Reading, by the plan's rule:** B is unstable. A meets the training-loss part; its held-out ratio rose
+  by 0.002 after its minimum at step 500 and was back to it at step 1000 (0.9950 against 0.9949), about
+  the step-to-step spread of the curve. For comparison, the second run's both-gt was at 1.011 by step
+  1000. A is read as **stable, but not improving after step 500**: its gain (0.5% held-out) is the size
+  of the second run's kept states.
+- **Conclusion:**
+  - The second run's divergence is the learning rate, not the ratio's weighting: lowering both lrs by
+    3.3x removes it, while bounding the weights (B) does not. The untested guess in the second run's
+    entry is refuted.
+  - A stable training does not by itself buy a larger gain: within 1000 steps A plateaus where the
+    second run's early-kept models were. A full GT-against-grid run at A's lrs would read the same
+    comparison without the early-stopping caveat; whether it is worth ~3 h is open.
+- **Limits:** one seed, one model (both-gt), 1000 steps; no dev scoring and no grid arm, so this says
+  nothing yet about segments.
+
+## Plan: E52a, third run = pool and both x GT, grid at the probe's stable lrs (issue #52, 16.11.2026)
+- **Goal:** the second run's "GT equals grid" was read on models kept after 250-500 steps of a training
+  that then diverged. Arm A of the stability probe trains stably; rerun the comparison at its lrs, so
+  that the kept states are chosen from a training that does not diverge.
+- **Setting:** the second run's (120 train + 16 held-out scenes, loss over Déjà View's, plain ratio,
+  3 x 3 grid, 3000 steps, held-out every 250, one seed, dev 3 scenes at 20 views), with lr_bias 3e-4 and
+  lr_pool 3e-6 (probe arm A). Models pool and both x {gt, grid} = 4; the bias-only models are left out
+  (never below Déjà View in either run). Two jobs (GT, grid; the partition caps 6 h), then `--check` of
+  the GT models. Estimated ~45 min per model, ~1.5 h per job.
+- **Reading (the second run's rule, unchanged):** the best GT model must beat Déjà View AND its grid
+  control by >= 0.05 cm dev mean Chamfer and on 2 of 3 dev scenes; else negative for segments.
+  Stability is reported per model with the probe's rule (held-out not rising after its minimum,
+  training loss without upward trend over the last 500 steps).
+
+## E52a, third run: at the probe's lower lrs all four adapters still diverge, only later; GT instances again gain no more than the grid control -> negative for segments (issue #52, 16.11.2026)
+- **Setting, commits, commands:** as the plan above, at cbeb5d0; cluster jobs 2863 (GT models, 1 h 18
+  min), 2864 (grid models, 1 h 27 min), 2865 (check of the GT models, 1 min), RTX 5090:
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "segments=[gt]" "models={pool: [false, true], both: [true, true]}" lr_bias=3e-4 lr_pool=3e-6 --out runs/e52a3_gt`
+  (and `"segments=[grid]" ... --out runs/e52a3_grid`); check
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a3_gt --out runs/e52a3_check`
+  (the check's config records the default lrs; it trains nothing); figures
+  `uv run python experiments/scripts/e52a2_figures.py runs/e52a3_gt runs/e52a3_grid runs/e52a3_check --run e52a3`.
+  Raw output `results/e52a3_train.yaml` (both jobs), `results/e52a3_check.yaml`.
+- **Checks:** both jobs scored Déjà View identically on dev (1.606 / 1.837 / 6.995 cm); no segment dropped
+  (GT or grid); the second run's figures redrawn by the extended script are byte-identical.
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes, every 250 steps):
+  - pool-gt min **0.9945** (1000), 0.9947 (1500), then up to 1.0001 (2250), 1.0061 (3000).
+  - both-gt min **0.9935** (1500), then up to 1.0003 (2250), 1.0040 (3000).
+  - pool-grid min **0.9950** (1000), then up to 1.0042 (2000), 1.0470 (3000).
+  - both-grid min **0.9983** (500), then up from step 750 to 1.0459 (3000).
+  - The training loss rises with them (pool-grid 0.9875 at 1000 -> 1.0357 at 3000, both-grid 0.9902 ->
+    1.0499; GT models 0.98 -> 0.99). So no model is stable by the probe's rule: lowering the lrs by 3.3x
+    delays the divergence by 500-1500 steps, it does not remove it. The probe's 1000 steps ended before
+    it, as the sweep's 400 had in the second run. **This corrects the probe's conclusion** ("the
+    divergence is the learning rate"): its cause is not known; neither lower lrs nor the floored ratio
+    removes it.
+- **Results, dev** (Chamfer, cm; living room / bedroom / lobby, mean; Déjà View 1.606 / 1.837 / 6.995,
+  3.479):
+  - pool-gt 1.590 / 1.791 / 6.809, **3.397** (-0.083; 3 of 3 better). Rays turn 0.08-0.12°.
+  - both-gt 1.601 / 1.795 / 6.857, 3.418 (-0.062; 3 of 3). Rays 0.16-0.19°.
+  - pool-grid 1.564 / 1.810 / 6.826, **3.400** (-0.079; 3 of 3). Rays 0.13-0.15°.
+  - both-grid 1.603 / 1.778 / 6.634, **3.338** (-0.141; 3 of 3). Rays 0.10-0.13°.
+  - Again most of each gain is the lobby (-0.14 to -0.36 cm). On Déjà View's plain cameras every model is
+    worse than Déjà View (3.53-4.19 cm mean): the gain needs the model's own, slightly turned rays.
+  - both-grid, the model with the weakest held-out gain (0.998), is the best on dev: model-to-model
+    differences of ~0.1 cm on these 3 scenes are not resolved by the held-out selection.
+- **Per scene (the check, GT models):** training loss over Déjà View's on the 16 held-out scenes -3.6% to
+  +3.6% (lower on 9-13 of 16, at 12 and 20 views), 0 to -2% on Déjà View's 3 failing scenes; on dev at 20
+  views pool-gt -2.4 / -1.0 / -5.8% (living room, bedroom, lobby), both-gt +1.7 / -1.1 / -7.7%.
+- **Reading, by the rule fixed in the plan:** the best GT model (pool-gt, 3.397) beats Déjà View by 0.08
+  cm on 3 of 3 scenes, but its grid control (pool-grid, 3.400) by 0.003 cm, under the 0.05 bar; both-gt
+  is 0.08 cm worse than its control both-grid -> **negative for segments**, the same reading as the
+  second run, now with all four controls trained.
+- **What the figures show:** `figures/e52a3_training.jpg`: left, all four curves dip to 0.994-0.998 and
+  rise after 500-2000 steps, the grid models earlier; right, per dev scene the four models change Chamfer
+  in the same direction, the grid bars as large as the GT bars or larger. `figures/e52a3_bedroom.jpg`
+  (views 18, 0, 12, 6): mean per-pixel error 8.8 cm (Déjà View) -> 8.8 / 8.7 cm (both-gt / pool-gt);
+  the change is ±2-4 cm smooth over whole surfaces (view 6's back wall worse, its ceiling and floor
+  better), not along instance boundaries, as in the second run.
+- **Conclusion:**
+  - Three runs of E52a, the last two with fixed setup flaws and trained controls, give the same answer:
+    adapters inside frozen Déjà View improve dev Chamfer by 2-4% (0.06-0.14 cm, 3 of 3 scenes in this run),
+    and an even 3 x 3 grid of unlinked tiles does so as much as GT instances. The gain is adaptation to
+    Hypersim, not segment information. With E51a and E53a, GT segments injected into frozen Déjà View
+    have shown no effect beyond a segment-free control in any form we tried.
+  - No model trains stably past 500-2000 steps at any setting tried (two lrs, plain and floored ratio),
+    so every kept state is early. Whether a stable training would separate GT from grid stays open;
+    E52a stops here: finding the instability's cause is a project of its own, and a larger, longer
+    training is what E52b (LoRA, with its segment-free control) would test anyway.
+- **Limits:** one seed; 3 dev scenes, the lobby carrying most of each gain; kept states early in a
+  diverging training; val not run (the plan's rule: no positive GT result); GT walls, floors and ceilings
+  one segment per class.

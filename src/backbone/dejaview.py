@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,8 +50,10 @@ class DejaViewBackbone:
             self._model = model
         return self._model, self._accelerator
 
-    def predict(self, views: Views) -> Geometry:
-        """Predict depth, confidence, rays and cameras for every view."""
+    def predict(
+        self, views: Views, forward: Callable[[Any, Tensor], dict] | None = None
+    ) -> Geometry:
+        """Depth, confidence, rays and cameras per view; forward replaces dvlt's."""
         height, width = views.images.shape[1:3]
         if height % PATCH_SIZE or width % PATCH_SIZE:
             msg = f"image size must be a multiple of {PATCH_SIZE}, got {width}x{height}"
@@ -60,7 +63,10 @@ class DejaViewBackbone:
         images = torch.from_numpy(views.images).permute(0, 3, 1, 2).float() / 255.0
         batch = {DataField.IMAGES: images[None].to(accelerator.device)}
         with torch.no_grad(), accelerator.autocast():
-            raw = model.model(batch)
+            images = batch[DataField.IMAGES]
+            raw = (
+                model.model(batch) if forward is None else forward(model.model, images)
+            )
             # official post-processing: cameras fitted from the predicted rays
             preds = model._postprocess_predictions(batch, raw)  # noqa: SLF001
 
