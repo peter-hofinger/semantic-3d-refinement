@@ -46,22 +46,7 @@ from torch import Tensor
 
 from src.analysis.scene_eval import git_hash
 from src.backbone.adapters import SegmentAdapter
-from src.evaluation.labeled import umeyama
-
-
-def umeyama_torch(source: Tensor, target: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Differentiable least-squares Sim(3), target ≈ s R source + t, as `umeyama`."""
-    assert source.shape == target.shape, (source.shape, target.shape)
-    assert source.shape[1] == 3, source.shape
-    mu_s, mu_t = source.mean(0), target.mean(0)
-    a, b = source - mu_s, target - mu_t
-    u, d, vt = torch.linalg.svd(b.T @ a / len(a))
-    sign = torch.ones(3, dtype=a.dtype, device=a.device)
-    det = torch.linalg.det(u @ vt).detach()
-    sign[2] = 1.0 if det == 0 else torch.sign(det)
-    rotation = (u * sign) @ vt
-    scale = (d * sign).sum() / (a**2).sum(1).mean()
-    return scale, rotation, mu_t - scale * rotation @ mu_s
+from src.evaluation.labeled import umeyama, umeyama_torch
 
 
 class Draw:

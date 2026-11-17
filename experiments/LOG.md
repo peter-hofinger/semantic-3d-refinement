@@ -5652,3 +5652,27 @@ Interim entry: the check that the plan puts before any table.
     trains the same way.
 - **Limits:** dev scenes as data (nothing tuned or scored); 4 views per draw (training draws 8-12); 9
   draws per state; the doubled state is a stand-in for the diverging phase, not a state training reached.
+
+## Plan: E52d, exact-gradient arm F = arm A trained through a differentiable Sim(3) (issue #52, 17.11.2026)
+- **Goal:** the gradient check found training's detached Sim(3) gradient only weakly aligned with the
+  gradient of the loss it is read with (mean-gradient cosine 0.62 -> 0.24 as B_k grows). Does training
+  with the exact gradient stop arm A's rise? If so, E52b's LoRA trains that way.
+- **Change:** `align: exact` (`configs/e52a_adapters.yaml`, default `detached` = every earlier run):
+  `step_loss` fits s, R, t with `umeyama_torch` (moved from the check script to
+  `src/evaluation/labeled.py`, tested against `umeyama` and by finite differences) on the same pixel
+  subset, in float64, with grad. The loss value is the same as with the detached fit; only the gradient
+  gains the term through S. Déjà View's base pass and the held-out passes run without grad, so they are
+  unchanged.
+- **Arm F:** arm A (pool-grid, lr_pool 3e-6, 3000 steps, held-out every 250, `--splits` none) with
+  `align=exact`, nothing else changed.
+- **Machine:** the 3080 server (`ssh tum`, user's choice: the cluster queue held ~35 jobs), bf16 as A.
+  A ran on a 5090, so F's curve is compared to A's with that caveat (bf16 numbers differ across GPUs;
+  E52d's identity check showed run-to-run spread on one GPU). If F is borderline, A is rerun on the 3080
+  too (another ~1.5-2 h, ask first).
+- **Checks before the run:** laptop smoke (few steps, 4 views): same loss value for `detached` and
+  `exact` at one state, finite gradients.
+- **Reading:** the probe's rule: stable if the held-out ratio does not rise after its minimum and the
+  training loss has no upward trend over the last 500 steps; also |B_k| against A's linear growth. Stable
+  -> LoRA (E52b's control) trains with `align=exact`. Rises as A -> the detached Sim(3) is not the
+  cause; the cause stays open and E52b uses cosine decay (arm E) as planned.
+- **Cost:** ~1.5-2 h on the 3080 (A: ~40 min on the 5090, the 3080 ~3x slower); peak memory ~3.4 GB.

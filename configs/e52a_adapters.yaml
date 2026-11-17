@@ -48,3 +48,5 @@ weight_decay_up: 0.0                 # AdamW's decoupled decay on B_k only (its 
 clip_factor: null                    # clip the gradient norm at this x the last 100's median
 lr_decay: constant                   # or cosine: from the lr to 0 over `steps`
 diag_every: 50                       # parameter norms every this many steps
+align: detached                      # Sim(3) of the loss: detached (E52a) or exact
+                                     # (differentiable, E52d's exact-gradient arm)

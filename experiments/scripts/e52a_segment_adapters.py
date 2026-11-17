@@ -19,14 +19,16 @@ whose kept state is not zero, per held-out and dev scene at 12 and 20 fixed view
 the held-out gain hold per scene and at the dev scores' 20 views?), and the bedroom's
 per-pixel error maps at views 18, 0, 12, 6 (`<out>/e52a_maps.npz`).
 
-Error of one pass: the conditioned model's points x = o + D d, one Umeyama Sim(3)
-(detached) of a random pixel subset onto the GT points, L1 of |S x - x_gt| / depth_gt on
-every GT pixel, clipped at `max_error`. Training loss per step (E52a, second run): one
-scene, a random subset of its views, the model's error over Déjà View's on the same
-views and pixel subset (one extra no-grad pass), so a scene where Déjà View fails
-(first run: error 0.24-0.43 against 0.01-0.06) weighs no more than one where it works;
-Adam's step is invariant to that rescaling up to its epsilon. `ratio_floor` > 0 divides
-by max(Déjà View's error, floor) instead, which bounds how much more a scene that Déjà View
+Error of one pass: the conditioned model's points x = o + D d, one Umeyama Sim(3) of a
+random pixel subset onto the GT points (`align: detached`, E52a's runs, or `exact`:
+differentiable, so the gradient also sees the Sim(3) move with x; E52d's gradient check
+found the detached one only partly a descent direction), L1 of |S x - x_gt| / depth_gt
+on every GT pixel, clipped at `max_error`. Training loss per step (E52a, second run):
+one scene, a random subset of its views, the model's error over Déjà View's on the same
+views and pixel subset (one extra no-grad pass), so a scene where Déjà View fails (first
+run: error 0.24-0.43 against 0.01-0.06) weighs no more than one where it works; Adam's
+step is invariant to that rescaling up to its epsilon. `ratio_floor` > 0 divides by
+max(Déjà View's error, floor) instead, which bounds how much more a scene that Déjà View
 nearly solves weighs (stability probe). Held-out error: the mean over held-out scenes of
 the plain ratio on fixed views (1 at step 0, which is Déjà View).
 
@@ -75,6 +77,7 @@ from src.evaluation.labeled import (
     lift,
     surface_metrics,
     umeyama,
+    umeyama_torch,
 )
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
@@ -158,11 +161,18 @@ def step_loss(
     depth = torch.from_numpy(scene.depth[sel]).to(device)[valid]
     rng = np.random.default_rng(seed)
     pick = rng.choice(len(x), size=min(cfg["umeyama_pixels"], len(x)), replace=False)
-    s, r, t = umeyama(
-        x[pick].detach().double().cpu().numpy(), y[pick].double().cpu().numpy()
-    )
-    r_t = torch.as_tensor(s * r.T, dtype=x.dtype, device=device)
-    aligned = x @ r_t + torch.as_tensor(t, dtype=x.dtype, device=device)
+    assert cfg["align"] in ("detached", "exact"), cfg["align"]
+    if cfg["align"] == "exact":
+        at = torch.from_numpy(pick).to(device)
+        s, r, t = umeyama_torch(x[at].double(), y[at].double())
+        r_t, t = (s * r.T).to(x.dtype), t.to(x.dtype)
+    else:
+        s, r, t = umeyama(
+            x[pick].detach().double().cpu().numpy(), y[pick].double().cpu().numpy()
+        )
+        r_t = torch.as_tensor(s * r.T, dtype=x.dtype, device=device)
+        t = torch.as_tensor(t, dtype=x.dtype, device=device)
+    aligned = x @ r_t + t
     err = (aligned - y).norm(dim=-1) / depth
     assert torch.isfinite(err).all()
     return err.clamp(max=cfg["max_error"]).mean(), dropped
