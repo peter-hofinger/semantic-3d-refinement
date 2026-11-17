@@ -14,6 +14,14 @@ Overfit rungs use fixed, named data. Scale rungs use the train and val sets.
 - If the algorithm takes a whole scene as one sample: use scenes.
 - If it takes a single view as one sample: pick one fixed view per scene. Record which one.
 
+## Splits **(added)**
+
+CLAUDE.md reserves Hypersim's `val` split for one final check and `test` for reporting, so the ladder never reads them. Wherever this document says val, it means a fixed held-out slice of the train scenes (`configs/hypersim.yaml`), added as its own split when the first ladder run needs it and never trained on.
+
+- Rungs 3 and 4 train on `ai_006_007` and on `dev`. They are diagnostics, not results, and nothing from them is reported as a score.
+- Rung 5 trains on the train scenes minus the held-out slice and validates on that slice. Choices are made on it and on `dev`.
+- Hypersim's `val` is read once, after the choices are frozen.
+
 ## Ladder
 
 Climb in order. Do not skip a rung. Diagnose a failure at its own rung, not by changing things at a later one.
@@ -23,9 +31,9 @@ Climb in order. Do not skip a rung. Diagnose a failure at its own rung, not by c
 | 0 | Setup | Simplest model, under 1M params, about 1/5 of the layers you would normally start with. No dropout, BatchNorm or LR decay. Constant LR, no weight decay. | Runs end to end. | Fix the code. |
 | 1 | Data | Visualize inputs, targets and augmentations. Check shapes, ranges, label alignment. | Samples look right to a human. | Data pipeline bug. |
 | 2 | Speed | Time data loading and backprop separately. Estimate time to first pattern and to convergence. | Under 1 s per batch. Over 500 ms is a warning. | Fix the bottleneck first. Slow loops hide bugs. |
-| 3 | Overfit 1 | Train on the bedroom scene only. | Loss reaches about 0 within minutes. Output matches the target. | Targets, loss or optimizer bug. Not the approach. |
-| 4 | Overfit dev | Train on the dev set (3 scenes). | Loss reaches about 0. Outputs differ per input. | Input conditioning bug. The model ignores its inputs. |
-| 5 | Generalize | Scale up on the train set: 5, 10, 100, 1000 samples. Validate on the actual val set. | Any val decrease, even slight, then val loss below the trivial baseline. | See verdicts below. |
+| 3 | Overfit 1 | Train on the bedroom scene `ai_006_007` only. | Loss reaches about 0 within minutes. Output matches the target. | Targets, loss or optimizer bug. Not the approach. |
+| 4 | Overfit dev | Train on the `dev` scenes (3). | Loss reaches about 0. Outputs differ per input. | Input conditioning bug. The model ignores its inputs. |
+| 5 | Generalize | Scale up on the train set: 5, 10, 100, 1000 samples. Validate on the held-out slice (see Splits). | Any val decrease, even slight, then val loss below the trivial baseline. | See verdicts below. |
 | 6 | Push | Bigger model (needs more data), better architecture, LR schedule, class re-weighting, hyperparameter search. | Only after rung 5 passes and overfitting is handled. | |
 
 Notes:

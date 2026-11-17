@@ -48,18 +48,16 @@ Pipeline: Views -> backbone -> SAM 3 + linking -> refiner -> labeled point cloud
 - `runs/` and `data/` never enter git.
 
 ## Experiments
-Climb in order and step back down when something fails: look at inputs and outputs; identity (zero iterations or weights return the input bit for bit); a synthetic scene with known truth; one real scene, then the benchmark; corrupt the semantics (if the gain doesn't drop, semantics aren't what helps); only then tune, coarse grid first.
 - An experiment is E<issue><letter> (E8a, E8b, ...); work without an issue gets one first. E1-E45 keep their numbers.
 - Each gets a plan entry in `experiments/LOG.md` before it runs and a result entry after: goal, setting, commits, commands, checks, results with baselines, conclusion.
-- Smallest scene, resolution and view count that could work; one change per run; time every stage.
+- Smallest scene, resolution and view count that could work; time every stage; plot train and val loss every run.
+- Change one thing at a time. Fixed seed saved with the run's config, fixed val set, never augment val.
 
 Before any neural network experiment, follow `docs/experiments.md`.
 
-- Climb the ladder in order: overfit the bedroom scene, then the dev set (3 scenes), then scale on train and validate on val. One view per scene if a sample is a view.
+- Climb the ladder in order: overfit the bedroom `ai_006_007`, then `dev` (3 scenes), then scale on train and validate on a held-out slice of the train scenes, never on Hypersim's `val` or `test`. One fixed view per scene if a sample is a view.
 - Cannot overfit → implementation bug, not a failed approach.
 - Simplest model first: no dropout, BatchNorm or LR decay.
-- Change one thing at a time. Fixed seed, fixed val set. Never augment val.
-- Plot train and val loss every run.
 - "Approach fails" needs a passed ladder and a tuned baseline. Otherwise write "not yet working".
 
 ## Visuals
