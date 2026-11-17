@@ -5676,3 +5676,53 @@ Interim entry: the check that the plan puts before any table.
   -> LoRA (E52b's control) trains with `align=exact`. Rises as A -> the detached Sim(3) is not the
   cause; the cause stays open and E52b uses cosine decay (arm E) as planned.
 - **Cost:** ~1.5-2 h on the 3080 (A: ~40 min on the 5090, the 3080 ~3x slower); peak memory ~3.4 GB.
+
+## E52d, exact-gradient arm F: training through the differentiable Sim(3) removes the rise, and the held-out gain is about three times that of every detached arm (issue #52, 17.11.2026)
+- **Setting, commits, commands:** as the plan above, at 4e10e7d (clean), on the 3080 server, bf16,
+  1 h 56 min (A: 34 min on a 5090):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "segments=[grid]" "models={pool: [false, true]}" lr_bias=3e-4 lr_pool=3e-6 align=exact --out runs/e52d_F`;
+  figure and raw output `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid`
+  (F added to `e52d_training.jpg` and `results/e52d_train.yaml`; arms A-E unchanged).
+- **Checks:** laptop smoke before the run: `detached` and `exact` give the same loss value at one state
+  (0.01302994), the exact gradient is 0.77x as long, cosine 0.64 (as in the gradient check). F draws the
+  same scenes and views per step as A-E: Déjà View's per-step error on the 3080 matches A's on the 5090
+  to 1e-3, so training losses still pair step by step across arms.
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes, 12 fixed views):
+  | step | 500 | 1000 | 1500 | 2000 | 2500 | 2750 | 3000 |
+  |---|---|---|---|---|---|---|---|
+  | A (detached, 5090) | 0.9964 | **0.9950** | 0.9964 | 1.0041 | 1.0188 | 1.0266 | 1.0426 |
+  | E (cosine decay, 5090) | 0.9966 | 0.9943 | 0.9944 | 0.9961 | 0.9973 | 0.9974 | 0.9973 |
+  | F (exact, 3080) | 0.9904 | 0.9861 | 0.9838 | 0.9831 | 0.9822 | **0.9818** | 0.9823 |
+  - F falls at every eval up to step 2750 and rises 0.0004 at 3000. A rose 0.047 after its minimum, E
+    0.004.
+  - Training loss over the last 500 steps (linear trend over them; paired against A on the same draws):
+    F 0.957 (**-0.020**; -0.074), against A 1.031 (+0.007), C 1.002 (-0.011; -0.029), E 0.989 (-0.014;
+    -0.042). F shares the other arms' bump at steps 2250-2750 (same draws); the uptick at 2500 in its log
+    is that bump.
+  - Norm of B_k: 0.07 / 0.11 / 0.18 / 0.23 at steps 500 / 1000 / 2000 / 3000, growing slower over time
+    (A: 0.12 / 0.22 / 0.42 / 0.68, linear). The gradient norm of B_k stays at 1.9-2.4 (median per 250
+    steps; A 2.4 -> 4.9).
+- **What the figure shows:** `figures/e52d_training.jpg`: the red curve (F) leaves the others from step
+  250 on and keeps falling in both loss panels while A-D rise; its B_k norm bends over, and its gradient
+  norm stays flat.
+- **Reading, by the plan's rule:** the training half holds (no upward trend). The held-out half is missed
+  by one eval: +0.0004 at step 3000. That is above the eval's own spread (two runs of A's setting on two
+  5090 nodes agreed to 1e-5 at step 1000) but 1% of A's rise and a tenth of E's, after 750 steps within
+  0.0013 of each other. Read as stable to about 0.0005 over 3000 steps; whether it stays flat beyond 3000
+  is untested. The plan's A rerun on the 3080 is not needed: F and A differ by 0.06 at step 3000, 15x the
+  spread of A's repeats across nodes at that step (0.004).
+- **Conclusion:**
+  - The detached Sim(3) caused E52a's and E52d's divergence: with the exact gradient through the
+    alignment, and nothing else changed, the rise is gone and B_k no longer grows linearly. With the
+    gradient check this closes E52d's question.
+  - The exact gradient also finds more: held-out minimum 0.9818 (-1.8%) against 0.9935-0.9950 (-0.5 to
+    -0.65%) for every detached arm. E52a's gains were held back by the wrong gradient, not only cut short
+    by the divergence.
+  - This gain is adaptation (pool-grid: grid tiles, no segments) on held-out training scenes; it is not a
+    dev Chamfer result (`--splits` none) and says nothing yet about segments.
+  - Next, by the plan: E52b's LoRA control trains with `align=exact`. E52a's verdict (GT = grid) came
+    from runs trained with the detached gradient, so the pool-gt vs pool-grid comparison is rerun with
+    `align=exact` and dev scoring before it is relied on.
+- **Limits:** one model (pool-grid), one lr, one seed, 3000 steps; F on another GPU than A-E (checked
+  above: same draws, spread far below the effect); runtime not comparable (3080 vs 5090; the float64
+  Umeyama's share is not timed).

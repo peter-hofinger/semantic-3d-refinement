@@ -1,8 +1,9 @@
 """E52d, figure and compact raw output: why E52a's adapters diverge (issue #52).
 
-Reads the five arms' `e52a.yaml` of `e52a_segment_adapters.py` (pool-grid, A as E52a's
-third run, B fp32, C weight decay on B_k, D gradient clipping, E cosine lr decay) and the
-third run's grid models for the identity check.
+Reads the six arms' `e52a.yaml` of `e52a_segment_adapters.py` (pool-grid, A as E52a's
+third run, B fp32, C weight decay on B_k, D gradient clipping, E cosine lr decay, F the
+exact gradient through a differentiable Sim(3), run on the 3080 while A-E ran on a 5090)
+and the third run's grid models for the identity check.
 
 1. `figures/e52d_training.jpg`: per arm over training steps, the held-out error (over Déjà
    View's, mean of 16 scenes), the training loss (over Déjà View's, mean of 250 steps;
@@ -36,6 +37,7 @@ ARMS = {  # arm -> label, colour
     "C": ("C: weight decay on B_k", "#2a9d55"),
     "D": ("D: gradient clipping", "#9b59b6"),
     "E": ("E: cosine lr decay", "#eb6834"),
+    "F": ("F: exact Sim(3) gradient (3080)", "#d62f5f"),
 }
 SMOOTH = 250  # steps per training-loss mean and gradient median
 WINDOW = 50  # steps per mean in the compact raw output
@@ -152,11 +154,12 @@ def main() -> None:
         ax.set_xlabel("training step")
     axes[0].legend(fontsize=8, frameon=False)
     fig.suptitle(
-        "E52d (pool-grid, lr 3e-6): fp32 and clipping change nothing; B_k grows steadily "
-        "while both losses rise; weight decay slows its growth and the rise, cosine lr "
-        "decay stops both",
+        "E52d (pool-grid, lr 3e-6): with the detached Sim(3) (A-E), B_k grows steadily "
+        "while both losses rise, unless its motion is slowed (C) or stopped (E);\nwith "
+        "the exact gradient (F), B_k grows slower and both losses keep falling to step "
+        "3000 (held-out +0.0004 after its minimum at 2750)",
         fontsize=11,
-        y=1.06,
+        y=1.1,
     )
     fig.savefig(FIGURES / "e52d_training.jpg", dpi=110, bbox_inches="tight")
 
@@ -182,8 +185,8 @@ def main() -> None:
             },
         }
     header = (
-        "# E52d: cluster jobs 2889-2893 (arms A-E), pool-grid; per-step series as means "
-        f"over {WINDOW}-step windows\n"
+        "# E52d: cluster jobs 2889-2893 (arms A-E, RTX 5090) and the 3080 server (arm F),"
+        f" pool-grid; per-step series as means over {WINDOW}-step windows\n"
     )
     (RESULTS / "e52d_train.yaml").write_text(
         header + yaml.safe_dump(compact, sort_keys=False, allow_unicode=True),
