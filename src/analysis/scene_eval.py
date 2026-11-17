@@ -19,9 +19,18 @@ A variant's `keep: q` cuts its output to the top fraction q of the pixels by ins
 voxel density (`filters.instance_voxel_density`, E45's best filter), flagged on the
 backbone's cloud: flag, refine every pixel, then drop the flagged (E27a). The dropped
 pixels have no point, so they count for completeness only; the label scores are per
-pixel and stay as they are.
+pixel and stay as they are. With `keep_by: <name>` the pixels are ranked instead by the
+score `<name>_<views>.npz` holds in the scene's folder (key `keep`, higher keeps), such
+as the 3D refiner's keep logit (issue #57), at the same fraction; `keep_with: density`
+ranks by both scores (`filters.both`), and `keep_per: instance` cuts each instance to q.
+With `fill` the pixels the cut drops are kept and get a new depth from their view's
+kept pixels instead (`filters.fill_harmonic`, E58a): `plain`, `rgb` (edges weighted by
+colour), `sam3` or `gt` (edges cut between the linked masks' or the ground truth's
+instances).
 The config names the splits that get an aggregate (`split_scores`) and those that keep
-per-scene records.
+per-scene records. `surface: tsdf` with `tsdf: {voxel, trunc}` (metres) adds the fused
+surface scores (`fused_*`, `evaluation.labeled`) next to the per-pixel ones; without
+it (`surface: pixels`, the default) nothing changes.
 Every variant's `log` holds the refinement's own diagnostics, such as the disagreement
 between overlapping views; it is not a score of the output.
 
@@ -41,12 +50,21 @@ import numpy as np
 import torch
 import yaml
 
-from src.analysis.filters import instance_voxel_density, keep_top, ranks
+from src.analysis.filters import (
+    both,
+    fill_harmonic,
+    instance_voxel_density,
+    keep_top,
+    keep_top_within,
+    ranks,
+)
 from src.evaluation.labeled import (
     LabeledCloud,
+    fused_metrics,
     ground_truth_cloud,
     score_output,
     split_scores,
+    tsdf_points,
 )
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
@@ -166,17 +184,62 @@ def load_inputs(raw: dict, name: str, device: torch.device) -> SceneInputs:
 
 
 @dataclasses.dataclass(frozen=True)
+class Fusion:
+    """The fused-surface score's inputs: GT surface, output pinholes, TSDF settings."""
+
+    truth: np.ndarray  # (M, 3) the ground truth's fused surface
+    k: np.ndarray  # (V, 3, 3) the output's pinholes, pixel centers at integers
+    cam_to_world: np.ndarray  # (V, 4, 4)
+    tsdf: dict[str, float]  # voxel, trunc in metres
+
+
+@dataclasses.dataclass(frozen=True)
 class Scoring:
     """What scoring one scene's outputs needs; sent to the worker processes."""
 
     truth: LabeledCloud
     labels: Segmentation
     evaluated: list[str]
+    fusion: Fusion | None = None  # `surface: tsdf` only
 
 
 def score(scoring: Scoring, points: np.ndarray) -> dict:
-    """Score per-pixel points (V, H, W, 3) with the SAM 3 labels; `align` is s R | t."""
-    return score_output(scoring.truth, points, scoring.labels, scoring.evaluated)
+    """Score per-pixel points (V, H, W, 3) with the SAM 3 labels; `align` is s R | t.
+
+    The fused score fuses the same pixels as the per-pixel one, those with GT depth.
+    """
+    out = score_output(scoring.truth, points, scoring.labels, scoring.evaluated)
+    f = scoring.fusion
+    if f is not None:
+        cameras = (f.k, f.cam_to_world)
+        scored = np.where(scoring.truth.pixels[..., None], points, np.nan)
+        out |= fused_metrics(
+            scored.astype(np.float64), cameras, out["align"], f.truth, f.tsdf
+        )
+    return out
+
+
+def fusion(raw: dict, inputs: SceneInputs) -> Fusion | None:
+    """Return the scene's Fusion if the config asks for `surface: tsdf`, else None."""
+    surface = raw.get("surface", "pixels")
+    assert surface in {"pixels", "tsdf"}, surface
+    if surface == "pixels":
+        return None
+    tsdf = {"voxel": float(raw["tsdf"]["voxel"]), "trunc": float(raw["tsdf"]["trunc"])}
+    gt_k = inputs.views.intrinsics.astype(np.float64).copy()
+    gt_k[:, :2, 2] -= 0.5  # COLMAP's pixel centers at +0.5 to Open3D's at integers
+    truth = tsdf_points(
+        inputs.gt.depth.astype(np.float64),
+        gt_k,
+        inputs.views.cam_to_world.astype(np.float64),
+        tsdf["voxel"],
+        tsdf["trunc"],
+    )
+    scene = inputs.scene
+    cam_to_world = np.tile(np.eye(4), (len(scene.k), 1, 1))
+    cam_to_world[:, :3, :3] = scene.rotation.double().cpu().numpy()
+    cam_to_world[:, :3, 3] = scene.center.double().cpu().numpy()
+    return Fusion(truth, scene.k.double().cpu().numpy(), cam_to_world, tsdf)
 
 
 def tiers(scores: dict) -> dict[str, dict]:
@@ -264,9 +327,15 @@ def variant_segments(inputs: SceneInputs, variant: dict) -> torch.Tensor | None:
 
 
 def refine_variant(
-    inputs: SceneInputs, variant: dict, base: RefineConfig
+    inputs: SceneInputs,
+    variant: dict,
+    base: RefineConfig,
+    keep_score: np.ndarray | None = None,
 ) -> tuple[float, dict, np.ndarray, np.ndarray]:
-    """Refine (or not) as the variant says: runtime, log, depth and per-pixel points."""
+    """Refine (or not) as the variant says: runtime, log, depth and per-pixel points.
+
+    `keep_score` (V, H, W) replaces instance voxel density as the cut's ranking.
+    """
     scene = inputs.scene
     seconds, log_record = 0.0, {}
     depth = scene.depth
@@ -291,17 +360,46 @@ def refine_variant(
     log_record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
     points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
     if "keep" in variant:
-        start = (
-            points_from_rays(scene.depth.double(), scene.rays.double()).cpu().numpy()
-        )
-        density = instance_voxel_density(
-            start,
-            scene.depth.cpu().numpy(),
-            scene.k.cpu().numpy(),
-            inputs.labels.instance_ids,
-        )
-        points[~keep_top(ranks(density), variant["keep"])] = np.nan
+        ids = inputs.labels.instance_ids
+        if keep_score is None or variant.get("keep_with") == "density":
+            start = points_from_rays(scene.depth.double(), scene.rays.double())
+            density = instance_voxel_density(
+                start.cpu().numpy(),
+                scene.depth.cpu().numpy(),
+                scene.k.cpu().numpy(),
+                ids,
+            )
+            keep_score = density if keep_score is None else both(density, keep_score)
+        assert keep_score.shape == points.shape[:3], keep_score.shape
+        if variant.get("keep_per") == "instance":
+            kept = keep_top_within(keep_score, ids, variant["keep"])
+        else:
+            kept = keep_top(ranks(keep_score), variant["keep"])
+        if "fill" in variant:
+            filled = fill_variant(inputs, variant["fill"], depth.cpu().numpy(), kept)
+            depth = torch.from_numpy(filled).to(scene.rays.device)
+            points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
+        else:
+            points[~kept] = np.nan
     return seconds, log_record, depth.cpu().numpy(), points
+
+
+def fill_variant(
+    inputs: SceneInputs, kind: str, depth: np.ndarray, kept: np.ndarray
+) -> np.ndarray:
+    """Depth with the flagged pixels filled from the kept ones, as `fill` says."""
+    match kind:
+        case "plain":
+            return fill_harmonic(depth, kept)
+        case "rgb":
+            return fill_harmonic(depth, kept, images=inputs.views.images)
+        case "sam3":
+            return fill_harmonic(depth, kept, ids=inputs.labels.instance_ids)
+        case "gt":
+            return fill_harmonic(depth, kept, ids=inputs.gt.instance_ids)
+        case _:
+            msg = f"unknown fill: {kind}"
+            raise ValueError(msg)
 
 
 def evaluate_scenes(
@@ -330,12 +428,24 @@ def evaluate_scenes(
                         dataclasses.replace(base, gn_iters=1, cg_iters=1),
                         inputs.normals,
                     )
-                scoring = Scoring(inputs.truth, inputs.labels, evaluated)
+                scoring = Scoring(
+                    inputs.truth, inputs.labels, evaluated, fusion(raw, inputs)
+                )
                 keep = split in raw["per_scene"]
                 if keep:
                     arrays[f"{name}/labels"] = inputs.labels.instance_ids
                 for i, variant in enumerate(raw["variants"]):
-                    seconds, log, depth, points = refine_variant(inputs, variant, base)
+                    score_file = (
+                        Path(raw["root"])
+                        / name
+                        / (f"{variant.get('keep_by')}_{raw['views']}.npz")
+                    )
+                    keep_score = (
+                        np.load(score_file)["keep"] if "keep_by" in variant else None
+                    )
+                    seconds, log, depth, points = refine_variant(
+                        inputs, variant, base, keep_score
+                    )
                     if keep:
                         arrays[f"{name}/{i}"] = depth.astype(np.float32)
                         arrays[f"{name}/{i}/kept"] = np.isfinite(points).all(-1)

@@ -6,8 +6,11 @@ from src.analysis.filters import (
     both,
     depth_edge,
     facing,
+    fill_harmonic,
+    fill_view,
     instance_voxel_density,
     keep_top,
+    keep_top_within,
     log_gradient,
     neighbor_distance,
     pixel_footprint,
@@ -113,3 +116,50 @@ def test_instance_voxel_density_counts_only_the_own_instance_in_a_voxel() -> Non
     ids = np.array([[[3, 3], [4, -1]]])
     count = instance_voxel_density(points, depth, k, ids)
     np.testing.assert_array_equal(count, [[[2, 2], [1, 1]]])
+
+
+def test_the_cut_within_groups_keeps_the_top_fraction_of_each() -> None:
+    score = np.array([[5.0, 1.0, 3.0, 2.0, 9.0, 8.0, 7.0, 0.0]])
+    groups = np.array([[0, 0, 0, 0, 1, 1, 1, 1]])
+    kept = keep_top_within(score, groups, 0.5)
+    np.testing.assert_array_equal(kept[0], [1, 0, 1, 0, 1, 1, 0, 0])
+    assert keep_top_within(score, groups, 1.0).all()
+    assert not keep_top_within(score, groups, 0.0).any()
+
+
+def plane_depth(h: int = 12, w: int = 16) -> np.ndarray:
+    """Camera depth of a slanted plane: inverse depth affine in the pixel."""
+    v, u = np.mgrid[0:h, 0:w]
+    return 1 / (0.5 + 0.01 * u + 0.02 * v)
+
+
+def test_fill_returns_the_input_when_nothing_is_flagged() -> None:
+    depth = plane_depth()[None].astype(np.float32)
+    out = fill_harmonic(depth, np.ones(depth.shape, dtype=bool))
+    np.testing.assert_array_equal(out, depth)
+
+
+def test_fill_closes_a_hole_in_a_plane_exactly() -> None:
+    depth = plane_depth()
+    known = np.ones(depth.shape, dtype=bool)
+    known[3:9, 4:12] = False
+    noisy = np.where(known, depth, 7.0)
+    for kwargs in ({}, {"image": np.full((*depth.shape, 3), 90, np.uint8)}):
+        out = fill_view(noisy, known, **kwargs)
+        np.testing.assert_allclose(out, depth, rtol=1e-4)
+
+
+def test_fill_within_an_instance_takes_its_own_surface() -> None:
+    near, far = plane_depth(), plane_depth() * 3
+    ids = np.zeros(near.shape, dtype=np.int32)
+    ids[:, 8:] = 1
+    depth = np.where(ids == 0, near, far)
+    known = np.ones(depth.shape, dtype=bool)
+    known[3:9, 5:8] = False  # a hole in instance 0 on its border with 1
+    within = fill_view(np.where(known, depth, 1.0), known, ids=ids)
+    plain = fill_view(np.where(known, depth, 1.0), known)
+    err_within = np.abs(within - depth)[~known].max() / depth[~known].max()
+    err_plain = np.abs(plain - depth)[~known].max() / depth[~known].max()
+    # the cut side is a free boundary, so the plane is only nearly kept there
+    assert err_within < 0.05
+    assert err_plain > 0.5
