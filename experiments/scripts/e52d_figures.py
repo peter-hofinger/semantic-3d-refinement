@@ -11,7 +11,12 @@ third run's grid models for the identity check.
 2. `results/e52d_train.yaml`: held-out curves, parameter norms, clip counts and the per-step
    series as means over 50-step windows (the per-step series stay in the runs).
 
-uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid
+3. With `--gradcheck <run>` (`e52d_gradient_check.py`): `figures/e52d_gradcheck.jpg`, per
+   adapter state and draw the cosine of the detached and the exact gradient, and the
+   finite-difference ratios (measured over promised slope) of the three checks; the run's
+   records copied to `results/e52d_gradcheck.yaml`.
+
+uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid --gradcheck runs/e52d_gradcheck
 """
 
 import argparse
@@ -43,12 +48,69 @@ def windows(x: np.ndarray, n: int, fn: np.ufunc = np.mean) -> np.ndarray:
     return fn(x.reshape(-1, n), axis=1)
 
 
+def gradcheck(run: Path) -> None:
+    """Draw the gradient check per state; copy its records to the results."""
+    text = (run / "e52d_gradcheck.yaml").read_text(encoding="utf-8")
+    rec = yaml.safe_load(text)["records"]
+    states = list(rec["mean_gradient"])
+    scenes = sorted({r["scene"] for r in rec["rows"]})
+    marks = dict(zip(scenes, "os^", strict=True))
+    checks = (("autograd", "autograd: S frozen, along -g"),
+              ("exact", "exact: S re-fit, along -g*"),
+              ("detached", "detached: S re-fit, along -g (training)"))  # fmt: skip
+    fig, (left, right) = plt.subplots(1, 2, figsize=(13, 4.4))
+    for i, state in enumerate(states):
+        rows = [r for r in rec["rows"] if r["state"] == state]
+        for r in rows:
+            left.scatter(i, r["cosine"], marker=marks[r["scene"]], color="#3a7bd5",
+                         alpha=0.7, s=30)  # fmt: skip
+            for j, (name, _) in enumerate(checks):
+                right.scatter(i + (j - 1) * 0.22, r[f"{name}_ratio_0.001"],
+                              marker=marks[r["scene"]], s=30, alpha=0.7,
+                              color=("0.5", "#2a9d55", "#eb6834")[j])  # fmt: skip
+        left.scatter(i, rec["mean_gradient"][state]["cosine"], marker="_", s=900,
+                     color="#eb6834", lw=2.5)  # fmt: skip
+    for ax in (left, right):
+        style(ax)
+        ax.set_xticks(
+            range(len(states)), ["B_k = 0", "kept (step 1000)", "kept, B_k x 2"]
+        )
+    for name in scenes:
+        left.scatter(
+            [], [], marker=marks[name], color="0.4", label=name.split("_cam")[0]
+        )
+    left.scatter([], [], marker="_", s=300, color="#eb6834", lw=2.5,
+                 label="mean gradients over the 9 draws")  # fmt: skip
+    for j, (_, label) in enumerate(checks):
+        right.scatter([], [], color=("0.5", "#2a9d55", "#eb6834")[j], label=label)
+    left.set_ylim(0, 1.02)
+    left.set_title("cosine of the detached gradient g and the exact g*\n(per draw: "
+                   "4 views, 20k alignment pixels)", fontsize=10)  # fmt: skip
+    right.axhline(1, color="0.3", lw=0.8)
+    right.axhline(0, color="0.3", lw=0.8)
+    right.set_title("finite-difference slope over the slope the gradient promises\n"
+                    "(step 1e-3 in parameter norm; 1 = exact)", fontsize=10)  # fmt: skip
+    left.legend(fontsize=8, frameon=False, loc="lower left")
+    right.legend(fontsize=8, frameon=False, loc="center right")
+    fig.suptitle("E52d gradient check: backprop and the exact gradient are right; the "
+                 "detached Sim(3) gradient gives 3-100% of its promised descent and turns "
+                 "away from g* as B_k grows", fontsize=11, y=1.03)  # fmt: skip
+    fig.savefig(FIGURES / "e52d_gradcheck.jpg", dpi=110, bbox_inches="tight")
+    (RESULTS / "e52d_gradcheck.yaml").write_text(
+        "# E52d gradient check: laptop RTX 3050, fp32, e52d_gradient_check.py\n" + text,
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     """Load the arms, draw the figure, write the compact raw output."""
     parser = argparse.ArgumentParser()
     parser.add_argument("prefix", type=Path, help="runs/e52d -> runs/e52d_A ... _E")
     parser.add_argument("third", type=Path, help="E52a's third run, grid models")
+    parser.add_argument("--gradcheck", type=Path, help="e52d_gradient_check.py's run")
     args = parser.parse_args()
+    if args.gradcheck:
+        gradcheck(args.gradcheck)
     runs = {
         a: yaml.safe_load(
             Path(f"{args.prefix}_{a}/e52a.yaml").read_text(encoding="utf-8")

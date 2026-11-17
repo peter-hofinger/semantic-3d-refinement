@@ -5308,3 +5308,44 @@ Interim entry: the check that the plan puts before any table.
   the cause and the drift needs another explanation. If the detached ratio is small or negative, or the
   mean gradients disagree (cosine well below 1), most clearly at the later states, train with g* (the
   differentiable Sim(3)) and rerun arm A with it (cluster, ~35 min, ask first).
+
+## E52d, gradient check: backprop is right, but the detached Sim(3) makes the training gradient a weak and, averaged over draws, increasingly wrong descent direction (issue #52, 17.11.2026)
+- **Setting, commits, commands:** as the plan above, at fbd4c7f, laptop RTX 3050, 15 min:
+  `uv run python experiments/scripts/e52d_gradient_check.py --cfg configs/e52a_adapters.yaml --state runs/e52d_A/pool-grid.pt --out runs/e52d_gradcheck`;
+  figure `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid --gradcheck runs/e52d_gradcheck`
+  (also redraws `e52d_training.jpg`, byte-identical). Raw output `results/e52d_gradcheck.yaml`.
+- **Checks:** the differentiable Umeyama equals `umeyama` on every draw (scale to 1e-9 relative, rotation to
+  1e-9); detached and re-fit losses agree at the start point. Backprop through the checkpointed loop matches
+  finite differences on all 27 draws (autograd ratio 0.997-1.012 at step 1e-3), and so does g* (exact
+  ratio 0.994-1.016): the check is valid, and a recomputation mismatch is ruled out.
+- **Results** (9 draws per state: 3 dev scenes x 3 draws of 4 views; median (min-max)):
+  | state | cos(g, g*) per draw | cos of the mean gradients | detached ratio | abs(g) / abs(g*) |
+  |---|---|---|---|---|
+  | B_k = 0 | 0.65 (0.21-0.83) | **0.62** | 0.41 (0.06-0.92) | 1.49 |
+  | kept (step 1000) | 0.42 (0.33-0.97) | **0.38** | 0.31 (0.13-1.02) | 1.49 |
+  | kept, B_k x 2 | 0.60 (0.13-0.78) | **0.24** | 0.35 (0.03-0.83) | 1.84 |
+  - The detached ratio (measured descent of the re-fit loss along -g over the descent g promises) is
+    positive on all 27 draws: on its own draw, a step along the training gradient never raises the loss.
+    But it gives only a third of what it promises, and as little as 3%; it equals cos(g, g*) times
+    abs(g*) / abs(g) (as it must when g* is the true gradient). The detached gradient is 1.5-1.8x longer
+    than the exact one: most of it is a component the re-fitted Sim(3) cancels.
+  - The lobby (ai_044_001) is the worst scene at every state (cosine 0.13-0.71, ratio 0.03-0.35); the
+    bedroom the best.
+  - Averaged over draws, as training follows it, the two gradients turn apart as B_k grows (0.62 -> 0.38
+    -> 0.24); the per-draw cosines do not fall in the same way, so the drift is in what the draws share.
+- **What the figure shows:** `figures/e52d_gradcheck.jpg`: left, per-draw cosines spread 0.1-1 at every
+  state while the mean-gradient bar falls; right, grey (backprop) and green (exact) sit on 1, orange
+  (training's detached gradient) spreads 0.03-1.02 below them.
+- **Conclusion:**
+  - The likeliest cause named in E52d is confirmed as a defect of the loss, not of the backprop: with the
+    Sim(3) detached, the training gradient is only weakly aligned with the gradient of the loss it is read
+    with, longer than it, and its average turns further away as B_k grows. That fits E52d's B_k growing
+    steadily without a gain. It does not show directly that the training steps go uphill: per draw the
+    detached gradient still descends, and Adam rescales it per coordinate, which this check does not
+    measure. The rise could come from the cancelled component (steps that change the output in ways the
+    Sim(3) undoes, until second-order effects add up); untested.
+  - Next, by the plan's rule: train with the exact gradient (differentiable Umeyama in `step_loss`) and
+    rerun arm A with it (cluster, ~35 min, ask first). If its held-out error no longer rises, E52b's LoRA
+    trains the same way.
+- **Limits:** dev scenes as data (nothing tuned or scored); 4 views per draw (training draws 8-12); 9
+  draws per state; the doubled state is a stand-in for the diverging phase, not a state training reached.
