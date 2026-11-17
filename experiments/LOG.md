@@ -5465,3 +5465,36 @@ Interim entry: the check that the plan puts before any table.
 - **Limits:** one seed; 3 dev scenes, the lobby carrying most of each gain; kept states early in a
   diverging training; val not run (the plan's rule: no positive GT result); GT walls, floors and ceilings
   one segment per class.
+
+## Plan: E57c = E57a's keep head, trained to predict the distance to the ground-truth surface (issue #57, 17.11.2026)
+- **Goal:** issue #57 asks whether a learned filter beats the instance voxel density filter at an equal kept
+  fraction. E57a (Pouya) trained a keep logit on a binary label (error in the lower half) and lost badly: it
+  ranked pixels well but deleted whole regions. Peter's variant: the head regresses each pixel's distance to the
+  ground-truth surface and the points of largest predicted distance are dropped. Does that version beat density,
+  and does the answer change what a perfect distance would give?
+- **Setting** (`src/refinement/volume.py`, `keep.target: distance`; configs `e57c_overfit_bedroom.yaml`,
+  `e57c_overfit_dev.yaml`, `e57c_volume.yaml`): E57a's keep-only model (E41b's data, grid, U-Net, steps, view
+  subsets; the depth stays Déjà View's) with the second output trained by L1 on the nearest-GT-point distance of
+  the pixel's point in Déjà View's frame (Umeyama of its points onto the GT, the evaluation's alignment), in units
+  of the scene's median depth. L1 gives a conditional median, so a point behind a wall does not dominate; no
+  threshold or label quantile is involved. Every pixel has a target, including those without GT depth. The kept
+  step minimizes the held-out distance L1 (E57a: the kept error); `scene_eval` ranks by the negated prediction at
+  keep 0.5, as for E57a. U-Net 1.4M parameters (E41b's; over the ladder's 1M for rung 0, kept to compare with
+  E57a).
+- **Ladder** (`docs/experiments.md`): rung 1, the target on the bedroom as an image; rung 2, time per step; rung 3,
+  overfit `ai_006_007` (1000 steps); rung 4, overfit `dev` (2000 steps); rung 5, train on train + train_extra,
+  validate on `val` (curves in TensorBoard under `runs/`, 3 seeds, none and SAM 3 classes). Rungs 3 and 4 are
+  diagnostics: nothing from them is a score.
+- **Oracle arm** (needs no training): the same cut by the *true* distance on dev and val. It is the ceiling of any
+  distance head at keep 0.5. If the ceiling does not beat density in Chamfer, no head can.
+- **Evaluation** (`experiments/configs/e57c.yaml`, `e57c_oracle.yaml`; `scene_eval`'s `keep_by`): Déjà View whole,
+  kept 0.5 by instance voxel density, kept 0.5 by the head, kept 0.5 by the oracle, on dev and val; Chamfer,
+  accuracy, completeness as E57a reports them.
+- **Baselines:** Déjà View (dev 3.500, val 5.102 cm), instance voxel density kept 0.5 (val 3.817), flag-refine-filter
+  (3.669), E57a's keep head (val 9.49 to 12.37 cm).
+- **Expected, written before running:** the head ranks well (rank correlation with the true distance clearly above
+  0) but loses to density in Chamfer, as E57a did: the true distance is as smooth over a surface as its error
+  label, so the cut still opens holes. The oracle shows how much of the gap is ranking and how much is the cut.
+- **Checks:** tests (the target is 0 on the GT and bounded by the shift of a displaced patch, the score drops the
+  largest predicted distance, the head overfits a smooth distance on CPU); the untrained head leaves the depth
+  bit for bit.
