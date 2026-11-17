@@ -20,7 +20,7 @@ Pipeline: Views -> backbone -> SAM 3 + linking -> refiner -> labeled point cloud
 - Hypersim's walls, floors and ceilings have no instance ids; each such class becomes one instance.
 
 ## Evaluation
-- `src/analysis/scene_eval.py` on Hypersim (`configs/hypersim.yaml`): dev decides, val checks once, test is only reported, stress is a second look. Never tune on val or test, and say so when a value was.
+- `src/analysis/scene_eval.py` on Hypersim (`configs/hypersim.yaml`): train fits learned models, dev (3 scenes) is for quick decisions and the overfit rungs, val validates (curves, model selection, a dev choice checked on unseen scenes), test is only reported at the end and never used to choose anything, stress is a second look. Never tune on test, and say so when a value was.
 - Each output is aligned onto the GT by one Umeyama Sim(3) on its pixels, then scored by `src/evaluation/labeled.py`.
 
 ## Commands
@@ -48,10 +48,16 @@ Pipeline: Views -> backbone -> SAM 3 + linking -> refiner -> labeled point cloud
 - `runs/` and `data/` never enter git.
 
 ## Experiments
-Climb in order and step back down when something fails: look at inputs and outputs; identity (zero iterations or weights return the input bit for bit); a synthetic scene with known truth; one real scene, then the benchmark; corrupt the semantics (if the gain doesn't drop, semantics aren't what helps); only then tune, coarse grid first.
 - An experiment is E<issue><letter> (E8a, E8b, ...); work without an issue gets one first. E1-E45 keep their numbers.
 - Each gets a plan entry in `experiments/LOG.md` before it runs and a result entry after: goal, setting, commits, commands, checks, results with baselines, conclusion.
-- Smallest scene, resolution and view count that could work; one change per run; time every stage.
+- Smallest scene, resolution and view count that could work; time every stage.
+- Change one thing at a time. Fixed seed saved with the run's config, fixed val set, never augment val.
+- Before any neural network experiment, follow `docs/experiments.md`:
+  - Climb the ladder in order: overfit the bedroom `ai_006_007`, then `dev` (3 scenes), then scale on train and validate on `val`. One fixed view per scene if a sample is a view.
+  - Cannot overfit → implementation bug, not a failed approach.
+  - Simplest model first: no dropout, BatchNorm or LR decay.
+  - Log train and val loss every run with TensorBoard, under `runs/`, so the whole team reads the same curves.
+  - "Approach fails" needs a passed ladder and a tuned baseline. Otherwise write "not yet working".
 
 ## Visuals
 - Visualize everything, as image files, and look at every figure before claiming anything from it.
