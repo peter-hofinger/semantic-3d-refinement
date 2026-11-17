@@ -53,6 +53,15 @@ Climb in order and step back down when something fails: look at inputs and outpu
 - Each gets a plan entry in `experiments/LOG.md` before it runs and a result entry after: goal, setting, commits, commands, checks, results with baselines, conclusion.
 - Smallest scene, resolution and view count that could work; one change per run; time every stage.
 
+Before any neural network experiment, follow `docs/experiments.md`.
+
+- Climb the ladder in order: overfit the bedroom scene, then the dev set (3 scenes), then scale on train and validate on val. One view per scene if a sample is a view.
+- Cannot overfit → implementation bug, not a failed approach.
+- Simplest model first: no dropout, BatchNorm or LR decay.
+- Change one thing at a time. Fixed seed, fixed val set. Never augment val.
+- Plot train and val loss every run.
+- "Approach fails" needs a passed ladder and a tuned baseline. Otherwise write "not yet working".
+
 ## Visuals
 - Visualize everything, as image files, and look at every figure before claiming anything from it.
 - Presentation visuals use only the bedroom `ai_006_007`, views 18, 0, 12, 6 (issue #7); debug visuals may use any scene.
