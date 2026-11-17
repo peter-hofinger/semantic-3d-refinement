@@ -75,7 +75,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import open3d as o3d
+import torch
 from scipy.spatial import cKDTree
+from torch import Tensor
 
 from src.segmentation.base import Segmentation, count_pairs
 
@@ -165,6 +167,29 @@ def umeyama(
     rotation = (u * sign) @ vt
     scale = float((d * sign).sum() / (a**2).sum(1).mean())
     return scale, rotation, mu_t - scale * rotation @ mu_s
+
+
+def umeyama_torch(source: Tensor, target: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """`umeyama` in torch, differentiable in both point sets (SVD backward).
+
+    For training through the alignment (E52d): a loss on the aligned points then also
+    sees how the similarity moves with the prediction. The reflection sign is
+    piecewise constant, so it carries no gradient. SVD's backward divides by the
+    differences of singular values; a cloud spread in 3D keeps them apart.
+    """
+    assert source.shape == target.shape and source.shape[1] == 3, source.shape  # noqa: PLR2004
+    assert torch.isfinite(source).all() and torch.isfinite(target).all()
+    mu_s, mu_t = source.mean(0), target.mean(0)
+    a, b = source - mu_s, target - mu_t
+    u, d, vt = torch.linalg.svd(b.T @ a / len(a))
+    det = torch.linalg.det(u @ vt).detach()
+    sign = torch.ones(3, dtype=a.dtype, device=a.device)
+    sign[2] = torch.where(det < 0, -1.0, 1.0)
+    rotation = (u * sign) @ vt
+    scale = (d * sign).sum() / (a**2).sum(1).mean()
+    t = mu_t - scale * rotation @ mu_s
+    assert torch.isfinite(scale) and torch.isfinite(rotation).all()
+    return scale, rotation, t
 
 
 def nearest_distances(points: np.ndarray, queries: np.ndarray) -> np.ndarray:
