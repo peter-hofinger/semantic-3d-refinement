@@ -87,7 +87,7 @@ Run when a rung fails. Common causes first.
 
 ## Running experiments
 
-- Plot train and val loss (TensorBoard or equivalent). Log loss every batch.
+- Plot train and val loss in TensorBoard (`torch.utils.tensorboard`), event files under `runs/`. Every NN experiment uses it, no other logger. Log loss every batch.
 - After every iteration, run a forward pass on a random val batch.
 - Plot the val metrics too (mIoU, accuracy, F1), not only the loss.
 - Keep evaluation consistent so runs stay comparable. Change one thing at a time.

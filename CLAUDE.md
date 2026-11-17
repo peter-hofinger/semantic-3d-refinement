@@ -56,7 +56,7 @@ Pipeline: Views -> backbone -> SAM 3 + linking -> refiner -> labeled point cloud
   - Climb the ladder in order: overfit the bedroom `ai_006_007`, then `dev` (3 scenes), then scale on train and validate on `val`. One fixed view per scene if a sample is a view.
   - Cannot overfit → implementation bug, not a failed approach.
   - Simplest model first: no dropout, BatchNorm or LR decay.
-  - Plot train and val loss every run.
+  - Log train and val loss every run with TensorBoard, under `runs/`, so the whole team reads the same curves.
   - "Approach fails" needs a passed ladder and a tuned baseline. Otherwise write "not yet working".
 
 ## Visuals
