@@ -1,0 +1,33 @@
+# E57c rung 5 (issue #57, src/refinement/volume.py, volume-refine): E57a's keep head with one change: the second
+# output regresses each pixel's distance to the ground-truth surface (L1, in units of the scene's median
+# depth) instead of a keep label on the error quantile; the points of largest predicted distance are dropped.
+# The depth stays Deja View's. Everything else is E41b's and E57a's: train and train_extra scenes, the last 8
+# held out to pick the step, 128 cells, 20k steps. `val` only draws TensorBoard curves. Three seeds (the ladder's
+# bar for a negative result). Written for dev and val, scored by experiments/configs/e57c.yaml.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # per-view SAM 3 masks, not linked
+split: configs/hypersim.yaml
+train_splits: [train, train_extra]
+val_splits: [val]
+held_out: 8
+predict_splits: [dev, val]
+models:                              # name -> classes it sees: none, sam3 (per-view masks)
+  volume-dist-none: none
+  volume-dist-sam3: sam3
+resolution: 128
+widths: [32, 64, 128]
+head: 128
+steps: 20000
+batch_points: 200000
+kept_points: 400000
+view_subset: [8, 20]
+amp: true
+lr: 1.0e-3
+seeds: [0, 1, 2]
+keep:
+  quantile: 0.5    # E27a's and E45's kept fraction
+  residual: false
+  weight: 1.0
+  target: distance
