@@ -5498,3 +5498,52 @@ Interim entry: the check that the plan puts before any table.
 - **Checks:** tests (the target is 0 on the GT and bounded by the shift of a displaced patch, the score drops the
   largest predicted distance, the head overfits a smooth distance on CPU); the untrained head leaves the depth
   bit for bit.
+
+## E57c: a distance head, rungs 0-4 and the oracle -> a perfect distance ranking only ties density on val; rung 5 (the learned head on val) not run (issue #57, 17.11.2026)
+- **Commits:** 3461588 (head, configs, tests), af740c1 (plan), this commit (oracle, figure, results); RTX 3080
+  shared with another job (5.4 GB taken), so the evaluation ran on the CPU. The runs' `git` says dirty: two
+  unrelated E27a figure files were modified in the tree, nothing of E57c.
+- **Commands:**
+  - `volume-refine --config configs/e57c_overfit_bedroom.yaml --out runs/e57c/overfit_bedroom --reserve-gb 0`, then
+    the same with `e57c_overfit_dev.yaml` (rungs 3 and 4; TensorBoard under `runs/e57c/*/tensorboard/`).
+  - `uv run python -m experiments.scripts.e57c_oracle` (the true distance of every dev and val pixel, 14 scenes),
+    `CUDA_VISIBLE_DEVICES= scene_eval --cfg experiments/configs/e57c_oracle.yaml --splits dev val`,
+    `e57c_table.py runs/e57c_oracle-20261117-200725 > results/e57c_oracle.txt`, `e57c_figures.py --head
+    volume-dist-none > results/e57c_figures.txt`.
+- **Ladder:** rung 0, 1.44M parameters (E41b's U-Net, kept to compare with E57a; over the 1M the ladder asks for);
+  rung 1, the target as an image (below): zero on well-reconstructed surfaces, bright at furniture outlines and
+  on whole wall patches Déjà View misplaces; rung 2, 0.19 s per step (batch 100 000 pixels, 8-20 views, 128
+  cells, 20 evaluations included), target computation 1.6 s per scene (Umeyama 0.3 s, nearest GT point 1.3 s);
+  rung 3 (bedroom, 1000 steps): held-out = train distance L1 0.00719 -> 0.00085 (median depths), rank correlation
+  with the true distance 0.94, still falling; rung 4 (dev, 2000 steps): 0.00639 -> 0.00102, correlation 0.89,
+  still falling. Both overfit (an 8x and 6x fall, not 0, in 1000 and 2000 steps), and the outputs differ per
+  scene (the three dev scenes' mean distances are 0.3, 0.7 and 0.9 %). Diagnostics: not scores.
+- **Oracle results** (Chamfer cm, accuracy / completeness / Chamfer, means over scenes, Déjà View K = 16, 20 views
+  at 504 px, kept 0.5 per scene; every Déjà View and density number repeats E27a and E57a):
+
+  | split | Déjà View | instance voxel density | true distance (oracle) |
+  |---|---|---|---|
+  | dev (3 scenes) | 4.675 / 2.324 / 3.500 | 2.998 / 3.597 / 3.298 | 1.521 / 3.931 / 2.726 |
+  | val (11 scenes) | 6.061 / 4.142 / 5.102 | 3.013 / 4.621 / 3.817 | 1.510 / 6.401 / 3.955 |
+
+  The oracle beats density in Chamfer on 3 of 3 dev scenes and on 5 of 11 val scenes; on val it is 0.14 cm worse in
+  the mean (ai_009_009 alone 2.4 cm worse, ai_004_003 0.8). A perfect ranker is far the more accurate (1.51 against
+  3.01 cm) and loses it in completeness (6.40 against 4.62).
+- **Figure:** `figures/e57c_bedroom.jpg` (views 18, 0, 12, 6): the true distance and the rung 4 head's prediction
+  (trained on this scene) agree closely; the pixels the true distance drops are whole surfaces (the wall and the
+  door in views 0 and 6, whole walls), while density drops pixels scattered over the image. Dropping the least
+  accurate half therefore leaves holes the GT then misses; dropping the densest half removes redundancy.
+- **Conclusion:**
+  - What is established: the cut at keep 0.5 by the *true* distance, the ceiling of any distance head, gains 0.57
+    cm on dev and loses 0.14 cm on val against instance voxel density. A head that predicts the distance can
+    only reach that ceiling; it cannot beat density by ranking better, and its holes cost completeness as
+    E57a's did. E57a's conclusion (a learned score does not beat density at equal kept fraction) is therefore
+    not an artefact of its binary label.
+  - What is not established: that the trained head loses. Rung 5 has not run: this checkout holds dev, val and
+    three other scenes, no train scene, and the job (3 seeds, 20k steps, ~1.5 h each on a shared GPU) is past
+    the 30-minute limit. Until it runs, the learned head is "not yet run", and the ceiling is a bound on what
+    ranking by distance can do, not a measurement of the head.
+  - The oracle bounds only rankings by distance; a head trained for completeness-aware cuts is not covered.
+- **Limits:** one cut (0.5); dev and val only (test untouched); the oracle's val gap to density (0.14 cm) is
+  inside what 11 scenes with one very hard scene (ai_009_009, Chamfer 11 to 16 cm) can move; the ladder's rungs 3
+  and 4 were one seed each.
