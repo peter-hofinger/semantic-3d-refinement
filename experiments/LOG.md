@@ -5193,49 +5193,118 @@ Interim entry: the check that the plan puts before any table.
   stated as a limit.
 - **Cost:** five cluster jobs on one RTX 5090 each, ~40 min each in bf16 (third run: 1 h 27 for two
   models plus dev scoring), B perhaps 2-3x longer.
-
-## E52d: no gradient spikes and no precision effect; B_k moves steadily in a direction that raises both losses, and only slowing (weight decay) or stopping (cosine lr decay) that motion limits the rise (issue #52, 17.11.2026)
-- **Setting, commits, commands:** as the plan above, at 2f7a2c7; cluster jobs 2889-2893 (arms A-E), RTX
-  5090, 35 min each, B (fp32) 1 h 39 min:
-  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "segments=[grid]" "models={pool: [false, true]}" lr_bias=3e-4 lr_pool=3e-6 <arm> --out runs/e52d_<arm>`
-  with `<arm>` empty (A), `autocast=false` (B), `weight_decay_up=100` (C), `clip_factor=3` (D),
-  `lr_decay=cosine` (E); figure and raw output
-  `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid`. Raw output
-  `results/e52d_train.yaml` (per-step series as 50-step means; the per-step ones stay in the runs).
-- **Checks:** identity: A repeats the third run's pool-grid (held-out 0.99503 against 0.99502 at step
-  1000, 1.0426 against 1.0470 at 3000; not bit for bit, as expected on another node). Every arm draws the
-  same scenes and views per step (same seed), so training losses compare step by step across arms.
-- **Held-out error over training** (over Déjà View's, mean of 16 scenes; minimum (step), at 3000):
-  A 0.9950 (1000), 1.0426; B 0.9945 (1250), 1.0492; C 0.9938 (1250), 1.0155; D 0.9946 (1250), 1.0524;
-  **E 0.9935 (1250), 0.9973**. Training loss, mean of the last 500 steps (trend over them): A 1.031
-  (+0.007), B 1.035 (+0.019), C 1.002 (-0.011), D 1.038 (+0.016), E 0.989 (-0.014); paired against A on
-  the same draws, C -0.029 and E -0.042, B +0.005, D +0.008.
-- **Diagnostics:**
-  - No gradient spikes before the rise: the gradient norm of B_k has p99 / median 2.8-3.7 in every 500-step
-    window of every arm. Single-step outliers (up to 45x the median) sit at the same steps in every arm
-    (same draws) and also in C and E, which do not diverge; D clipped 101 of 3000 steps (3%) and diverged
-    as A. Clipping is not the fix.
-  - Precision is not the cause: fp32 (B) follows A within the run-to-run spread.
-  - In A the norm of B_k grows almost linearly (0.07 at 250, 0.32 at 1500, 0.68 at 3000), not like the
-    square root of steps that a random walk of Adam's steps would give, and its gradient norm grows with it
-    (median 2.4 -> 4.9). So Adam moves B_k in a consistent direction while the training loss on the same
-    draws rises: the averaged gradient points uphill of the loss it is measured with. This corrects the
-    plan's reasoning for E (a random walk near the loss floor).
-  - Weight decay (C) slows B_k's growth (0.48 at 3000) and with it the rise; cosine decay (E) stops the
-    growth at 0.32 and with it the rise. Neither removes the cause: both only limit how far B_k moves.
-- **Reading, by the plan's rule:** no arm is strictly stable; E comes closest (held-out up 0.004 after its
-  minimum, then flat; training loss falling over the last 500 steps), C rises 0.022. The best kept states
-  are equal within 0.0015 (0.9935-0.9950): no arm finds more gain, they differ in how they end.
-- **Conclusion:**
-  - Not bf16 rounding, not gradient spikes. The gradient moves B_k steadily in a direction that raises the
-    loss it was computed from, which a correct gradient at a small lr does not do on average. The likeliest
-    cause is a mismatch between the gradient and the loss: the Sim(3) is detached and fit by least squares,
-    while the loss is the clipped L1 of the relative error, so the alignment's own response to B_k (zero
-    only when the alignment minimizes the same loss) is missing. Untested; a recomputation mismatch under
-    checkpointing would look the same (tested at the start of E52a, but only for the attention patch).
-  - Next, cheap and decisive (one scene, minutes): at A's kept state, compare the loss change along the
-    computed gradient (re-aligned at each point) with the one it predicts, for the detached and for a
-    differentiable Sim(3). If the detached gradient is not a descent direction and the differentiable one
-    is, train with the differentiable one. Until then, E52b uses cosine decay (E), stated as a limit.
-- **Limits:** one model (pool-grid), one lr, one seed; training losses are per-draw means and share a bump
-  at steps 2000-2750 in every arm (same draws), so the held-out curves are the reading.
+
+
+## E52d: no gradient spikes and no precision effect; B_k moves steadily in a direction that raises both losses, and only slowing (weight decay) or stopping (cosine lr decay) that motion limits the rise (issue #52, 17.11.2026)
+
+- **Setting, commits, commands:** as the plan above, at 2f7a2c7; cluster jobs 2889-2893 (arms A-E), RTX
+
+  5090, 35 min each, B (fp32) 1 h 39 min:
+
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "segments=[grid]" "models={pool: [false, true]}" lr_bias=3e-4 lr_pool=3e-6 <arm> --out runs/e52d_<arm>`
+
+  with `<arm>` empty (A), `autocast=false` (B), `weight_decay_up=100` (C), `clip_factor=3` (D),
+
+  `lr_decay=cosine` (E); figure and raw output
+
+  `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid`. Raw output
+
+  `results/e52d_train.yaml` (per-step series as 50-step means; the per-step ones stay in the runs).
+
+- **Checks:** identity: A repeats the third run's pool-grid (held-out 0.99503 against 0.99502 at step
+
+  1000, 1.0426 against 1.0470 at 3000; not bit for bit, as expected on another node). Every arm draws the
+
+  same scenes and views per step (same seed), so training losses compare step by step across arms.
+
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes; minimum (step), at 3000):
+
+  A 0.9950 (1000), 1.0426; B 0.9945 (1250), 1.0492; C 0.9938 (1250), 1.0155; D 0.9946 (1250), 1.0524;
+
+  **E 0.9935 (1250), 0.9973**. Training loss, mean of the last 500 steps (trend over them): A 1.031
+
+  (+0.007), B 1.035 (+0.019), C 1.002 (-0.011), D 1.038 (+0.016), E 0.989 (-0.014); paired against A on
+
+  the same draws, C -0.029 and E -0.042, B +0.005, D +0.008.
+
+- **Diagnostics:**
+
+  - No gradient spikes before the rise: the gradient norm of B_k has p99 / median 2.8-3.7 in every 500-step
+
+    window of every arm. Single-step outliers (up to 45x the median) sit at the same steps in every arm
+
+    (same draws) and also in C and E, which do not diverge; D clipped 101 of 3000 steps (3%) and diverged
+
+    as A. Clipping is not the fix.
+
+  - Precision is not the cause: fp32 (B) follows A within the run-to-run spread.
+
+  - In A the norm of B_k grows almost linearly (0.07 at 250, 0.32 at 1500, 0.68 at 3000), not like the
+
+    square root of steps that a random walk of Adam's steps would give, and its gradient norm grows with it
+
+    (median 2.4 -> 4.9). So Adam moves B_k in a consistent direction while the training loss on the same
+
+    draws rises: the averaged gradient points uphill of the loss it is measured with. This corrects the
+
+    plan's reasoning for E (a random walk near the loss floor).
+
+  - Weight decay (C) slows B_k's growth (0.48 at 3000) and with it the rise; cosine decay (E) stops the
+
+    growth at 0.32 and with it the rise. Neither removes the cause: both only limit how far B_k moves.
+
+- **Reading, by the plan's rule:** no arm is strictly stable; E comes closest (held-out up 0.004 after its
+
+  minimum, then flat; training loss falling over the last 500 steps), C rises 0.022. The best kept states
+
+  are equal within 0.0015 (0.9935-0.9950): no arm finds more gain, they differ in how they end.
+
+- **Conclusion:**
+
+  - Not bf16 rounding, not gradient spikes. The gradient moves B_k steadily in a direction that raises the
+
+    loss it was computed from, which a correct gradient at a small lr does not do on average. The likeliest
+
+    cause is a mismatch between the gradient and the loss: the Sim(3) is detached and fit by least squares,
+
+    while the loss is the clipped L1 of the relative error, so the alignment's own response to B_k (zero
+
+    only when the alignment minimizes the same loss) is missing. Untested; a recomputation mismatch under
+
+    checkpointing would look the same (tested at the start of E52a, but only for the attention patch).
+
+  - Next, cheap and decisive (one scene, minutes): at A's kept state, compare the loss change along the
+
+    computed gradient (re-aligned at each point) with the one it predicts, for the detached and for a
+
+    differentiable Sim(3). If the detached gradient is not a descent direction and the differentiable one
+
+    is, train with the differentiable one. Until then, E52b uses cosine decay (E), stated as a limit.
+
+- **Limits:** one model (pool-grid), one lr, one seed; training losses are per-draw means and share a bump
+
+  at steps 2000-2750 in every arm (same draws), so the held-out curves are the reading.
+
+
+## Plan: E52d, gradient check = is the adapters' training gradient a descent direction of the loss it is read with? (issue #52, 17.11.2026)
+- **Goal:** E52d found B_k moving steadily while the training loss on the same draws rose, so the averaged
+  gradient points uphill. Test the likeliest cause before LoRA trains the same way: training's error
+  detaches the Sim(3) S, fit by least squares, while the loss is the clipped L1 of the relative error; the
+  measured loss re-fits S at every step, and its gradient has the extra term ∂e/∂S ∂S/∂θ, zero only if S
+  minimized e.
+- **Setting:** `experiments/scripts/e52d_gradient_check.py`, laptop RTX 3050 (a few minutes; the cluster
+  queue held E52d's jobs for hours), fp32 forward, 4 views per draw, the 3 dev scenes x 3 draws per state
+  (dev only as data for a gradient check: nothing is tuned or scored). States: B_k zero, arm A's kept state
+  (step 1000), that state with B_k doubled (stand-in for the diverging phase). Per draw: the detached
+  gradient g and the exact one g* (differentiable Umeyama, checked against `umeyama` on every draw), their
+  cosine, and central finite differences along -g and -g* at step lengths 1e-3 and 1e-2 (parameter-vector
+  norm; one Adam step at lr 3e-6 is ~1.3e-3), as a ratio to the slope the gradient predicts:
+  - autograd: S frozen, along -g: tests backprop through the checkpointed loop (expect 1);
+  - detached: S re-fit, along -g: does training's step lower the measured loss?
+  - exact: S re-fit, along -g*: tests g* (expect 1).
+  Also the cosine of the mean gradients per state, as training follows the average.
+- **Reading:** autograd and exact ratios near 1 make the check valid (else the bug is elsewhere, e.g. the
+  checkpoint recomputation). If the detached ratio is near 1 and cos(g, g*) > ~0.9, the alignment is not
+  the cause and the drift needs another explanation. If the detached ratio is small or negative, or the
+  mean gradients disagree (cosine well below 1), most clearly at the later states, train with g* (the
+  differentiable Sim(3)) and rerun arm A with it (cluster, ~35 min, ask first).
