@@ -10,7 +10,7 @@ from src.loaders import Views
 from src.pipeline import Pipeline
 from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
-from src.segmentation.associate import Associator
+from src.segmentation.associate import Associator, absorb_parts, merge_touching
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import compact, resolve_overlaps
@@ -232,3 +232,50 @@ def test_count_pairs_matches_unique_rows() -> None:
     np.testing.assert_array_equal(np.stack([got_a, got_b]), pairs)
     np.testing.assert_array_equal(got_counts, counts)
     assert count_pairs(a[:0], b[:0])[2].size == 0
+
+
+def test_fallback_masks_only_take_uncovered_pixels() -> None:
+    masks = torch.zeros(2, 1, 4, dtype=torch.bool)
+    masks[0, 0, :2] = True  # specific mask, low score
+    masks[1, 0, :] = True  # fallback mask, high score
+    scores = torch.tensor([0.4, 0.9])
+    plain = resolve_overlaps(masks, scores)
+    assert plain.tolist() == [[1, 1, 1, 1]]
+    weak = resolve_overlaps(masks, scores, torch.tensor([False, True]))
+    assert weak.tolist() == [[0, 0, 1, 1]]
+
+
+def test_touching_objects_of_one_class_merge_and_others_stay_apart() -> None:
+    h, w = 8, 40
+    k = np.array([[[20.0, 0, w / 2], [0, 20.0, h / 2], [0, 0, 1]]])
+    geometry = Geometry(np.full((1, h, w), 2.0), np.ones((1, h, w)), k, np.eye(4)[None])
+    ids = np.full((1, h, w), NO_INSTANCE, dtype=np.int32)
+    ids[0, :, :10], ids[0, :, 10:20], ids[0, :, 30:] = 0, 1, 2  # 0 | 1, gap, 2
+    seg = Segmentation(ids, {0: "chair", 1: "chair", 2: "chair"})
+    side = 2.0 / 20  # one pixel's footprint
+    merged = merge_touching(seg, geometry, side, 0.05)
+    assert merged.instance_ids[0, 0, 0] == merged.instance_ids[0, 0, 15]
+    assert merged.instance_ids[0, 0, 0] != merged.instance_ids[0, 0, 35]
+    other = Segmentation(ids, {0: "chair", 1: "table", 2: "chair"})
+    apart = merge_touching(other, geometry, side, 0.05)
+    assert len(np.unique(apart.instance_ids[apart.instance_ids >= 0])) == 3
+    assert merged.classes[int(merged.instance_ids[0, 0, 0])] == "chair"
+
+
+def test_a_small_part_of_another_class_is_absorbed_and_a_large_one_is_not() -> None:
+    h, w = 8, 40
+    k = np.array([[[20.0, 0, w / 2], [0, 20.0, h / 2], [0, 0, 1]]])
+    geometry = Geometry(np.full((1, h, w), 2.0), np.ones((1, h, w)), k, np.eye(4)[None])
+    ids = np.zeros((1, h, w), dtype=np.int32)  # sofa
+    ids[0, :2, 30:32] = 1  # small "pillow" part inside it
+    ids[0, :, :8] = 2  # large "chair" next to it
+    seg = Segmentation(ids, {0: "sofa", 1: "pillow", 2: "chair"})
+    side = 2.0 / 20
+    merged = merge_touching(seg, geometry, side, 0.3)
+    out = absorb_parts(merged, geometry, side, (0.5, 0.05))
+    assert out.instance_ids[0, 0, 30] == out.instance_ids[0, 5, 20]
+    assert out.classes[int(out.instance_ids[0, 0, 30])] == "sofa"
+    assert out.instance_ids[0, 0, 0] != out.instance_ids[0, 5, 20]
+    assert len(np.unique(merged.instance_ids)) == 3
+    kept = absorb_parts(merged, geometry, side, (0.5, 0.05), hosts={"chair"})
+    assert len(np.unique(kept.instance_ids)) == 3

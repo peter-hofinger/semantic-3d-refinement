@@ -1,0 +1,33 @@
+# E25c (experiments/LOG.md, issue #25's question): Déjà View, E45's filter and E27a's
+# flag-refine-filter scored per pixel and on fused surfaces (`surface: tsdf`,
+# src/evaluation/labeled.py): `--splits dev val`. Variants, weights and q as E27a's
+# (experiments/configs/e27a.yaml). The voxel size was chosen on dev's ground truth alone,
+# before any output was fused: 1 cm is about the pixel footprint at dev's median depths
+# (0.8 to 2.4 cm), and the GT's fused surface lies 0.45 to 1.02 cm (Chamfer) from the
+# GT's own pixels, a third of Déjà View's per-pixel error or less; 0.5 cm lowers that by
+# at most 0.13 cm for 3 to 4 times the points and time. Truncation 4 voxels.
+# Evaluation protocol as E43's: 20 views at 504 px, Déjà View K = 16, SAM 3 image mode
+# with configs/prompts/nyu40.txt at 0.3, linked, DSINE normals; each output aligned onto
+# the GT by Umeyama on its pixels.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+surface: tsdf
+tsdf: {voxel: 0.01, trunc: 0.04}   # metres, in the ground truth's frame
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: Déjà View, kept 0.5
+    refiner: none
+    keep: 0.5
+  - name: tangent 4e-2, kept 0.5
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5

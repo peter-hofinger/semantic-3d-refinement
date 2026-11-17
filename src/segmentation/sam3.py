@@ -56,6 +56,7 @@ class Sam3ImageSegmenter:
 
     prompts: tuple[str, ...] = PROMPTS
     synonyms: dict[str, str] = field(default_factory=dict)  # prompt -> class
+    fallback: frozenset[str] = frozenset()  # prompts that only take uncovered pixels
     checkpoint: str = CHECKPOINT
     threshold: float = 0.5
     batch: int = 4  # prompts per forward pass: 2.9 GB peak, under the 3.5 GB cap
@@ -125,7 +126,12 @@ class Sam3ImageSegmenter:
                         owners += [k] * len(res["scores"])
                 empty = torch.zeros(0, height, width, dtype=torch.bool, device=device)
                 score = torch.cat([torch.zeros(0, device=device), *scores])
-                local = resolve_overlaps(torch.cat([empty, *masks]), score)
+                weak = torch.tensor(
+                    [self.prompts[k] in self.fallback for k in owners],
+                    dtype=torch.bool,
+                    device=device,
+                )
+                local = resolve_overlaps(torch.cat([empty, *masks]), score, weak)
                 present, view_ids = compact(local, i)
                 ids[i] = view_ids.cpu().numpy()
                 for raw, new_id in zip(
@@ -154,10 +160,13 @@ def _repeat(vision: Any, n: int) -> Any:  # noqa: ANN401
     )
 
 
-def resolve_overlaps(masks: Tensor, scores: Tensor) -> Tensor:
+def resolve_overlaps(
+    masks: Tensor, scores: Tensor, fallback: Tensor | None = None
+) -> Tensor:
     """Each pixel's owner among masks (N, H, W): the highest score, the first on ties.
 
-    Returns (H, W) int64 indices into the masks, -1 where no mask covers the pixel.
+    `fallback` (N,) masks only own pixels no other mask covers. Returns (H, W) int64
+    indices into the masks, -1 where no mask covers the pixel.
     """
     assert masks.dtype == torch.bool, masks.dtype  # noqa: S101
     assert masks.ndim == 3, masks.shape  # noqa: PLR2004, S101
@@ -165,7 +174,8 @@ def resolve_overlaps(masks: Tensor, scores: Tensor) -> Tensor:
     assert bool((scores > 0).all()), "a mask needs a positive score to own a pixel"  # noqa: S101
     if not len(masks):
         return torch.full(masks.shape[1:], NO_INSTANCE, device=masks.device)
-    best, owner = torch.where(masks, scores[:, None, None], 0).max(0)
+    rank = scores if fallback is None else scores + (~fallback).to(scores.dtype)
+    best, owner = torch.where(masks, rank[:, None, None], 0).max(0)
     return torch.where(best > 0, owner, NO_INSTANCE)
 
 
@@ -198,6 +208,13 @@ def main() -> None:
         "the output name: sam3image-<stem>+<stem>_<views>.npz",
     )
     parser.add_argument(
+        "--fallback",
+        type=Path,
+        action="append",
+        help="prompt file whose masks only take pixels the other prompts leave "
+        "uncovered; adds +fb-<stem> to the output name",
+    )
+    parser.add_argument(
         "--threshold",
         type=float,
         default=0.5,
@@ -225,6 +242,12 @@ def main() -> None:
         synonyms = load_prompts(args.prompts)
         options.update(prompts=tuple(synonyms), synonyms=synonyms)
         tag += "-" + "+".join(p.stem for p in args.prompts)
+    if args.fallback:
+        weak = load_prompts(args.fallback)
+        synonyms = {**options.get("synonyms", {}), **weak}
+        prompts = (*options.get("prompts", PROMPTS), *weak)
+        options.update(prompts=prompts, synonyms=synonyms, fallback=frozenset(weak))
+        tag += "+" + "+".join(f"fb-{p.stem}" for p in args.fallback)
     if args.threshold != 0.5:  # noqa: PLR2004
         options["threshold"] = args.threshold
         tag += f"-t{args.threshold:g}"

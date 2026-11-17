@@ -4758,6 +4758,309 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion:** Solv3R's pose gain on ETH3D does not carry over to Hypersim's geometry; Deja View stays the
   backbone. The filter and flag-refine-filter gain about as much on Solv3R (dev -0.43 / -0.50) as on Deja View
   (-0.20 / -0.29), so they are not tied to one backbone.
+## Plan: E56a = each view's depth refined from the other views' points projected into it (issue #56, 14.11.2026)
+- **Goal:** issue #56: E36's 2D refiner never sees the other views, E41b's volume sees them only at 5 cm cells.
+  Does a 2D U-Net that gets, per pixel, the other views' depths along its ray beat Deja View on dev and val, and
+  do classes help it?
+- **Setting** (`src/refinement/reproject.py`, `configs/e56a_reproject.yaml`): E41b's data, split and protocol (all
+  centred train scenes, last 8 held out, state of least held-out error kept, seeds 0 and 1, 20000 steps). Per pixel:
+  RGB, log depth, log confidence, a 33-bin soft histogram of log(z / D) over [-0.5, 0.5] of the other views'
+  points that land on it, counts in front of and behind that range, their mean log confidence; with classes a
+  second histogram of the votes of the pixel's own NYU40 class. E36's U-Net (width 32), 4 target views per step,
+  votes from a random 8-20 views. Target and loss: E41b's r* along the pinhole ray, E36's L1 with gradient term.
+- **Models:** no classes, SAM 3 classes (per-view masks), GT classes. A permuted-classes control only if SAM 3 or
+  GT beats no classes beyond seed noise.
+- **Commands:** one SLURM task per model and seed on the 3d-cluster (RTX 5090), `uv run reproject-refine --out
+  runs/reproject-e56a --only <model>-s<seed>`, then `scene_eval --splits dev val` per model as in E41b.
+- **Checks:** tests (soft histogram keeps mass and mean, consistent views vote for 0 and a view 0.2 farther for
+  0.2, votes invariant to scene scale, same-class votes a subset, untrained refiner returns its input bit for bit);
+  one scene's step time and memory before the full run.
+- **Baselines:** Deja View (dev 3.500, val 5.102), E36 / E11a, E41b (val 5.24 / 5.29 / 5.25).
+
+## E56a: each view refined from the other views' points -> no gain over Deja View (14.11.2026)
+- **Commits:** 83ea14c, 8bc6276; 3d-cluster (RTX 5090), one SLURM task per model and seed, about 15 min of
+  training each (20k steps), 133 train rooms (15 new ones not yet staged, 2 without a pinhole fit).
+- **Results** (Chamfer cm, seeds 0 / 1; Deja View dev 3.500, val 5.102):
+
+  | model | dev | val |
+  |---|---|---|
+  | no classes | 3.495 / 3.480 | 5.353 / 5.448 |
+  | SAM 3 classes | 3.572 / 3.490 | 5.561 / 5.261 |
+  | GT classes | 3.552 / 3.522 | 5.505 / 5.202 |
+
+- Held-out error barely moves (0.0824 -> 0.080 at best); seeds differ by up to 0.3 cm, more than the classes.
+- **Checks:** unit tests (soft histogram mass and mean, consistent views vote 0, scale invariance, identity at
+  zero weights). On three rooms the mean vote correlates with r* at 0.13 to 0.16, and moving each pixel by
+  alpha times its mean vote helps at no alpha in {0.1, ..., 1}.
+- **Conclusion:** Deja View's views already agree; their remaining error is shared across views, so the other
+  views' points cannot reveal it. Same wall as E11a (2D) and E41b (3D). Issue #56 closed.
+## Plan: E57a = a keep head on the 3D refiner: a learned filter against instance voxel density (issue #57, 14.11.2026)
+- **Goal:** issue #57: E41b's refiner can only move points, while the voxel density filter (E45) and
+  flag-refine-filter (E27a, val Chamfer 3.82 and 3.67 at kept 0.5) win by dropping them. Does a learned keep score,
+  from the same fused grid, rank Deja View's pixels better than instance voxel density at the same kept fraction,
+  and do SAM 3's classes help it?
+- **Setting** (`src/refinement/volume.py`, `configs/e57a_volume.yaml`, `configs/e57a_volume_keep.yaml`): E41b's
+  data, grid, U-Net, steps, view subsets and seeds; the head gets a second output, a keep logit, trained by binary
+  cross-entropy on whether each pixel's remaining error |r* - r| is in the lower half of the step's pixels
+  (pixels with ground truth but no valid r* count as errors). Two head sets: keep head alone (the depth stays
+  Deja View's) and keep head plus residual. The kept step is the one with the least mean error of the held-out
+  pixels its logit keeps (top half). No dev or val scene takes part.
+- **Models:** keep alone and keep plus residual, each without and with SAM 3 classes, seeds 0 and 1 (8 models).
+  GT classes and a permuted control only if SAM 3 beats no classes beyond seed noise.
+- **Evaluation** (`experiments/configs/e57a_volume.yaml`, `scene_eval`'s new `keep_by`): each model's output
+  whole, kept 0.5 by instance voxel density and kept 0.5 by its keep logit, on dev and val. For the keep-alone
+  models the output is Deja View's depth, so the density cut is E27a's filter on the same pixels.
+- **Commands:** one SLURM task per model on the 3d-cluster (RTX 5090), `uv run volume-refine --config <config>
+  --out runs/volume-e57a`, then `scene_eval --splits dev val` per model.
+- **Checks:** tests (untrained keep head leaves the depth bit for bit and scores all pixels alike, keep labels mark
+  the least errors and count invalid pixels as errors, E41b's config has no keep head); E41b's configs train and
+  predict exactly as before (the keep head is off unless `keep` is set).
+- **Baselines:** Deja View (dev 3.500, val 5.102), instance voxel density kept 0.5 and flag-refine-filter (E27a),
+  E41b.
+
+## E57a: a keep head on the 3D refiner -> its cut loses badly to instance voxel density (14.11.2026)
+- **Commits:** 1dd9d4d, 4c95ad7; 3d-cluster (RTX 5090), one SLURM task per model and seed, about 25 min each.
+- **Results** (val Chamfer cm, range over seeds 0, 1 and none / SAM 3 classes, keep 0.5):
+
+  | cut | keep only | keep + residual |
+  |---|---|---|
+  | no cut | 5.102 (Deja View) | 5.211 to 5.694 |
+  | instance voxel density | 3.817 | 3.991 to 4.443 |
+  | keep head | 9.493 to 12.367 | 11.527 to 14.131 |
+
+- The head ranks pixels sensibly (held-out kept error 0.115 -> 0.102; dev accuracy after the cut 2.80 vs 3.00
+  cm by density) but deletes whole regions: completeness 15 to 39 cm. In ai_010_007, 8 of the 14 GT instances
+  above 0.5 % of the pixels keep under 5 % of them.
+- keep + residual picks its state by kept error alone, so the residual is unchecked: dev Chamfer 3.49 to 4.97.
+- **Checks:** residuals are applied as in E41b (|r| p99 under 5 %); the logits are not inverted.
+
+## Plan and result: E57b = E57a's logits cut per instance or with density -> still far behind (14.11.2026)
+- Planned after E57a, before running: does the per-pixel cut alone cause E57a's holes?
+- **Setting:** no retraining; `scene_eval` on E57a's saved logits: `keep_per: instance` cuts every linked SAM 3
+  instance to q, `keep_with: density` ranks by `filters.both` of the logit and density. Density per instance
+  as the baseline. Commit e015eb0, 3d-cluster job 2740, about 4 min per model.
+- **Results** (val Chamfer cm, ranges as above):
+
+  | cut | keep only | keep + residual |
+  |---|---|---|
+  | density, per instance | 5.190 | 5.312 to 5.774 |
+  | keep head, per instance | 6.706 to 7.310 | 6.969 to 7.235 |
+  | keep head and density | 6.229 to 7.521 | 6.652 to 8.005 |
+
+- **Conclusion:** at equal kept fraction a learned keep score loses to instance voxel density in every form.
+  Density wins by removing redundant points where the cloud is dense, which costs little completeness;
+  forced to cut every instance equally it falls to 5.19. An error label is spatially smooth, so cutting by it
+  opens holes. Issue #57 closed.
+## Plan: E58a = densify after filtering: the flagged pixels filled from their view's kept pixels (issue #58, 14.11.2026)
+- **Goal:** issue #58: the instance voxel density filter buys accuracy with completeness (val 6.061 -> 3.013 and
+  4.142 -> 4.621 cm at q 0.5, E27a). Does giving the flagged pixels a new depth from the kept ones, instead of
+  dropping them, keep the accuracy and win the completeness back, and does filling within an instance beat plain?
+- **Setting** (`filters.fill_harmonic`, `scene_eval`'s `fill`, `experiments/configs/e58a.yaml`): E27a's flag (q 0.5,
+  instance voxel density on Déjà View's cloud, linked SAM 3 masks). Per view the flagged pixels' inverse depth
+  solves the weighted Laplace equation with the kept pixels fixed (exact for planes): `plain` (equal weights),
+  `rgb` (Levin et al.'s colour affinity, as NYU Depth v2's fill), `sam3` and `gt` (edges between instances cut to
+  1e-3). Flag, refine, fill: E27a's tangent 4e-2 refiner, then the SAM 3 fill from the refined kept pixels.
+  Nothing tuned; every pixel keeps a point, so all fills score the full pixel set like Déjà View.
+- **Commands:** `scene_eval --cfg experiments/configs/e58a.yaml --splits dev val` (Mac, CPU).
+- **Checks:** tests (no flag returns the input bit for bit, a planar hole filled to 1e-4, a hole on an instance's
+  border filled from its own plane); `Déjà View, kept 0.5` and `tangent 4e-2, kept 0.5` reproduce E27a.
+- **Baselines:** Déjà View (val 5.102, completeness 4.142), the filter (3.817 / 4.621), flag-refine-filter (3.669).
+
+## E58a: densify after filtering -> every fill is worse than the filter alone and than Deja View (14.11.2026)
+- **Commits:** 4bbe699; 3080 server, dev and val in one run, 927 s.
+- **Results** (Chamfer cm, keep 0.5):
+
+  | variant | dev | val |
+  |---|---|---|
+  | Deja View | 3.500 | 5.102 |
+  | density filter | 3.298 | 3.817 |
+  | flag-refine-filter (tangent 4e-2) | 3.209 | 3.669 |
+  | filter + fill plain | 5.227 | 6.697 |
+  | filter + fill RGB | 4.396 | 6.119 |
+  | filter + fill SAM 3 | 4.009 | 5.808 |
+  | filter + fill GT instances | 4.213 | 6.037 |
+  | flag-refine-filter + fill SAM 3 | 3.962 | 5.720 |
+
+- **Checks** (4 views per scene, dev + val, from the run's saved depths): the fill recovers GT depth (half of
+  the GT pixels dropped at random: mean |log error| 0.88 %; the density drop within GT instances 1.02 %, plain
+  2.78 %). On the dropped pixels Deja View's own depth (3.20 %) beats every fill, even within GT instances
+  (3.43 %; SAM 3 3.61 %, RGB 3.84 %, plain 4.50 %).
+
+## Plan and result: E58b = the fill after a lighter filter -> still worse (14.11.2026)
+- Planned after E58a, before running: are E58a's holes just too large to fill?
+- **Setting:** `experiments/configs/e58b.yaml`, keep 0.9 and 0.75, plain and SAM 3 fill; commit 648e647, 3080.
+- **Results** (Chamfer cm, dev / val):
+
+  | kept | filter alone | + fill plain | + fill SAM 3 |
+  |---|---|---|---|
+  | 0.9 | 3.430 / 4.932 | 3.536 / 5.150 | 3.520 / 5.139 |
+  | 0.75 | 3.293 / 4.576 | 3.654 / 5.257 | 3.565 / 5.209 |
+
+- The fill does not even buy back completeness (val 4.11 to 4.14 cm filter alone, 4.15 to 4.19 with a fill).
+- **Conclusion:** a fill from the kept neighbours cannot beat what the backbone already predicts at the flagged
+  pixels; filling within an instance helps the fill but not enough. Dropping (or refining) them stays better.
+  Issue #58 closed.
+## Plan: E59a = where SAM 3 + linking lose panoptic quality (issue #59, 14.11.2026)
+- **Goal:** issue #59's first step: split the PQ that SAM 3 + linking lose on Hypersim into wrong class, objects
+  split across views (linking), split within a view, merged, missed, and pixels at segment borders, so the fix
+  goes where the loss is.
+- **Setting:** `experiments/scripts/e59a_pq_loss.py`; the evaluation's labels (SAM 3 image mode, NYU40 prompts at
+  0.3, working association, E17) scored per GT pixel by `label_metrics`, all 40 NYU40 classes. Oracles: per-view
+  masks unlinked, linked, perfect classes, perfect linking (masks of one GT segment share an id across views),
+  perfect grouping (also within a view), pixels within 2 or 5 px of a GT or predicted border made void, and all
+  of perfect grouping + classes + 2 px border. A cause for every unmatched GT segment and prediction of the
+  linked labels.
+- **Scenes:** dev first, then val once. No geometry is refined; Deja View's depth only enters the linking.
+- **Checks:** the bedroom figure (`experiments/figures/e59a_bedroom.jpg`), and that `linked` reproduces the
+  evaluation's PQ.
+
+## E59a: where SAM 3 + linking lose panoptic quality -> classes first (the unprompted catch-alls), then fragments (14.11.2026)
+- **Commits:** 8578486; dev and val on the 3080 server's CPU (`--splits dev val`), about 20 s per scene.
+- **Checks:** `linked` reproduces the evaluation's PQ (dev 0.292, val 0.258).
+- **Results** (PQ, mean over scenes; `experiments/results/e59a_dev_val.txt`):
+
+  | oracle | dev | val |
+  |---|---|---|
+  | per-view masks, unlinked | 0.129 | 0.114 |
+  | linked (the evaluation) | 0.292 | 0.258 |
+  | perfect classes, prompted ones only | 0.411 | 0.342 |
+  | perfect classes | 0.436 | 0.462 |
+  | perfect linking | 0.372 | 0.342 |
+  | perfect grouping | 0.421 | 0.415 |
+  | 2 px borders void | 0.405 | 0.362 |
+  | grouping + classes + 2 px | 0.779 | 0.724 |
+
+- Val: 317 of 471 GT segments unmatched, 187 of them in the three catch-all classes that are never prompted;
+  merged 25, split across views 16, wrong class 11, missed 76. Of 674 unmatched predictions 577 are fragments
+  of one GT segment.
+- **Conclusion:** classes are the largest share (+0.20 val), most of it the catch-alls (+0.12 of it); then
+  grouping fragments (+0.16). Linking alone is +0.08. Next: prompt the catch-alls (E59b).
+
+## Plan: E59b = prompting the catch-all classes (issue #59, 14.11.2026)
+- **Goal:** win back E59a's largest share: GT segments of otherstructure, otherfurniture and otherprop that no
+  prompt can find.
+- **Setting:** SAM 3 image mode at 0.3 with `configs/prompts/nyu40.txt` plus `configs/prompts/catchall.txt`
+  (12 generic and frequent words, each mapped to a catch-all), two ways: competing with the NYU40 masks by
+  score, and as fallback (`--fallback`: their masks only take pixels no NYU40 mask covers). Scored by
+  `e59a_pq_loss.py --segmentation`, same oracles and causes. Defaults unchanged.
+- **Scenes:** dev decides, val once.
+- **Checks:** NYU40 PQ of the fallback variant on the prompted classes must not drop (it only adds pixels).
+
+## E59b: prompting the catch-all classes -> competing hurts PQ, as fallback PQ is flat, mIoU and AP rise a little (14.11.2026)
+- **Commits:** e241b55 (SAM 3 runs), scored at 6c394f5 (adds only the opt-in merge to the script); 3080 server,
+  SAM 3 about 21 s per scene and variant, `~/pouya/e59b_run.sh`.
+- **Results** (linked labels; `experiments/results/e59b_{competing,fallback}.txt`):
+
+  | prompts | dev PQ / AP / mIoU | val PQ / AP / mIoU |
+  |---|---|---|
+  | NYU40 (E59a) | 0.292 / 0.216 / 0.405 | 0.258 / 0.345 / 0.349 |
+  | + catch-alls, competing | 0.248 / 0.202 / 0.342 | 0.212 / 0.227 / 0.304 |
+  | + catch-alls, fallback | 0.298 / 0.254 / 0.444 | 0.254 / 0.351 / 0.365 |
+
+- Val, fallback: unmatched GT segments 317 -> 291, but unmatched predictions 674 -> 2021 (fragments 577 ->
+  1757); the generic words fire on parts of objects. Competing, they also take pixels from the NYU40 masks.
+- The planned check (PQ of the prompted classes alone) was not computed separately.
+- **Conclusion:** the catch-alls are not found by generic words; as fallback they add labeled pixels (mIoU)
+  but as many fragments as objects. Prompts stay NYU40 by default.
+
+## Plan and result: E59c = merging touching objects of one class -> PQ +0.03 on dev and val (14.11.2026)
+- Planned after E59b, before running, from a split of E59a's 577 val fragments: 530 share a view with another
+  prediction on the same GT segment (SAM 3 part masks, which the linking never joins within a view); 182 have
+  the GT segment's class, among them 51 GT segments split into same-class parts none of which matches
+  (5.7 % of the labeled pixels).
+- **Setting:** `associate.merge_touching` after the linking: cubes of 4 pixel footprints, objects of one class
+  merge when the share of the smaller one's cubes in or next to the other's is at least the contact share.
+  Opt-in (`e59a_pq_loss.py --merge`), defaults unchanged. Commit 6c394f5, 3080 CPU.
+- **Dev sweep** (PQ, NYU40 prompts; linked 0.292): contact 0.02 0.286, 0.05 0.289, 0.1 0.304, 0.2 0.308,
+  0.3 0.321, 0.4 0.320, 0.6 0.319, 0.8 0.317. 0.3 chosen on dev; val run once.
+- **Results** (`experiments/results/e59c_*.txt`):
+
+  | labels | dev PQ / PQ things / AP / mIoU | val PQ / PQ things / AP / mIoU |
+  |---|---|---|
+  | linked (E59a) | 0.292 / 0.159 / 0.216 / 0.405 | 0.258 / 0.162 / 0.345 / 0.349 |
+  | merged 0.3 | 0.321 / 0.193 / 0.239 / 0.405 | 0.286 / 0.198 / 0.347 / 0.349 |
+  | fallback catch-alls + merged 0.3 | 0.341 / 0.227 / 0.298 / 0.444 | 0.284 / 0.198 / 0.348 / 0.365 |
+  | perfect grouping (oracle) | 0.421 / 0.297 / 0.300 / 0.471 | 0.415 / 0.335 / 0.389 / 0.438 |
+
+- **Checks:** unit test (touching same-class objects merge, separated or other-class ones stay apart). The
+  geometry is untouched (labels only), so the surface scores are Deja View's.
+- **Conclusion:** the merge closes about a fifth of the gap to perfect grouping (val +0.028 of +0.157), the
+  same on dev and val; mIoU cannot change (classes stay). With the fallback catch-alls dev gains more (0.341)
+  but val does not (0.284). Still open: the 395 fragments of another class than their object (a part mask
+  named differently, e.g. a pillow mask on a sofa) and the catch-alls.
+
+## Plan and result: E59d = absorbing part masks of another class into their host -> val PQ 0.286 -> 0.336 (15.11.2026)
+- Planned after E59c, before running, from E59a's 395 val fragments of another class than their GT segment's:
+  top pairs sofa/chair 32, shelves/otherstructure 29, desk/table 23, pillow/chair 22; 255 lie on a matched
+  prediction (the host), median contact share 0.91, far smaller than the host.
+- **Setting:** `associate.absorb_parts` after `merge_touching` (contact 0.3): an object joins the other-class
+  object it touches most if its contact share is at least `need` and it has at most `ratio` times the host's
+  cubes; the joined object takes the majority class by pixels. Hosts either any class or things only (no
+  wall, floor, ceiling). Opt-in (`e59a_pq_loss.py --absorb need:ratio`), defaults unchanged. Commit e44d0ae,
+  3080 CPU.
+- **Bug fixed before the sweep:** a first version absorbed during the merge, so a part's union with its host
+  pulled in the host's whole same-class group (stuff PQ 0.92 -> 0.38 on dev). Now a separate pass on the
+  merged objects.
+- **Dev sweep** (PQ; merged 0.3 0.321): need 0.5 / 0.8 x ratio 0.01 / 0.03 / 0.1, all hosts 0.356 to 0.370,
+  things only 0.343 to 0.373. 0.5:0.1 into things chosen on dev (0.373); val run once, both host modes.
+- **Results** (`experiments/results/e59d_{dev_sweep,val}.txt`):
+
+  | labels | dev PQ / PQ things / AP / mIoU | val PQ / PQ things / AP / mIoU |
+  |---|---|---|
+  | linked (E59a) | 0.292 / 0.159 / 0.216 / 0.405 | 0.258 / 0.162 / 0.345 / 0.349 |
+  | merged 0.3 (E59c) | 0.321 / 0.193 / 0.239 / 0.405 | 0.286 / 0.198 / 0.347 / 0.349 |
+  | + absorbed 0.5:0.1 into things | 0.373 / 0.244 / 0.230 / 0.418 | 0.336 / 0.252 / 0.325 / 0.381 |
+  | + absorbed 0.5:0.1, all hosts | 0.365 / 0.233 / 0.212 / 0.390 | 0.359 / 0.275 / 0.309 / 0.403 |
+  | perfect grouping (oracle) | 0.421 / 0.297 / 0.300 / 0.471 | 0.415 / 0.335 / 0.389 / 0.438 |
+
+- **Checks:** unit test (a small pillow on a chair joins it, a sofa does not; hosts restrict). Labels only,
+  geometry untouched.
+- **Conclusion:** absorbing closes about another third of the gap to perfect grouping on val (0.286 -> 0.336
+  of 0.415), with PQ things +0.05 and mIoU +0.03; AP drops 0.02 (absorbed parts lose their own scores). All
+  hosts is better on val (0.359) but was not the dev choice. Linked 0.258 -> 0.336 in total from E59c and E59d.
+## Plan: E25c = an opt-in fused-surface score, and the filter and flag-refine-filter under it (issue #25's question, 14.11.2026)
+- **Goal:** issue #25 (E38) asked whether to score one fused surface next to the per-pixel cloud: Déjà View's
+  views leave every surface as scattered layers and completeness takes the nearest one, so the per-pixel score
+  rewards a thick shell, and deleting points (E45's filter, E27a's flag-refine-filter) may gain partly from that.
+  This is an evaluation addition, off by default: no existing number changes.
+- **Setting:** `surface: tsdf` in an evaluation config fuses each output's depth maps, after the run's Umeyama
+  alignment, and the GT's depth maps into one Open3D TSDF each (Curless and Levoy 1996), takes the marching-cubes
+  vertices as the surface and scores accuracy / completeness / Chamfer between the two (`fused_*` keys). Dropped
+  pixels are not fused. Voxel size chosen on dev's GT alone, before any output is fused: the size at which the
+  GT's fused surface lies closest to the GT's own pixels; truncation 4 voxels.
+- **Variants** (`experiments/configs/e25c_fused.yaml`): Déjà View, Déjà View kept 0.5 (E45's instance voxel
+  density filter), tangent 4e-2 kept 0.5 (E27a's flag-refine-filter). Dev, then val.
+- **Checks:** tests (a plane fuses onto itself, camera depth inverts the lift, fused scores are 0 on the truth,
+  invariant to the output's scale, 3 cm off reads 3 cm, no fused keys without the flag); the per-pixel scores of
+  this run must equal E27a's.
+- **Baselines (per pixel, E27a):** Chamfer dev 3.500 / 3.30 / 3.21, val 5.102 / 3.82 / 3.67 (Déjà View / filter /
+  flag-refine-filter).
+
+## E25c: fused-surface score -> the filter's gain is per pixel only; fused, it loses a third of the surface (15.11.2026)
+- **Commits:** f827fc1 (score), d9af412 (the point count is a float, else the split mean failed after all
+  scenes were scored), 0ef90ce (fuse only the pixels with GT depth, as the per-pixel score: before, output
+  surfaces at windows and missing GT inflated fused accuracy, ai_004_010 31 -> 3.0 cm Chamfer). 3080, about
+  10 min with one scoring process (6 ran out of the 61 GB). `experiments/results/e25c_{fused,checks}.txt`.
+- **Results** (Chamfer in cm, mean / median over the surface, mean over scenes):
+
+  | variant | dev per pixel | dev fused | val per pixel | val fused |
+  |---|---|---|---|---|
+  | Deja View | 3.50 / 2.04 | 5.43 / 2.96 | 5.10 / 2.61 | 17.01 / 4.95 |
+  | Deja View, kept 0.5 | 3.30 / 1.95 | 8.58 / 3.54 | 3.82 / 1.60 | 18.08 / 4.93 |
+  | flag-refine-filter | 3.21 / 1.86 | 8.62 / 3.49 | 3.67 / 1.57 | 17.89 / 4.95 |
+
+  Fused completeness: dev 4.29 -> 13.90 / 13.98, val 22.63 -> 31.88 / 31.44; fused accuracy improves
+  (dev 6.57 -> 3.25, val 11.39 -> 4.28 / 4.33).
+- **Checks:** the per-pixel scores equal E27a's. Each fused surface lies within 1 to 2 cm (mean) of its own
+  pixels, the GT's within 0.4 to 1.4 cm. The GT's own depth with half its pixels dropped at random fuses
+  without loss (completeness 0.5 to 1.0 cm), with the filter's half it loses a third of the surface by over 5
+  cm (5.5 to 12.3 cm): the loss is where the filter cuts, not a fusion artifact. Val's mean is dominated by
+  ai_004_003 (74 cm): GT beyond 5 m (through openings) is about 1 % of its pixels but 12 % of its fused
+  surface, and Deja View misses it; the medians are not affected.
+- **Conclusion:** on one fused surface the filter and flag-refine-filter trade completeness for accuracy and
+  lose on dev (5.43 -> 8.6) and tie on val's median (4.95 -> 4.93). Their per-pixel gain comes mostly from
+  removing points that the per-pixel completeness does not miss. The fused score stays opt-in
+  (`surface: tsdf`); no existing number changes.
 
 ## Plan: #52 = learned segment conditioning inside Déjà View, three steps; E52a first (issue #52, 14.11.2026)
 - **Why:** E51a and E53a closed the training-free routes of #50: with GT instances, neither averaging

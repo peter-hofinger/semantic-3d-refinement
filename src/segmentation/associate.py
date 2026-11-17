@@ -181,6 +181,122 @@ class Associator:
         )
 
 
+def touch_shares(
+    seg: Segmentation, geometry: Geometry, side: float
+) -> tuple[dict[int, int], dict[tuple[int, int], float]]:
+    """Cube count of each object and, per touching pair (a, b), the share of a's cubes.
+
+    Each object's points fall into cubes of the given side; a touches b by the share
+    of a's cubes that lie in or next to (26-neighbourhood) a cube of b.
+    """
+    assert side > 0, side  # noqa: S101
+    ids = seg.instance_ids
+    assert ids.shape == geometry.depth.shape, (ids.shape, geometry.depth.shape)  # noqa: S101
+    labeled = (ids >= 0) & (geometry.depth > 0) & np.isin(ids, list(seg.classes))
+    cells = np.floor(geometry.world_points()[labeled] / side).astype(np.int64)
+    cells -= cells.min(0) - 1
+    span = int(cells.max()) + 2
+    key = (cells[:, 0] * span + cells[:, 1]) * span + cells[:, 2]
+    cube = np.unique(np.stack([ids[labeled].astype(np.int64), key], 1), axis=0)
+    obj, k = cube[:, 0], cube[:, 1]
+    steps = np.array(
+        [
+            (a * span + b) * span + c
+            for a in (-1, 0, 1)
+            for b in (-1, 0, 1)
+            for c in (-1, 0, 1)
+        ]
+    )
+    near = np.unique(
+        np.stack([np.repeat(obj, len(steps)), (k[:, None] + steps).ravel()], 1), axis=0
+    )
+    order = np.argsort(near[:, 1], kind="stable")
+    near_obj, near_key = near[order, 0], near[order, 1]
+    lo = np.searchsorted(near_key, k, "left")
+    n = np.searchsorted(near_key, k, "right") - lo
+    a = np.repeat(obj, n)
+    b = near_obj[np.repeat(lo, n) + np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)]
+    pairs, count = np.unique(np.stack([a, b], 1)[a != b], axis=0, return_counts=True)
+    objects, size = np.unique(obj, return_counts=True)
+    cubes = dict(zip(objects.tolist(), size.tolist(), strict=True))
+    shares = {
+        (int(x), int(y)): c / cubes[int(x)]
+        for (x, y), c in zip(pairs.tolist(), count.tolist(), strict=True)
+    }
+    return cubes, shares
+
+
+def merge_touching(
+    seg: Segmentation, geometry: Geometry, side: float, contact: float
+) -> Segmentation:
+    """Merge objects of one class whose points touch in 3D (issue #59, E59c).
+
+    Objects of one class merge, transitively, when the smaller one touches the other
+    (`touch_shares`) by at least `contact`. SAM 3 often splits one object into part
+    masks in a view, which the linking keeps apart (it never joins two masks of one
+    view).
+    """
+    assert 0 < contact <= 1, contact  # noqa: S101
+    cubes, shares = touch_shares(seg, geometry, side)
+    links = [
+        (a, b)
+        for (a, b), share in shares.items()
+        if seg.classes[a] == seg.classes[b]
+        and share >= contact
+        and (cubes[a], a) <= (cubes[b], b)
+    ]
+    return joined(seg, links)
+
+
+def absorb_parts(
+    seg: Segmentation,
+    geometry: Geometry,
+    side: float,
+    absorb: tuple[float, float],
+    hosts: set[str] | None = None,
+) -> Segmentation:
+    """Join each small object to the other-class object it touches most (E59d).
+
+    Object a joins b if a touches b by at least `absorb[0]` and has at most
+    `absorb[1]` times b's cubes: a part mask SAM 3 named by a near-synonym (a "desk"
+    on a table). Only objects of the `hosts` classes take parts (None: all). Run
+    after `merge_touching`, so sizes are those of whole objects. The joined object
+    takes the class covering most of its pixels.
+    """
+    need, ratio = absorb
+    assert 0 < need <= 1, need  # noqa: S101
+    assert 0 < ratio < 1, ratio  # noqa: S101
+    cubes, shares = touch_shares(seg, geometry, side)
+    best: dict[int, tuple[float, int]] = {}
+    for (a, b), share in shares.items():
+        other = seg.classes[a] != seg.classes[b]
+        host = hosts is None or seg.classes[b] in hosts
+        if other and host and share >= need and cubes[a] <= ratio * cubes[b]:
+            best[a] = max(best.get(a, (0.0, b)), (share, b))
+    return joined(seg, [(b, a) for a, (_, b) in best.items()])
+
+
+def joined(seg: Segmentation, links: list[tuple[int, int]]) -> Segmentation:
+    """Join the linked objects (a, b), transitively."""
+    parent = {m: m for m in seg.classes}
+
+    def root(m: int) -> int:
+        while parent[m] != m:
+            parent[m] = parent[parent[m]]
+            m = parent[m]
+        return m
+
+    for a, b in links:
+        parent[root(b)] = root(a)
+    roots = {m: root(m) for m in seg.classes}
+    new_id = {r: n for n, r in enumerate(sorted(set(roots.values())))}
+    lookup = np.full(max(seg.classes) + 2, NO_INSTANCE, dtype=np.int32)
+    for m, r in roots.items():
+        lookup[m] = new_id[r]
+    owner_of = {m: new_id[r] for m, r in roots.items()}
+    return Segmentation(lookup[seg.instance_ids], *object_labels(seg, owner_of))
+
+
 def object_labels(
     seg: Segmentation, owner: dict[int, int]
 ) -> tuple[dict[int, str], dict[int, float]]:
