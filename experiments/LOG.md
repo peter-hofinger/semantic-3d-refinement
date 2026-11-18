@@ -5893,3 +5893,69 @@ Interim entry: the check that the plan puts before any table.
   - One seed: a control result, not a claim about LoRA in general.
 - **Cost:** rungs 3/4 ~10 + ~15 min (2 + 1 runs; s/step unknown until rung 3, est. 2-3 s); sweep
   3 x 500 steps ~1 h; rung 5 ~2-2.5 h + ~5 min dev scoring. Ask before the sweep and before rung 5.
+
+## E52b, control: LoRA on Déjà View's loop block without segments gains 0.35 cm Chamfer over Déjà View on dev (3/3 scenes) and 0.17 cm more than E52a's pool adapters: the bar for E52b and E52c (issue #52, 18.11.2026)
+- **Goal, setting:** the plan entry above. All rungs on the 3080 at 3cc909a (clean), one seed (0),
+  lr_lora 1e-4 (from the sweep below). Rung 5: 18.11 11:02 to 13:01 (7011 s training, 2.3 s per
+  step, then dev scoring), peak 2.21 GB. `--out runs/e52b_control`, log
+  `runs/e52b_control/e52b_control.log`, TensorBoard under `runs/e52b_control/tb/`. One CUDA allocator
+  OOM warning during dev scoring, as in E52a's fourth run; the allocator retried and every dev score
+  was written.
+- **Rungs 3 and 4** (18.11 09:33-09:54, `runs/e52b_rung3_1e-4`, `runs/e52b_rung3_1e-5`,
+  `runs/e52b_rung4_1e-4`): passed. Rung 3, bedroom, last-50 training ratio: lr 1e-4 0.843 (previous
+  50: 0.891), passes; lr 1e-5 0.962 (previous 0.981) falls but misses < 0.90 (too slow, not a bug).
+  Rung 4 at 1e-4, dev, last-100 ratio per scene: bedroom 0.910, living room 0.775, lobby 0.706 (all
+  < 0.95; the pool adapter: 0.909 / 0.787 / 0.707). 1.71 s per step at 8 views. Diagnostics only.
+- **lr sweep** (500 steps each, 09:59-11:00, `runs/e52b_sweep_<lr>`), ratio at step 250 / 500:
+
+  | lr_lora | held-out | val |
+  |---|---|---|
+  | 1e-5 | 0.9941 / 0.9881 | 0.9906 / 0.9799 |
+  | 3e-5 | 0.9870 / 0.9790 | 0.9817 / 0.9661 |
+  | 1e-4 | 0.9792 / 0.9752 | 0.9729 / 0.9627 |
+
+  The rule (least val ratio at 500) picks 1e-4. Its margin over 3e-5 (0.0034) is smaller than the
+  rerun spread measured below (0.007), so the sweep separates 1e-5 from the other two, not 3e-5 from
+  1e-4.
+- **Training (rung 5), figure `e52b_control.jpg`, raw `results/e52b_control_train.yaml`:**
+
+  | | held-out min (step) | held-out @3000 | val min (step) | train trend, last 500 steps |
+  |---|---|---|---|---|
+  | lora-none | 0.9385 (3000) | 0.9385 | 0.9410 (2500) | -0.054 |
+  | pool-gt (E52a4) | 0.9803 (3000) | 0.9803 | 0.9710 (3000) | -0.014 |
+  | pool-grid (E52a4) | 0.9822 (2750) | 0.9838 | 0.9762 (2500) | -0.017 |
+
+  Stable by the probe's rule (held-out at its minimum at the last eval, training ratio falling). Not
+  monotone: held-out and val rise at steps 750-1000 (val 0.956 -> 0.976) and fall again from 1250 on;
+  val moves by up to 0.014 between evals (2500 -> 3000: 0.941 -> 0.955 while held-out falls 0.959 ->
+  0.939). The training ratio is much noisier than the pool adapters' (50-step means 0.84-0.97): the
+  LoRA's gain varies far more from scene to scene. Kept state: step 2500 (val).
+- **Rerun noise:** rung 5's first 500 steps repeat the sweep's 1e-4 run (same config, draws, GPU).
+  Val ratio at 250: 0.9715 vs 0.9729; at 500: 0.9558 vs 0.9627 (0.007 apart); held-out at 500: 0.9722
+  vs 0.9752. This is the rerun spread on val that E52a's fourth run had not measured.
+- **Dev, Chamfer (cm, 20 views, 3080, against the same Déjà View run as E52a4):**
+
+  | | living room | bedroom | lobby | mean |
+  |---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 |
+  | pool-gt (E52a4, step 3000) | 1.567 | 1.800 | 6.622 | 3.330 |
+  | pool-grid (E52a4, step 2500) | 1.561 | 1.813 | 6.604 | 3.326 |
+  | lora-none (step 2500) | 1.580 | 1.693 | 6.189 | **3.154** |
+  | lora-none minus pool-grid | +0.019 | -0.120 | -0.416 | -0.172 |
+
+  lora-none beats Déjà View on 3 of 3 scenes (mean -0.35 cm; the lobby carries 0.86 of the 1.04 cm
+  sum), and pool-grid on 2 of 3 (living room +0.019). It moves Déjà View's rays by 0.13-0.24°
+  (mean per scene); scored on Déjà View's own cameras, living room is worse than Déjà View (2.267),
+  bedroom 1.953, lobby 6.187, so the gain needs its own rays, as pooling's did in E52a's second run.
+- **Reading (the plan's rule):** this is the control, with no verdict on segments. lora-none gains
+  more than pool-grid (-0.17 cm mean, 2/3 scenes), so the LoRA's capacity adds to adaptation beyond a
+  pooling adapter of the same size, mostly on the lobby. One seed and one lr chosen inside the rerun
+  spread: a control result, not a claim about LoRA in general.
+- **Conclusion:** the bar for #52 moves to 3.154 cm: E52b (LoRA + pool GT vs grid) needs LoRA +
+  pool-gt to beat Déjà View AND this control AND LoRA + pool-grid by >= 0.05 cm dev mean on 2 of 3
+  scenes. With val moving by up to 0.014 between evals and 0.007 between reruns, a 0.05 cm dev gap is
+  only readable with more than one seed; the E52b plan should budget seeds for the control too. Next
+  per the agreed order: E52c (LoRA + a cross-view instance-consistency loss), then E52b.
+- **Commands:** rung 5 as in the plan with `lr_lora=1e-4`; sweep as in the plan (`--splits` none,
+  `steps=500`, `--out runs/e52b_sweep_<lr>`). Figure and raw:
+  `uv run python experiments/scripts/e52b_figures.py runs/e52b_control runs/e52a4 runs/e52b_sweep`.
