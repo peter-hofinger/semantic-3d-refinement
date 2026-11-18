@@ -6137,3 +6137,21 @@ Interim entry: the check that the plan puts before any table.
   prediction normals, partners re-chosen every step, the 0.05 cap) has minima away from the GT.
 - **Commands:** the plan's command; figure (rung-3 panel for the term alone added) and raw:
   `uv run python experiments/scripts/e52c_rungs_figures.py`.
+
+## E52c, plan: solver check of the cross-view term without the network (issue #52, 19.11.2026)
+- **Why:** trained alone, the term stopped at c / c_DV 0.89-0.90 while the GT error grew past
+  Déjà View's (entry above). Either the LoRA cannot express the change the term asks for, or the
+  term's minima lie away from the GT.
+- **Setting:** `experiments/scripts/e52c_solver.py`. Déjà View's cached depth of the bedroom's 12
+  probe views (pinhole rays), Adam on a log-scale per 14 px patch (bilinear) or a scale and
+  offset per view, 1000 steps, lr 1e-3, the exact Sim(3) re-fit every step, 6000 drawn pixels.
+  Loss: c gated by instance, c with any partner, or the GT error (the solver's known answer).
+  lr 1e-2 raised c in every arm within 4 steps (depth steps of 1% are twice Déjà View's c), so
+  1e-3 was set on a 50-step laptop smoke test before this entry (patch arms: c 0.75, GT ratio
+  1.14 at step 50; GT arm: GT ratio 0.71, c 0.86).
+- **Hypothesis:** the term's minimum lies near the GT: minimising c on patches reaches c / c_DV
+  near GT's (0.49 gated on this draw) and the GT ratio ends below 1. Refuted if the GT ratio
+  ends above 1 while c falls (the term's minima lie away from the GT; then a different term,
+  not a different λ or network, is needed). The GT arm must reach a GT ratio well below 1 for
+  the check to count.
+- **Command** (3080, ~1-2 min per arm): `uv run python experiments/scripts/e52c_solver.py`.
