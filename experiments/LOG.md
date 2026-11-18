@@ -1,11 +1,8 @@
 # Experiment log: semantic-guided refinement of Déjà View, from SAM 3 masks to the joint refiner
 
-Every experiment gets an entry: goal, code version, command, settings, results, figures, conclusion.
+Entries follow the Experiments section of `CLAUDE.md`. E1-E45 predate its issue-based names (Mircea's proposal, 10.11.2026).
 Raw script output is in `results/`, figures in `figures/`, one-off scripts in `scripts/`.
 Data, caches and model outputs stay local under `data/processed/scannetpp/<scene>/` (git-ignored).
-
-**Numbering:** E1-E45 are numbered in order. From 10.11.2026 on an experiment is named after the issue it works on
-plus a letter in run order (E8a, E8b, ...; Mircea's proposal, adopted 10.11.2026), as `CLAUDE.md` says.
 
 **Common setup** unless stated otherwise:
 - Scenes (ScanNet++ `nvs_sem_val`, held out from Déjà View training): `5ee7c22ba0` kitchen, `7b6477cb95` office.

@@ -48,16 +48,14 @@ Pipeline: Views -> backbone -> SAM 3 + linking -> refiner -> labeled point cloud
 - `runs/` and `data/` never enter git.
 
 ## Experiments
-- An experiment is E<issue><letter> (E8a, E8b, ...); work without an issue gets one first. E1-E45 keep their numbers.
-- Each gets a plan entry in `experiments/LOG.md` before it runs and a result entry after: goal, setting, commits, commands, checks, results with baselines, conclusion.
-- Smallest scene, resolution and view count that could work; time every stage.
-- Change one thing at a time. Fixed seed saved with the run's config, fixed val set, never augment val.
-- Before any neural network experiment, follow `docs/experiments.md`:
-  - Climb the ladder in order: overfit the bedroom `ai_006_007`, then `dev` (3 scenes), then scale on train and validate on `val`. One fixed view per scene if a sample is a view.
-  - Cannot overfit → implementation bug, not a failed approach.
-  - Simplest model first: no dropout, BatchNorm or LR decay.
-  - Log train and val loss every run with TensorBoard, under `runs/`, so the whole team reads the same curves.
-  - "Approach fails" needs a passed ladder and a tuned baseline. Otherwise write "not yet working".
+- An experiment is E<issue><letter> (E8a, E8b, ...); work without an issue gets one first. Its `experiments/LOG.md` entry states the hypothesis and the number that would refute it before the run, the result after.
+- Smallest setting that could work; time every stage. One change at a time, seeded, val never augmented.
+- A result counts only when:
+  - the method first reached a known answer: a network overfits `ai_006_007`, then `dev`; a solver or rule recovers a known corruption of oracle input;
+  - it beats the raw backbone and the same method without semantics by more than the seed or scene spread;
+  - every part of the final method was ablated.
+- Training a network climbs Niessner's ladder, `docs/experiments.md`.
+- "Approach fails" needs the first condition, a simple baseline tuned as much, and the spread and budget logged. Otherwise write "not yet working" and name what is missing.
 
 ## Visuals
 - Visualize everything, as image files, and look at every figure before claiming anything from it.
