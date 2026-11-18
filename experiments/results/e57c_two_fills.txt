@@ -1,0 +1,7 @@
+rule 1 with the band to 0.6: kept 0.541, Chamfer 4.560 cm
+rule 1 with the band to 0.7: kept 0.585, Chamfer 3.250 cm
+rule 1 with the band to 0.8: kept 0.626, Chamfer 2.481 cm
+rule 1 with the band to 0.9: kept 0.664, Chamfer 1.749 cm
+rule 1 with the band to 1.0: kept 0.695, Chamfer 1.400 cm
+1. transition band 0.5 < v <= 0.7: the oracle decides: kept 0.585, Chamfer 3.250 cm; view 18: white 0.525, red 0.255, green 0.138, blue 0.082, gold 0.000
+2. blue pixels on a straight run between white and green of one instance: kept 0.586, Chamfer 1.608 cm; view 18: white 0.525, red 0.255, green 0.089, blue 0.105, gold 0.027
