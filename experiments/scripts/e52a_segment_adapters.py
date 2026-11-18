@@ -19,20 +19,43 @@ whose kept state is not zero, per held-out and dev scene at 12 and 20 fixed view
 the held-out gain hold per scene and at the dev scores' 20 views?), and the bedroom's
 per-pixel error maps at views 18, 0, 12, 6 (`<out>/e52a_maps.npz`).
 
-Error of one pass: the conditioned model's points x = o + D d, one Umeyama Sim(3)
-(detached) of a random pixel subset onto the GT points, L1 of |S x - x_gt| / depth_gt on
-every GT pixel, clipped at `max_error`. Training loss per step (E52a, second run): one
-scene, a random subset of its views, the model's error over Déjà View's on the same
-views and pixel subset (one extra no-grad pass), so a scene where Déjà View fails
-(first run: error 0.24-0.43 against 0.01-0.06) weighs no more than one where it works;
-Adam's step is invariant to that rescaling up to its epsilon. `ratio_floor` > 0 divides
-by max(Déjà View's error, floor) instead, which bounds how much more a scene that Déjà View
+Error of one pass: the conditioned model's points x = o + D d, one Umeyama Sim(3) of a
+random pixel subset onto the GT points (`align: detached`, E52a's runs, or `exact`:
+differentiable, so the gradient also sees the Sim(3) move with x; E52d's gradient check
+found the detached one only partly a descent direction), L1 of |S x - x_gt| / depth_gt
+on every GT pixel, clipped at `max_error`. Training loss per step (E52a, second run):
+one scene, a random subset of its views, the model's error over Déjà View's on the same
+views and pixel subset (one extra no-grad pass), so a scene where Déjà View fails (first
+run: error 0.24-0.43 against 0.01-0.06) weighs no more than one where it works; Adam's
+step is invariant to that rescaling up to its epsilon. `ratio_floor` > 0 divides by
+max(Déjà View's error, floor) instead, which bounds how much more a scene that Déjà View
 nearly solves weighs (stability probe). Held-out error: the mean over held-out scenes of
 the plain ratio on fixed views (1 at step 0, which is Déjà View).
 
+E52d (why does every adapter diverge after 500-2000 steps?): each step records the
+gradient norm per parameter and Déjà View's error, every `diag_every` steps the norm of
+each parameter. One change per arm, each off by default: `autocast: false` (fp32 forward);
+`weight_decay_up` (AdamW's decoupled decay on B_k alone, A's scale stays LoRA's init);
+`clip_factor` (the gradient norm clipped at that multiple of the last 100 steps' median,
+scale-free, as the norm's scale is not known before the run); `lr_decay: cosine`.
+
+E52a, fourth run (`docs/experiments.md`): every eval also scores Hypersim's `val` scenes
+(`val_splits`, never trained on) the same way as the held-out ones, and `select` names the
+set whose least mean ratio picks the kept state (`held_out` as before, or `val`). Every
+`probe_every` steps one random val scene's ratio, from its own random stream so that the
+training draws stay those of E52d. Every step's losses and gradient norms and every
+eval's ratios go to TensorBoard under `<out>/tb/<model>-<segments>`. `train_scenes`
+replaces the train splits by named scenes for the ladder's overfit rungs (bedroom, dev),
+with `held_out: 0`.
+
+E52b (LoRA, issue #52): a model's third flag adds LoRA of rank `lora_rank` to the shared
+loop block's attention linears (`src/backbone/adapters.py`), trained at `lr_lora`.
+Segment kind `none` gives every token no segment, so LoRA alone with `none` is plain
+fine-tuning of Déjà View on Hypersim (E52b's control).
+
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
-uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
+uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true, false]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a --out runs/e52a_check
 writes `<out>/e52a.yaml` (records, config, git hash) and, for the default, every
 model's adapter and held-out curve `<out>/<model>-<segments>.pt`.
@@ -49,6 +72,7 @@ import numpy as np
 import torch
 import yaml
 from torch import Tensor
+from torch.utils.tensorboard import SummaryWriter
 
 from src.analysis.scene_eval import git_hash, input_paths
 from src.backbone.adapters import (
@@ -68,15 +92,18 @@ from src.evaluation.labeled import (
     lift,
     surface_metrics,
     umeyama,
+    umeyama_torch,
 )
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config as hypersim_config
 from src.loaders.views import Views
 from src.refinement.multiview import points_from_rays, scene_from_geometry
+from src.segmentation.base import NO_INSTANCE
 
 PROBE_VIEWS = (8, 12, 20)
 OVERFIT_STEPS = 20
+CLIP_WINDOW = 100  # gradient norms the clip limit's median is taken over (E52d)
 BASE = "Déjà View"
 CHECK_VIEWS = (12, 20)  # the training runs' held-out views, the dev scores' views
 MAP_SCENE, MAP_VIEWS = "ai_006_007_cam_00", (18, 0, 12, 6)  # bedroom, issue #7
@@ -109,10 +136,13 @@ def load_scene(raw: dict, name: str) -> Scene:
 
 
 def segments_of(scene: Scene, kind: str, sel: np.ndarray, cfg: dict) -> np.ndarray:
-    """(len(sel), P) segment ids of the chosen views: GT instances or the grid."""
+    """(len(sel), P) segment ids of the chosen views: GT instances, grid or none."""
+    assert kind in ("gt", "grid", "none"), kind
     if kind == "gt":
         return scene.segments[sel]
     h, w = scene.images.shape[1:3]
+    if kind == "none":
+        return np.full((len(sel), (h // PATCH_SIZE) * (w // PATCH_SIZE)), NO_INSTANCE)
     tiles = tuple(cfg["grid_tiles"])
     return grid_segments(len(sel), h // PATCH_SIZE, w // PATCH_SIZE, tiles)
 
@@ -138,7 +168,9 @@ def step_loss(
     images = torch.from_numpy(scene.images[sel]).permute(0, 3, 1, 2).float() / 255
     codes, dropped = codes_of(segments_of(scene, kind, sel, cfg), kind)
     with torch.autocast(
-        device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
+        device.type,
+        dtype=torch.bfloat16,
+        enabled=device.type == "cuda" and cfg["autocast"],
     ):
         out = forward(net, images[None].to(device), adapter, codes)
     pred = out["world_points"][0].float()
@@ -148,25 +180,32 @@ def step_loss(
     depth = torch.from_numpy(scene.depth[sel]).to(device)[valid]
     rng = np.random.default_rng(seed)
     pick = rng.choice(len(x), size=min(cfg["umeyama_pixels"], len(x)), replace=False)
-    s, r, t = umeyama(
-        x[pick].detach().double().cpu().numpy(), y[pick].double().cpu().numpy()
-    )
-    r_t = torch.as_tensor(s * r.T, dtype=x.dtype, device=device)
-    aligned = x @ r_t + torch.as_tensor(t, dtype=x.dtype, device=device)
+    assert cfg["align"] in ("detached", "exact"), cfg["align"]
+    if cfg["align"] == "exact":
+        at = torch.from_numpy(pick).to(device)
+        s, r, t = umeyama_torch(x[at].double(), y[at].double())
+        r_t, t = (s * r.T).to(x.dtype), t.to(x.dtype)
+    else:
+        s, r, t = umeyama(
+            x[pick].detach().double().cpu().numpy(), y[pick].double().cpu().numpy()
+        )
+        r_t = torch.as_tensor(s * r.T, dtype=x.dtype, device=device)
+        t = torch.as_tensor(t, dtype=x.dtype, device=device)
+    aligned = x @ r_t + t
     err = (aligned - y).norm(dim=-1) / depth
     assert torch.isfinite(err).all()
     return err.clamp(max=cfg["max_error"]).mean(), dropped
 
 
-def held_out_error(
+def fixed_error(
     net: torch.nn.Module,
     adapter: SegmentAdapter,
     scenes: list[Scene],
     kind: str,
     cfg: dict,
 ) -> list[float]:
-    """Error per held-out scene on its fixed views, no grad."""
-    assert all(len(s.images) == 20 for s in scenes), "held-out scenes need 20 views"
+    """Error per held-out or val scene on its fixed views, no grad."""
+    assert all(len(s.images) == 20 for s in scenes), "eval scenes need 20 views"
     sel = np.linspace(0, 19, cfg["held_out_views"]).round().astype(int)
     with torch.no_grad():
         return [
@@ -178,25 +217,42 @@ def train(
     net: torch.nn.Module,
     adapter: SegmentAdapter,
     train_scenes: list[Scene],
-    held: list[Scene],
+    sets: dict[str, list[Scene]],
     kind: str,
     cfg: dict,
+    writer: SummaryWriter,
 ) -> dict:
-    """AdamW, a learning rate per module, loss over Déjà View's; least held-out kept."""
+    """AdamW, a learning rate per module, loss over Déjà View's; least `select` kept."""
+    assert cfg["select"] in sets, (cfg["select"], list(sets))
+    assert not cfg["probe_every"] or "val" in sets
     rng = np.random.default_rng(cfg["seed"])
+    probe_rng = np.random.default_rng(cfg["seed"] + 1)  # apart: training draws as E52d
     zero = SegmentAdapter(bias=True, pool=False, rank=cfg["rank"])
+    named = {"beta": [adapter.beta], "up": [adapter.up],
+             "down": [None if adapter.down is None else adapter.down.weight],
+             "lora_down": list((adapter.lora_down or {}).values()),
+             "lora_up": list((adapter.lora_up or {}).values())}  # fmt: skip
+    lrs = {"beta": cfg["lr_bias"], "up": cfg["lr_pool"], "down": cfg["lr_pool"],
+           "lora_down": cfg["lr_lora"], "lora_up": cfg["lr_lora"]}  # fmt: skip
     groups = [
-        {"params": [q for q in (adapter.beta,) if q is not None], "lr": cfg["lr_bias"]},
-        {"params": [q for q in (adapter.up,) if q is not None]
-         + ([] if adapter.down is None else list(adapter.down.parameters())),
-         "lr": cfg["lr_pool"]},
+        {"params": ps, "name": n, "weight_decay": cfg["weight_decay_up"] * (n == "up"),
+         "lr": lrs[n]}
+        for n, ps in named.items() if ps and ps[0] is not None
     ]  # fmt: skip
-    opt = torch.optim.AdamW([g for g in groups if g["params"]], weight_decay=0.0)
+    opt = torch.optim.AdamW(groups)
+    decay = torch.optim.lr_scheduler.LambdaLR(opt, lambda it: lr_factor(it, cfg))
     assert adapter.is_zero()  # so the reference is Déjà View's own error, bit for bit
-    reference = held_out_error(net, adapter, held, kind, cfg)
-    per_scene, curve = {0: reference}, {0: 1.0}
+    reference = {k: fixed_error(net, adapter, s, kind, cfg) for k, s in sets.items()}
+    per_scene = {k: {0: r} for k, r in reference.items()}
+    curve: dict[str, dict[int, float]] = {k: {0: 1.0} for k in sets}
+    probes: dict[int, float] = {}
     best, best_state = 1.0, copy.deepcopy(adapter.state_dict())
     t0, losses, dropped = time.perf_counter(), [], 0
+    diag: dict = {"base": [], "scene": [], "grad": {g["name"]: [] for g in groups}, "clipped": 0,
+                  "norm": {g["name"]: {} for g in groups}}  # fmt: skip
+    totals: list[float] = []
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
     for it in range(1, cfg["steps"] + 1):
         scene = train_scenes[rng.integers(len(train_scenes))]
         lo, hi = cfg["view_subset"]
@@ -209,26 +265,87 @@ def train(
         loss = error / base.clamp(min=cfg["ratio_floor"])
         opt.zero_grad(set_to_none=True)
         loss.backward()
+        for g in groups:
+            diag["grad"][g["name"]].append(group_norm(g["params"], grad=True))
+        total = float(np.linalg.norm([diag["grad"][g["name"]][-1] for g in groups]))
+        limit = clip_limit(totals, cfg)
+        if total > limit:
+            for g in groups:
+                for p in g["params"]:
+                    p.grad.mul_(limit / total)
+            diag["clipped"] += 1
+        totals.append(total)
         opt.step()
+        decay.step()
         losses.append(loss.item())
+        diag["base"].append(base.item())
+        diag["scene"].append(scene.name)
+        writer.add_scalar("train/ratio", losses[-1], it)
+        writer.add_scalar("train/dv_error", diag["base"][-1], it)
+        for g in groups:
+            writer.add_scalar(f"grad_norm/{g['name']}", diag["grad"][g["name"]][-1], it)
+        if it % cfg["diag_every"] == 0:
+            for g in groups:
+                diag["norm"][g["name"]][it] = group_norm(g["params"], grad=False)
+                writer.add_scalar(f"norm/{g['name']}", diag["norm"][g["name"]][it], it)
+        if cfg["probe_every"] and it % cfg["probe_every"] == 0:
+            i = int(probe_rng.integers(len(sets["val"])))
+            e = fixed_error(net, adapter, [sets["val"][i]], kind, cfg)[0]
+            probes[it] = e / reference["val"][i]
+            writer.add_scalar("val/probe_ratio", probes[it], it)
         dropped += d
         if it % cfg["eval_every"] == 0:
-            per_scene[it] = held_out_error(net, adapter, held, kind, cfg)
-            curve[it] = float(np.mean(np.array(per_scene[it]) / reference))
-            if curve[it] < best:
-                best, best_state = curve[it], copy.deepcopy(adapter.state_dict())
+            for k, s in sets.items():
+                per_scene[k][it] = fixed_error(net, adapter, s, kind, cfg)
+                curve[k][it] = float(np.mean(np.array(per_scene[k][it]) / reference[k]))
+                writer.add_scalar(f"{k}/ratio", curve[k][it], it)
+            if curve[cfg["select"]][it] < best:
+                best = curve[cfg["select"]][it]
+                best_state = copy.deepcopy(adapter.state_dict())
             print(f"  step {it}: train {np.mean(losses[-cfg['eval_every']:]):.5f}, "
-                  f"held-out {curve[it]:.5f} ({time.perf_counter() - t0:.0f} s)",
-                  flush=True)  # fmt: skip
+                  + ", ".join(f"{k} {c[it]:.5f}" for k, c in curve.items())
+                  + f" ({time.perf_counter() - t0:.0f} s)", flush=True)  # fmt: skip
+    writer.flush()
     adapter.load_state_dict(best_state)
+    chosen = curve[cfg["select"]]
     return {
-        "held_out": curve,
-        "held_out_scenes": [s.name for s in held],
-        "held_out_error": per_scene,
-        "best_step": min(curve, key=curve.get),
+        "held_out": curve.get("held_out", {}),
+        "held_out_scenes": [s.name for s in sets.get("held_out", [])],
+        "held_out_error": per_scene.get("held_out", {}),
+        "val": curve.get("val", {}),
+        "val_scenes": [s.name for s in sets.get("val", [])],
+        "val_error": per_scene.get("val", {}),
+        "val_probe": probes,
+        "selected_on": cfg["select"],
+        "best_step": min(chosen, key=chosen.get),
         "seconds": time.perf_counter() - t0,
+        "peak_gb": peak_gb(),
         "segments_dropped": dropped,
+        "train_loss": losses,
+        "diagnostics": diag,
     }
+
+
+def group_norm(params: list[Tensor], *, grad: bool) -> float:
+    """Euclidean norm of a parameter group's gradients or values, all tensors joined."""
+    norms = [(p.grad if grad else p.detach()).norm().item() for p in params]
+    return float(np.linalg.norm(norms))
+
+
+def lr_factor(it: int, cfg: dict) -> float:
+    """Learning-rate factor after `it` steps: 1, or cosine from 1 to 0 over the run."""
+    assert cfg["lr_decay"] in ("constant", "cosine"), cfg["lr_decay"]
+    if cfg["lr_decay"] == "constant":
+        return 1.0
+    return 0.5 * (1 + float(np.cos(np.pi * min(it, cfg["steps"]) / cfg["steps"])))
+
+
+def clip_limit(totals: list[float], cfg: dict) -> float:
+    """Gradient-norm limit: `clip_factor` x the median of the last 100 norms, or none."""
+    if cfg["clip_factor"] is None or len(totals) < CLIP_WINDOW:
+        return float("inf")
+    assert cfg["clip_factor"] > 1
+    return cfg["clip_factor"] * float(np.median(totals[-CLIP_WINDOW:]))
 
 
 def score(geometry: Geometry, truth: LabeledCloud) -> tuple[dict, np.ndarray]:
@@ -275,8 +392,10 @@ def setup(cfg: dict) -> tuple[DejaViewBackbone, torch.nn.Module]:
 
 def adapter_for(cfg: dict, model: str, device: torch.device) -> SegmentAdapter:
     """Build a zero adapter of the named model."""
-    bias, pool = cfg["models"][model]
-    return SegmentAdapter(bias=bias, pool=pool, rank=cfg["rank"]).to(device)
+    bias, pool, lora = cfg["models"][model]
+    lora_rank = cfg["lora_rank"] if lora else 0
+    adapter = SegmentAdapter(bias=bias, pool=pool, rank=cfg["rank"], lora=lora_rank)
+    return adapter.to(device)
 
 
 def peak_gb() -> float:
@@ -363,15 +482,21 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
     """Train every model and segment kind, then score on the eval splits."""
     backbone, net = setup(cfg)
     device = next(net.parameters()).device
-    names = scenes_of(cfg, raw, cfg["train_splits"])
+    names = cfg["train_scenes"] or scenes_of(cfg, raw, cfg["train_splits"])
     loaded = []
     for n in names:
         try:
             loaded.append(load_scene(raw, n))
         except FileNotFoundError as err:  # E41b: 15 scenes were never prepared
             print(f"{n}: skipped, missing {Path(str(err.filename)).name}", flush=True)
-    held, train_scenes = loaded[-cfg["held_out"] :], loaded[: -cfg["held_out"]]
-    print(f"{len(train_scenes)} train + {len(held)} held-out scenes", flush=True)
+    cut = len(loaded) - cfg["held_out"]
+    train_scenes, held = loaded[:cut], loaded[cut:]
+    val_names = scenes_of(cfg, raw, cfg["val_splits"]) if cfg["val_splits"] else []
+    assert not set(val_names) & set(names), "val scenes in the training set"
+    val = [load_scene(raw, n) for n in val_names]
+    sets = {k: s for k, s in (("held_out", held), ("val", val)) if s}
+    print(f"{len(train_scenes)} train, {len(held)} held-out, {len(val)} val scenes, "
+          f"kept on {cfg['select']}", flush=True)  # fmt: skip
     rec: dict = {"train_scenes": [s.name for s in loaded], "models": {}}
     adapters = {}
     for model in cfg["models"]:
@@ -379,11 +504,14 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
             label = f"{model}-{kind}"
             print(label, flush=True)
             adapter = adapter_for(cfg, model, device)
-            rec["models"][label] = train(net, adapter, train_scenes, held, kind, cfg)
+            with SummaryWriter(args.out / "tb" / label) as writer:
+                rec["models"][label] = train(
+                    net, adapter, train_scenes, sets, kind, cfg, writer
+                )
             torch.save({"state": adapter.state_dict()} | rec["models"][label],
                        args.out / f"{label}.pt")  # fmt: skip
             adapters[label] = adapter
-    del loaded, train_scenes, held
+    del loaded, train_scenes, held, val, sets
 
     rec["eval"] = {}
     for name in scenes_of(cfg, raw, args.splits):
@@ -393,9 +521,10 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
             gt.depth, gt.instance_ids, gt.classes, views.intrinsics, views.cam_to_world
         )
         segments = {"gt": patch_segments(gt.instance_ids)}
-        segments["grid"] = segments_of(
-            Scene(name, views.images, gt.depth, np.empty(0), segments["gt"]),
-            "grid", np.arange(len(views)), cfg)  # fmt: skip
+        for kind in ("grid", "none"):
+            segments[kind] = segments_of(
+                Scene(name, views.images, gt.depth, np.empty(0), segments["gt"]),
+                kind, np.arange(len(views)), cfg)  # fmt: skip
         plain = backbone.predict(views)
         scene_rec = {BASE: score(plain, truth)[0] | {"ray_deg": 0.0}}
         for label, adapter in adapters.items():

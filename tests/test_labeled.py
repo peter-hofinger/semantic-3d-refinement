@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 import yaml
 
 from src.analysis.scene_eval import (
@@ -23,6 +24,7 @@ from src.evaluation.labeled import (
     split_scores,
     surface_metrics,
     umeyama,
+    umeyama_torch,
 )
 from src.segmentation.base import NO_INSTANCE, Segmentation
 
@@ -77,6 +79,36 @@ def test_umeyama_recovers_a_similarity() -> None:
     np.testing.assert_allclose(s, 3.0)
     np.testing.assert_allclose(rotation, r, atol=1e-12)
     np.testing.assert_allclose(t, [1.0, -2.0, 0.5], atol=1e-12)
+
+
+def test_umeyama_torch_equals_umeyama_and_recovers_a_reflected_fit() -> None:
+    rng = np.random.default_rng(1)
+    source = rng.normal(size=(300, 3))
+    for r in (rotation_z(0.7) @ rotation_z(0.3)[[2, 0, 1]], np.diag([1.0, 1, -1])):
+        target = (
+            2.0 * source @ r.T + [0.5, 1.0, -1.0] + rng.normal(size=(300, 3)) * 0.05
+        )
+        expected = umeyama(source, target)
+        got = umeyama_torch(torch.from_numpy(source), torch.from_numpy(target))
+        for e, g in zip(expected, got, strict=True):
+            np.testing.assert_allclose(g.numpy(), e, atol=1e-12)
+        assert np.linalg.det(got[1].numpy()) > 0
+
+
+def test_umeyama_torch_gradient_matches_finite_differences() -> None:
+    rng = np.random.default_rng(2)
+    source = torch.from_numpy(rng.normal(size=(40, 3))).requires_grad_()
+    target = torch.from_numpy(
+        1.5 * source.detach().numpy() @ rotation_z(0.4).T
+        + rng.normal(size=(40, 3)) * 0.1
+    ).requires_grad_()
+    weights = torch.from_numpy(rng.normal(size=(40, 3)))
+
+    def loss(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        s, r, t = umeyama_torch(x, y)
+        return ((s * x @ r.T + t) * weights).sum()
+
+    assert torch.autograd.gradcheck(loss, (source, target))
 
 
 def test_ground_truth_against_itself_is_perfect() -> None:

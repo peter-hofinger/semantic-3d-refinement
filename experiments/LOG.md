@@ -1,11 +1,8 @@
 # Experiment log: semantic-guided refinement of Déjà View, from SAM 3 masks to the joint refiner
 
-Every experiment gets an entry: goal, code version, command, settings, results, figures, conclusion.
+Entries follow the Experiments section of `CLAUDE.md`. E1-E45 predate its issue-based names (Mircea's proposal, 10.11.2026).
 Raw script output is in `results/`, figures in `figures/`, one-off scripts in `scripts/`.
 Data, caches and model outputs stay local under `data/processed/scannetpp/<scene>/` (git-ignored).
-
-**Numbering:** E1-E45 are numbered in order. From 10.11.2026 on an experiment is named after the issue it works on
-plus a letter in run order (E8a, E8b, ...; Mircea's proposal, adopted 10.11.2026), as `CLAUDE.md` says.
 
 **Common setup** unless stated otherwise:
 - Scenes (ScanNet++ `nvs_sem_val`, held out from Déjà View training): `5ee7c22ba0` kitchen, `7b6477cb95` office.
@@ -5465,6 +5462,500 @@ Interim entry: the check that the plan puts before any table.
 - **Limits:** one seed; 3 dev scenes, the lobby carrying most of each gain; kept states early in a
   diverging training; val not run (the plan's rule: no positive GT result); GT walls, floors and ceilings
   one segment per class.
+
+## Plan: E52d = why do E52a's adapters diverge? Diagnostics and four one-change arms (issue #52, 16.11.2026)
+- **Goal:** in E52a's three runs every adapter's held-out and training loss rose after 500-2000 steps;
+  lower lrs only delayed it, a floored ratio did not help. E52b (LoRA) and E52c train the same way, so
+  find the cause first. A stable setting is what those runs start from.
+- **Model and setting:** pool-grid at the third run's lr (pooling 3e-6), 3000 steps, held-out every 250,
+  no dev scoring (`--splits`): its divergence was the largest (held-out 0.9950 at 1000 -> 1.0470 at
+  3000) and it has one module; grid, so no segment question is mixed in. Each step now records the
+  gradient norm per parameter and Déjà View's error on the step's scene; every 50 steps each parameter's
+  norm.
+- **Arms** (one change each against A; the defaults train as E52a did):
+  - A, as the third run, diagnostics only. Also the identity check: its curve should repeat the third
+    run's pool-grid (same seed; not bit for bit across runs on one GPU, E51a).
+  - B, `autocast=false`: fp32 forward instead of bf16 (16 loop steps of bf16 rounding in the gradient).
+  - C, `weight_decay_up=100`: AdamW's decoupled decay on B_k only. Adam moves each coordinate by about
+    the lr per step, so the decay caps |B_k| near 1/wd = 0.01, ~6x the kept state's largest entry
+    (1.7e-3 at step 1000); its pull lr x wd = 3e-4 per step halves an unused weight in ~2300 steps.
+  - D, `clip_factor=3`: gradient norm clipped at 3x the median of the last 100 steps' (the norm's scale
+    is not known before this run, so the limit is relative).
+  - E, `lr_decay=cosine`: lr from 3e-6 to 0 over 3000 steps. Not in the first list; added because the
+    third run's kept B_k already moved 58% of the most Adam allows (lr x steps) in 1000 steps: Adam's
+    step does not shrink with the gradient, so at a constant lr the weights keep walking once the loss
+    is near its floor, which a decay stops and a lower lr only delays.
+- **Reading:** an arm is stable, as the probe's rule, if its held-out ratio does not rise after its
+  minimum and its training loss has no upward trend over the last 500 steps. A's diagnostics are read
+  against the rise: gradient spikes before it point to D, parameter norms growing at a flat gradient to
+  C / E, a change only in fp32 to B. If an arm is stable, pool-gt and pool-grid are rerun with it (ask
+  first) and E52b starts from it; if none is, the cause stays open and E52b uses E (decay) by default,
+  stated as a limit.
+- **Cost:** five cluster jobs on one RTX 5090 each, ~40 min each in bf16 (third run: 1 h 27 for two
+  models plus dev scoring), B perhaps 2-3x longer.
+
+
+## E52d: no gradient spikes and no precision effect; B_k moves steadily in a direction that raises both losses, and only slowing (weight decay) or stopping (cosine lr decay) that motion limits the rise (issue #52, 17.11.2026)
+
+- **Setting, commits, commands:** as the plan above, at 2f7a2c7; cluster jobs 2889-2893 (arms A-E), RTX
+
+  5090, 35 min each, B (fp32) 1 h 39 min:
+
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "segments=[grid]" "models={pool: [false, true]}" lr_bias=3e-4 lr_pool=3e-6 <arm> --out runs/e52d_<arm>`
+
+  with `<arm>` empty (A), `autocast=false` (B), `weight_decay_up=100` (C), `clip_factor=3` (D),
+
+  `lr_decay=cosine` (E); figure and raw output
+
+  `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid`. Raw output
+
+  `results/e52d_train.yaml` (per-step series as 50-step means; the per-step ones stay in the runs).
+
+- **Checks:** identity: A repeats the third run's pool-grid (held-out 0.99503 against 0.99502 at step
+
+  1000, 1.0426 against 1.0470 at 3000; not bit for bit, as expected on another node). Every arm draws the
+
+  same scenes and views per step (same seed), so training losses compare step by step across arms.
+
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes; minimum (step), at 3000):
+
+  A 0.9950 (1000), 1.0426; B 0.9945 (1250), 1.0492; C 0.9938 (1250), 1.0155; D 0.9946 (1250), 1.0524;
+
+  **E 0.9935 (1250), 0.9973**. Training loss, mean of the last 500 steps (trend over them): A 1.031
+
+  (+0.007), B 1.035 (+0.019), C 1.002 (-0.011), D 1.038 (+0.016), E 0.989 (-0.014); paired against A on
+
+  the same draws, C -0.029 and E -0.042, B +0.005, D +0.008.
+
+- **Diagnostics:**
+
+  - No gradient spikes before the rise: the gradient norm of B_k has p99 / median 2.8-3.7 in every 500-step
+
+    window of every arm. Single-step outliers (up to 45x the median) sit at the same steps in every arm
+
+    (same draws) and also in C and E, which do not diverge; D clipped 101 of 3000 steps (3%) and diverged
+
+    as A. Clipping is not the fix.
+
+  - Precision is not the cause: fp32 (B) follows A within the run-to-run spread.
+
+  - In A the norm of B_k grows almost linearly (0.07 at 250, 0.32 at 1500, 0.68 at 3000), not like the
+
+    square root of steps that a random walk of Adam's steps would give, and its gradient norm grows with it
+
+    (median 2.4 -> 4.9). So Adam moves B_k in a consistent direction while the training loss on the same
+
+    draws rises: the averaged gradient points uphill of the loss it is measured with. This corrects the
+
+    plan's reasoning for E (a random walk near the loss floor).
+
+  - Weight decay (C) slows B_k's growth (0.48 at 3000) and with it the rise; cosine decay (E) stops the
+
+    growth at 0.32 and with it the rise. Neither removes the cause: both only limit how far B_k moves.
+
+- **Reading, by the plan's rule:** no arm is strictly stable; E comes closest (held-out up 0.004 after its
+
+  minimum, then flat; training loss falling over the last 500 steps), C rises 0.022. The best kept states
+
+  are equal within 0.0015 (0.9935-0.9950): no arm finds more gain, they differ in how they end.
+
+- **Conclusion:**
+
+  - Not bf16 rounding, not gradient spikes. The gradient moves B_k steadily in a direction that raises the
+
+    loss it was computed from, which a correct gradient at a small lr does not do on average. The likeliest
+
+    cause is a mismatch between the gradient and the loss: the Sim(3) is detached and fit by least squares,
+
+    while the loss is the clipped L1 of the relative error, so the alignment's own response to B_k (zero
+
+    only when the alignment minimizes the same loss) is missing. Untested; a recomputation mismatch under
+
+    checkpointing would look the same (tested at the start of E52a, but only for the attention patch).
+
+  - Next, cheap and decisive (one scene, minutes): at A's kept state, compare the loss change along the
+
+    computed gradient (re-aligned at each point) with the one it predicts, for the detached and for a
+
+    differentiable Sim(3). If the detached gradient is not a descent direction and the differentiable one
+
+    is, train with the differentiable one. Until then, E52b uses cosine decay (E), stated as a limit.
+
+- **Limits:** one model (pool-grid), one lr, one seed; training losses are per-draw means and share a bump
+
+  at steps 2000-2750 in every arm (same draws), so the held-out curves are the reading.
+
+
+## Plan: E52d, gradient check = is the adapters' training gradient a descent direction of the loss it is read with? (issue #52, 17.11.2026)
+- **Goal:** E52d found B_k moving steadily while the training loss on the same draws rose, so the averaged
+  gradient points uphill. Test the likeliest cause before LoRA trains the same way: training's error
+  detaches the Sim(3) S, fit by least squares, while the loss is the clipped L1 of the relative error; the
+  measured loss re-fits S at every step, and its gradient has the extra term ∂e/∂S ∂S/∂θ, zero only if S
+  minimized e.
+- **Setting:** `experiments/scripts/e52d_gradient_check.py`, laptop RTX 3050 (a few minutes; the cluster
+  queue held E52d's jobs for hours), fp32 forward, 4 views per draw, the 3 dev scenes x 3 draws per state
+  (dev only as data for a gradient check: nothing is tuned or scored). States: B_k zero, arm A's kept state
+  (step 1000), that state with B_k doubled (stand-in for the diverging phase). Per draw: the detached
+  gradient g and the exact one g* (differentiable Umeyama, checked against `umeyama` on every draw), their
+  cosine, and central finite differences along -g and -g* at step lengths 1e-3 and 1e-2 (parameter-vector
+  norm; one Adam step at lr 3e-6 is ~1.3e-3), as a ratio to the slope the gradient predicts:
+  - autograd: S frozen, along -g: tests backprop through the checkpointed loop (expect 1);
+  - detached: S re-fit, along -g: does training's step lower the measured loss?
+  - exact: S re-fit, along -g*: tests g* (expect 1).
+  Also the cosine of the mean gradients per state, as training follows the average.
+- **Reading:** autograd and exact ratios near 1 make the check valid (else the bug is elsewhere, e.g. the
+  checkpoint recomputation). If the detached ratio is near 1 and cos(g, g*) > ~0.9, the alignment is not
+  the cause and the drift needs another explanation. If the detached ratio is small or negative, or the
+  mean gradients disagree (cosine well below 1), most clearly at the later states, train with g* (the
+  differentiable Sim(3)) and rerun arm A with it (cluster, ~35 min, ask first).
+
+## E52d, gradient check: backprop is right, but the detached Sim(3) makes the training gradient a weak and, averaged over draws, increasingly wrong descent direction (issue #52, 17.11.2026)
+- **Setting, commits, commands:** as the plan above, at fbd4c7f, laptop RTX 3050, 15 min:
+  `uv run python experiments/scripts/e52d_gradient_check.py --cfg configs/e52a_adapters.yaml --state runs/e52d_A/pool-grid.pt --out runs/e52d_gradcheck`;
+  figure `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid --gradcheck runs/e52d_gradcheck`
+  (also redraws `e52d_training.jpg`, byte-identical). Raw output `results/e52d_gradcheck.yaml`.
+- **Checks:** the differentiable Umeyama equals `umeyama` on every draw (scale to 1e-9 relative, rotation to
+  1e-9); detached and re-fit losses agree at the start point. Backprop through the checkpointed loop matches
+  finite differences on all 27 draws (autograd ratio 0.997-1.012 at step 1e-3), and so does g* (exact
+  ratio 0.994-1.016): the check is valid, and a recomputation mismatch is ruled out.
+- **Results** (9 draws per state: 3 dev scenes x 3 draws of 4 views; median (min-max)):
+  | state | cos(g, g*) per draw | cos of the mean gradients | detached ratio | abs(g) / abs(g*) |
+  |---|---|---|---|---|
+  | B_k = 0 | 0.65 (0.21-0.83) | **0.62** | 0.41 (0.06-0.92) | 1.49 |
+  | kept (step 1000) | 0.42 (0.33-0.97) | **0.38** | 0.31 (0.13-1.02) | 1.49 |
+  | kept, B_k x 2 | 0.60 (0.13-0.78) | **0.24** | 0.35 (0.03-0.83) | 1.84 |
+  - The detached ratio (measured descent of the re-fit loss along -g over the descent g promises) is
+    positive on all 27 draws: on its own draw, a step along the training gradient never raises the loss.
+    But it gives only a third of what it promises, and as little as 3%; it equals cos(g, g*) times
+    abs(g*) / abs(g) (as it must when g* is the true gradient). The detached gradient is 1.5-1.8x longer
+    than the exact one: most of it is a component the re-fitted Sim(3) cancels.
+  - The lobby (ai_044_001) is the worst scene at every state (cosine 0.13-0.71, ratio 0.03-0.35); the
+    bedroom the best.
+  - Averaged over draws, as training follows it, the two gradients turn apart as B_k grows (0.62 -> 0.38
+    -> 0.24); the per-draw cosines do not fall in the same way, so the drift is in what the draws share.
+- **What the figure shows:** `figures/e52d_gradcheck.jpg`: left, per-draw cosines spread 0.1-1 at every
+  state while the mean-gradient bar falls; right, grey (backprop) and green (exact) sit on 1, orange
+  (training's detached gradient) spreads 0.03-1.02 below them.
+- **Conclusion:**
+  - The likeliest cause named in E52d is confirmed as a defect of the loss, not of the backprop: with the
+    Sim(3) detached, the training gradient is only weakly aligned with the gradient of the loss it is read
+    with, longer than it, and its average turns further away as B_k grows. That fits E52d's B_k growing
+    steadily without a gain. It does not show directly that the training steps go uphill: per draw the
+    detached gradient still descends, and Adam rescales it per coordinate, which this check does not
+    measure. The rise could come from the cancelled component (steps that change the output in ways the
+    Sim(3) undoes, until second-order effects add up); untested.
+  - Next, by the plan's rule: train with the exact gradient (differentiable Umeyama in `step_loss`) and
+    rerun arm A with it (cluster, ~35 min, ask first). If its held-out error no longer rises, E52b's LoRA
+    trains the same way.
+- **Limits:** dev scenes as data (nothing tuned or scored); 4 views per draw (training draws 8-12); 9
+  draws per state; the doubled state is a stand-in for the diverging phase, not a state training reached.
+
+## Plan: E52d, exact-gradient arm F = arm A trained through a differentiable Sim(3) (issue #52, 17.11.2026)
+- **Goal:** the gradient check found training's detached Sim(3) gradient only weakly aligned with the
+  gradient of the loss it is read with (mean-gradient cosine 0.62 -> 0.24 as B_k grows). Does training
+  with the exact gradient stop arm A's rise? If so, E52b's LoRA trains that way.
+- **Change:** `align: exact` (`configs/e52a_adapters.yaml`, default `detached` = every earlier run):
+  `step_loss` fits s, R, t with `umeyama_torch` (moved from the check script to
+  `src/evaluation/labeled.py`, tested against `umeyama` and by finite differences) on the same pixel
+  subset, in float64, with grad. The loss value is the same as with the detached fit; only the gradient
+  gains the term through S. Déjà View's base pass and the held-out passes run without grad, so they are
+  unchanged.
+- **Arm F:** arm A (pool-grid, lr_pool 3e-6, 3000 steps, held-out every 250, `--splits` none) with
+  `align=exact`, nothing else changed.
+- **Machine:** the 3080 server (`ssh tum`, user's choice: the cluster queue held ~35 jobs), bf16 as A.
+  A ran on a 5090, so F's curve is compared to A's with that caveat (bf16 numbers differ across GPUs;
+  E52d's identity check showed run-to-run spread on one GPU). If F is borderline, A is rerun on the 3080
+  too (another ~1.5-2 h, ask first).
+- **Checks before the run:** laptop smoke (few steps, 4 views): same loss value for `detached` and
+  `exact` at one state, finite gradients.
+- **Reading:** the probe's rule: stable if the held-out ratio does not rise after its minimum and the
+  training loss has no upward trend over the last 500 steps; also |B_k| against A's linear growth. Stable
+  -> LoRA (E52b's control) trains with `align=exact`. Rises as A -> the detached Sim(3) is not the
+  cause; the cause stays open and E52b uses cosine decay (arm E) as planned.
+- **Cost:** ~1.5-2 h on the 3080 (A: ~40 min on the 5090, the 3080 ~3x slower); peak memory ~3.4 GB.
+
+## E52d, exact-gradient arm F: training through the differentiable Sim(3) removes the rise, and the held-out gain is about three times that of every detached arm (issue #52, 17.11.2026)
+- **Setting, commits, commands:** as the plan above, at 4e10e7d (clean), on the 3080 server, bf16,
+  1 h 56 min (A: 34 min on a 5090):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "segments=[grid]" "models={pool: [false, true]}" lr_bias=3e-4 lr_pool=3e-6 align=exact --out runs/e52d_F`;
+  figure and raw output `uv run python experiments/scripts/e52d_figures.py runs/e52d runs/e52a3_grid`
+  (F added to `e52d_training.jpg` and `results/e52d_train.yaml`; arms A-E unchanged).
+- **Checks:** laptop smoke before the run: `detached` and `exact` give the same loss value at one state
+  (0.01302994), the exact gradient is 0.77x as long, cosine 0.64 (as in the gradient check). F draws the
+  same scenes and views per step as A-E: Déjà View's per-step error on the 3080 matches A's on the 5090
+  to 1e-3, so training losses still pair step by step across arms.
+- **Held-out error over training** (over Déjà View's, mean of 16 scenes, 12 fixed views):
+  | step | 500 | 1000 | 1500 | 2000 | 2500 | 2750 | 3000 |
+  |---|---|---|---|---|---|---|---|
+  | A (detached, 5090) | 0.9964 | **0.9950** | 0.9964 | 1.0041 | 1.0188 | 1.0266 | 1.0426 |
+  | E (cosine decay, 5090) | 0.9966 | 0.9943 | 0.9944 | 0.9961 | 0.9973 | 0.9974 | 0.9973 |
+  | F (exact, 3080) | 0.9904 | 0.9861 | 0.9838 | 0.9831 | 0.9822 | **0.9818** | 0.9823 |
+  - F falls at every eval up to step 2750 and rises 0.0004 at 3000. A rose 0.047 after its minimum, E
+    0.004.
+  - Training loss over the last 500 steps (linear trend over them; paired against A on the same draws):
+    F 0.957 (**-0.020**; -0.074), against A 1.031 (+0.007), C 1.002 (-0.011; -0.029), E 0.989 (-0.014;
+    -0.042). F shares the other arms' bump at steps 2250-2750 (same draws); the uptick at 2500 in its log
+    is that bump.
+  - Norm of B_k: 0.07 / 0.11 / 0.18 / 0.23 at steps 500 / 1000 / 2000 / 3000, growing slower over time
+    (A: 0.12 / 0.22 / 0.42 / 0.68, linear). The gradient norm of B_k stays at 1.9-2.4 (median per 250
+    steps; A 2.4 -> 4.9).
+- **What the figure shows:** `figures/e52d_training.jpg`: the red curve (F) leaves the others from step
+  250 on and keeps falling in both loss panels while A-D rise; its B_k norm bends over, and its gradient
+  norm stays flat.
+- **Reading, by the plan's rule:** the training half holds (no upward trend). The held-out half is missed
+  by one eval: +0.0004 at step 3000. That is above the eval's own spread (two runs of A's setting on two
+  5090 nodes agreed to 1e-5 at step 1000) but 1% of A's rise and a tenth of E's, after 750 steps within
+  0.0013 of each other. Read as stable to about 0.0005 over 3000 steps; whether it stays flat beyond 3000
+  is untested. The plan's A rerun on the 3080 is not needed: F and A differ by 0.06 at step 3000, 15x the
+  spread of A's repeats across nodes at that step (0.004).
+- **Conclusion:**
+  - The detached Sim(3) caused E52a's and E52d's divergence: with the exact gradient through the
+    alignment, and nothing else changed, the rise is gone and B_k no longer grows linearly. With the
+    gradient check this closes E52d's question.
+  - The exact gradient also finds more: held-out minimum 0.9818 (-1.8%) against 0.9935-0.9950 (-0.5 to
+    -0.65%) for every detached arm. E52a's gains were held back by the wrong gradient, not only cut short
+    by the divergence.
+  - This gain is adaptation (pool-grid: grid tiles, no segments) on held-out training scenes; it is not a
+    dev Chamfer result (`--splits` none) and says nothing yet about segments.
+  - Next, by the plan: E52b's LoRA control trains with `align=exact`. E52a's verdict (GT = grid) came
+    from runs trained with the detached gradient, so the pool-gt vs pool-grid comparison is rerun with
+    `align=exact` and dev scoring before it is relied on.
+- **Limits:** one model (pool-grid), one lr, one seed, 3000 steps; F on another GPU than A-E (checked
+  above: same draws, spread far below the effect); runtime not comparable (3080 vs 5090; the float64
+  Umeyama's share is not timed).
+
+## Plan: E52a, fourth run = pool x {GT, grid} trained with the exact gradient, the kept state chosen on val, after the ladder's overfit rungs (issue #52, 17.11.2026)
+- **Goal:** E52a's verdict "GT instances gain no more than the grid control" was read on states kept
+  early in trainings that diverged, and E52d found the cause: the detached Sim(3). Trained with the
+  exact gradient (arm F) the rise is gone and the held-out gain triples. Rerun the comparison that way:
+  do GT instances, given to the pooling adapter, beat the same adapter given grid tiles?
+- **Changes against the third run (one in training, one in selection):**
+  - Training: `align=exact` (E52d, arm F). Nothing else in training changes: same 120 train scenes,
+    same draws per step (the training random stream is untouched), lr_pool 3e-6, 3000 steps, bf16.
+  - Selection (`docs/experiments.md`, PR #73): every eval also scores Hypersim's 11 `val` scenes the
+    same way as the 16 held-out train scenes (ratio to Déjà View's error, 12 fixed views), and the kept
+    state is the one of least mean **val** ratio (`select: val`). The held-out curve stays logged, so
+    both selections can be compared afterwards; selection does not change the training trajectory, so
+    pool-grid is also a rerun of arm F (its held-out curve should match F's).
+  - Logging: TensorBoard under `runs/<out>/tb/<model>-<segments>`: training ratio, Déjà View's error and
+    gradient norms every step, parameter norms every 50, held-out and val ratios every 250, and one
+    random val scene's ratio every 10 steps (`probe_every: 10`; every step would add ~25% runtime for
+    a curve the 250-step eval already gives at less noise). The val probe draws from its own stream.
+  - Models: pool x {gt, grid}. bias and both are dropped (bias stayed at zero in every run, both-grid
+    diverged first in the third run), so this is the ladder's smallest model: A 768 x 16 + B_k 16 x 16 x
+    768, ~0.2 M parameters, constant lr, no weight decay, no dropout or normalization of its own.
+  - Code (`experiments/scripts/e52a_segment_adapters.py`, `configs/e52a_adapters.yaml`): `val_splits`,
+    `select`, `probe_every`, `train_scenes` (named scenes for rungs 3/4), `held_out: 0` allowed. The
+    defaults (`select: held_out`, `probe_every: 0`) reproduce every earlier run's training and choice;
+    only the extra val evals are new.
+- **Ladder** (`docs/experiments.md`):
+  - Rungs 0-2 (setup, data, speed): passed by E52a's step 0 (identity bit for bit, finite gradients,
+    0.5-1.8 s per step at 8-20 views on the 5090; data is held in RAM, so a step's time is the forward
+    and backward through 16 loop steps of Déjà View) and by the smoke run of this code (laptop, bedroom,
+    4 steps, `runs/e52a4_smoke`, not of record). Over 1 s per step on the 3080 (~2.3 s, arm F) is the
+    rung-2 warning; it is the frozen backbone's cost, not a fixable bottleneck.
+  - Rung 3, overfit the bedroom `ai_006_007` (laptop, 8 views per step drawn from its 20, lr_pool 1e-4
+    = step 0's overfit lr, 200 steps, pool-gt and pool-grid). An adapter on a frozen Déjà View can only
+    bend its output, so "loss about 0" cannot happen. **Pass:** training ratio over the last 50 steps
+    below 0.90 (step 0: -17% in 20 steps on fixed views) and no rise over the last 100 steps.
+  - Rung 4, overfit dev (3 scenes; same settings, 300 steps). **Pass:** the last 100 steps' ratio below
+    0.95 on each of the 3 scenes, i.e. the adapter fits all three, not one.
+  - Rungs 3 and 4 are diagnostics; no score from them is reported. Fail -> bug checklist before rung 5.
+  - Rung 5: the run below.
+- **Rung 5, command** (3080 server, bf16, the machine of arm F):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={pool: [false, true]}" lr_pool=3e-6 align=exact select=val probe_every=10 --out runs/e52a4`
+- **Reading:**
+  - Positive for segments (E52a's rule, unchanged): pool-gt beats Déjà View AND pool-grid by >= 0.05 cm
+    dev mean Chamfer, on 2 of 3 dev scenes. With one seed this is a first positive, to be repeated with
+    seeds 1 and 2 before it is reported as a result.
+  - Otherwise "not yet working" for segments, not negative: missing are 3 seeds and a tuned baseline
+    (the grid control is a control, not a tuned baseline; E52b's LoRA without segments is planned).
+  - Also reported: stability by the probe's rule for each model; whether held-out and val choose the
+    same step; pool-grid's held-out curve against arm F's.
+- **Cost:** rungs 3/4 on the laptop, ~15 and ~25 min. Rung 5 ~2 h per model on the 3080 (F: 1 h 56 min;
+  the val evals and probes add ~10 min), ~4-4.5 h for both, plus ~5 min dev scoring. Ask before it.
+
+## E52a, fourth run: trained with the exact gradient, both adapters keep improving and gain on all 3 dev scenes, but GT instances gain no more than grid tiles -> not yet working for segments (issue #52, 18.11.2026)
+- **Goal, setting:** the plan entry above. Rung 5 ran on the 3080 at aa3e8a7 (clean), 17.11 23:56 to
+  18.11 03:47 (pool-gt 6847 s, pool-grid 6867 s, 2.3 s per step, then dev scoring), one seed (0).
+  `--out runs/e52a4`, log `runs/e52a4/e52a4.log`, TensorBoard under `runs/e52a4/tb/`. One CUDA
+  allocator OOM warning during dev scoring (03:46); the allocator retried and every dev score was
+  written, so no score is missing.
+- **Rungs 3 and 4** (on the 3080 instead of the laptop, after the laptop's rung 3 ran 10 s per step;
+  aa3e8a7 clean, 29 min both): passed. Rung 3, bedroom: last-50 training ratio pool-gt 0.834,
+  pool-grid 0.820 (< 0.90; previous 50: 0.875 / 0.875, still falling). Rung 4, dev, last-100 ratio per
+  scene, gt / grid: bedroom 0.909 / 0.911, living room 0.787 / 0.777, lobby 0.707 / 0.696 (all < 0.95).
+  Diagnostics only, no scores reported. Runs `runs/e52a4_rung{3,4}`.
+- **Training (rung 5), figure `e52a4_training.jpg`, raw `results/e52a4_train.yaml`:**
+
+  | | held-out min (step) | held-out @3000 | val min (step) | train trend, last 500 steps |
+  |---|---|---|---|---|
+  | pool-gt | 0.9803 (3000) | 0.9803 | 0.9710 (3000) | -0.014 |
+  | pool-grid | 0.9822 (2750) | 0.9838 | 0.9762 (2500) | -0.017 |
+  | E52d arm F (pool-grid, same draws) | 0.9818 (2750) | 0.9823 | - | -0.020 |
+
+  Ratios are the model's error over Déjà View's, mean over scenes, 12 fixed views. Stability by the
+  probe's rule: pool-gt passes (held-out at its minimum at the last eval, training ratio falling);
+  pool-grid misses the held-out half by one eval (+0.0016 at 3000 after its 2750 minimum), as F did
+  (+0.0004); its training ratio still falls. No divergence in either model, unlike every detached run.
+- **Selection:** val and held-out choose the same step for pool-gt (3000), not for pool-grid (val
+  2500, held-out 2750). Kept states are val's (plan).
+- **Rerun noise (the run's own check):** pool-grid repeats arm F's training on the same draws on the
+  same GPU (Déjà View's per-step error equal at every step), yet the training ratio differs from step 1
+  on (median |difference| per step 0.003-0.007; bf16 kernels are not deterministic, and Adam's first
+  steps amplify small gradient differences). Held-out: pool-grid lies above F by up to 0.0032 (step
+  750). pool-gt lies below pool-grid by up to 0.0035, and within 0.0027 of F at every eval. So the
+  held-out gap between GT and grid is as large as the gap between two runs of the same model. On val
+  pool-gt is below pool-grid by 0.003-0.007 at every eval from step 1000 on; the rerun spread on val is not measured
+  (F had no val evals).
+- **Dev, Chamfer (cm, 20 views, 3080; Déjà View here differs from the 5090's 1.606 / 1.837 / 6.995 by
+  bf16 kernels, so every model is read against Déjà View on the same machine):**
+
+  | | living room | bedroom | lobby | mean |
+  |---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 |
+  | pool-gt (step 3000) | 1.567 | 1.800 | 6.622 | 3.330 |
+  | pool-grid (step 2500) | 1.561 | 1.813 | 6.604 | 3.326 |
+  | pool-gt minus pool-grid | +0.007 | -0.013 | +0.018 | +0.004 |
+
+  Both models beat Déjà View on 3 of 3 scenes (mean -0.17 cm; the lobby carries 0.43-0.45 of it). GT
+  beats grid on the bedroom only, by 0.013 cm, and loses on the mean.
+- **Reading (the plan's rule):** pool-gt beats Déjà View (3/3) but not pool-grid by >= 0.05 cm (0/3,
+  mean +0.004 cm) -> not positive. **Not yet working for segments**, not negative: missing are 3
+  seeds and a tuned segment-free baseline (E52b's LoRA without segments). Against E52a's third run
+  (detached gradient, 5090): the gain over Déjà View grows from 0.08 to 0.17 cm mean, for GT and grid
+  alike, so the exact gradient fixes the training but adds nothing segment-specific.
+- **Conclusion:** with the training fixed, E52a's earlier verdict holds: the pooling adapter's gain is
+  adaptation of Déjà View to Hypersim, which grid tiles give as well as GT instances. The only sign
+  for GT is val's 0.003-0.007 lower ratio, inside a range two runs of one model already span on
+  held-out. Per the agreed order for #52, no more seeds for E52a (it is not positive); next is E52b's
+  control: LoRA on Déjà View's shared LoopedAABlock, no segments, `align=exact`, through the ladder.
+- **Commands:** rung 5 as in the plan. Figure and raw:
+  `uv run python experiments/scripts/e52a4_figures.py runs/e52a4 runs/e52d_F`.
+
+## Plan: E52b, control = LoRA on Déjà View's shared loop block, no segments: plain fine-tuning on Hypersim, the control for E52b and E52c (issue #52, 18.11.2026)
+- **Goal:** E52a's pooling adapter gains over Déjà View with GT instances and with grid tiles alike
+  (fourth run, 3080: dev Chamfer 3.500 -> 3.330 / 3.326 cm), so that gain is adaptation to Hypersim,
+  not segments. E52b (LoRA + segment pooling, GT vs grid) and E52c (LoRA + a cross-view instance loss)
+  need the adaptation a segment-free model of their kind gets: here a LoRA on the shared loop block
+  with no segments anywhere. How much does plain LoRA fine-tuning gain over Déjà View on dev, and
+  against E52a's pool-grid, trained the same way? This is the tuned segment-free baseline that
+  `docs/experiments.md` asks for before any segment result can be read.
+- **Model:** LoRA (Hu et al. 2022) of rank 16 on the `qkv` (768 -> 2304) and `proj` (768 -> 768)
+  linears of both attentions (frame and global) of the one `LoopedAABlock` that Déjà View runs 16
+  times: W x + U D x, D as nn.Linear's init, U zero, so the model starts as Déjà View; one LoRA for
+  all 16 steps, as the block is shared. ~0.15 M parameters, near the pooling adapter's ~0.2 M, so the
+  two differ in where the capacity sits, not in how much. The MLPs, the image encoder and the
+  decoders stay frozen. Scale alpha / r = 1 (with Adam, tuning it is about tuning the lr; Hu et al.,
+  Sec. 4.1). Rung 0's smallest model: constant lr, no weight decay, no dropout or normalization of
+  its own.
+- **Training, as E52a's fourth run except the model:** 120 train scenes, the 16 held-out ones and
+  Hypersim's 11 `val` scenes evaluated every 250 steps (ratio to Déjà View's error, 12 fixed views),
+  kept state of least val ratio, 3000 steps, 8-12 views per step, loss = error over Déjà View's on
+  the same views, `align=exact`, bf16, seed 0, val probe every 10 steps, TensorBoard under
+  `runs/<out>/tb/lora-none`. Segment kind `none`: every token without segment.
+- **Code:** `SegmentAdapter(lora=r)` in `src/backbone/adapters.py`: swapped into the attentions'
+  linears inside each checkpointed loop step (as the attention bias), so the recompute in backward
+  uses it too. Tests: zero LoRA = Déjà View on the training path; LoRA = Déjà View with the merged
+  weight W + U D (known solution); gradients reach U and no frozen weight; checkpointed gradients =
+  unchecked ones. Script: model flags (bias, pool, lora), `lora_rank`, `lr_lora`, kind `none`, peak
+  GPU memory per model. Old configs' two flags became three (`lora` false), same training.
+- **Ladder** (`docs/experiments.md`), all on the 3080 (`no-long-laptop-runs`):
+  - Rungs 0-2: tests above; laptop smoke (bedroom, 4 views, 4 steps, `runs/e52b_smoke`, not of
+    record): runs end to end, gradients finite, D's gradient 0 at step 1 as U = 0. Memory and s/step at
+    8-12 views read from rung 3 (pooling: 3.1-3.4 GB on the 5090; the 3080 has 10 GB). Over 1 s per
+    step is the rung-2 warning; it is the frozen backbone's cost (pooling: 2.3 s on the 3080).
+  - Rung 3, overfit the bedroom `ai_006_007` (8 views drawn per step, 200 steps), at lr_lora 1e-4 and
+    1e-5. **Pass:** last-50 training ratio below 0.90 and no rise over the last 100 steps (the pooling
+    adapter: 0.834 / 0.820).
+  - Rung 4, overfit dev (3 scenes, 300 steps) at the larger rung-3 lr that passed. **Pass:** last-100
+    ratio below 0.95 on each of the 3 scenes.
+  - Rung 5, lr on val (the baseline must be tuned at least as much as what it controls): 500 steps
+    at lr_lora 1e-5, 3e-5, 1e-4, the lr of least val ratio at step 500 (no dev scoring). Caveat: E52a's
+    400-step sweep missed a later divergence, but that came from the detached Sim(3) (E52d); with
+    `align=exact` neither E52a model rose. Then 3000 steps at that lr, dev scored.
+  - Rungs 3/4 and the sweep are diagnostics or choices; only rung 5's dev scores are reported.
+- **Rung 5, command** (3080, bf16; `<lr>` = the sweep's):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora: [false, false, true]}" "segments=[none]" lr_lora=<lr> align=exact select=val probe_every=10 --out runs/e52b_control`
+- **Reading:**
+  - Reported: dev Chamfer (cm) of lora-none against Déjà View and against E52a's fourth-run pool-gt /
+    pool-grid (3.330 / 3.326; same 3080, so comparable), per scene and mean; val and held-out curves;
+    stability by the probe's rule (held-out not rising after its minimum, training ratio not rising
+    over the last 500 steps).
+  - It has no positive or negative for segments: it is the bar. E52b's rule: LoRA + pool-gt beats
+    Déjà View AND this control AND LoRA + pool-grid by >= 0.05 cm dev mean, on 2 of 3 scenes.
+  - If lora-none gains no more than pool-grid, LoRA's capacity adds nothing over a pooling adapter
+    for adaptation; E52b still runs (its question is GT vs grid on top of LoRA). If it fails rung 3/4:
+    bug checklist, no rung 5.
+  - One seed: a control result, not a claim about LoRA in general.
+- **Cost:** rungs 3/4 ~10 + ~15 min (2 + 1 runs; s/step unknown until rung 3, est. 2-3 s); sweep
+  3 x 500 steps ~1 h; rung 5 ~2-2.5 h + ~5 min dev scoring. Ask before the sweep and before rung 5.
+
+## E52b, control: LoRA on Déjà View's loop block without segments gains 0.35 cm Chamfer over Déjà View on dev (3/3 scenes) and 0.17 cm more than E52a's pool adapters: the bar for E52b and E52c (issue #52, 18.11.2026)
+- **Goal, setting:** the plan entry above. All rungs on the 3080 at 3cc909a (clean), one seed (0),
+  lr_lora 1e-4 (from the sweep below). Rung 5: 18.11 11:02 to 13:01 (7011 s training, 2.3 s per
+  step, then dev scoring), peak 2.21 GB. `--out runs/e52b_control`, log
+  `runs/e52b_control/e52b_control.log`, TensorBoard under `runs/e52b_control/tb/`. One CUDA allocator
+  OOM warning during dev scoring, as in E52a's fourth run; the allocator retried and every dev score
+  was written.
+- **Rungs 3 and 4** (18.11 09:33-09:54, `runs/e52b_rung3_1e-4`, `runs/e52b_rung3_1e-5`,
+  `runs/e52b_rung4_1e-4`): passed. Rung 3, bedroom, last-50 training ratio: lr 1e-4 0.843 (previous
+  50: 0.891), passes; lr 1e-5 0.962 (previous 0.981) falls but misses < 0.90 (too slow, not a bug).
+  Rung 4 at 1e-4, dev, last-100 ratio per scene: bedroom 0.910, living room 0.775, lobby 0.706 (all
+  < 0.95; the pool adapter: 0.909 / 0.787 / 0.707). 1.71 s per step at 8 views. Diagnostics only.
+- **lr sweep** (500 steps each, 09:59-11:00, `runs/e52b_sweep_<lr>`), ratio at step 250 / 500:
+
+  | lr_lora | held-out | val |
+  |---|---|---|
+  | 1e-5 | 0.9941 / 0.9881 | 0.9906 / 0.9799 |
+  | 3e-5 | 0.9870 / 0.9790 | 0.9817 / 0.9661 |
+  | 1e-4 | 0.9792 / 0.9752 | 0.9729 / 0.9627 |
+
+  The rule (least val ratio at 500) picks 1e-4. Its margin over 3e-5 (0.0034) is smaller than the
+  rerun spread measured below (0.007), so the sweep separates 1e-5 from the other two, not 3e-5 from
+  1e-4.
+- **Training (rung 5), figure `e52b_control.jpg`, raw `results/e52b_control_train.yaml`:**
+
+  | | held-out min (step) | held-out @3000 | val min (step) | train trend, last 500 steps |
+  |---|---|---|---|---|
+  | lora-none | 0.9385 (3000) | 0.9385 | 0.9410 (2500) | -0.054 |
+  | pool-gt (E52a4) | 0.9803 (3000) | 0.9803 | 0.9710 (3000) | -0.014 |
+  | pool-grid (E52a4) | 0.9822 (2750) | 0.9838 | 0.9762 (2500) | -0.017 |
+
+  Stable by the probe's rule (held-out at its minimum at the last eval, training ratio falling). Not
+  monotone: held-out and val rise at steps 750-1000 (val 0.956 -> 0.976) and fall again from 1250 on;
+  val moves by up to 0.014 between evals (2500 -> 3000: 0.941 -> 0.955 while held-out falls 0.959 ->
+  0.939). The training ratio is much noisier than the pool adapters' (50-step means 0.84-0.97): the
+  LoRA's gain varies far more from scene to scene. Kept state: step 2500 (val).
+- **Rerun noise:** rung 5's first 500 steps repeat the sweep's 1e-4 run (same config, draws, GPU).
+  Val ratio at 250: 0.9715 vs 0.9729; at 500: 0.9558 vs 0.9627 (0.007 apart); held-out at 500: 0.9722
+  vs 0.9752. This is the rerun spread on val that E52a's fourth run had not measured.
+- **Dev, Chamfer (cm, 20 views, 3080, against the same Déjà View run as E52a4):**
+
+  | | living room | bedroom | lobby | mean |
+  |---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 |
+  | pool-gt (E52a4, step 3000) | 1.567 | 1.800 | 6.622 | 3.330 |
+  | pool-grid (E52a4, step 2500) | 1.561 | 1.813 | 6.604 | 3.326 |
+  | lora-none (step 2500) | 1.580 | 1.693 | 6.189 | **3.154** |
+  | lora-none minus pool-grid | +0.019 | -0.120 | -0.416 | -0.172 |
+
+  lora-none beats Déjà View on 3 of 3 scenes (mean -0.35 cm; the lobby carries 0.86 of the 1.04 cm
+  sum), and pool-grid on 2 of 3 (living room +0.019). It moves Déjà View's rays by 0.13-0.24°
+  (mean per scene); scored on Déjà View's own cameras, living room is worse than Déjà View (2.267),
+  bedroom 1.953, lobby 6.187, so the gain needs its own rays, as pooling's did in E52a's second run.
+- **Reading (the plan's rule):** this is the control, with no verdict on segments. lora-none gains
+  more than pool-grid (-0.17 cm mean, 2/3 scenes), so the LoRA's capacity adds to adaptation beyond a
+  pooling adapter of the same size, mostly on the lobby. One seed and one lr chosen inside the rerun
+  spread: a control result, not a claim about LoRA in general.
+- **Conclusion:** the bar for #52 moves to 3.154 cm: E52b (LoRA + pool GT vs grid) needs LoRA +
+  pool-gt to beat Déjà View AND this control AND LoRA + pool-grid by >= 0.05 cm dev mean on 2 of 3
+  scenes. With val moving by up to 0.014 between evals and 0.007 between reruns, a 0.05 cm dev gap is
+  only readable with more than one seed; the E52b plan should budget seeds for the control too. Next
+  per the agreed order: E52c (LoRA + a cross-view instance-consistency loss), then E52b.
+- **Commands:** rung 5 as in the plan with `lr_lora=1e-4`; sweep as in the plan (`--splits` none,
+  `steps=500`, `--out runs/e52b_sweep_<lr>`). Figure and raw:
+  `uv run python experiments/scripts/e52b_figures.py runs/e52b_control runs/e52a4 runs/e52b_sweep`.
 
 ## Plan: E57c = E57a's keep head, trained to predict the distance to the ground-truth surface (issue #57, 17.11.2026)
 - **Goal:** issue #57 asks whether a learned filter beats the instance voxel density filter at an equal kept

@@ -22,11 +22,12 @@ skip:                                # E41b's 17, so that the same 136 train sce
   - ai_055_008_cam_00
 held_out: 16                         # first run 8: 3 scenes where DV fails decided
 held_out_views: 12                   # evenly spaced of the 20, the same every evaluation
-models:                              # name -> (bias, pool)
-  bias: [true, false]
-  pool: [false, true]
-  both: [true, true]
-segments: [gt, grid]                 # grid: even patch tiles per view, the control
+models:                              # name -> (bias, pool, lora)
+  bias: [true, false, false]
+  pool: [false, true, false]
+  both: [true, true, false]
+segments: [gt, grid]                 # grid: even patch tiles per view, the control;
+                                     # none: no segments (E52b's control)
 grid_tiles: [3, 3]                   # 9 per view (GT median ~13), 180 per pass at 20
                                      # views, under the 192-code cap (first run: 3 x 3
                                      # patch blocks, 108 per view, ~80% dropped)
@@ -42,3 +43,20 @@ max_error: 0.5                       # relative 3D error clipped above this (E41
 ratio_floor: 0.0                     # loss = error / max(DV's error, floor); 0: plain ratio
 umeyama_pixels: 20000                # per step, for the detached Sim(3)
 seed: 0
+# E52d (stability diagnosis): the defaults train as E52a's three runs did
+autocast: true                       # bf16 forward on CUDA; false: fp32 throughout
+weight_decay_up: 0.0                 # AdamW's decoupled decay on B_k only (its cap ~ 1/wd)
+clip_factor: null                    # clip the gradient norm at this x the last 100's median
+lr_decay: constant                   # or cosine: from the lr to 0 over `steps`
+diag_every: 50                       # parameter norms every this many steps
+align: detached                      # Sim(3) of the loss: detached (E52a) or exact
+                                     # (differentiable, E52d's exact-gradient arm)
+# E52a, fourth run (docs/experiments.md): val scored at every eval, logged to TensorBoard
+val_splits: [val]                    # Hypersim's val (11 scenes), never trained on
+select: held_out                     # the kept state: least mean ratio on held_out (E52a,
+                                     # E52d) or val
+probe_every: 0                       # one random val scene's ratio every this many steps
+train_scenes: null                   # named scenes instead of train_splits (ladder rungs)
+# E52b (LoRA on the shared loop block's attention qkv and proj, frame and global)
+lora_rank: 16                        # ~0.15 M parameters, near pooling's ~0.2 M
+lr_lora: 1.0e-4                      # unused unless a model's lora flag is set

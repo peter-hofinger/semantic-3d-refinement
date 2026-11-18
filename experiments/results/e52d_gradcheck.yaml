@@ -1,0 +1,536 @@
+# E52d gradient check: laptop RTX 3050, fp32, e52d_gradient_check.py
+args:
+  cfg: configs\e52a_adapters.yaml
+  state: runs\e52d_A\pool-grid.pt
+  splits: '[''dev'']'
+  draws: '3'
+  views: '4'
+  steps: '[0.001, 0.01]'
+  out: runs\e52d_gradcheck
+git: fbd4c7fc989858dee6c0cb55cc2f44cc38524fa1
+config:
+  eval: configs/eval_hypersim.yaml
+  train_splits:
+  - train
+  - train_extra
+  skip:
+  - ai_003_001_cam_00
+  - ai_016_009_cam_00
+  - ai_047_006_cam_00
+  - ai_048_005_cam_00
+  - ai_050_005_cam_00
+  - ai_052_010_cam_00
+  - ai_053_008_cam_00
+  - ai_053_013_cam_00
+  - ai_053_017_cam_00
+  - ai_053_018_cam_00
+  - ai_053_019_cam_00
+  - ai_054_003_cam_00
+  - ai_054_004_cam_00
+  - ai_054_010_cam_00
+  - ai_055_002_cam_00
+  - ai_055_004_cam_00
+  - ai_055_008_cam_00
+  held_out: 16
+  held_out_views: 12
+  models:
+    bias:
+    - true
+    - false
+    pool:
+    - false
+    - true
+    both:
+    - true
+    - true
+  segments:
+  - gt
+  - grid
+  grid_tiles:
+  - 3
+  - 3
+  view_subset:
+  - 8
+  - 12
+  rank: 16
+  steps: 3000
+  eval_every: 250
+  lr_bias: 0.001
+  lr_pool: 1.0e-05
+  max_error: 0.5
+  ratio_floor: 0.0
+  umeyama_pixels: 20000
+  seed: 0
+  autocast: false
+  weight_decay_up: 0.0
+  clip_factor: null
+  lr_decay: constant
+  diag_every: 50
+records:
+  rows:
+  - loss: 0.010237308219075203
+    grad_norm: 0.05638374760746956
+    exact_grad_norm: 0.037761881947517395
+    cosine: 0.6129666566848755
+    autograd_ratio_0.001: 1.0115525876196045
+    autograd_ratio_0.01: 0.9812750534392987
+    detached_ratio_0.001: 0.4107507057793066
+    detached_ratio_0.01: 0.41121732717020903
+    exact_ratio_0.001: 1.0159320239432679
+    exact_ratio_0.01: 0.9986765322748353
+    state: zero
+    scene: ai_010_007_cam_00
+    views:
+    - 5
+    - 9
+    - 11
+    - 14
+  - loss: 0.013624249026179314
+    grad_norm: 0.2158864587545395
+    exact_grad_norm: 0.12174228578805923
+    cosine: 0.6985064744949341
+    autograd_ratio_0.001: 0.9990345215115461
+    autograd_ratio_0.01: 0.9678490020702802
+    detached_ratio_0.001: 0.3912188686637271
+    detached_ratio_0.01: 0.3881721439292695
+    exact_ratio_0.001: 0.9995043443765578
+    exact_ratio_0.01: 0.9785671935585699
+    state: zero
+    scene: ai_010_007_cam_00
+    views:
+    - 2
+    - 12
+    - 14
+    - 18
+  - loss: 0.013905081897974014
+    grad_norm: 0.1308097541332245
+    exact_grad_norm: 0.09081556648015976
+    cosine: 0.7215038537979126
+    autograd_ratio_0.001: 1.002033235765356
+    autograd_ratio_0.01: 0.9629768542329864
+    detached_ratio_0.001: 0.5010005986219733
+    detached_ratio_0.01: 0.49210100934157847
+    exact_ratio_0.001: 1.0014668483815565
+    exact_ratio_0.01: 0.9853227583296429
+    state: zero
+    scene: ai_010_007_cam_00
+    views:
+    - 9
+    - 10
+    - 18
+    - 19
+  - loss: 0.04316512495279312
+    grad_norm: 0.08772309869527817
+    exact_grad_norm: 0.12332278490066528
+    cosine: 0.6463270783424377
+    autograd_ratio_0.001: 1.0056485505258455
+    autograd_ratio_0.01: 0.998785968465756
+    detached_ratio_0.001: 0.9177641843540942
+    detached_ratio_0.01: 0.9076104506253359
+    exact_ratio_0.001: 1.000069235911036
+    exact_ratio_0.01: 0.9987733281521189
+    state: zero
+    scene: ai_006_007_cam_00
+    views:
+    - 0
+    - 6
+    - 10
+    - 15
+  - loss: 0.07043728977441788
+    grad_norm: 0.24504651129245758
+    exact_grad_norm: 0.2542599141597748
+    cosine: 0.8271039724349976
+    autograd_ratio_0.001: 1.0005750756485654
+    autograd_ratio_0.01: 0.9939924449033807
+    detached_ratio_0.001: 0.8594969848510711
+    detached_ratio_0.01: 0.8575024325328996
+    exact_ratio_0.001: 0.9982215419757352
+    exact_ratio_0.01: 0.9990889109455869
+    state: zero
+    scene: ai_006_007_cam_00
+    views:
+    - 0
+    - 1
+    - 10
+    - 15
+  - loss: 0.05713842064142227
+    grad_norm: 0.1466524302959442
+    exact_grad_norm: 0.2004992961883545
+    cosine: 0.37561050057411194
+    autograd_ratio_0.001: 0.9972256766350538
+    autograd_ratio_0.01: 0.9976803754725184
+    detached_ratio_0.001: 0.5134413548745087
+    detached_ratio_0.01: 0.513033650050972
+    exact_ratio_0.001: 0.999681909257927
+    exact_ratio_0.01: 1.0009444247908628
+    state: zero
+    scene: ai_006_007_cam_00
+    views:
+    - 0
+    - 2
+    - 6
+    - 18
+  - loss: 0.03381676599383354
+    grad_norm: 0.1833363026380539
+    exact_grad_norm: 0.08984105288982391
+    cosine: 0.6246986389160156
+    autograd_ratio_0.001: 0.9975320010826196
+    autograd_ratio_0.01: 0.9916434280029488
+    detached_ratio_0.001: 0.3007683185827761
+    detached_ratio_0.01: 0.3058624016437612
+    exact_ratio_0.001: 0.995541480190097
+    exact_ratio_0.01: 0.9993044602945267
+    state: zero
+    scene: ai_044_001_cam_00
+    views:
+    - 4
+    - 7
+    - 11
+    - 14
+  - loss: 0.029645873233675957
+    grad_norm: 0.23683752119541168
+    exact_grad_norm: 0.0749138668179512
+    cosine: 0.21050983667373657
+    autograd_ratio_0.001: 0.9982840584480912
+    autograd_ratio_0.01: 0.9898476446747048
+    detached_ratio_0.001: 0.06351494139448989
+    detached_ratio_0.01: 0.06639497749387847
+    exact_ratio_0.001: 0.999898754501347
+    exact_ratio_0.01: 0.9927789979838421
+    state: zero
+    scene: ai_044_001_cam_00
+    views:
+    - 6
+    - 12
+    - 13
+    - 18
+  - loss: 0.04170723631978035
+    grad_norm: 0.20563669502735138
+    exact_grad_norm: 0.10170767456293106
+    cosine: 0.709216833114624
+    autograd_ratio_0.001: 1.0000148550240235
+    autograd_ratio_0.01: 0.9932485727401613
+    detached_ratio_0.001: 0.3518285628778747
+    detached_ratio_0.01: 0.3505577336885496
+    exact_ratio_0.001: 0.9950939028302231
+    exact_ratio_0.01: 0.9987951042024623
+    state: zero
+    scene: ai_044_001_cam_00
+    views:
+    - 2
+    - 10
+    - 14
+    - 19
+  - loss: 0.013579411432147026
+    grad_norm: 0.05033302679657936
+    exact_grad_norm: 0.048705972731113434
+    cosine: 0.8882879018783569
+    autograd_ratio_0.001: 1.0045486074927052
+    autograd_ratio_0.01: 0.9970686842173823
+    detached_ratio_0.001: 0.8625642135454167
+    detached_ratio_0.01: 0.8586387572118117
+    exact_ratio_0.001: 1.0016416800726242
+    exact_ratio_0.01: 0.998840406653883
+    state: kept
+    scene: ai_010_007_cam_00
+    views:
+    - 7
+    - 8
+    - 13
+    - 17
+  - loss: 0.020080870017409325
+    grad_norm: 0.14595966041088104
+    exact_grad_norm: 0.11617246270179749
+    cosine: 0.3891717791557312
+    autograd_ratio_0.001: 1.0008805855365497
+    autograd_ratio_0.01: 0.9968428882470544
+    detached_ratio_0.001: 0.31019698756134007
+    detached_ratio_0.01: 0.30989837151654176
+    exact_ratio_0.001: 0.9937611288163134
+    exact_ratio_0.01: 1.000002950154447
+    state: kept
+    scene: ai_010_007_cam_00
+    views:
+    - 4
+    - 6
+    - 10
+    - 11
+  - loss: 0.010828225873410702
+    grad_norm: 0.10199355334043503
+    exact_grad_norm: 0.05097600817680359
+    cosine: 0.41857632994651794
+    autograd_ratio_0.001: 1.0004407078148825
+    autograd_ratio_0.01: 0.9689175527939912
+    detached_ratio_0.001: 0.2089718775380146
+    detached_ratio_0.01: 0.20904857954458292
+    exact_ratio_0.001: 1.006100804982955
+    exact_ratio_0.01: 0.9962086100845907
+    state: kept
+    scene: ai_010_007_cam_00
+    views:
+    - 6
+    - 7
+    - 12
+    - 17
+  - loss: 0.03954556956887245
+    grad_norm: 0.06840088218450546
+    exact_grad_norm: 0.1360548436641693
+    cosine: 0.5171153545379639
+    autograd_ratio_0.001: 0.9969381119555236
+    autograd_ratio_0.01: 0.9995332554154899
+    detached_ratio_0.001: 1.0179062175607068
+    detached_ratio_0.01: 1.0287960168224115
+    exact_ratio_0.001: 0.9996183116230956
+    exact_ratio_0.01: 0.9991555760729031
+    state: kept
+    scene: ai_006_007_cam_00
+    views:
+    - 0
+    - 1
+    - 7
+    - 16
+  - loss: 0.06372440606355667
+    grad_norm: 0.24324075877666473
+    exact_grad_norm: 0.16328832507133484
+    cosine: 0.9677853584289551
+    autograd_ratio_0.001: 0.9999011248366937
+    autograd_ratio_0.01: 0.9984469431830476
+    detached_ratio_0.001: 0.6495804176697636
+    detached_ratio_0.01: 0.6491768612024273
+    exact_ratio_0.001: 0.9996493002933996
+    exact_ratio_0.01: 0.9995158372903022
+    state: kept
+    scene: ai_006_007_cam_00
+    views:
+    - 1
+    - 13
+    - 15
+    - 19
+  - loss: 0.02236783318221569
+    grad_norm: 0.08512808382511139
+    exact_grad_norm: 0.07599242031574249
+    cosine: 0.6570460200309753
+    autograd_ratio_0.001: 1.0017549912486747
+    autograd_ratio_0.01: 0.994385638409137
+    detached_ratio_0.001: 0.5869772682596722
+    detached_ratio_0.01: 0.585131647974592
+    exact_ratio_0.001: 1.0023133418892831
+    exact_ratio_0.01: 0.9984651253538154
+    state: kept
+    scene: ai_006_007_cam_00
+    views:
+    - 8
+    - 14
+    - 15
+    - 17
+  - loss: 0.03176276385784149
+    grad_norm: 0.28611618280410767
+    exact_grad_norm: 0.09863001108169556
+    cosine: 0.3671659231185913
+    autograd_ratio_0.001: 0.9992548799193706
+    autograd_ratio_0.01: 0.9873778522834205
+    detached_ratio_0.001: 0.12460983664751274
+    detached_ratio_0.01: 0.12655896078377862
+    exact_ratio_0.001: 0.9974582820821162
+    exact_ratio_0.01: 0.9992863670113161
+    state: kept
+    scene: ai_044_001_cam_00
+    views:
+    - 3
+    - 7
+    - 9
+    - 18
+  - loss: 0.033930253237485886
+    grad_norm: 0.2860972583293915
+    exact_grad_norm: 0.11061013489961624
+    cosine: 0.39284566044807434
+    autograd_ratio_0.001: 0.9995944199434345
+    autograd_ratio_0.01: 0.9804189521669704
+    detached_ratio_0.001: 0.14945575604403868
+    detached_ratio_0.01: 0.15172142092918095
+    exact_ratio_0.001: 0.9977374133090482
+    exact_ratio_0.01: 0.9993405560076088
+    state: kept
+    scene: ai_044_001_cam_00
+    views:
+    - 5
+    - 13
+    - 15
+    - 17
+  - loss: 0.026188207790255547
+    grad_norm: 0.1696622520685196
+    exact_grad_norm: 0.062432385981082916
+    cosine: 0.3341268301010132
+    autograd_ratio_0.001: 1.0016002769053005
+    autograd_ratio_0.01: 0.9864339633379771
+    detached_ratio_0.001: 0.12451318927489069
+    detached_ratio_0.01: 0.12262213457731101
+    exact_ratio_0.001: 0.9985639415368409
+    exact_ratio_0.01: 1.000637445986701
+    state: kept
+    scene: ai_044_001_cam_00
+    views:
+    - 0
+    - 2
+    - 6
+    - 12
+  - loss: 0.011226072907447815
+    grad_norm: 0.16688260436058044
+    exact_grad_norm: 0.06588093191385269
+    cosine: 0.44608810544013977
+    autograd_ratio_0.001: 1.004060900402543
+    autograd_ratio_0.01: 0.8966292609128677
+    detached_ratio_0.001: 0.1785797677390966
+    detached_ratio_0.01: 0.17598194958935834
+    exact_ratio_0.001: 1.0043664665322385
+    exact_ratio_0.01: 0.9980693850870636
+    state: kept_up_x2
+    scene: ai_010_007_cam_00
+    views:
+    - 6
+    - 7
+    - 9
+    - 19
+  - loss: 0.013296404853463173
+    grad_norm: 0.09015075117349625
+    exact_grad_norm: 0.07567553222179413
+    cosine: 0.6238340139389038
+    autograd_ratio_0.001: 0.9992393280929838
+    autograd_ratio_0.01: 0.9886358724573711
+    detached_ratio_0.001: 0.5177190933855346
+    detached_ratio_0.01: 0.5232393160266976
+    exact_ratio_0.001: 0.99748961258041
+    exact_ratio_0.01: 0.9974748444373033
+    state: kept_up_x2
+    scene: ai_010_007_cam_00
+    views:
+    - 6
+    - 11
+    - 16
+    - 19
+  - loss: 0.011117304675281048
+    grad_norm: 0.12109586596488953
+    exact_grad_norm: 0.06593450903892517
+    cosine: 0.6421175003051758
+    autograd_ratio_0.001: 1.0014944123964182
+    autograd_ratio_0.01: 0.9502168525345546
+    detached_ratio_0.001: 0.3497616563274789
+    detached_ratio_0.01: 0.34914408605167313
+    exact_ratio_0.001: 1.0011138946707074
+    exact_ratio_0.01: 0.9987472569319674
+    state: kept_up_x2
+    scene: ai_010_007_cam_00
+    views:
+    - 7
+    - 9
+    - 13
+    - 14
+  - loss: 0.0383145734667778
+    grad_norm: 0.108857661485672
+    exact_grad_norm: 0.10112936049699783
+    cosine: 0.7797582149505615
+    autograd_ratio_0.001: 1.001052110833292
+    autograd_ratio_0.01: 0.9982373789819301
+    detached_ratio_0.001: 0.7260639309959845
+    detached_ratio_0.01: 0.7236701256099327
+    exact_ratio_0.001: 0.9975243405221982
+    exact_ratio_0.01: 1.0000347740164128
+    state: kept_up_x2
+    scene: ai_006_007_cam_00
+    views:
+    - 1
+    - 5
+    - 7
+    - 14
+  - loss: 0.034089311957359314
+    grad_norm: 0.10772892087697983
+    exact_grad_norm: 0.1376209855079651
+    cosine: 0.5978156924247742
+    autograd_ratio_0.001: 0.9986249520372316
+    autograd_ratio_0.01: 0.9939272288267373
+    detached_ratio_0.001: 0.7663150180799234
+    detached_ratio_0.01: 0.7637647266793055
+    exact_ratio_0.001: 0.9958083877072459
+    exact_ratio_0.01: 0.9993463328319033
+    state: kept_up_x2
+    scene: ai_006_007_cam_00
+    views:
+    - 2
+    - 3
+    - 14
+    - 18
+  - loss: 0.06817880272865295
+    grad_norm: 0.2059173732995987
+    exact_grad_norm: 0.24904628098011017
+    cosine: 0.6882345676422119
+    autograd_ratio_0.001: 1.000551347102562
+    autograd_ratio_0.01: 0.9995436678266496
+    detached_ratio_0.001: 0.8329907465011096
+    detached_ratio_0.01: 0.8326035950378327
+    exact_ratio_0.001: 1.0003014381676005
+    exact_ratio_0.01: 1.0002311345060424
+    state: kept_up_x2
+    scene: ai_006_007_cam_00
+    views:
+    - 0
+    - 2
+    - 14
+    - 17
+  - loss: 0.037254564464092255
+    grad_norm: 0.26822736859321594
+    exact_grad_norm: 0.09393909573554993
+    cosine: 0.12490598112344742
+    autograd_ratio_0.001: 0.999017468243547
+    autograd_ratio_0.01: 0.991545427010768
+    detached_ratio_0.001: 0.04706830434551697
+    detached_ratio_0.01: 0.04375727343493235
+    exact_ratio_0.001: 1.0013252390827592
+    exact_ratio_0.01: 1.0003933126226228
+    state: kept_up_x2
+    scene: ai_044_001_cam_00
+    views:
+    - 2
+    - 6
+    - 9
+    - 19
+  - loss: 0.033992476761341095
+    grad_norm: 0.29944127798080444
+    exact_grad_norm: 0.06358415633440018
+    cosine: 0.1407243013381958
+    autograd_ratio_0.001: 0.9983933942302524
+    autograd_ratio_0.01: 0.9857470032584961
+    detached_ratio_0.001: 0.02821574946405005
+    detached_ratio_0.01: 0.03010799615429785
+    exact_ratio_0.001: 0.9938925175899759
+    exact_ratio_0.01: 0.9979644068833325
+    state: kept_up_x2
+    scene: ai_044_001_cam_00
+    views:
+    - 3
+    - 4
+    - 6
+    - 8
+  - loss: 0.03711127117276192
+    grad_norm: 0.30060774087905884
+    exact_grad_norm: 0.10411311686038971
+    cosine: 0.40041446685791016
+    autograd_ratio_0.001: 1.0011305953639444
+    autograd_ratio_0.01: 0.9681323841514007
+    detached_ratio_0.001: 0.13952750353658042
+    detached_ratio_0.01: 0.13847351879763503
+    exact_ratio_0.001: 1.0072403225315902
+    exact_ratio_0.01: 0.9991376734716515
+    state: kept_up_x2
+    scene: ai_044_001_cam_00
+    views:
+    - 4
+    - 8
+    - 10
+    - 16
+  mean_gradient:
+    zero:
+      cosine: 0.6166439056396484
+    kept:
+      cosine: 0.38452255725860596
+    kept_up_x2:
+      cosine: 0.24174076318740845
