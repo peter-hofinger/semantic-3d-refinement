@@ -27,6 +27,26 @@ activations are held for one view only. The loop's helpers live at module level 
 their per-pass state as a `Loop` argument: beartype decorates and keeps every function
 it sees, so closures made per pass kept each pass's codes alive (E52a's job 2738 ran out
 of GPU memory after ~6500 steps).
+
+E52c trains the LoRA with a second loss that uses instances only in training, never at
+test time: each point x_p of view v(p) should lie on its instance's surface as the other
+views see it. Its partner q(p) is the nearest point of another view (v(q) != v(p))
+and the same instance (s(q) = s(p)); the term is ICP's point-to-plane distance (Chen
+and Medioni 1992), c = mean_p min(|n_q · (x_p - x_q)| / z_p, τ), n_q the partner's unit
+normal, z_p the GT depth (the GT loss's unit), τ the cap beyond which a point has no
+partner (the part of an instance only one view sees). Point to plane, not point to
+point: on GT geometry, the point distance between 6000 random pixels of 12 views is as
+large as Déjà View's (bedroom 0.025 vs 0.027), as it measures how far apart the samples
+lie, and its gradient would pull points together; the plane distance is 2-3x larger for
+Déjà View than for GT on all 3 dev scenes (E52c's probe). Partners and normals come from
+the prediction and the instance id alone, no GT geometry: with GT correspondences the
+term would be the GT loss reweighted and instances would add nothing on Hypersim. The
+normals are detached, as ICP's target normals are fixed per iteration, so the term moves
+points onto the other view's plane and does not turn the plane. `gate=False` drops
+s(q) = s(p), the same term without semantics; both average over the same points (an
+instance seen in at least two views), so the two differ only in which partners count.
+The multi-view energy of `src/refinement/multiview.py` gates its agreement term by
+segment alike.
 """
 
 from __future__ import annotations
@@ -326,3 +346,52 @@ Forward = Callable[[nn.Module, Tensor], dict[str, Tensor]]
 def conditioned(adapter: SegmentAdapter, codes: Tensor) -> Forward:
     """`forward` bound to an adapter and codes, as `DejaViewBackbone.predict` takes."""
     return functools.partial(forward, adapter=adapter, codes=codes)
+
+
+def map_normals(points: Tensor, stride: int) -> Tensor:
+    """(V, H, W, 3) point maps -> unit normals by central differences `stride` px."""
+    assert points.ndim == 4 and points.shape[-1] == 3, points.shape  # noqa: PLR2004
+    assert stride > 0 and torch.isfinite(points).all()
+    s = stride
+    q = F.pad(points.permute(0, 3, 1, 2), (s, s, s, s), mode="replicate")
+    q = q.permute(0, 2, 3, 1)
+    du = q[:, s:-s, 2 * s :] - q[:, s:-s, : -2 * s]
+    dv = q[:, 2 * s :, s:-s] - q[:, : -2 * s, s:-s]
+    out = F.normalize(torch.cross(du, dv, dim=-1), dim=-1)
+    assert out.shape == points.shape and torch.isfinite(out).all()
+    return out
+
+
+def cross_view_distance(  # noqa: PLR0913 (points, normals, three per-point keys, options)
+    x: Tensor,
+    normal: Tensor,
+    view: Tensor,
+    instance: Tensor,
+    depth: Tensor,
+    *,
+    gate: bool,
+    cap: float,
+) -> Tensor:
+    """Mean capped point-to-plane distance / depth to each nearest partner (module)."""
+    n = len(x)
+    assert x.shape == normal.shape == (n, 3), (x.shape, normal.shape)
+    assert view.shape == instance.shape == depth.shape == (n,)
+    assert not view.is_floating_point() and not instance.is_floating_point()
+    assert torch.isfinite(x).all() and (depth > 0).all() and cap > 0
+    assert torch.allclose(normal.norm(dim=-1), torch.ones_like(depth), atol=1e-3)
+    pairs = torch.unique(torch.stack([instance, view]), dim=1)
+    ids, seen = torch.unique(pairs[0], return_counts=True)
+    keep = (instance >= 0) & torch.isin(instance, ids[seen > 1])
+    assert keep.any(), "no instance in two views"
+    x, normal, depth = x[keep], normal[keep].detach(), depth[keep]
+    view, instance = view[keep], instance[keep]
+    other = view[:, None] != view[None]
+    if gate:
+        other &= instance[:, None] == instance[None]
+    d = torch.cdist(x[None].detach(), x[None].detach())[0]
+    q = d.masked_fill(~other, torch.inf).argmin(1)
+    assert other[torch.arange(len(q)), q].all(), "a kept point without partner"
+    plane = ((x - x[q]) * normal[q]).sum(-1).abs()
+    out = (plane / depth).clamp(max=cap).mean()
+    assert torch.isfinite(out)
+    return out

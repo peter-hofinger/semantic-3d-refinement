@@ -60,3 +60,10 @@ train_scenes: null                   # named scenes instead of train_splits (lad
 # E52b (LoRA on the shared loop block's attention qkv and proj, frame and global)
 lora_rank: 16                        # ~0.15 M parameters, near pooling's ~0.2 M
 lr_lora: 1.0e-4                      # unused unless a model's lora flag is set
+# E52c (point-to-plane distance between views, partners in one GT instance; training only)
+cons_weight: 0.0                     # loss = GT ratio + this x distance over Déjà View's
+cons_gate: instance                  # partners in the same GT instance, or none (control)
+cons_pixels: 6000                    # points per step (~500-750 per view at 8-12 views)
+cons_cap: 0.05                       # distance / depth beyond which a point has no partner
+cons_floor: 1.0e-3                   # Déjà View's distance floored at this in the ratio
+cons_stride: 2                       # px between the central differences of the normals

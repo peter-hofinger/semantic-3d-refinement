@@ -5956,3 +5956,66 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** rung 5 as in the plan with `lr_lora=1e-4`; sweep as in the plan (`--splits` none,
   `steps=500`, `--out runs/e52b_sweep_<lr>`). Figure and raw:
   `uv run python experiments/scripts/e52b_figures.py runs/e52b_control runs/e52a4 runs/e52b_sweep`.
+
+## Plan: E52c = the E52b control's LoRA trained with a cross-view point-to-plane loss whose partners lie in one GT instance, against the same loss with any partner (issue #52, 18.11.2026)
+- **Goal:** E52a's segment adapters gained no more with GT instances than with grid tiles, and the
+  E52b control (LoRA, no segments) set the bar at 3.154 cm dev Chamfer. Can instances help when
+  they only shape the training loss, with no segments at test time? E52c asks the LoRA to make each
+  point lie on its own instance's surface as the other views predict it. The same loss with any
+  partner, ignoring instances, is the control: the CLAUDE.md rule's "same method without semantics".
+- **Loss** (`cross_view_distance`, `map_normals` in `src/backbone/adapters.py`, module docstring):
+  loss = GT ratio (as the control) + λ c / c_DV, with c_DV Déjà View's c on the same draw (one
+  extra no-grad pass, as the GT ratio), floored at 1e-3. c = mean over 6000 random GT-valid pixels
+  of the step's views (the Sim(3)-aligned points of the exact alignment) of
+  min(|n_q · (x_p - x_q)| / z_p, 0.05). q is the nearest point of another view and of the same GT
+  instance (`cons_gate: instance`) or any (`none`). n_q is the predicted map's normal (central
+  differences 2 px apart, detached as ICP's target normals), and z_p is the GT depth. Partners and
+  normals come from the prediction and the instance id alone. GT correspondences would make the
+  term the GT loss reweighted. Both arms average over the same points (instances seen in 2+ views).
+- **Probe before any run** (`experiments/scripts/e52c_probe.py`, figure `e52c_probe.jpg`, raw
+  `results/e52c_probe.yaml`; laptop, Déjà View on each dev scene's 12 fixed views; c capped at 0.05):
+
+  | | living room | bedroom | lobby |
+  |---|---|---|---|
+  | point to point, GT points | 0.0172 | 0.0246 | 0.0238 |
+  | point to point, Déjà View | 0.0181 | 0.0268 | 0.0256 |
+  | point to plane, GT points, gate / any | 0.0013 / 0.0014 | 0.0048 / 0.0054 | 0.0047 / 0.0055 |
+  | point to plane, Déjà View, gate / any | 0.0040 / 0.0038 | 0.0104 / 0.0103 | 0.0086 / 0.0091 |
+
+  The first draft (point to point) scored perfect geometry within 10% of Déjà View. It measures
+  how far apart 6000 samples lie, and its gradient would pull points together, so it was dropped
+  before any run. Point to plane scores Déjà View 2-3x above GT on all three scenes; normals 7 px
+  apart change it by at most 0.0012. The gate changes Déjà View's c by at most 6% (lobby
+  0.0086 vs 0.0091). On GT it lowers the floor by up to 15%, as it drops partners across instance
+  boundaries.
+- **Hypothesis and the numbers that would refute it:** the gated arm beats Déjà View, the control
+  and the any-partner arm on dev mean Chamfer, each by more than the larger of 0.05 cm and the
+  control's seed range (max - min over seeds 0-2, running now on the 3080), and on 2 of 3 scenes.
+  Gated within that margin of any-partner refutes "instances add to this loss". Any-partner within
+  it of the control refutes "a cross-view term adds to GT supervision" (no verdict on instances
+  then). **Prediction from the probe:** the gate changes what the loss asks of Déjà View by under
+  6%, so the two arms end within the spread of each other.
+- **Training:** as the control (LoRA r16 on qkv and proj of both attentions of the loop block, lr
+  1e-4, 3000 steps, 8-12 views, `align=exact`, bf16, state kept on val, probe every 10 steps).
+  Only `cons_weight` and `cons_gate` change. `train_loss` keeps the GT ratio alone, and
+  `train_cons_ratio` logs c / c_DV. Laptop smoke (bedroom + living room, 4 views, 4 steps, both
+  gates, `runs/e52c_smoke_<gate>`, not of record): runs end to end at 1.43 GB and 3.5 s per step.
+  c / c_DV is 1.01-1.02 at step 1 with a zero LoRA: the known gap between the grad (checkpointed)
+  and the no-grad path, larger on c than on the GT ratio (~0.999) because c is small.
+- **Ladder** (`docs/experiments.md`; 3080, after the control seeds), λ = 1 in rungs 3/4, both arms:
+  - Rung 3, bedroom, 200 steps. **Pass:** last-50 GT ratio below 0.90 (the control: 0.843) and
+    last-50 c / c_DV below 0.90.
+  - Rung 4, dev, 300 steps. **Pass:** last-100 GT ratio below 0.95 on each scene, and c / c_DV
+    falling.
+  - Sweep λ in {0.1, 0.3, 1} for both arms (500 steps, `--splits` none; least val ratio at step 500).
+    The control's lr was swept the same way. Ask before (6 runs, ~2 h).
+  - Rung 5, 3000 steps per arm at its λ, dev scored. The seeds per arm are set from the control's
+    seed range before these runs (asked; ~2 h per run).
+- **Reading:** dev Chamfer (cm) per scene and mean against Déjà View 3.500, the control (mean over
+  its seeds) and the other arm; val curves; stability by the probe rule. With rungs 3/4 passed and
+  both arms swept alike, a gated arm within the margin of any-partner is "fails for this loss",
+  stated for this term only, with the budget and spread logged.
+- **Commands** (3080): rung 3
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora: [false, false, true]}" "segments=[none]" "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact cons_weight=1.0 cons_gate=<instance|none> --out runs/e52c_rung3_<gate>`;
+  rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300` (as E52b's rungs); rung 5 as the control's command plus
+  `cons_weight=<λ> cons_gate=<gate> seed=<s>`. Probe: `uv run python experiments/scripts/e52c_probe.py`.
