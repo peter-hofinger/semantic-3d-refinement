@@ -1,0 +1,47 @@
+ai_010_007_cam_00: 117 s
+wrote e57c_summary_clouds_dollhouse_colors.jpg
+wrote e57c_summary_clouds_dollhouse_shaded.jpg
+wrote e57c_summary_clouds_view18_pulledback_colors.jpg
+wrote e57c_summary_clouds_view0_pulledback_colors.jpg
+wrote e57c_summary_clouds_view12_pulledback_colors.jpg
+wrote e57c_summary_clouds_view6_pulledback_colors.jpg
+bedroom, fusion, no seeds, ids: Chamfer 1.608 cm, kept 0.586, zone gap pixels covered by the oracle-alone cloud 1150
+bedroom, fusion, no seeds, one instance: Chamfer 1.597 cm, kept 0.589, zone gap pixels covered by the oracle-alone cloud 1061
+bedroom, A: seeds, ids: Chamfer 1.575 cm, kept 0.597, zone gap pixels covered by the oracle-alone cloud 317
+bedroom, A: seeds, one instance: Chamfer 1.539 cm, kept 0.610, zone gap pixels covered by the oracle-alone cloud 202
+bedroom, union, no gate: Chamfer 1.400 cm, kept 0.695, zone gap pixels covered by the oracle-alone cloud 0
+ai_006_007_cam_00: 150 s
+ai_044_001_cam_00: 127 s
+dev: mean over 3 scenes; kept share, accuracy / completeness / Chamfer (cm); per scene Chamfer
+  Déjà View                                      1.000  4.675 / 2.324 / 3.500   1.60 / 1.85 / 7.05
+  confidence only q 0.5                          0.500  2.220 / 48.532 / 25.376   8.20 / 6.29 / 61.63
+  density q 0.6                                  0.600  3.550 / 2.827 / 3.188   1.48 / 1.73 / 6.36
+  greedy oracle q 0.5                            0.500  1.533 / 2.562 / 2.048   0.88 / 1.14 / 4.13
+  marginal oracle q 0.6 (one round)              0.600  1.720 / 2.683 / 2.202   0.94 / 1.28 / 4.39
+  union, no gate                                 0.696  2.446 / 2.602 / 2.524   1.08 / 1.40 / 5.09
+  fusion, no seeds, ids                          0.603  2.513 / 2.848 / 2.680   1.21 / 1.61 / 5.22
+  fusion, no seeds, one instance                 0.608  2.505 / 2.832 / 2.668   1.21 / 1.60 / 5.20
+  A: seeds, ids                                  0.616  2.507 / 2.796 / 2.651   1.17 / 1.58 / 5.20
+  A: seeds, one instance                         0.629  2.497 / 2.744 / 2.621   1.16 / 1.54 / 5.16
+  product q 0.3 (best on this split)             0.708  2.632 / 2.364 / 2.498   1.09 / 1.40 / 5.00
+  mean q 0.2 (best on this split)                0.667  2.596 / 2.655 / 2.626   1.19 / 1.54 / 5.15
+  mean q 0.4                                     0.750  2.818 / 2.514 / 2.666   1.23 / 1.54 / 5.23
+stage times (s per scene, mean over the scenes; per scene in brackets)
+  lift                                         0.04   (0.04, 0.04, 0.04)
+  confidence cut, sort                         1.02   (1.06, 1.03, 0.97)
+  confidence cut, partition                    0.01   (0.01, 0.01, 0.01)
+  density                                      3.73   (3.61, 3.82, 3.75)
+  align (Umeyama)                              0.54   (0.53, 0.55, 0.54)
+  accuracy a_i                                 1.36   (0.98, 1.14, 1.97)
+  greedy, reference                            9.26   (8.80, 9.72, 9.25)
+  greedy, incremental                          5.71   (5.78, 5.64, 5.70)
+  marginal cost m_i (one round)                1.01   (1.01, 0.97, 1.04)
+  gate 8 cm                                    0.53   (0.51, 0.50, 0.59)
+  straight runs, ids                           1.61   (1.74, 1.63, 1.47)
+  straight runs, one instance                  1.66   (1.76, 1.68, 1.53)
+  seeds, ids                                   2.71   (2.80, 2.61, 2.71)
+  seeds, one instance                          2.81   (2.83, 2.76, 2.85)
+  straight runs with seeds, ids                1.67   (1.75, 1.69, 1.57)
+  straight runs with seeds, one instance       1.71   (1.78, 1.75, 1.59)
+  distance to the kept, 10 cm                  0.54   (0.52, 0.50, 0.61)
+  gradient ranking                             0.24   (0.26, 0.26, 0.20)
