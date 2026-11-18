@@ -1,0 +1,10 @@
+confidence cut alone: kept 0.500, Chamfer 6.293 cm
+oracle alone at q 0.5: kept 0.500, Chamfer 1.116 cm
+top fraction of the confidence-dropped pixels by u k (the quantile), kept share, tau, Chamfer of the product cut and of the oracle alone at the same share
+top 0.040  kept 0.520  tau 0.7047  product 4.210  oracle alone 1.130
+top 0.100  kept 0.550  tau 0.5508  product 3.289  oracle alone 1.152
+top 0.140  kept 0.570  tau 0.4791  product 2.912  oracle alone 1.167
+top 0.200  kept 0.600  tau 0.3957  product 2.537  oracle alone 1.192
+top 0.280  kept 0.640  tau 0.3115  product 2.252  oracle alone 1.225
+top 0.360  kept 0.680  tau 0.2474  product 1.993  oracle alone 1.261
+top 0.390  kept 0.695  tau 0.2266  product 1.911  oracle alone 1.275

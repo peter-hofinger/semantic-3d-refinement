@@ -1,0 +1,28 @@
+ai_010_007_cam_00: 110 s
+ai_006_007_cam_00: 111 s
+ai_044_001_cam_00: 116 s
+dev: mean over 3 scenes; kept share, accuracy / completeness / Chamfer (cm)
+  side x1   all pixels q 0.9: 0.974  4.729 / 2.332 / 3.530
+  side x1   all pixels q 0.7: 0.792  4.979 / 2.381 / 3.680
+  side x1   all pixels q 0.5: 0.298  3.026 / 7.219 / 5.123
+  side x1   all pixels q 0.3: 0.216  3.170 / 7.284 / 5.227
+  side x1 per instance q 0.9: 0.976  4.721 / 2.331 / 3.526
+  side x1 per instance q 0.7: 0.800  4.992 / 2.383 / 3.688
+  side x1 per instance q 0.5: 0.285  2.925 / 7.393 / 5.159
+  side x1 per instance q 0.3: 0.208  3.054 / 7.454 / 5.254
+  side x2   all pixels q 0.9: 0.924  4.757 / 2.347 / 3.552
+  side x2   all pixels q 0.7: 0.713  4.877 / 2.447 / 3.662
+  side x2   all pixels q 0.5: 0.465  3.817 / 2.834 / 3.326
+  side x2   all pixels q 0.3: 0.298  3.940 / 2.983 / 3.462
+  side x2 per instance q 0.9: 0.927  4.759 / 2.348 / 3.553
+  side x2 per instance q 0.7: 0.716  4.911 / 2.453 / 3.682
+  side x2 per instance q 0.5: 0.456  3.751 / 2.854 / 3.302
+  side x2 per instance q 0.3: 0.294  3.881 / 2.998 / 3.440
+  side x4   all pixels q 0.9: 0.902  4.698 / 2.365 / 3.532
+  side x4   all pixels q 0.7: 0.702  4.676 / 2.485 / 3.580
+  side x4   all pixels q 0.5: 0.496  4.233 / 2.699 / 3.466
+  side x4   all pixels q 0.3: 0.300  4.273 / 2.970 / 3.621
+  side x4 per instance q 0.9: 0.904  4.715 / 2.367 / 3.541
+  side x4 per instance q 0.7: 0.703  4.716 / 2.486 / 3.601
+  side x4 per instance q 0.5: 0.493  4.221 / 2.693 / 3.457
+  side x4 per instance q 0.3: 0.300  4.281 / 2.955 / 3.618
