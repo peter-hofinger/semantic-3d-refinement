@@ -6775,3 +6775,148 @@ Interim entry: the check that the plan puts before any table.
   `e57c_voxel_conf`, `e57c_gt_rays`), the summary with the stage times (`e57c_summary`), the figures of the report on issue #76 (`e57c_style`, `e57c_figures_issue76`, six JPEGs) and the text of that report (`results/e57c_issue76_comment.md`); tests for the cost of a point, the greedy and its incremental version, the straight-run rule and the seeds.
 - **Not committed:** the debug renders and the one-off scripts of the entries above (the first clouds, the clouds of the hybrids, fills and gradients, the four-color view, the band gate, the view maps, `e57c_dev_methods`, `e57c_clouds`): superseded by `e57c_summary` and the report's figures, their numbers stay in the entries as recorded; the figures they wrote are not in git.
   Result files of versions of scripts that have changed since (`e57c_gradients.txt`, `e57c_two_fills_band08.txt`) are not committed either; `results/e57c_summary_dev.txt` reproduces every dev row of `e57c_dev_methods` and of the earlier runs (rerun after the cleanup: all Chamfers identical, stage times within 0.2 s). `e57c_oracles_dev.txt` and `e57c_oracle_curve_dev_val.txt` come from earlier revisions of `e57c_oracle_curve` (`--rankings accuracy completeness chamfer marginal` reproduces them).
+
+## X69a to X69q, the exploration of issue #69 before E69a (a local branch, never pushed): five generators fit the bedroom below Déjà View, none fits three scenes, the render loss never trained (15.11.2026 to 18.11.2026)
+- **What this entry is:** one summary of seventeen runs of a point generator on the fused voxel grid, written when the line of work
+  was rebuilt as one experiment (E69a, below). The runs were called E69a to E69q on the local branch; they are written X69a to X69q here
+  so that E69a names only the single experiment. Their entries, configs, figures and scripts are on the local branch
+  `peter/e69a-generator` (tip cbf9409); this entry carries every number later entries rely on, and the branch is not needed to read it.
+- **Setting, all runs:** Déjà View's fused points of 20 views (504 px) on a voxel grid of 128 cells (X69a to X69d) or 192 cells (X69e on);
+  a 3D U-Net of widths 32 / 64 / 128 (1.42 M parameters) and a generator head; loss on random 64-cell crops; points with a positive logit
+  form the output; scored in 3D by `cloud_eval` (accuracy: output to GT; completeness: GT to output; Chamfer their mean, cm; Déjà View's
+  own alignment). Reference rows on the same scorer: Déjà View bedroom 1.846 and dev mean 3.501 (1.603 / 1.846 / 7.053), the snap oracle
+  at 192 cells 0.316 and 0.840. One seed each; dev (3 scenes) was spent as training data in X69b to X69q on purpose; val, test and stress
+  were untouched except that X69a trained on 9 of the 11 val scenes.
+- **Deviations from the ladder of `docs/experiments.md` (it was not applied rung by rung): the model has 1.42 M parameters (rung 0 asks for
+  under 1 M); AdamW (weight decay 0.01) with a one-cycle schedule, where rung 0 asks for a constant rate and none; GroupNorm in the U-Net; no
+  TensorBoard and no validation pass per step; the step with the least error on the train scene was kept, so the "overfit" numbers are
+  best-step numbers; X69a augmented by a random subset of views. None of the runs reached "loss about 0": the monitored error of the
+  best seeded run fell from 0.390 cells (the input points) to 0.199.** The rows below are exploration that sets the arms of E69a. They are not
+  results in the sense of `CLAUDE.md`.
+
+  | run | what changed | bedroom Chamfer | dev mean (3 scenes) | verdict |
+  |---|---|---|---|---|
+  | X69a | lattice head, 128 cells, trained on 9 val scenes | | 9.541 | far behind Déjà View (3.501) |
+  | X69b | overfit the bedroom, 128 cells | 2.29 | 6.33 (3 scenes) | ceiling 2.29 against 1.85 |
+  | X69c | loss on points that can reach a surface | 2.01 | | accuracy beats Déjà View, completeness does not |
+  | X69d | a lower keep threshold, a class-balanced occupancy loss | | | recall is limited by the logit; no gain |
+  | X69e | 192 cells | 1.121 | | the first generator below Déjà View |
+  | X69f | 256 cells | 1.51 | | worse than 192 |
+  | X69g | X69e on the three dev scenes | 1.811 | 4.327 | wins no scene |
+  | X69h | implicit field (ConvONet, Grad-PU), bedroom | 1.33 | | smoothest surfaces, worse accuracy |
+  | X69i | progressive splitting (SnowflakeNet), bedroom | **1.048** | | best bedroom Chamfer |
+  | X69j | coarse occupancy gate (SG-NN), bedroom | 1.10 | | a tie with the lattice head |
+  | X69k | implicit field, three dev scenes | 2.161 | 5.231 | worst of the three |
+  | X69l | splitting, three dev scenes | 1.464 | **3.740** | wins the bedroom only; Déjà View 3.501 |
+  | X69m | splitting plus each cell's mean offset in the grid | 1.512 | 3.755 | a tie with X69l: the missing sub-cell geometry was not the limit |
+  | X69o | seeded head (copies Déjà View's points, LiDiff), bedroom | 1.184 | 6.348 (two scenes untrained) | below Déjà View, 6.73 M points against 3.81 M |
+  | X69p | splitting trained on a render loss (VolSplat), bedroom | 49.646 | | did not train: error constant from step 960, 27 k points |
+  | X69q | seeded head on the render loss | | | not run (GPU memory taken by another job) |
+
+- **X69n (not a generator): where Déjà View's error is,** by oracle corrections on the three dev scenes (dev-mean Chamfer 3.500): a
+  per-view Sim(3) removes 7%, a per-view affine map 15%, an affine map per 32 / 28 / 14 px tile 30 / 34 / 50% (the grid aligned to Déjà
+  View's 14 px patches or moved off them: the same), keeping the best 0.75 of the pixels by their distance to the surface 26% (the ceiling
+  of a filter, 2.577; E45's real filters 3.66 or worse). The error is fine-scale (below about 32 px) and heavy-tailed (the worst 10% of the
+  pixels carry about half of it), not global per view. Median distance of a pixel to its own GT point 2.9 / 3.4 / 16.9 cm on the three
+  scenes. In-sample oracles; the tile oracles also correct the error along the surface, which Chamfer does not count.
+- **Reading:** (1) with 1.42 M parameters, one-cycle AdamW and 2400 steps, every head fits the bedroom below Déjà View's 1.846 (1.05 to
+  1.33; the render loss excepted), and the ranking of the heads there is within a 0.1 cm tie band; (2) with three scenes none passes
+  Déjà View's dev mean, splitting is closest (3.740), the ranking changes (splitting, lattice, implicit), and the oracle shows 0.84, so the
+  gap is not the grid; (3) a seeded start is the first one that begins at Déjà View's own error, reaches 1.18 on the bedroom, and is worse
+  than Déjà View on scenes it did not train on; (4) a render loss from a lattice start does not train, from a seeded start it was never run.
+  **No claim that generating beats moving or dropping points follows from any of this, and none that it fails: the first condition of
+  `CLAUDE.md` (a network overfits `ai_006_007`, then `dev`) was not met under the ladder's rules.**
+
+## Plan: E69a = the generators of issue #69 on one ladder: five heads, two losses, three class sources, one comparison (issue #69, 18.11.2026)
+- **Goal:** replace X69a to X69q by one experiment that follows `CLAUDE.md` and `docs/experiments.md`: the same data, scorer and
+  baselines for every approach, rung by rung, with a gate in front of each rung. Which generator, if any, learns a correction of Déjà
+  View's fused points that carries to scenes it has not seen, and do SAM 3's classes help it? Issue #69's gate: a learned generator beats
+  Déjà View's points on the val scenes. Nothing in X69a to X69q is reused as a result; they set the arms.
+- **Arms** (`configs/e69a.yaml`, `arms`), one change each from the lattice head: `lattice` (X69e), `gated` (X69j), `implicit` (X69h),
+  `split` (X69i), `seeded` (X69o: every input point seeds 2 points), `seeded-render` (X69q: the seeded head on the depth and coverage
+  of the points drawn into 6 of the 20 views per step, gradient clip 10). Class sources are the suffix of an arm: `-sam3` (the linked SAM 3
+  masks, E34's nyu40 prompts at 0.3), `-gt` (the ground truth's classes, an upper bound).
+- **Setting, every arm (rung 0 of the ladder):** the same U-Net of widths 24 / 48 / 96, so 0.80 to 0.81 M parameters with the head
+  (asserted in `build`; X69's had 1.42 M); Adam at a constant learning rate, no weight decay, no augmentation (the grid is built from all
+  20 views every step; random 48-cell crops, 8-cell rim); 192 cells; the largest move `offset` is 2 cells, not X69's 1 (rung 1 below); loss
+  caps 20 000 generated, 50 000 GT and 4 000 completeness points per crop (the 40 000 / 100 000 / 20 000 of X69 made the forward pass with the loss 3 to 4 times
+  slower, a 64-cell crop another 1.7 times, rung 2). Seed 0, three seeds for the class-source rung. Hyperparameters other than the learning rate are not tuned.
+- **Deviations from the ladder, stated before the run:** the U-Net keeps GroupNorm (it is `volume.py`'s block, per sample and not BatchNorm; a
+  U-Net without it was not tried); rung 5 uses two train-set sizes, 5 and 40 scenes (the ladder's 5 / 10 / 100 / 1000 samples: the repo's
+  `train` split is 40 scenes, `train_extra` has 113 more that are not prepared), a scene giving many random crops; the validation loss per
+  step is on one crop, so it is noisy and is read through its trend and the fixed error.
+- **Logging:** TensorBoard under `runs/e69a/<rung>/tb/<model>/`: the train loss and its terms every step, the loss of a random crop of a
+  random validation scene (in eval mode) after every step, and every 100 steps the fixed error (accuracy, completeness, Chamfer in cells
+  on the same crops, 3 scenes of the train set and 3 of val). The kept step is the one with the least fixed error on the train scenes
+  (rungs 3 and 4) or on val (rungs 5 and 6); step 0, the untrained generator, is a candidate, so no result is worse than where training
+  began. A per-model record (config, git hash, learning curve, seconds) is `runs/e69a/<rung>/<model>.yaml`.
+- **Baselines, same scorer** (`cloud_eval`): Déjà View's pixels; Déjà View kept 0.75 and 0.5 by E27a's instance voxel density; the voxel mean
+  at 192 cells, all and the densest half (E45); and two oracles that use the ground truth, `oracle-lattice` and `oracle-seeded`: every
+  lattice point (or input point) moved to its nearest ground-truth point and dropped if that is further than `offset` away, the ceilings of
+  the two families.
+- **Rungs and gates** (`experiments/scripts/e69a.sh` runs them in order and stops where a gate lets no arm through; the rules are in
+  `e69a_gate.py` and are tested; Chamfer in cm; a tie band of 0.1 cm as in X69; "beats" means the mean gain over the scenes exceeds the
+  larger of the band and twice the standard error of the per-scene differences):
+  1. **Data (rung 1).** `e69a_data.py`: the reach table (below) and a 4-cell slab of the bedroom's inputs and targets
+     (`figures/e69a_data.jpg`); `e69a_oracle.py` writes the two oracles. Looked at before any training.
+  2. **Speed (rung 2).** `generate-cloud --profile`: seconds per stage of a step (transfer, grid, forward and loss, backward, the validation
+     crop). Gate: the train step under 1 s (warning above 0.5 s) for every arm, and no job (steps times a step with its validation crop) over
+     30 minutes, the limit of `CLAUDE.md`, unless `ALLOW_LONG` is set.
+  3. **Learning rate.** Each arm at 3e-4, 1e-3 and 3e-3 for 300 steps on the bedroom; the rate with the least fixed train error at its best
+     step is that arm's (`e69a_gate.py lr`). A simple baseline gets the same tuning, the three rates, as the others.
+  4. **Overfit one scene (rung 3):** the bedroom `ai_006_007`, 1 200 steps, the 20 views fixed. Gate: the arm closes at least half of the
+     bedroom's gap from Déjà View (1.846) to the oracle of its family (`oracle-seeded` for the seeded arms). Validation is logged, and
+     should not fall: nothing general is learned from one scene.
+  5. **Overfit the three dev scenes (rung 4):** `ai_010_007`, `ai_006_007`, `ai_044_001`, 2 000 steps, the arms that passed. Gate: the dev-mean
+     Chamfer below Déjà View's 3.501 by more than the band and at least 2 of the 3 scenes below Déjà View's by more than the band.
+  6. **Generalize (rung 5):** train on 5, then on all 40 scenes of the repo's `train` split (evenly spaced), 2 000 steps, the step chosen on
+     the 11 val scenes, the arms that passed rung 4; scored on val and on dev (unseen). Gate, at 40 scenes: beats Déjà View on the val
+     scenes, and the val Chamfer at 40 scenes no worse than at 5 by more than the band (a larger train set must not hurt).
+  7. **Class sources (rung 5, continued):** the best arm of rung 5 without classes, with SAM 3's, with the ground truth's, 3 seeds each, 40
+     scenes. Gate: the arm beats Déjà View by more than the spread of its seeds' val means; classes help if the arm with them beats the
+     arm without them by the same margin (`-gt` bounds what perfect classes could give; if `-gt` does not help, `-sam3` cannot).
+  Test and stress are not touched. Val is used to choose the kept step and the arms in rungs 5 and 7, so its numbers are validation, not a
+  held-out score; the final score of a method that passes would be reported once on test, in a later entry.
+- **Rung 1, measured before the setting above was fixed** (`results/e69a_reach.txt`, `figures/e69a_data.jpg`; all 20 views, 192 cells, per scene):
+  the share of input points with a ground-truth point within `offset` cells on every axis (the most accuracy any generator limited to that
+  move can reach), and the reverse (the most completeness). At 1 cell it is 88 to 98% of the input points of the three dev scenes (ai_044_001
+  0.884) but 32% (ai_004_003) to 97% (median 81%) on val; at 2 cells 98 to 99.5% on dev and 85 to 99% (median 93%) on val; at 3 cells 91 to
+  99.8%. The ground-truth points with an input point within reach are at least 93% at 2 cells on every scene. So `offset` 2, the smallest of
+  {1, 2, 3} that reaches 85% or more on every scene; X69 used 1. This table used val's inputs (not any model's output) to set one
+  hyperparameter; the dev rows alone give the same choice. The figure: the inputs and targets of the bedroom agree (a 4-cell
+  slab seen along y shows Déjà View's points on the walls, furniture and floor, with the floaters of a feed-forward model), and the pixel-to-own-GT distance
+  has its mode below 1 cell with a tail beyond 3 (median 0.74 cell on the bedroom).
+- **Rung 2, measured** (bedroom, RTX 3080 shared with another job at 85 to 96% utilisation, so every time is an upper bound; median of 10
+  steps; seconds for the train step / a step with its validation crop; peak GPU memory): lattice 0.25 / 0.48, 1.3 GiB; gated 0.27 / 0.51, 1.3;
+  implicit 0.28 / 0.53, 1.4; split 0.38 / 0.71, 1.4; seeded 0.40 / 0.83, 2.3; seeded-render 0.45 / 0.72, 3.0. Transfer to the GPU 0.056, the
+  grid 0.016 and the backward pass 0.02 to 0.03 s (0.17 s for the render arm); the forward pass with the loss is the cost. All pass the gate. At 1 200 / 2 000
+  steps a job is 10 to 17 / 16 to 28 minutes. Total, upper bound, one process at a time: about 13 hours (learning rates 1 h, rung 3 1.3 h,
+  rung 4 up to 2.1 h, rung 5 up to 4.2 h, class sources 4.2 h) plus about 1 hour to prepare the train scenes; `JOBS=3` runs three arms at once
+  (at most 3.0 GiB each).
+- **Checks beforehand:** `tests/test_generator.py` (the untrained heads emit their starting points; the seeded head returns its input bit
+  for bit; each head fits a plane; the losses and the reach; the render loss; an empty crop is drawn again; the step logged per step; under
+  1 M parameters; the rung and arm parsing), `tests/test_e69a.py` (the gates on numbers worked by hand, the snap oracle), `tests/test_cloud_eval.py`
+  (Déjà View's pixels through the scorer give `scene_eval`'s surface numbers; here 1.846 on the bedroom and 3.501 on dev, as X69). A smoke run
+  of rung 3 with 30 steps of two arms, the scoring and the gate went through end to end, and the renders of the oracle look right.
+- **Rule and predictions, written before the run:**
+  - Rung 3: I expect `split` to pass narrowly (X69i closed 0.52 of its gap to the oracle, X69e 0.47, X69o 0.43 against
+    the oracles of X69, at offset 1) and the others to fall short of half the gap, so one or two arms climb. If none does, the finding is that no head overfits one scene under the ladder's rules
+    (0.8 M parameters, 1 200 steps), the experiment stops there, and what is missing is named: a longer schedule or a larger model, which is
+    rung 6 and a different entry. That is "not yet working", not "fails".
+  - Rung 4: refuted for an arm if its dev-mean Chamfer stays above 3.40 (Déjà View less the band). Predicted: the arms that pass rung 3 fall
+    short of Déjà View on ai_044_001 (median error 17 cm) as X69g, X69l and X69m did, with the offset now 2 cells; a pass would be news.
+  - Rung 5: the claim "a generator beats Déjà View on val" needs more than the band and twice the standard error over the 11 scenes. I expect
+    no arm to pass: X69o was worse than Déjà View on scenes it had not seen, with a model larger than this one and nothing in its input that
+    says where Déjà View is wrong. A pass at 40 scenes with the 5-scene value above it would show learning that scales.
+  - Class sources: the ground-truth classes are the upper bound; I expect `-sam3` within the band of no classes, because X69n found the error
+    fine-scale rather than organised by object. If `-gt` helps and `-sam3` does not, the masks are what limits it.
+  - **A negative result is written "not yet working", with what is missing (a larger model, more than 40 scenes, a longer schedule, a
+    second seed at every rung), and "the approach fails" only if rung 3 passes, a tuned simple baseline is below it, and the spread and
+    budget are logged.**
+- **Not in this run:** a larger model, more train scenes, a longer schedule, adapters or LoRA in the backbone (rung 6); the offset, the
+  crop size, the loss weights and the number of seeds at rungs 3 to 5 as ablation axes; the test and stress splits; Déjà View's depth
+  refined by the joint refiner first. Dev is spent as training data at rung 4 on purpose.
+- **Commands:** `JOBS=3 experiments/scripts/e69a.sh` (about 6 to 8 hours with three arms at a time on a free RTX 3080); one rung by hand:
+  `uv run generate-cloud --config configs/e69a.yaml --rung overfit1 --lr-file runs/e69a/lr.yaml`, then `uv run python
+  experiments/scripts/e69a_gate.py config overfit1`, `uv run python -m src.analysis.cloud_eval --cfg runs/e69a/overfit1_eval.yaml --splits
+  dev` and `uv run python experiments/scripts/e69a_gate.py gate overfit1`; the figures: `experiments/scripts/e69a_renders.py`.

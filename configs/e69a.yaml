@@ -1,0 +1,64 @@
+# E69a (issue #69): the generative refiner's approaches on one ladder (docs/experiments.md). Every arm is a
+# generator that takes Déjà View's fused points (and, for `-sam3` and `-gt`, classes) and emits a new cloud.
+# Rung 0: under 1 M parameters, Adam at a constant learning rate, no weight decay, no augmentation (the grid is
+# built from all 20 views). One file; `generate-cloud --config configs/e69a.yaml --rung <rung>` runs one rung,
+# `experiments/scripts/e69a.sh` all of them in order.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+split_file: configs/hypersim.yaml
+tag: e69a
+resolution: 192       # cells along the scene box's longest side
+widths: [24, 48, 96]  # U-Net channels per level: 0.80-0.81 M parameters with the head
+split: 2              # lattice points per voxel and axis
+reach: 1              # voxels this many cells from an occupied one also emit points
+offset: 2.0           # largest move of a point, cells; rung 1's reach table (experiments/results/e69a_reach.txt): 2 cells, not 1, reach 85% or more of the points on every dev and val scene
+copies: 2             # points per seed of the seeded generator
+crop: 48
+margin: 8
+gen_cap: 20000
+gt_cap: 50000
+comp_cap: 4000
+fixed_crops: 4        # the fixed error: crops per scene ...
+fixed_scenes: 3       # ... on at most this many scenes of each list
+eval_every: 100
+amp: true
+lr: 1.0e-3            # constant; the learning-rate rung may set one per arm
+seeds: [0]
+stride: 6             # the render loss draws the views at 1/6 (63 x 84 px)
+tau: 0.25
+render_views: 6      # views the render loss draws per step, at random (all 20 cost 1.8 s a step)
+
+# what differs between the approaches; the name of an arm followed by -sam3 or -gt sees that class source
+arms:
+  lattice: {kind: lattice}                 # X69e
+  gated: {kind: gated}                     # X69j
+  implicit: {kind: implicit}               # X69h
+  split: {kind: split}                     # X69i
+  seeded: {kind: seeded}                   # X69o
+  seeded-render: {kind: seeded, loss: render, clip: 10.0}  # X69q
+
+# settings the rungs share (YAML anchors; `generate-cloud` ignores this key)
+anchors:
+  bedroom: &bedroom
+    train_scenes: [ai_006_007_cam_00]
+    val_splits: [val]
+    select: train
+    run: &every [lattice, gated, implicit, split, seeded, seeded-render]
+
+# a rung overrides the settings above and names its scenes, its steps and the arms it runs; `sizes` are
+# train scenes per model (0: all of them), `select` whose fixed error picks the kept step
+rungs:
+  # the learning rate of each arm, from three probes of 300 steps on the bedroom (e69a_gate.py lr)
+  lr_probe_3e-4: {<<: *bedroom, steps: 300, lr: 3.0e-4}
+  lr_probe_1e-3: {<<: *bedroom, steps: 300, lr: 1.0e-3}
+  lr_probe_3e-3: {<<: *bedroom, steps: 300, lr: 3.0e-3}
+  # rung 3: overfit the bedroom; val is logged but nothing general is learned, so it should not fall
+  overfit1: {<<: *bedroom, predict_splits: [dev], steps: 1200}
+  # rung 4: overfit the three dev scenes (the arms that passed rung 3)
+  overfit3: {train_splits: [dev], val_splits: [val], predict_splits: [dev], select: train, steps: 2000, run: *every}
+  # rung 5: train on the repo's 40 train scenes (5 evenly spaced, then all), choose the step on val, score val and dev
+  generalize: {train_splits: [train], val_splits: [val], predict_splits: [val, dev], select: val, steps: 2000, sizes: [5, 40], run: *every}
+  # the class sources on the best arm of rung 5, three seeds, all 40 train scenes (arms are set on the command line)
+  semantics: {train_splits: [train], val_splits: [val], predict_splits: [val, dev], select: val, steps: 2000, seeds: [0, 1, 2], run: []}
