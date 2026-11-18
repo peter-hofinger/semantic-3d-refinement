@@ -6105,3 +6105,35 @@ Interim entry: the check that the plan puts before any table.
   ratio is expected to rise; how far shows how much c alone conflicts with the GT.
 - **Command** (3080, both gates, ~6 min each): the plan's rung-3 command with
   `cons_weight=1.0 gt_weight=0.0`, `--out runs/e52c_rung3_<gate>_conly`.
+
+## E52c, rung 3 with the cross-view term alone: c / c_DV stops at 0.89-0.90 while the GT ratio climbs to 1.13-1.23, so the term itself cannot be driven down by the LoRA; the λ sweep is dropped until its gradient path is understood (issue #52, 18.11.2026)
+- **Setting:** the plan entry above, at 34f1183 (clean), 3080, 18.11 22:43-22:56 (~347 s per arm),
+  `runs/e52c_rung3_{instance,none}_conly`.
+- **Result (bedroom, 200 steps, ratios to Déjà View on the same draw; λ = 1 and λ = 10 from the
+  entries above):**
+
+  | | λ = 1 | λ = 10 | term alone | bar |
+  |---|---|---|---|---|
+  | c / c_DV, last 50, same instance | 0.943 | 0.909 | 0.902 | < 0.80 (term alone) |
+  | c / c_DV, last 50, any partner | 0.940 | 0.907 | 0.890 | |
+  | GT ratio, last 50, same instance | 0.842 | 0.918 | 1.133 | |
+  | GT ratio, last 50, any partner | 0.843 | 0.931 | 1.228 | |
+  | median LoRA-up gradient norm, same instance | 2.32 | 8.19 | 0.80 | |
+  | val ratio at step 200, same instance / any partner | 1.002 / 0.999 | 1.002 / 1.001 | 1.086 / 1.134 | |
+
+  Without the GT ratio, c / c_DV ends where it ended at λ = 10 (0.89-0.90; the 20-step means
+  flatten from step 160), so the GT ratio was not what held it at 0.91. Meanwhile the geometry
+  moves away from the GT: the GT ratio passes 1.0 at step ~90 and keeps rising (20-step peak
+  1.22 / 1.33), and val worsens by 9-13%. The term's own gradient is small: its median norm
+  alone is 0.80, about a third of the GT ratio's (2.3 at λ = 1), and 10 x 0.80 matches the 8.2
+  of λ = 10. The probe's floor (GT scores 0.46 of Déjà View's c) is far away, so the LoRA lowers
+  c by distorting the scene, not by moving it towards the GT. The gate changes c by 0.012.
+- **Reading:** refuted: the term alone does not reach a known answer (rung 3), so a λ sweep or
+  seeds would only measure a term that does not work as intended. The term is "not yet
+  working": what is missing is a solver-level check that removes the network. Next, on cached
+  Déjà View output: minimise c directly over per-pixel depth (or a per-view affine) of the
+  bedroom's 20 views and see whether it reaches the GT's c (0.46) and moves the points towards
+  the GT. If it does, the LoRA's parameterisation limits the term; if not, the term (detached
+  prediction normals, partners re-chosen every step, the 0.05 cap) has minima away from the GT.
+- **Commands:** the plan's command; figure (rung-3 panel for the term alone added) and raw:
+  `uv run python experiments/scripts/e52c_rungs_figures.py`.

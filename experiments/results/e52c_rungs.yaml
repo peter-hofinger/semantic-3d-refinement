@@ -32,6 +32,10 @@ rungs:
     gt_last50: 0.9176421415805817
     cons_first50: 0.9806685841083527
     cons_last50: 0.9092446076869964
+  rung3_instance_conly:
+    gt_last50: 1.1334854865074158
+    cons_first50: 0.9838402104377747
+    cons_last50: 0.9016792356967926
   rung4_instance:
     living room:
       gt_last100: 0.776001222755598
@@ -53,6 +57,10 @@ rungs:
     gt_last50: 0.9314590728282929
     cons_first50: 0.9875614154338836
     cons_last50: 0.9069356894493104
+  rung3_none_conly:
+    gt_last50: 1.2282187628746033
+    cons_first50: 0.9849958431720733
+    cons_last50: 0.8900751578807831
   rung4_none:
     living room:
       gt_last100: 0.7790606954823369
