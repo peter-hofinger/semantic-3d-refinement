@@ -6155,3 +6155,45 @@ Interim entry: the check that the plan puts before any table.
   not a different λ or network, is needed). The GT arm must reach a GT ratio well below 1 for
   the check to count.
 - **Command** (3080, ~1-2 min per arm): `uv run python experiments/scripts/e52c_solver.py`.
+
+## E52c, solver check: minimising the cross-view term on Déjà View's own depth moves away from the GT, first directly, then by shrinking the alignment; the term's minima lie away from the GT (issue #52, 19.11.2026)
+- **Setting:** the plan entry above. Run of record at b91def6 (clean), 3080, 19.11 00:50-00:54
+  (~40 s per arm). Two earlier runs at 95adc6d and 3076a05 gave the same ratios to the third
+  decimal; b91def6 only adds the Sim(3) scale and wider depth quantiles to the record. The
+  figure's labels were redrawn from the yaml with `--plot` (no new numbers). GT's own c / c_DV on
+  the fixed draw: 0.492 (same instance), 0.550 (any partner).
+- **Result (bedroom, 12 views, ratios to Déjà View; scale = the Sim(3)'s scale over Déjà View's;
+  depth = final over start depth, 0.1 / 5 / 50 / 95 / 99.9% quantiles):**
+
+  | free variables, loss | GT ratio | c / c_DV (own rule) | scale | depth quantiles |
+  |---|---|---|---|---|
+  | patch, c same instance, step 100 | 1.43 | 0.696 | 0.985 | |
+  | patch, c same instance, step 1000 | 17.26 | 0.378 | 0.466 | 0.89 / 0.97 / 1.00 / 1.05 / 4.17 |
+  | patch, c any partner, step 1000 | 17.24 | 0.368 | 0.467 | 0.89 / 0.96 / 1.00 / 1.05 / 4.17 |
+  | patch, GT error (known answer) | 0.679 | 0.854 | 0.996 | 0.90 / 0.98 / 1.00 / 1.02 / 1.08 |
+  | view, c same instance | 0.983 | 0.937 | 0.998 | 0.95 / 0.99 / 1.00 / 1.01 / 1.01 |
+  | view, c any partner | 0.983 | 0.938 | 0.999 | 0.95 / 0.99 / 1.00 / 1.01 / 1.01 |
+  | view, GT error (known answer) | 0.929 | 0.971 | 0.996 | 0.97 / 0.99 / 1.00 / 1.01 / 1.01 |
+
+  The solver passes its own check: fitting the GT on patches lowers the GT ratio to 0.68. Two
+  ways c is lowered away from the GT:
+  1. Directly: in the first 100 steps c falls 30% while the GT error rises 43%, with the fit's
+     scale still at 0.985. Déjà View's depth is not near a minimum of c that is near the GT:
+     c's descent direction from there moves the points off the GT.
+  2. Through the alignment: afterwards 0.1% of the pixels are pushed to ~4x their depth, the
+     least-squares Sim(3) shrinks the cloud to 0.47 of its size, and c, divided by the fixed GT
+     depth, shrinks with it, to 0.38, below GT's own 0.49. 90% of the depth moves by under 5%.
+  Fitting the GT lowers c only to 0.85, far from GT's 0.49: most of the c that separates Déjà
+  View from GT lies below the 14 px patch scale. Per-view scale and offset barely move either
+  number. The gate again makes no difference (0.011).
+- **Reading:** the hypothesis is refuted: the cross-view term's minima lie away from the GT on
+  the bedroom, so no λ, network or seed can make it a proxy for GT error. This explains rung 3
+  with the term alone (c 0.89-0.90, GT ratio 1.13-1.23); whether the LoRA also used the scale
+  route was not recorded there. Limits: one scene, 12 views, patch-scale freedom. A term that
+  could work has to (a) be invariant to the alignment's scale, e.g. divided by the predicted
+  depth or computed before the Sim(3), which removes route 2 only, and (b) descend towards the
+  GT from Déjà View's output; the cheap test for (b) is the cosine between the gradients of c
+  and of the GT error at Déjà View's depth, before any training.
+- **Commands:** `uv run python experiments/scripts/e52c_solver.py` (3080, ~4 min);
+  `--plot` redraws the figure from the yaml. Figure `e52c_solver.jpg`, raw
+  `results/e52c_solver.yaml`.

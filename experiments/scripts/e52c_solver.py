@@ -26,7 +26,8 @@ If the term's minimum lies near the GT, minimising it moves the points towards t
 (GT ratio < 1) and towards GT's c; fitting the GT should then also lower c.
 
 uv run python experiments/scripts/e52c_solver.py
-writes `experiments/results/e52c_solver.yaml` and `experiments/figures/e52c_solver.jpg`.
+writes `experiments/results/e52c_solver.yaml` and `experiments/figures/e52c_solver.jpg`;
+`--plot` redraws the figure from the yaml.
 """
 
 import argparse
@@ -192,13 +193,16 @@ def figure(runs: dict, floor: dict) -> None:
                 r["step"], r["gt_ratio"], color=colour, label=f"GT ratio, min {label}"
             )
             ax.plot(r["step"], c, color=colour, ls="--", label=f"c / c_DV, min {label}")
+            ax.plot(r["step"], r["sim3_scale"], color=colour, ls=":",
+                    label=f"Sim(3) scale / DV's, min {label}")  # fmt: skip
         ax.axhline(floor["gate"], color="0.4", lw=0.8, ls=":")
         ax.axhline(1.0, color="0.7", lw=0.6)
         ax.set_yscale("log")
         ax.set_xlabel("Adam step")
         ax.set_title(
-            f"{param}: {'log-scale per 14 px patch' if param == 'patch' else 'scale + offset per view'}"
-            f" (dotted: GT's c / c_DV, same instance)",
+            "log-scale per 14 px patch"
+            if param == "patch"
+            else "scale + offset per view",
             fontsize=9,
         )
         style(ax)
@@ -207,8 +211,10 @@ def figure(runs: dict, floor: dict) -> None:
         fontsize=7, frameon=False, loc="upper left", bbox_to_anchor=(1.0, 1.0)
     )
     fig.suptitle(
-        "Minimising the cross-view distance on Déjà View's cached depth, no network: "
-        "solid = GT error, dashed = c, both over Déjà View's",
+        "Minimising the cross-view distance c on Déjà View's cached depth, no network. "
+        "Solid: GT error, dashed: c, dotted: the Sim(3)'s scale, all over Déjà View's;\n"
+        "grey dotted line: GT's own c. Minimising c drives it below GT's by shrinking the "
+        "fit (c is divided by GT depth) while the GT error grows 17x.",
         fontsize=9,
     )
     fig.tight_layout()
@@ -219,7 +225,12 @@ def main() -> None:
     """Solve every parametrisation and loss, write the raw numbers and the figure."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=STEPS)
+    parser.add_argument("--plot", action="store_true", help="redraw from the yaml")
     args = parser.parse_args()
+    if args.plot:
+        done = yaml.safe_load(RESULTS.read_text(encoding="utf-8"))
+        figure(done["runs"], done["floor"])
+        return
     cfg = yaml.safe_load(Path("configs/e52a_adapters.yaml").read_text(encoding="utf-8"))
     raw = yaml.safe_load(Path(cfg["eval"]).read_text(encoding="utf-8"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
