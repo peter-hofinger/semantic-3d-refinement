@@ -18,7 +18,9 @@ minimises one loss on the aligned points: the cross-view distance `cross_view_di
 `gate`, or any, `any`), or, as the solver's own known answer, the GT error (mean relative
 3D error capped 0.5, over Déjà View's on the same draw, `gt`). Every 25 steps it records,
 on one fixed draw (seed 1, as the probe), c / c_DV for both partner rules and the GT
-ratio over all GT-valid pixels; GT's own c / c_DV is the floor.
+ratio over all GT-valid pixels; GT's own c / c_DV is the floor. It also records the
+Sim(3)'s scale over Déjà View's and, at the end, quantiles of the depth over the start:
+c is divided by the GT depth, so a fit that shrinks the aligned cloud lowers c.
 
 If the term's minimum lies near the GT, minimising it moves the points towards the GT
 (GT ratio < 1) and towards GT's c; fitting the GT should then also lower c.
@@ -51,6 +53,7 @@ from src.refinement.multiview import points_from_rays, scene_from_geometry
 SCENE = "ai_006_007_cam_00"  # bedroom
 VIEWS, PIXELS, FIT, CAP, STRIDE, MAX_ERROR = 12, 6000, 20000, 0.05, 2, 0.5
 STEPS, LR, EVERY = 1000, 1e-3, 25
+QUANTILES = (0.001, 0.05, 0.5, 0.95, 0.999)  # of the final depth over the start depth
 PARAMS = ("patch", "view")
 LOSSES = {"gate": ("c, same instance", "#eb6834"), "any": ("c, any partner", "#3a7bd5"),
           "gt": ("GT error (known answer)", "#2a9d55")}  # fmt: skip
@@ -85,21 +88,21 @@ class Problem:
             np.random.default_rng(1).choice(n, PIXELS, replace=False)
         ).to(device)
         self.n = n
-        self.dv = self.align(points_from_rays(self.depth, self.rays))
+        self.dv, self.dv_scale = self.align(points_from_rays(self.depth, self.rays))
         self.dv_error = self.error(self.dv)
         self.c_dv = {
             g: self.distance(self.dv, self.eval, gate=g) for g in (True, False)
         }
         assert all(c > 0 for c in self.c_dv.values()), self.c_dv
 
-    def align(self, x: Tensor) -> Tensor:
-        """(V, H, W, 3) maps after the exact Sim(3) of their fit pixels onto the GT."""
+    def align(self, x: Tensor) -> tuple[Tensor, float]:
+        """Apply the exact Sim(3) of the fit pixels onto the GT; return maps, scale."""
         s, r, t = umeyama_torch(
             x[self.valid][self.fit].double(), self.gt[self.valid][self.fit].double()
         )
         out = (x.double() @ (s * r.T) + t).float()
         assert torch.isfinite(out).all()
-        return out
+        return out, s.item()
 
     def error(self, aligned: Tensor) -> Tensor:
         """Relative 3D error per GT-valid pixel, capped at MAX_ERROR."""
@@ -137,10 +140,16 @@ def solve(problem: Problem, param: str, loss: str, steps: int) -> dict:
     theta = torch.zeros(shape, device=problem.depth.device, requires_grad=True)
     opt = torch.optim.Adam([theta], lr=LR)
     rng = np.random.default_rng(2)
-    record: dict = {"step": [], "gt_ratio": [], "c_gate": [], "c_any": []}
+    record: dict = {
+        "step": [],
+        "gt_ratio": [],
+        "c_gate": [],
+        "c_any": [],
+        "sim3_scale": [],
+    }
     start = time.perf_counter()
     for it in range(steps + 1):
-        x = problem.align(
+        x, scale = problem.align(
             points_from_rays(depth_of(problem, param, theta), problem.rays)
         )
         if it % EVERY == 0 or it == steps:
@@ -148,6 +157,7 @@ def solve(problem: Problem, param: str, loss: str, steps: int) -> dict:
                 record["step"].append(it)
                 gt_ratio = problem.error(x).mean() / problem.dv_error.mean()
                 record["gt_ratio"].append(gt_ratio.item())
+                record["sim3_scale"].append(scale / problem.dv_scale)
                 for g, key in ((True, "c_gate"), (False, "c_any")):
                     c = problem.distance(x, problem.eval, gate=g) / problem.c_dv[g]
                     record[key].append(c.item())
@@ -163,6 +173,10 @@ def solve(problem: Problem, param: str, loss: str, steps: int) -> dict:
         value.backward()
         opt.step()
     assert torch.isfinite(theta).all()
+    with torch.no_grad():
+        ratio = (depth_of(problem, param, theta) / problem.depth)[problem.valid]
+        q = torch.tensor(QUANTILES, device=ratio.device)
+        record["depth_ratio_quantiles"] = torch.quantile(ratio, q).tolist()
     record["seconds"] = time.perf_counter() - start
     return record
 
@@ -180,6 +194,7 @@ def figure(runs: dict, floor: dict) -> None:
             ax.plot(r["step"], c, color=colour, ls="--", label=f"c / c_DV, min {label}")
         ax.axhline(floor["gate"], color="0.4", lw=0.8, ls=":")
         ax.axhline(1.0, color="0.7", lw=0.6)
+        ax.set_yscale("log")
         ax.set_xlabel("Adam step")
         ax.set_title(
             f"{param}: {'log-scale per 14 px patch' if param == 'patch' else 'scale + offset per view'}"
@@ -187,7 +202,7 @@ def figure(runs: dict, floor: dict) -> None:
             fontsize=9,
         )
         style(ax)
-    axes[0].set_ylabel("ratio to Déjà View (bedroom, 12 views)")
+    axes[0].set_ylabel("ratio to Déjà View (bedroom, 12 views, log)")
     axes[1].legend(
         fontsize=7, frameon=False, loc="upper left", bbox_to_anchor=(1.0, 1.0)
     )
