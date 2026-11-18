@@ -9,6 +9,8 @@ from dvlt.model.dvlt.model import DVLT
 from src.backbone import adapters
 from src.backbone.adapters import (
     ALIGN,
+    ATTENTIONS,
+    LORA_TARGETS,
     SPECIAL_TOKENS,
     SegmentAdapter,
     biased_attention,
@@ -111,15 +113,48 @@ def test_zero_adapter_is_dejaview_bit_for_bit(net: torch.nn.Module) -> None:
     torch.testing.assert_close(out["depth"], ref["depth"])
     biased = forward(net, images, SegmentAdapter(bias=True, pool=False), codes)
     torch.testing.assert_close(biased["depth"], ref["depth"])
+    lora = SegmentAdapter(bias=False, pool=False, lora=4)
+    torch.testing.assert_close(forward(net, images, lora, codes)["depth"], ref["depth"])
+
+
+def test_lora_is_the_merged_weight(net: torch.nn.Module) -> None:
+    images, codes = inputs(7)
+    torch.manual_seed(8)
+    adapter = SegmentAdapter(bias=False, pool=False, lora=4)
+    with torch.no_grad():
+        for u in adapter.lora_up.values():
+            u.normal_(0, 0.01)
+        out = forward(net, images, adapter, codes)
+        block = net.recurrent_blocks[0]
+        attns = dict(
+            zip(
+                ATTENTIONS, (block.frame_attn.attn, block.global_attn.attn), strict=True
+            )
+        )
+        linears = {
+            f"{a}_{t}": getattr(attns[a], t) for a in ATTENTIONS for t in LORA_TARGETS
+        }
+        saved = {n: m.weight.clone() for n, m in linears.items()}
+        try:
+            for n, m in linears.items():
+                m.weight += adapter.lora_up[n] @ adapter.lora_down[n]
+            merged = net.forward_inference(images)
+        finally:
+            for n, m in linears.items():
+                m.weight.copy_(saved[n])
+    assert not torch.equal(out["depth"], net.forward_inference(images)["depth"])
+    for key in ("depth", "world_points"):
+        torch.testing.assert_close(out[key], merged[key], rtol=1e-4, atol=1e-5)
 
 
 def test_gradients_reach_only_the_adapter(net: torch.nn.Module) -> None:
     images, codes = inputs(3)
-    adapter = SegmentAdapter(bias=True, pool=True)
+    adapter = SegmentAdapter(bias=True, pool=True, lora=4)
     forward(net, images, adapter, codes)["depth"].square().mean().backward()
     assert adapter.beta.grad is not None
     assert adapter.beta.grad.abs().sum() > 0
     assert adapter.up.grad.abs().sum() > 0
+    assert all(u.grad.abs().sum() > 0 for u in adapter.lora_up.values())
     assert all(p.grad is None for p in net.parameters())
 
 
@@ -139,14 +174,16 @@ def test_checkpoint_recomputes_with_the_same_step(
 ) -> None:
     images, codes = inputs(4)
 
-    def grads() -> tuple[torch.Tensor, torch.Tensor]:
+    def grads() -> list[torch.Tensor]:
         torch.manual_seed(5)
-        adapter = SegmentAdapter(bias=True, pool=True)
+        adapter = SegmentAdapter(bias=True, pool=True, lora=4)
         with torch.no_grad():
             adapter.beta.normal_(0, 0.5)
             adapter.up.normal_(0, 0.01)
+            for u in adapter.lora_up.values():
+                u.normal_(0, 0.01)
         forward(net, images, adapter, codes)["depth"].square().mean().backward()
-        return adapter.beta.grad, adapter.up.grad
+        return [p.grad for p in adapter.parameters()]
 
     checkpointed = grads()
 

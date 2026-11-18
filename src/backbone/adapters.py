@@ -12,6 +12,11 @@ a grid, decides per loop step k and head h how segments act:
 - pool: after loop step k, x_i += B_k A (m_s(i) - x_i), m_s the mean token of segment s
   over all views (ids are scene-wide), A (dim -> rank) shared and B_k (rank -> dim) zero
   at the start, as LoRA (Hu et al. 2022) initialises its up-projection.
+- lora: W x + U D x for the qkv and proj linears of frame and global attention (Hu et
+  al. 2022), D (rank x in) random, U (out x rank) zero; one set for all loop steps, as
+  the block is shared. With no segments it is plain fine-tuning (E52b's control). Its
+  scale (the paper's alpha / r) is 1: with Adam, tuning it is about the same as
+  tuning the learning rate (Hu et al. 2022, Sec. 4.1).
 
 With every parameter zero and no grad, `forward` is Déjà View's inference bit for bit.
 With grad, each loop step is checkpointed (Chen et al. 2016) with its step index as an
@@ -47,6 +52,7 @@ SPECIAL_TOKENS = 5  # per view: 1 camera + 4 register tokens before the patch to
 MAX_SEGMENTS = 192  # head dim 64 + 192 codes = 256, the flash kernel's limit
 ALIGN = 8  # code width padded to a multiple of 8 for the fused SDPA kernels
 ATTENTIONS = ("frame", "global")
+LORA_TARGETS = ("qkv", "proj")  # each attention's linears that get a LoRA
 
 
 def patch_segments(ids: np.ndarray, patch: int = PATCH_SIZE) -> np.ndarray:
@@ -146,7 +152,7 @@ def segment_offsets(x: Tensor, codes: Tensor) -> Tensor:
 
 
 class SegmentAdapter(nn.Module):
-    """β[k, attention, head] and/or the pooling maps A, B_k; zero at the start."""
+    """β[k, attention, head], the pooling maps A, B_k and/or LoRA; zero at the start."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -157,17 +163,36 @@ class SegmentAdapter(nn.Module):
         heads: int = 12,
         dim: int = 768,
         rank: int = 16,
+        lora: int = 0,
     ) -> None:
-        """Bias: (steps, 2, heads) zeros; pool: A random (LoRA's init), B_k zeros."""
+        """Bias: (steps, 2, heads) zeros; pool: A random (LoRA's init), B_k zeros.
+
+        lora > 0: D (lora x dim) as nn.Linear's init (LoRA's), U zeros, per target.
+        """
         super().__init__()
-        assert bias or pool
+        assert bias or pool or lora > 0
         self.beta = nn.Parameter(torch.zeros(steps, 2, heads)) if bias else None
         self.down = nn.Linear(dim, rank, bias=False) if pool else None
         self.up = nn.Parameter(torch.zeros(steps, rank, dim)) if pool else None
+        self.lora_down = self.lora_up = None
+        if lora > 0:
+            names = [f"{a}_{t}" for a in ATTENTIONS for t in LORA_TARGETS]
+            out = {"qkv": 3 * dim, "proj": dim}
+            self.lora_down = nn.ParameterDict(
+                {n: nn.Linear(dim, lora, bias=False).weight for n in names}
+            )
+            self.lora_up = nn.ParameterDict(
+                {
+                    n: nn.Parameter(torch.zeros(out[n.split("_")[1]], lora))
+                    for n in names
+                }
+            )
 
     def is_zero(self) -> bool:
         """Tell whether the adapter leaves Déjà View's output unchanged."""
-        return all(p is None or not p.detach().any() for p in (self.beta, self.up))
+        ups = [self.beta, self.up]
+        ups += [] if self.lora_up is None else list(self.lora_up.values())
+        return all(p is None or not p.detach().any() for p in ups)
 
 
 @contextmanager
@@ -224,13 +249,25 @@ def attend(
     return attn.proj_drop(attn.proj(out.transpose(1, 2).reshape(-1, n, c)))
 
 
+def low_rank(linear: nn.Linear, down: Tensor, up: Tensor, x: Tensor) -> Tensor:
+    """W x + b + U D x: the frozen linear plus its LoRA."""
+    return F.linear(x, linear.weight, linear.bias) + F.linear(F.linear(x, down), up)
+
+
 def run(loop: Loop, k: int, *args: Any) -> Tensor:  # noqa: ANN401 (dvlt block args)
-    """Loop step k: the block with biased attention, then segment pooling."""
+    """Loop step k: the block with biased attention and LoRA, then segment pooling."""
     loop.k = k
-    biased = [] if loop.adapter.beta is None else loop.attns
-    with replaced(
-        {m: functools.partial(attend, loop, a, m) for a, m in enumerate(biased)}
-    ):
+    adapter = loop.adapter
+    biased = [] if adapter.beta is None else loop.attns
+    swaps = {m: functools.partial(attend, loop, a, m) for a, m in enumerate(biased)}
+    if adapter.lora_down is not None and adapter.lora_up is not None:
+        for a, attn in zip(ATTENTIONS, loop.attns, strict=True):
+            for t in LORA_TARGETS:
+                n = f"{a}_{t}"
+                swaps[getattr(attn, t)] = functools.partial(
+                    low_rank, getattr(attn, t), adapter.lora_down[n], adapter.lora_up[n]
+                )
+    with replaced(swaps):
         x = loop.block(*args)
     up, down = loop.adapter.up, loop.adapter.down
     if up is None or down is None:

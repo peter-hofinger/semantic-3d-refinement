@@ -5832,3 +5832,127 @@ Interim entry: the check that the plan puts before any table.
   control: LoRA on Déjà View's shared LoopedAABlock, no segments, `align=exact`, through the ladder.
 - **Commands:** rung 5 as in the plan. Figure and raw:
   `uv run python experiments/scripts/e52a4_figures.py runs/e52a4 runs/e52d_F`.
+
+## Plan: E52b, control = LoRA on Déjà View's shared loop block, no segments: plain fine-tuning on Hypersim, the control for E52b and E52c (issue #52, 18.11.2026)
+- **Goal:** E52a's pooling adapter gains over Déjà View with GT instances and with grid tiles alike
+  (fourth run, 3080: dev Chamfer 3.500 -> 3.330 / 3.326 cm), so that gain is adaptation to Hypersim,
+  not segments. E52b (LoRA + segment pooling, GT vs grid) and E52c (LoRA + a cross-view instance loss)
+  need the adaptation a segment-free model of their kind gets: here a LoRA on the shared loop block
+  with no segments anywhere. How much does plain LoRA fine-tuning gain over Déjà View on dev, and
+  against E52a's pool-grid, trained the same way? This is the tuned segment-free baseline that
+  `docs/experiments.md` asks for before any segment result can be read.
+- **Model:** LoRA (Hu et al. 2022) of rank 16 on the `qkv` (768 -> 2304) and `proj` (768 -> 768)
+  linears of both attentions (frame and global) of the one `LoopedAABlock` that Déjà View runs 16
+  times: W x + U D x, D as nn.Linear's init, U zero, so the model starts as Déjà View; one LoRA for
+  all 16 steps, as the block is shared. ~0.15 M parameters, near the pooling adapter's ~0.2 M, so the
+  two differ in where the capacity sits, not in how much. The MLPs, the image encoder and the
+  decoders stay frozen. Scale alpha / r = 1 (with Adam, tuning it is about tuning the lr; Hu et al.,
+  Sec. 4.1). Rung 0's smallest model: constant lr, no weight decay, no dropout or normalization of
+  its own.
+- **Training, as E52a's fourth run except the model:** 120 train scenes, the 16 held-out ones and
+  Hypersim's 11 `val` scenes evaluated every 250 steps (ratio to Déjà View's error, 12 fixed views),
+  kept state of least val ratio, 3000 steps, 8-12 views per step, loss = error over Déjà View's on
+  the same views, `align=exact`, bf16, seed 0, val probe every 10 steps, TensorBoard under
+  `runs/<out>/tb/lora-none`. Segment kind `none`: every token without segment.
+- **Code:** `SegmentAdapter(lora=r)` in `src/backbone/adapters.py`: swapped into the attentions'
+  linears inside each checkpointed loop step (as the attention bias), so the recompute in backward
+  uses it too. Tests: zero LoRA = Déjà View on the training path; LoRA = Déjà View with the merged
+  weight W + U D (known solution); gradients reach U and no frozen weight; checkpointed gradients =
+  unchecked ones. Script: model flags (bias, pool, lora), `lora_rank`, `lr_lora`, kind `none`, peak
+  GPU memory per model. Old configs' two flags became three (`lora` false), same training.
+- **Ladder** (`docs/experiments.md`), all on the 3080 (`no-long-laptop-runs`):
+  - Rungs 0-2: tests above; laptop smoke (bedroom, 4 views, 4 steps, `runs/e52b_smoke`, not of
+    record): runs end to end, gradients finite, D's gradient 0 at step 1 as U = 0. Memory and s/step at
+    8-12 views read from rung 3 (pooling: 3.1-3.4 GB on the 5090; the 3080 has 10 GB). Over 1 s per
+    step is the rung-2 warning; it is the frozen backbone's cost (pooling: 2.3 s on the 3080).
+  - Rung 3, overfit the bedroom `ai_006_007` (8 views drawn per step, 200 steps), at lr_lora 1e-4 and
+    1e-5. **Pass:** last-50 training ratio below 0.90 and no rise over the last 100 steps (the pooling
+    adapter: 0.834 / 0.820).
+  - Rung 4, overfit dev (3 scenes, 300 steps) at the larger rung-3 lr that passed. **Pass:** last-100
+    ratio below 0.95 on each of the 3 scenes.
+  - Rung 5, lr on val (the baseline must be tuned at least as much as what it controls): 500 steps
+    at lr_lora 1e-5, 3e-5, 1e-4, the lr of least val ratio at step 500 (no dev scoring). Caveat: E52a's
+    400-step sweep missed a later divergence, but that came from the detached Sim(3) (E52d); with
+    `align=exact` neither E52a model rose. Then 3000 steps at that lr, dev scored.
+  - Rungs 3/4 and the sweep are diagnostics or choices; only rung 5's dev scores are reported.
+- **Rung 5, command** (3080, bf16; `<lr>` = the sweep's):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora: [false, false, true]}" "segments=[none]" lr_lora=<lr> align=exact select=val probe_every=10 --out runs/e52b_control`
+- **Reading:**
+  - Reported: dev Chamfer (cm) of lora-none against Déjà View and against E52a's fourth-run pool-gt /
+    pool-grid (3.330 / 3.326; same 3080, so comparable), per scene and mean; val and held-out curves;
+    stability by the probe's rule (held-out not rising after its minimum, training ratio not rising
+    over the last 500 steps).
+  - It has no positive or negative for segments: it is the bar. E52b's rule: LoRA + pool-gt beats
+    Déjà View AND this control AND LoRA + pool-grid by >= 0.05 cm dev mean, on 2 of 3 scenes.
+  - If lora-none gains no more than pool-grid, LoRA's capacity adds nothing over a pooling adapter
+    for adaptation; E52b still runs (its question is GT vs grid on top of LoRA). If it fails rung 3/4:
+    bug checklist, no rung 5.
+  - One seed: a control result, not a claim about LoRA in general.
+- **Cost:** rungs 3/4 ~10 + ~15 min (2 + 1 runs; s/step unknown until rung 3, est. 2-3 s); sweep
+  3 x 500 steps ~1 h; rung 5 ~2-2.5 h + ~5 min dev scoring. Ask before the sweep and before rung 5.
+
+## E52b, control: LoRA on Déjà View's loop block without segments gains 0.35 cm Chamfer over Déjà View on dev (3/3 scenes) and 0.17 cm more than E52a's pool adapters: the bar for E52b and E52c (issue #52, 18.11.2026)
+- **Goal, setting:** the plan entry above. All rungs on the 3080 at 3cc909a (clean), one seed (0),
+  lr_lora 1e-4 (from the sweep below). Rung 5: 18.11 11:02 to 13:01 (7011 s training, 2.3 s per
+  step, then dev scoring), peak 2.21 GB. `--out runs/e52b_control`, log
+  `runs/e52b_control/e52b_control.log`, TensorBoard under `runs/e52b_control/tb/`. One CUDA allocator
+  OOM warning during dev scoring, as in E52a's fourth run; the allocator retried and every dev score
+  was written.
+- **Rungs 3 and 4** (18.11 09:33-09:54, `runs/e52b_rung3_1e-4`, `runs/e52b_rung3_1e-5`,
+  `runs/e52b_rung4_1e-4`): passed. Rung 3, bedroom, last-50 training ratio: lr 1e-4 0.843 (previous
+  50: 0.891), passes; lr 1e-5 0.962 (previous 0.981) falls but misses < 0.90 (too slow, not a bug).
+  Rung 4 at 1e-4, dev, last-100 ratio per scene: bedroom 0.910, living room 0.775, lobby 0.706 (all
+  < 0.95; the pool adapter: 0.909 / 0.787 / 0.707). 1.71 s per step at 8 views. Diagnostics only.
+- **lr sweep** (500 steps each, 09:59-11:00, `runs/e52b_sweep_<lr>`), ratio at step 250 / 500:
+
+  | lr_lora | held-out | val |
+  |---|---|---|
+  | 1e-5 | 0.9941 / 0.9881 | 0.9906 / 0.9799 |
+  | 3e-5 | 0.9870 / 0.9790 | 0.9817 / 0.9661 |
+  | 1e-4 | 0.9792 / 0.9752 | 0.9729 / 0.9627 |
+
+  The rule (least val ratio at 500) picks 1e-4. Its margin over 3e-5 (0.0034) is smaller than the
+  rerun spread measured below (0.007), so the sweep separates 1e-5 from the other two, not 3e-5 from
+  1e-4.
+- **Training (rung 5), figure `e52b_control.jpg`, raw `results/e52b_control_train.yaml`:**
+
+  | | held-out min (step) | held-out @3000 | val min (step) | train trend, last 500 steps |
+  |---|---|---|---|---|
+  | lora-none | 0.9385 (3000) | 0.9385 | 0.9410 (2500) | -0.054 |
+  | pool-gt (E52a4) | 0.9803 (3000) | 0.9803 | 0.9710 (3000) | -0.014 |
+  | pool-grid (E52a4) | 0.9822 (2750) | 0.9838 | 0.9762 (2500) | -0.017 |
+
+  Stable by the probe's rule (held-out at its minimum at the last eval, training ratio falling). Not
+  monotone: held-out and val rise at steps 750-1000 (val 0.956 -> 0.976) and fall again from 1250 on;
+  val moves by up to 0.014 between evals (2500 -> 3000: 0.941 -> 0.955 while held-out falls 0.959 ->
+  0.939). The training ratio is much noisier than the pool adapters' (50-step means 0.84-0.97): the
+  LoRA's gain varies far more from scene to scene. Kept state: step 2500 (val).
+- **Rerun noise:** rung 5's first 500 steps repeat the sweep's 1e-4 run (same config, draws, GPU).
+  Val ratio at 250: 0.9715 vs 0.9729; at 500: 0.9558 vs 0.9627 (0.007 apart); held-out at 500: 0.9722
+  vs 0.9752. This is the rerun spread on val that E52a's fourth run had not measured.
+- **Dev, Chamfer (cm, 20 views, 3080, against the same Déjà View run as E52a4):**
+
+  | | living room | bedroom | lobby | mean |
+  |---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 |
+  | pool-gt (E52a4, step 3000) | 1.567 | 1.800 | 6.622 | 3.330 |
+  | pool-grid (E52a4, step 2500) | 1.561 | 1.813 | 6.604 | 3.326 |
+  | lora-none (step 2500) | 1.580 | 1.693 | 6.189 | **3.154** |
+  | lora-none minus pool-grid | +0.019 | -0.120 | -0.416 | -0.172 |
+
+  lora-none beats Déjà View on 3 of 3 scenes (mean -0.35 cm; the lobby carries 0.86 of the 1.04 cm
+  sum), and pool-grid on 2 of 3 (living room +0.019). It moves Déjà View's rays by 0.13-0.24°
+  (mean per scene); scored on Déjà View's own cameras, living room is worse than Déjà View (2.267),
+  bedroom 1.953, lobby 6.187, so the gain needs its own rays, as pooling's did in E52a's second run.
+- **Reading (the plan's rule):** this is the control, with no verdict on segments. lora-none gains
+  more than pool-grid (-0.17 cm mean, 2/3 scenes), so the LoRA's capacity adds to adaptation beyond a
+  pooling adapter of the same size, mostly on the lobby. One seed and one lr chosen inside the rerun
+  spread: a control result, not a claim about LoRA in general.
+- **Conclusion:** the bar for #52 moves to 3.154 cm: E52b (LoRA + pool GT vs grid) needs LoRA +
+  pool-gt to beat Déjà View AND this control AND LoRA + pool-grid by >= 0.05 cm dev mean on 2 of 3
+  scenes. With val moving by up to 0.014 between evals and 0.007 between reruns, a 0.05 cm dev gap is
+  only readable with more than one seed; the E52b plan should budget seeds for the control too. Next
+  per the agreed order: E52c (LoRA + a cross-view instance-consistency loss), then E52b.
+- **Commands:** rung 5 as in the plan with `lr_lora=1e-4`; sweep as in the plan (`--splits` none,
+  `steps=500`, `--out runs/e52b_sweep_<lr>`). Figure and raw:
+  `uv run python experiments/scripts/e52b_figures.py runs/e52b_control runs/e52a4 runs/e52b_sweep`.
