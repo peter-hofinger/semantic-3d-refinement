@@ -39,6 +39,15 @@ each parameter. One change per arm, each off by default: `autocast: false` (fp32
 `clip_factor` (the gradient norm clipped at that multiple of the last 100 steps' median,
 scale-free, as the norm's scale is not known before the run); `lr_decay: cosine`.
 
+E52a, fourth run (`docs/experiments.md`): every eval also scores Hypersim's `val` scenes
+(`val_splits`, never trained on) the same way as the held-out ones, and `select` names the
+set whose least mean ratio picks the kept state (`held_out` as before, or `val`). Every
+`probe_every` steps one random val scene's ratio, from its own random stream so that the
+training draws stay those of E52d. Every step's losses and gradient norms and every
+eval's ratios go to TensorBoard under `<out>/tb/<model>-<segments>`. `train_scenes`
+replaces the train splits by named scenes for the ladder's overfit rungs (bedroom, dev),
+with `held_out: 0`.
+
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
@@ -58,6 +67,7 @@ import numpy as np
 import torch
 import yaml
 from torch import Tensor
+from torch.utils.tensorboard import SummaryWriter
 
 from src.analysis.scene_eval import git_hash, input_paths
 from src.backbone.adapters import (
@@ -178,15 +188,15 @@ def step_loss(
     return err.clamp(max=cfg["max_error"]).mean(), dropped
 
 
-def held_out_error(
+def fixed_error(
     net: torch.nn.Module,
     adapter: SegmentAdapter,
     scenes: list[Scene],
     kind: str,
     cfg: dict,
 ) -> list[float]:
-    """Error per held-out scene on its fixed views, no grad."""
-    assert all(len(s.images) == 20 for s in scenes), "held-out scenes need 20 views"
+    """Error per held-out or val scene on its fixed views, no grad."""
+    assert all(len(s.images) == 20 for s in scenes), "eval scenes need 20 views"
     sel = np.linspace(0, 19, cfg["held_out_views"]).round().astype(int)
     with torch.no_grad():
         return [
@@ -198,12 +208,16 @@ def train(
     net: torch.nn.Module,
     adapter: SegmentAdapter,
     train_scenes: list[Scene],
-    held: list[Scene],
+    sets: dict[str, list[Scene]],
     kind: str,
     cfg: dict,
+    writer: SummaryWriter,
 ) -> dict:
-    """AdamW, a learning rate per module, loss over Déjà View's; least held-out kept."""
+    """AdamW, a learning rate per module, loss over Déjà View's; least `select` kept."""
+    assert cfg["select"] in sets, (cfg["select"], list(sets))
+    assert not cfg["probe_every"] or "val" in sets
     rng = np.random.default_rng(cfg["seed"])
+    probe_rng = np.random.default_rng(cfg["seed"] + 1)  # apart: training draws as E52d
     zero = SegmentAdapter(bias=True, pool=False, rank=cfg["rank"])
     named = {"beta": adapter.beta, "up": adapter.up,
              "down": None if adapter.down is None else adapter.down.weight}  # fmt: skip
@@ -215,11 +229,13 @@ def train(
     opt = torch.optim.AdamW(groups)
     decay = torch.optim.lr_scheduler.LambdaLR(opt, lambda it: lr_factor(it, cfg))
     assert adapter.is_zero()  # so the reference is Déjà View's own error, bit for bit
-    reference = held_out_error(net, adapter, held, kind, cfg)
-    per_scene, curve = {0: reference}, {0: 1.0}
+    reference = {k: fixed_error(net, adapter, s, kind, cfg) for k, s in sets.items()}
+    per_scene = {k: {0: r} for k, r in reference.items()}
+    curve: dict[str, dict[int, float]] = {k: {0: 1.0} for k in sets}
+    probes: dict[int, float] = {}
     best, best_state = 1.0, copy.deepcopy(adapter.state_dict())
     t0, losses, dropped = time.perf_counter(), [], 0
-    diag: dict = {"base": [], "grad": {g["name"]: [] for g in groups}, "clipped": 0,
+    diag: dict = {"base": [], "scene": [], "grad": {g["name"]: [] for g in groups}, "clipped": 0,
                   "norm": {g["name"]: {} for g in groups}}  # fmt: skip
     totals: list[float] = []
     for it in range(1, cfg["steps"] + 1):
@@ -247,24 +263,45 @@ def train(
         decay.step()
         losses.append(loss.item())
         diag["base"].append(base.item())
+        diag["scene"].append(scene.name)
+        writer.add_scalar("train/ratio", losses[-1], it)
+        writer.add_scalar("train/dv_error", diag["base"][-1], it)
+        for g in groups:
+            writer.add_scalar(f"grad_norm/{g['name']}", diag["grad"][g["name"]][-1], it)
         if it % cfg["diag_every"] == 0:
             for g in groups:
                 diag["norm"][g["name"]][it] = g["params"][0].detach().norm().item()
+                writer.add_scalar(f"norm/{g['name']}", diag["norm"][g["name"]][it], it)
+        if cfg["probe_every"] and it % cfg["probe_every"] == 0:
+            i = int(probe_rng.integers(len(sets["val"])))
+            e = fixed_error(net, adapter, [sets["val"][i]], kind, cfg)[0]
+            probes[it] = e / reference["val"][i]
+            writer.add_scalar("val/probe_ratio", probes[it], it)
         dropped += d
         if it % cfg["eval_every"] == 0:
-            per_scene[it] = held_out_error(net, adapter, held, kind, cfg)
-            curve[it] = float(np.mean(np.array(per_scene[it]) / reference))
-            if curve[it] < best:
-                best, best_state = curve[it], copy.deepcopy(adapter.state_dict())
+            for k, s in sets.items():
+                per_scene[k][it] = fixed_error(net, adapter, s, kind, cfg)
+                curve[k][it] = float(np.mean(np.array(per_scene[k][it]) / reference[k]))
+                writer.add_scalar(f"{k}/ratio", curve[k][it], it)
+            if curve[cfg["select"]][it] < best:
+                best = curve[cfg["select"]][it]
+                best_state = copy.deepcopy(adapter.state_dict())
             print(f"  step {it}: train {np.mean(losses[-cfg['eval_every']:]):.5f}, "
-                  f"held-out {curve[it]:.5f} ({time.perf_counter() - t0:.0f} s)",
-                  flush=True)  # fmt: skip
+                  + ", ".join(f"{k} {c[it]:.5f}" for k, c in curve.items())
+                  + f" ({time.perf_counter() - t0:.0f} s)", flush=True)  # fmt: skip
+    writer.flush()
     adapter.load_state_dict(best_state)
+    chosen = curve[cfg["select"]]
     return {
-        "held_out": curve,
-        "held_out_scenes": [s.name for s in held],
-        "held_out_error": per_scene,
-        "best_step": min(curve, key=curve.get),
+        "held_out": curve.get("held_out", {}),
+        "held_out_scenes": [s.name for s in sets.get("held_out", [])],
+        "held_out_error": per_scene.get("held_out", {}),
+        "val": curve.get("val", {}),
+        "val_scenes": [s.name for s in sets.get("val", [])],
+        "val_error": per_scene.get("val", {}),
+        "val_probe": probes,
+        "selected_on": cfg["select"],
+        "best_step": min(chosen, key=chosen.get),
         "seconds": time.perf_counter() - t0,
         "segments_dropped": dropped,
         "train_loss": losses,
@@ -420,15 +457,21 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
     """Train every model and segment kind, then score on the eval splits."""
     backbone, net = setup(cfg)
     device = next(net.parameters()).device
-    names = scenes_of(cfg, raw, cfg["train_splits"])
+    names = cfg["train_scenes"] or scenes_of(cfg, raw, cfg["train_splits"])
     loaded = []
     for n in names:
         try:
             loaded.append(load_scene(raw, n))
         except FileNotFoundError as err:  # E41b: 15 scenes were never prepared
             print(f"{n}: skipped, missing {Path(str(err.filename)).name}", flush=True)
-    held, train_scenes = loaded[-cfg["held_out"] :], loaded[: -cfg["held_out"]]
-    print(f"{len(train_scenes)} train + {len(held)} held-out scenes", flush=True)
+    cut = len(loaded) - cfg["held_out"]
+    train_scenes, held = loaded[:cut], loaded[cut:]
+    val_names = scenes_of(cfg, raw, cfg["val_splits"]) if cfg["val_splits"] else []
+    assert not set(val_names) & set(names), "val scenes in the training set"
+    val = [load_scene(raw, n) for n in val_names]
+    sets = {k: s for k, s in (("held_out", held), ("val", val)) if s}
+    print(f"{len(train_scenes)} train, {len(held)} held-out, {len(val)} val scenes, "
+          f"kept on {cfg['select']}", flush=True)  # fmt: skip
     rec: dict = {"train_scenes": [s.name for s in loaded], "models": {}}
     adapters = {}
     for model in cfg["models"]:
@@ -436,11 +479,14 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
             label = f"{model}-{kind}"
             print(label, flush=True)
             adapter = adapter_for(cfg, model, device)
-            rec["models"][label] = train(net, adapter, train_scenes, held, kind, cfg)
+            with SummaryWriter(args.out / "tb" / label) as writer:
+                rec["models"][label] = train(
+                    net, adapter, train_scenes, sets, kind, cfg, writer
+                )
             torch.save({"state": adapter.state_dict()} | rec["models"][label],
                        args.out / f"{label}.pt")  # fmt: skip
             adapters[label] = adapter
-    del loaded, train_scenes, held
+    del loaded, train_scenes, held, val, sets
 
     rec["eval"] = {}
     for name in scenes_of(cfg, raw, args.splits):

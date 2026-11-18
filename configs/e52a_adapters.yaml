@@ -50,3 +50,9 @@ lr_decay: constant                   # or cosine: from the lr to 0 over `steps`
 diag_every: 50                       # parameter norms every this many steps
 align: detached                      # Sim(3) of the loss: detached (E52a) or exact
                                      # (differentiable, E52d's exact-gradient arm)
+# E52a, fourth run (docs/experiments.md): val scored at every eval, logged to TensorBoard
+val_splits: [val]                    # Hypersim's val (11 scenes), never trained on
+select: held_out                     # the kept state: least mean ratio on held_out (E52a,
+                                     # E52d) or val
+probe_every: 0                       # one random val scene's ratio every this many steps
+train_scenes: null                   # named scenes instead of train_splits (ladder rungs)

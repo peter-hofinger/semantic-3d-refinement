@@ -5726,3 +5726,112 @@ Interim entry: the check that the plan puts before any table.
 - **Limits:** one model (pool-grid), one lr, one seed, 3000 steps; F on another GPU than A-E (checked
   above: same draws, spread far below the effect); runtime not comparable (3080 vs 5090; the float64
   Umeyama's share is not timed).
+
+## Plan: E52a, fourth run = pool x {GT, grid} trained with the exact gradient, the kept state chosen on val, after the ladder's overfit rungs (issue #52, 17.11.2026)
+- **Goal:** E52a's verdict "GT instances gain no more than the grid control" was read on states kept
+  early in trainings that diverged, and E52d found the cause: the detached Sim(3). Trained with the
+  exact gradient (arm F) the rise is gone and the held-out gain triples. Rerun the comparison that way:
+  do GT instances, given to the pooling adapter, beat the same adapter given grid tiles?
+- **Changes against the third run (one in training, one in selection):**
+  - Training: `align=exact` (E52d, arm F). Nothing else in training changes: same 120 train scenes,
+    same draws per step (the training random stream is untouched), lr_pool 3e-6, 3000 steps, bf16.
+  - Selection (`docs/experiments.md`, PR #73): every eval also scores Hypersim's 11 `val` scenes the
+    same way as the 16 held-out train scenes (ratio to Déjà View's error, 12 fixed views), and the kept
+    state is the one of least mean **val** ratio (`select: val`). The held-out curve stays logged, so
+    both selections can be compared afterwards; selection does not change the training trajectory, so
+    pool-grid is also a rerun of arm F (its held-out curve should match F's).
+  - Logging: TensorBoard under `runs/<out>/tb/<model>-<segments>`: training ratio, Déjà View's error and
+    gradient norms every step, parameter norms every 50, held-out and val ratios every 250, and one
+    random val scene's ratio every 10 steps (`probe_every: 10`; every step would add ~25% runtime for
+    a curve the 250-step eval already gives at less noise). The val probe draws from its own stream.
+  - Models: pool x {gt, grid}. bias and both are dropped (bias stayed at zero in every run, both-grid
+    diverged first in the third run), so this is the ladder's smallest model: A 768 x 16 + B_k 16 x 16 x
+    768, ~0.2 M parameters, constant lr, no weight decay, no dropout or normalization of its own.
+  - Code (`experiments/scripts/e52a_segment_adapters.py`, `configs/e52a_adapters.yaml`): `val_splits`,
+    `select`, `probe_every`, `train_scenes` (named scenes for rungs 3/4), `held_out: 0` allowed. The
+    defaults (`select: held_out`, `probe_every: 0`) reproduce every earlier run's training and choice;
+    only the extra val evals are new.
+- **Ladder** (`docs/experiments.md`):
+  - Rungs 0-2 (setup, data, speed): passed by E52a's step 0 (identity bit for bit, finite gradients,
+    0.5-1.8 s per step at 8-20 views on the 5090; data is held in RAM, so a step's time is the forward
+    and backward through 16 loop steps of Déjà View) and by the smoke run of this code (laptop, bedroom,
+    4 steps, `runs/e52a4_smoke`, not of record). Over 1 s per step on the 3080 (~2.3 s, arm F) is the
+    rung-2 warning; it is the frozen backbone's cost, not a fixable bottleneck.
+  - Rung 3, overfit the bedroom `ai_006_007` (laptop, 8 views per step drawn from its 20, lr_pool 1e-4
+    = step 0's overfit lr, 200 steps, pool-gt and pool-grid). An adapter on a frozen Déjà View can only
+    bend its output, so "loss about 0" cannot happen. **Pass:** training ratio over the last 50 steps
+    below 0.90 (step 0: -17% in 20 steps on fixed views) and no rise over the last 100 steps.
+  - Rung 4, overfit dev (3 scenes; same settings, 300 steps). **Pass:** the last 100 steps' ratio below
+    0.95 on each of the 3 scenes, i.e. the adapter fits all three, not one.
+  - Rungs 3 and 4 are diagnostics; no score from them is reported. Fail -> bug checklist before rung 5.
+  - Rung 5: the run below.
+- **Rung 5, command** (3080 server, bf16, the machine of arm F):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={pool: [false, true]}" lr_pool=3e-6 align=exact select=val probe_every=10 --out runs/e52a4`
+- **Reading:**
+  - Positive for segments (E52a's rule, unchanged): pool-gt beats Déjà View AND pool-grid by >= 0.05 cm
+    dev mean Chamfer, on 2 of 3 dev scenes. With one seed this is a first positive, to be repeated with
+    seeds 1 and 2 before it is reported as a result.
+  - Otherwise "not yet working" for segments, not negative: missing are 3 seeds and a tuned baseline
+    (the grid control is a control, not a tuned baseline; E52b's LoRA without segments is planned).
+  - Also reported: stability by the probe's rule for each model; whether held-out and val choose the
+    same step; pool-grid's held-out curve against arm F's.
+- **Cost:** rungs 3/4 on the laptop, ~15 and ~25 min. Rung 5 ~2 h per model on the 3080 (F: 1 h 56 min;
+  the val evals and probes add ~10 min), ~4-4.5 h for both, plus ~5 min dev scoring. Ask before it.
+
+## E52a, fourth run: trained with the exact gradient, both adapters keep improving and gain on all 3 dev scenes, but GT instances gain no more than grid tiles -> not yet working for segments (issue #52, 18.11.2026)
+- **Goal, setting:** the plan entry above. Rung 5 ran on the 3080 at aa3e8a7 (clean), 17.11 23:56 to
+  18.11 03:47 (pool-gt 6847 s, pool-grid 6867 s, 2.3 s per step, then dev scoring), one seed (0).
+  `--out runs/e52a4`, log `runs/e52a4/e52a4.log`, TensorBoard under `runs/e52a4/tb/`. One CUDA
+  allocator OOM warning during dev scoring (03:46); the allocator retried and every dev score was
+  written, so no score is missing.
+- **Rungs 3 and 4** (on the 3080 instead of the laptop, after the laptop's rung 3 ran 10 s per step;
+  aa3e8a7 clean, 29 min both): passed. Rung 3, bedroom: last-50 training ratio pool-gt 0.834,
+  pool-grid 0.820 (< 0.90; previous 50: 0.875 / 0.875, still falling). Rung 4, dev, last-100 ratio per
+  scene, gt / grid: bedroom 0.909 / 0.911, living room 0.787 / 0.777, lobby 0.707 / 0.696 (all < 0.95).
+  Diagnostics only, no scores reported. Runs `runs/e52a4_rung{3,4}`.
+- **Training (rung 5), figure `e52a4_training.jpg`, raw `results/e52a4_train.yaml`:**
+
+  | | held-out min (step) | held-out @3000 | val min (step) | train trend, last 500 steps |
+  |---|---|---|---|---|
+  | pool-gt | 0.9803 (3000) | 0.9803 | 0.9710 (3000) | -0.014 |
+  | pool-grid | 0.9822 (2750) | 0.9838 | 0.9762 (2500) | -0.017 |
+  | E52d arm F (pool-grid, same draws) | 0.9818 (2750) | 0.9823 | - | -0.020 |
+
+  Ratios are the model's error over Déjà View's, mean over scenes, 12 fixed views. Stability by the
+  probe's rule: pool-gt passes (held-out at its minimum at the last eval, training ratio falling);
+  pool-grid misses the held-out half by one eval (+0.0016 at 3000 after its 2750 minimum), as F did
+  (+0.0004); its training ratio still falls. No divergence in either model, unlike every detached run.
+- **Selection:** val and held-out choose the same step for pool-gt (3000), not for pool-grid (val
+  2500, held-out 2750). Kept states are val's (plan).
+- **Rerun noise (the run's own check):** pool-grid repeats arm F's training on the same draws on the
+  same GPU (Déjà View's per-step error equal at every step), yet the training ratio differs from step 1
+  on (median |difference| per step 0.003-0.007; bf16 kernels are not deterministic, and Adam's first
+  steps amplify small gradient differences). Held-out: pool-grid lies above F by up to 0.0032 (step
+  750). pool-gt lies below pool-grid by up to 0.0035, and within 0.0027 of F at every eval. So the
+  held-out gap between GT and grid is as large as the gap between two runs of the same model. On val
+  pool-gt is below pool-grid by 0.003-0.007 at every eval from step 1000 on; the rerun spread on val is not measured
+  (F had no val evals).
+- **Dev, Chamfer (cm, 20 views, 3080; Déjà View here differs from the 5090's 1.606 / 1.837 / 6.995 by
+  bf16 kernels, so every model is read against Déjà View on the same machine):**
+
+  | | living room | bedroom | lobby | mean |
+  |---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 |
+  | pool-gt (step 3000) | 1.567 | 1.800 | 6.622 | 3.330 |
+  | pool-grid (step 2500) | 1.561 | 1.813 | 6.604 | 3.326 |
+  | pool-gt minus pool-grid | +0.007 | -0.013 | +0.018 | +0.004 |
+
+  Both models beat Déjà View on 3 of 3 scenes (mean -0.17 cm; the lobby carries 0.43-0.45 of it). GT
+  beats grid on the bedroom only, by 0.013 cm, and loses on the mean.
+- **Reading (the plan's rule):** pool-gt beats Déjà View (3/3) but not pool-grid by >= 0.05 cm (0/3,
+  mean +0.004 cm) -> not positive. **Not yet working for segments**, not negative: missing are 3
+  seeds and a tuned segment-free baseline (E52b's LoRA without segments). Against E52a's third run
+  (detached gradient, 5090): the gain over Déjà View grows from 0.08 to 0.17 cm mean, for GT and grid
+  alike, so the exact gradient fixes the training but adds nothing segment-specific.
+- **Conclusion:** with the training fixed, E52a's earlier verdict holds: the pooling adapter's gain is
+  adaptation of Déjà View to Hypersim, which grid tiles give as well as GT instances. The only sign
+  for GT is val's 0.003-0.007 lower ratio, inside a range two runs of one model already span on
+  held-out. Per the agreed order for #52, no more seeds for E52a (it is not positive); next is E52b's
+  control: LoRA on Déjà View's shared LoopedAABlock, no segments, `align=exact`, through the ladder.
+- **Commands:** rung 5 as in the plan. Figure and raw:
+  `uv run python experiments/scripts/e52a4_figures.py runs/e52a4 runs/e52d_F`.
