@@ -1,0 +1,14 @@
+render (480, 640): gap pixels 13925, holes (nothing behind either) 110; zone (slice(30, 260, None), slice(400, 560, None)): gap 3582
+render: gap pixels by source category: blue 2027, red 11898, other 0
+zone: gap pixels by source category: blue 57, red 3525, other 0
+zone: 1732 source pixels in 14 views; most: [(7, 750), (6, 294), (12, 236), (14, 170), (19, 99), (18, 57)]
+zone source pixels: {'category blue': 36, 'category red': 1696, 'within 2 px of a SAM 3 border': 727, 'within 8 px of the image border': 21, 'instance -1': 234, 'all 4 neighbors kept (isolated)': 0, 'kept on both sides in a row or column (one pixel wide)': 10, 'confidence percentile c > 0.3': 365} of 1732
+base rate: 0.168 of all pixels of those views lie within 2 px of a SAM 3 border
+3D distance of the zone's source pixels to the nearest kept pixel (cm): median 5.87, 90th percentile 18.59, max 65.06
+true accuracy a_i of the zone's source pixels (cm): median 5.25, 90th percentile 19.73; all pixels: median 1.78
+what lies on the two sides of a gap pixel of the zone (kept render pixels within 4 px): {'same source view on both sides': 477, 'no kept pixel within 4 px on both sides': 1593, 'different source views': 1512}
+blue ones: ends of the shortest straight run (why no run was closed by white and green):
+  ('dropped', 'green'): 12
+  ('green', 'other instance'): 9
+  ('dropped', 'dropped'): 8
+  ('dropped', 'other instance'): 7

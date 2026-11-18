@@ -1,0 +1,4 @@
+view 18: dropped by true distance 36.2%, by density 55.7%, mean true distance 0.64%
+view 0: dropped by true distance 52.3%, by density 25.2%, mean true distance 0.72%
+view 12: dropped by true distance 48.7%, by density 62.5%, mean true distance 0.72%
+view 6: dropped by true distance 53.8%, by density 63.5%, mean true distance 0.91%

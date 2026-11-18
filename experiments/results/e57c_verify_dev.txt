@@ -1,0 +1,31 @@
+ai_010_007_cam_00: 88 s
+ai_006_007_cam_00: 90 s
+ai_044_001_cam_00: 95 s
+/home/student/peter/semantic-3d-refinement/experiments/scripts/e57c_verify.py:203: RuntimeWarning: Mean of empty slice
+  s, acc, comp, ch, back, inor = np.nanmean([r[key] for r in runs], axis=0)
+dev: mean over 3 scenes
+  q_c    eps   kept   accuracy / completeness / Chamfer (cm)   a back  in oracle
+        global 0.5  0.000  0.500  2.220 / 48.532 / 25.376   nan   nan
+        global 0.5  0.005  0.548  2.447 / 30.813 / 16.630   5.18   0.404
+        global 0.5  0.010  0.574  2.629 / 29.158 / 15.893   5.11   0.412
+        global 0.5  0.020  0.607  2.865 / 27.082 / 14.973   4.99   0.417
+        global 0.5  0.040  0.653  3.055 / 25.020 / 14.037   4.92   0.420
+        global 0.7  0.000  0.700  2.913 / 22.593 / 12.753   nan   nan
+        global 0.7  0.005  0.736  3.079 / 17.803 / 10.441   5.39   0.363
+        global 0.7  0.010  0.754  3.188 / 16.996 / 10.092   5.36   0.376
+        global 0.7  0.020  0.779  3.315 / 15.985 / 9.650   5.32   0.386
+        global 0.7  0.040  0.811  3.451 / 14.314 / 8.883   5.37   0.390
+      per view 0.5  0.000  0.500  2.308 / 45.083 / 23.695   nan   nan
+      per view 0.5  0.005  0.561  2.471 / 35.698 / 19.084   5.40   0.375
+      per view 0.5  0.010  0.592  2.603 / 31.312 / 16.958   5.35   0.386
+      per view 0.5  0.020  0.632  2.830 / 25.877 / 14.353   5.30   0.392
+      per view 0.5  0.040  0.685  3.078 / 23.120 / 13.099   5.25   0.398
+  per instance 0.5  0.000  0.500  3.602 / 7.106 / 5.354   nan   nan
+  per instance 0.5  0.005  0.575  3.949 / 5.778 / 4.863   5.67   0.388
+  per instance 0.5  0.010  0.610  4.094 / 5.503 / 4.798   5.55   0.398
+  per instance 0.5  0.020  0.653  4.238 / 5.111 / 4.674   5.44   0.408
+  per instance 0.5  0.040  0.709  4.395 / 4.585 / 4.490   5.37   0.418
+  per scene Chamfer, global 0.5, eps 0.02: 4.38 / 3.55 / 36.99
+  per scene Chamfer, global 0.7, eps 0.02: 3.34 / 2.37 / 23.25
+  per scene Chamfer, per view 0.5, eps 0.02: 4.75 / 3.54 / 34.77
+  per scene Chamfer, per instance 0.5, eps 0.02: 2.24 / 2.45 / 9.34

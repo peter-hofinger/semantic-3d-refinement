@@ -1,0 +1,29 @@
+# E57c rung 3 (issue #57, docs/experiments.md): the distance head overfits the bedroom ai_006_007 alone. A
+# diagnostic, not a result: it only shows the loss, targets and optimizer can fit one scene. E41b's
+# volumetric refiner and U-Net, the keep head alone (the depth stays Deja View's) trained by L1 on the
+# distance to the ground-truth surface (src/refinement/volume.py, `keep.target: distance`).
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3   # unused: no classes
+split: configs/hypersim.yaml
+train_scenes: [ai_006_007_cam_00]
+held_out: 0                          # report on the train scene itself
+predict_splits: [dev]
+models:
+  volume-dist-none: none
+resolution: 128
+widths: [32, 64, 128]
+head: 128
+steps: 1000
+batch_points: 100000
+kept_points: 400000
+view_subset: [8, 20]
+amp: true
+lr: 1.0e-3
+seeds: [0]
+keep:
+  quantile: 0.5    # E27a's and E45's kept fraction
+  residual: false
+  weight: 1.0
+  target: distance

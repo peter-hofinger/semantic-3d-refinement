@@ -30,6 +30,17 @@ unit and matches the evaluation's per-scene cut. The logit is written per pixel 
 `<model>_keep_<views>.npz`, and `scene_eval`'s `keep_by` ranks by it instead of instance
 voxel density, at the same kept fraction. The held-out step kept is then the one whose
 kept pixels (top `quantile` by logit) have the least mean error.
+
+Distance head (issue #57, E57c, `keep.target: distance`): E57a's labels are an error
+quantile, spatially smooth, and its cut opened holes. Here the second output regresses
+what the filter ranks by: the distance from the pixel's point to the ground-truth
+surface, the nearest point of the ground-truth cloud in Deja View's frame (the
+evaluation's accuracy before its own alignment), in units of the scene's median depth.
+L1 loss, so the output is a conditional median and heavy tails (a point behind a wall)
+do not dominate. Every pixel has such a distance, also those without ground-truth depth,
+so no pixel needs the "count as an error" rule. The score written for `scene_eval` is
+the negated prediction, so the points of largest predicted distance are the ones the cut
+drops.
 """
 
 from __future__ import annotations
@@ -44,10 +55,11 @@ import torch
 import yaml
 from torch import Tensor, nn
 from torch.nn import functional as F  # noqa: N812
+from torch.utils.tensorboard import SummaryWriter
 
 from src.analysis.scene_eval import git_hash
 from src.device import best_device
-from src.evaluation.labeled import lift, umeyama
+from src.evaluation.labeled import lift, nearest_distances, umeyama
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config
@@ -59,16 +71,18 @@ from src.segmentation.base import Segmentation
 CLASSES = len(NYU40)  # index 0: no class
 MAX_RESIDUAL = 0.5  # |log(t* / D)| above this is a misregistered pixel, not a target
 SEMANTICS = ("none", "sam3", "gt")
+KEEP_TARGETS = ("label", "distance")  # E57a: error-quantile labels; E57c: distance
 CHUNK = 500_000  # pixels per forward pass at prediction
 
 
 @dataclasses.dataclass(frozen=True)
 class KeepHead:
-    """The keep logit's training (issue #57)."""
+    """The keep score's training (issue #57)."""
 
-    quantile: float  # fraction of each step's pixels labeled keep, by least error
+    quantile: float  # kept fraction: the label's cut, and the reported kept error
     residual: bool  # also train the depth residual; else the depth stays the backbone's
-    weight: float  # of the cross-entropy next to the L1
+    weight: float  # of the keep loss (cross-entropy or distance L1) next to the L1 on r
+    target: str = "label"  # one of KEEP_TARGETS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -80,7 +94,7 @@ class VolumeConfig:
     backbone: str
     segmentation: str
     train: list[str]  # scene folders of `train_splits`; the last `held_out` only report
-    held_out: int
+    held_out: int  # 0: report on the train scenes themselves (the overfit rungs)
     predict: list[str]
     models: dict[str, str]  # name -> semantics: none, sam3 or gt
     resolution: int  # cells along the scene box's longest side
@@ -95,15 +109,22 @@ class VolumeConfig:
     amp: bool  # U-Net in bfloat16 on CUDA
     lr: float
     seeds: list[int]  # one model per seed; with several, names end in -s<seed>
-    keep: KeepHead | None = None  # a keep logit next to the residual (issue #57)
+    keep: KeepHead | None = None  # a keep score next to the residual (issue #57)
+    val: list[str] = dataclasses.field(default_factory=list)  # curves only, never fit
 
     @classmethod
     def load(cls, path: Path) -> VolumeConfig:
         """Read the config; train and prediction scenes come from Hypersim splits."""
         raw = yaml.safe_load(path.read_text())
         split = load_config(Path(raw.pop("split")))
-        train = split.scenes(raw.pop("train_splits"))
-        raw["train"] = [f"{s}_{c}" for s, c in train.items()]
+        if "train_scenes" in raw:  # the overfit rungs name their scenes
+            assert "train_splits" not in raw, "train_scenes replaces train_splits"
+            raw["train"] = raw.pop("train_scenes")
+        else:
+            train = split.scenes(raw.pop("train_splits"))
+            raw["train"] = [f"{s}_{c}" for s, c in train.items()]
+        val = split.scenes(raw.pop("val_splits")) if "val_splits" in raw else {}
+        raw["val"] = [f"{s}_{c}" for s, c in val.items()]
         predict = split.scenes(raw.pop("predict_splits"))
         raw["predict"] = [f"{s}_{c}" for s, c in predict.items()]
         raw["root"] = Path(raw["root"])
@@ -111,6 +132,9 @@ class VolumeConfig:
         if "keep" in raw:
             raw["keep"] = KeepHead(**raw["keep"])
             assert 0 < raw["keep"].quantile < 1, raw["keep"]
+            assert raw["keep"].target in KEEP_TARGETS, raw["keep"]
+            if raw["keep"].target == "distance":
+                assert not raw["keep"].residual, raw["keep"]
         return cls(**raw)
 
 
@@ -209,10 +233,10 @@ def scene_points(
     return pts, rays, depth, scale
 
 
-def target_residual(
+def gt_in_frame(
     rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return r* = log(t* / D) per pixel (N,) and where it is valid (Umeyama)."""
+    """GT points (N, 3) in Deja View's frame (Umeyama onto them) and where GT is."""
     gt_points = np.stack(
         [
             lift(d.astype(np.float64), k.astype(np.float64), c2w)
@@ -224,13 +248,32 @@ def target_residual(
     has = gt.depth.reshape(-1) > 0
     pred = rays[:, :3] + depth[:, None] * rays[:, 3:]
     s, rotation, t = umeyama(pred[has], gt_points[has])
-    in_dv = (gt_points - t) @ rotation / s
+    return (gt_points - t) @ rotation / s, has
+
+
+def target_residual(
+    rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return r* = log(t* / D) per pixel (N,) and where it is valid (Umeyama)."""
+    in_dv, has = gt_in_frame(rays, depth, views, gt)
     d = rays[:, 3:]
     t_star = ((in_dv - rays[:, :3]) * d).sum(1) / (d * d).sum(1)
     with np.errstate(divide="ignore", invalid="ignore"):
         r = np.log(t_star / depth)
     valid = has & (t_star > 0) & (np.abs(r) <= MAX_RESIDUAL)
     return np.where(valid, r, 0).astype(np.float32), valid
+
+
+def distance_target(
+    rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth, scale: float
+) -> np.ndarray:
+    """Distance (N,) of every pixel's point to the GT cloud, in units of `scale`."""
+    assert depth.ndim == 1 and rays.shape == (len(depth), 6) and scale > 0, rays.shape
+    in_dv, has = gt_in_frame(rays, depth, views, gt)
+    points = rays[:, :3] + depth[:, None] * rays[:, 3:]
+    out = nearest_distances(in_dv[has] / scale, points / scale).astype(np.float32)
+    assert out.shape == depth.shape and np.isfinite(out).all(), out.shape
+    return out
 
 
 def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
@@ -369,8 +412,8 @@ def to_device(pts: ScenePoints, device: torch.device) -> ScenePoints:
 
 def load_scene(
     cfg: VolumeConfig, scene: str, semantics: str
-) -> tuple[ScenePoints, Geometry, np.ndarray, np.ndarray]:
-    """One scene's pixels and geometry, with r* and its valid mask (N,)."""
+) -> tuple[ScenePoints, Geometry, np.ndarray, np.ndarray, np.ndarray | None]:
+    """One scene's pixels, geometry, r*, its valid mask (N,) and the distance target."""
     folder = cfg.root / scene
     views = Views.load(folder / f"{cfg.views}.npz")
     geometry = Geometry.load(folder / f"{cfg.backbone}_{cfg.views}.npz")
@@ -382,11 +425,14 @@ def load_scene(
         ids, classes = masks.instance_ids, masks.classes
     else:
         ids, classes = np.full(geometry.depth.shape, -1), {}
-    pts, rays, depth, _ = scene_points(
+    pts, rays, depth, scale = scene_points(
         geometry, views.images, ids, classes, cfg.resolution
     )
     r, valid = target_residual(rays, depth, views, gt)
-    return pts, geometry, r, valid
+    distance = None
+    if cfg.keep is not None and cfg.keep.target == "distance":
+        distance = distance_target(rays, depth, views, gt, scale)
+    return pts, geometry, r, valid, distance
 
 
 @dataclasses.dataclass(frozen=True)
@@ -399,16 +445,19 @@ class TrainScene:
     views: int
     pixels: int  # per view
     held: Tensor  # pixels the held-out error is reported on
-    has: Tensor | None = None  # (N,) pixels with ground truth; only with a keep head
+    has: Tensor | None = None  # (N,) pixels with a keep target; only with a keep head
+    distance: Tensor | None = None  # (N,) distance to the GT surface; target "distance"
 
 
-def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], list[str]]:
-    """Every train scene, compact; skipped: no pinhole rays or missing inputs."""
+def load_scenes(
+    cfg: VolumeConfig, scenes: list[str], semantics: str
+) -> tuple[list[TrainScene], list[str]]:
+    """Every scene, compact; skipped: no pinhole rays or missing inputs."""
     rng = np.random.default_rng(0)
     data, skipped = [], []
-    for scene in cfg.train:
+    for scene in scenes:
         try:
-            pts, geometry, r, valid = load_scene(cfg, scene, semantics)
+            pts, geometry, r, valid, distance = load_scene(cfg, scene, semantics)
         except AssertionError as err:  # fit_pinhole: Deja View's rays are no pinhole
             skipped.append(f"{scene}: pinhole fit failed ({err})")
             print(f"{scene}: skipped, pinhole fit failed ({err})", flush=True)  # noqa: T201
@@ -419,7 +468,9 @@ def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], lis
             continue
         views, h, w = geometry.depth.shape
         has = None
-        if cfg.keep is not None:  # the keep head also learns from the invalid pixels
+        if distance is not None:  # every pixel has a distance
+            has = np.ones(len(r), dtype=bool)
+        elif cfg.keep is not None:  # the keep head also learns from the invalid pixels
             folder = cfg.root / scene
             has = GroundTruth.load(folder / f"gt_{cfg.views}.npz").depth.reshape(-1) > 0
         pool = valid if has is None else has
@@ -427,9 +478,11 @@ def load_train(cfg: VolumeConfig, semantics: str) -> tuple[list[TrainScene], lis
             np.flatnonzero(pool), size=min(cfg.kept_points, int(pool.sum()))
         )
         truth = None if has is None else torch.from_numpy(has)
+        target = None if distance is None else torch.from_numpy(distance)
         data.append(TrainScene(compact(pts), torch.from_numpy(r).half(),
                                torch.from_numpy(valid), views, h * w,
-                               torch.from_numpy(np.sort(keep)), truth))  # fmt: skip
+                               torch.from_numpy(np.sort(keep)), truth,
+                               target))  # fmt: skip
     return data, skipped
 
 
@@ -459,6 +512,19 @@ def keep_loss(
     return l1 + keep.weight * bce
 
 
+def distance_loss(
+    model: VolumeRefiner,
+    feats: Tensor,
+    pts: ScenePoints,
+    pick: Tensor,
+    target: tuple[Tensor, KeepHead],
+) -> Tensor:
+    """L1 between the predicted and the true distance to the GT surface."""
+    d_star, keep = target
+    out = model.heads(feats, pts, pick)[:, 1]
+    return keep.weight * (out - d_star).abs().mean()
+
+
 def step_loss(
     model: VolumeRefiner,
     scene: TrainScene,
@@ -479,6 +545,10 @@ def step_loss(
     ]
     feats = model.features(voxelize(pts, semantics=model.semantics), amp=cfg.amp)
     r_star = scene.r[sel][pick].to(device).float()
+    if cfg.keep is not None and cfg.keep.target == "distance":
+        assert scene.distance is not None
+        d_star = scene.distance[sel][pick].to(device)
+        return distance_loss(model, feats, pts, pick.to(device), (d_star, cfg.keep))
     if cfg.keep is not None:
         valid = scene.valid[sel][pick].to(device)
         return keep_loss(model, feats, pts, pick.to(device), (r_star, valid, cfg.keep))
@@ -486,23 +556,35 @@ def step_loss(
     return (pred - r_star).abs().mean()
 
 
-def train(
+def selection_key(cfg: VolumeConfig) -> str:
+    """Return the held-out quantity the kept model minimizes."""
+    if cfg.keep is None:
+        return "abs_log_after"
+    return "distance_l1" if cfg.keep.target == "distance" else "kept_error"
+
+
+def train(  # noqa: PLR0913 - one flat entry point; a settings object would only rename these
     cfg: VolumeConfig,
     data: list[TrainScene],
+    val: list[TrainScene],
     device: torch.device,
     *,
     semantics: bool,
     seed: int,
+    writer: SummaryWriter,
 ) -> tuple[VolumeRefiner, list[dict]]:
     """Fit one refiner, one train scene per step; keep the least held-out error state.
 
     E41a's held-out error rose after the first few hundred steps (35 train scenes), so
     the returned model is the one at the evaluation step where the held-out train scenes
-    fit best; no dev or val scene takes part in the choice.
+    fit best; no dev or val scene takes part in the choice. TensorBoard (`writer`) gets
+    the loss of every step and, at every evaluation step, the held-out and the `val`
+    scenes' errors (issue #57's ladder: curves only, `val` never trains or chooses).
     """
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    fit, held = data[: -cfg.held_out], data[-cfg.held_out :]
+    held_out = cfg.held_out or len(data)
+    fit, held = (data if cfg.held_out == 0 else data[: -cfg.held_out]), data[-held_out:]
     channels = grid_channels(semantics=semantics)
     model = VolumeRefiner(
         channels, cfg.widths, cfg.head, semantics=semantics, outputs=outputs(cfg)
@@ -516,8 +598,13 @@ def train(
         if step % (cfg.steps // 20) == 0:
             err = held_out_error(model, held, cfg, device)
             log.append({"step": step, "seconds": time.perf_counter() - t0, **err})
+            for key, value in err.items():
+                writer.add_scalar(f"held_out/{key}", value, step)
+            if val:
+                for key, value in held_out_error(model, val, cfg, device).items():
+                    writer.add_scalar(f"val/{key}", value, step)
             print(f"step {step}: {log[-1]}", flush=True)  # noqa: T201
-            metric = err["abs_log_after" if cfg.keep is None else "kept_error"]
+            metric = err[selection_key(cfg)]
             if metric < best:
                 best = metric
                 best_state = {
@@ -532,6 +619,7 @@ def train(
         value.backward()
         opt.step()
         sched.step()
+        writer.add_scalar("train/loss", value.item(), step)
     assert best_state is not None
     model.load_state_dict(best_state)
     return model, log
@@ -546,8 +634,10 @@ def held_out_error(
     """Mean |r* - r| before (r = 0) and after on the held-out scenes, all views.
 
     With a keep head also the mean error of the kept pixels, the top `quantile` by
-    logit (`kept_error`), against all pixels (`all_error`); an invalid pixel's error is
-    `MAX_RESIDUAL`.
+    score (`kept_error`), against all pixels (`all_error`); an invalid pixel's error is
+    `MAX_RESIDUAL`. With the distance target the error is the true distance, and
+    `distance_l1` and the rank correlation `spearman` of the prediction with it are
+    reported too.
     """
     model.eval()
     out = dict.fromkeys(["abs_log_before", "abs_log_after"], 0.0)
@@ -564,13 +654,38 @@ def held_out_error(
             out["abs_log_before"] += float(r[valid].abs().mean()) / len(held)
             out["abs_log_after"] += float((pred - r)[valid].abs().mean()) / len(held)
             if cfg.keep is not None:
-                used = pred if cfg.keep.residual else torch.zeros_like(pred)
-                err = torch.where(valid, (used - r).abs(), MAX_RESIDUAL)
+                if cfg.keep.target == "distance":
+                    assert scene.distance is not None
+                    err = scene.distance[scene.held]
+                    scores = {
+                        "distance_l1": (heads[:, 1] - err).abs().mean(),
+                        "spearman": spearman(heads[:, 1], err),
+                    }
+                else:
+                    used = pred if cfg.keep.residual else torch.zeros_like(pred)
+                    err = torch.where(valid, (used - r).abs(), MAX_RESIDUAL)
+                    scores = {}
                 k = max(1, round(cfg.keep.quantile * len(err)))
-                kept = heads[:, 1].argsort(descending=True, stable=True)[:k]
-                for key, value in (("kept_error", err[kept]), ("all_error", err)):
-                    out[key] = out.get(key, 0.0) + float(value.mean()) / len(held)
+                score = keep_score(cfg.keep, heads)
+                order = score.argsort(descending=True, stable=True)
+                scores |= {"kept_error": err[order[:k]].mean(), "all_error": err.mean()}
+                for key, value in scores.items():
+                    out[key] = out.get(key, 0.0) + float(value) / len(held)
     return out
+
+
+def keep_score(keep: KeepHead, heads: Tensor) -> Tensor:
+    """Per pixel, higher keeps: the keep logit, or the negated predicted distance."""
+    return -heads[:, 1] if keep.target == "distance" else heads[:, 1]
+
+
+def spearman(a: Tensor, b: Tensor) -> Tensor:
+    """Rank correlation of two vectors; 0 when `a` is constant (an untrained head)."""
+    assert a.shape == b.shape and a.ndim == 1, (a.shape, b.shape)
+    if a.max() == a.min():
+        return a.new_zeros(())
+    ranks = torch.stack([x.argsort(stable=True).argsort(stable=True) for x in (a, b)])
+    return torch.corrcoef(ranks.float())[0, 1]
 
 
 def refine(
@@ -624,16 +739,16 @@ def write_prediction(
 ) -> None:
     """Write `<name>_<views>.npz` of a (scene, semantics), and the keep logit if any."""
     folder, semantics = cfg.root / scene[0], scene[1]
-    pts, geometry, _, _ = load_scene(cfg, scene[0], semantics)
+    pts, geometry, _, _, _ = load_scene(cfg, scene[0], semantics)
     if cfg.keep is None:
         refined = refine(model, pts, geometry, device, amp=cfg.amp)
     else:
         heads = predict_heads(model, pts, device, amp=cfg.amp)
         r = heads[:, 0] if cfg.keep.residual else torch.zeros(len(heads))
         refined = with_residual(geometry, r)
-        logit = heads[:, 1].numpy().reshape(geometry.depth.shape)
+        score = keep_score(cfg.keep, heads).numpy().reshape(geometry.depth.shape)
         np.savez_compressed(
-            folder / f"{name}_keep_{cfg.views}.npz", keep=logit.astype(np.float32)
+            folder / f"{name}_keep_{cfg.views}.npz", keep=score.astype(np.float32)
         )
     refined.save(folder / f"{name}_{cfg.views}.npz")
 
@@ -686,16 +801,20 @@ def main() -> None:
             for s, n in names.items()
             if not ((out / f"{n}.pt").exists() and n in record)
         ]
-        data = []
+        data, val = [], []
         if todo:
-            data, skipped = load_train(cfg, semantics)
-            record.setdefault("skipped", {})[base] = skipped
+            data, skipped = load_scenes(cfg, cfg.train, semantics)
+            val, skipped_val = load_scenes(cfg, cfg.val, semantics)
+            record.setdefault("skipped", {})[base] = skipped + skipped_val
         for seed, name in names.items():
             saved = out / f"{name}.pt"
             channels = grid_channels(semantics=sem)
             if seed in todo:
                 t0 = time.perf_counter()
-                model, log = train(cfg, data, device, semantics=sem, seed=seed)
+                with SummaryWriter(out / "tensorboard" / name) as writer:
+                    model, log = train(
+                        cfg, data, val, device, semantics=sem, seed=seed, writer=writer
+                    )
                 record[name] = {"seconds": time.perf_counter() - t0, "held_out": log}
                 torch.save(model.state_dict(), saved)
                 run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))
@@ -708,7 +827,7 @@ def main() -> None:
             for scene in cfg.predict:
                 write_prediction(model, cfg, (scene, semantics), name, device)
             print(f"{name}: wrote {len(cfg.predict)} scenes", flush=True)  # noqa: T201
-        del data
+        del data, val
     run_yaml.write_text(yaml.safe_dump(record, sort_keys=False))
     print(f"wrote {out}")  # noqa: T201
 

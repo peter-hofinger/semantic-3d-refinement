@@ -1,7 +1,9 @@
+import dataclasses
 from pathlib import Path
 
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
@@ -10,15 +12,21 @@ from src.refinement.volume import (
     CLASSES,
     KeepHead,
     ScenePoints,
+    TrainScene,
     VolumeConfig,
     VolumeRefiner,
+    compact,
+    distance_target,
     grid_channels,
     keep_labels,
+    keep_score,
     pixel_classes,
     predict_heads,
     refine,
     scene_points,
+    spearman,
     target_residual,
+    train,
     voxelize,
 )
 
@@ -167,3 +175,85 @@ def test_keep_head_is_off_in_the_e41b_config_and_on_in_e57a() -> None:
     keep = VolumeConfig.load(Path("configs/e57a_volume.yaml")).keep
     assert isinstance(keep, KeepHead)
     assert keep.residual
+
+
+def test_distance_target_is_zero_on_the_ground_truth_and_bounded_by_the_shift() -> None:
+    geometry, images = scene()
+    views = Views(
+        "synthetic", ["a", "b"], images, geometry.intrinsics, geometry.cam_to_world
+    )
+    truth = geometry.depth.copy()
+    gt = GroundTruth(np.zeros(truth.shape, dtype=np.int32), truth, {})
+    _, rays, depth, scale = scene_points(geometry, images, gt.instance_ids, {}, 8)
+    np.testing.assert_allclose(
+        distance_target(rays, depth, views, gt, scale), 0, atol=1e-6
+    )
+    moved = geometry.depth.copy()
+    moved[:, 4:7, 6:10] *= 1.05  # a small patch: the similarity cannot absorb it
+    _, rays, depth, scale = scene_points(
+        dataclasses.replace(geometry, depth=moved), images, gt.instance_ids, {}, 8
+    )
+    d = distance_target(rays, depth, views, gt, scale).reshape(truth.shape)
+    patch = np.zeros(truth.shape, dtype=bool)
+    patch[:, 4:7, 6:10] = True
+    bound = (0.05 * truth[patch] / scale).max()  # the nearest GT point is no farther
+    assert d[patch].min() > 0 and d[patch].max() <= 1.2 * bound
+    assert d[~patch].mean() < 0.1 * d[patch].mean()
+
+
+def test_spearman_is_one_for_order_minus_one_for_reverse_and_zero_when_constant() -> (
+    None
+):
+    a = torch.tensor([0.3, 0.1, 0.9, 0.5])
+    assert torch.isclose(spearman(a, 2 * a + 1), torch.tensor(1.0))
+    assert torch.isclose(spearman(a, -a), torch.tensor(-1.0))
+    assert spearman(torch.zeros(4), a) == 0
+
+
+def test_the_distance_score_drops_the_largest_predicted_distance() -> None:
+    heads = torch.tensor([[0.0, 0.3], [0.0, 0.1], [0.0, 0.9]])
+    distance = KeepHead(quantile=0.5, residual=False, weight=1.0, target="distance")
+    label = KeepHead(quantile=0.5, residual=False, weight=1.0)
+    torch.testing.assert_close(
+        keep_score(distance, heads), torch.tensor([-0.3, -0.1, -0.9])
+    )
+    torch.testing.assert_close(keep_score(label, heads), heads[:, 1])
+
+
+def test_distance_config_trains_the_distance_and_the_older_configs_do_not() -> None:
+    keep = VolumeConfig.load(Path("configs/e57c_volume.yaml")).keep
+    assert keep is not None
+    assert keep.target == "distance"
+    assert not keep.residual
+    assert (
+        VolumeConfig.load(Path("configs/e57a_volume_keep.yaml")).keep.target == "label"
+    )
+    assert VolumeConfig.load(Path("configs/e57c_volume.yaml")).val
+
+
+def test_distance_head_overfits_a_smooth_distance(tmp_path: Path) -> None:
+    geometry, images = scene()
+    pts, _, _, _ = scene_points(
+        geometry, images, np.full(geometry.depth.shape, -1), {}, 8
+    )
+    n = len(pts.points)
+    distance = 0.2 * (pts.points[:, 0] - pts.points[:, 0].min())
+    kept = torch.arange(0, n, 3)
+    data = [
+        TrainScene(
+            compact(pts), torch.zeros(n).half(), torch.ones(n, dtype=torch.bool), 2,
+            n // 2, kept, torch.ones(n, dtype=torch.bool), distance,
+        )
+    ]  # fmt: skip
+    cfg = dataclasses.replace(
+        VolumeConfig.load(Path("configs/e57c_overfit_bedroom.yaml")),
+        widths=[8, 16], head=16, steps=200, batch_points=300, kept_points=100,
+        view_subset=[1, 2], resolution=8, amp=False,
+    )  # fmt: skip
+    with SummaryWriter(tmp_path) as writer:
+        model, log = train(
+            cfg, data, [], torch.device("cpu"), semantics=False, seed=0, writer=writer
+        )
+    assert log[-1]["distance_l1"] < 0.25 * log[0]["distance_l1"]
+    assert model.outputs == 2
+    assert max(r["spearman"] for r in log) > 0.8
