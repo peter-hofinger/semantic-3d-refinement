@@ -23,6 +23,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "requests>=2.34",
     "scipy>=1.16",
+    "tensorboard>=2.19.0",
     "torch>=2.14.1",
     "torchvision>=0.29.1",
     "transformers>=5.20.2",
@@ -156,7 +157,7 @@ ignore = [
 "src/loaders/kitti360/*.py" = [
     "PT018",    # composite contract asserts
 ]
-"tests/test_{labeled,multiview,normals,segvggt,learned,volume,reproject}.py" = [
+"tests/test_{labeled,multiview,normals,segvggt,learned,volume,reproject,cloud_eval}.py" = [
     "PT018",    # composite contract asserts
 ]
 
