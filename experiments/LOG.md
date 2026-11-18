@@ -6019,3 +6019,44 @@ Interim entry: the check that the plan puts before any table.
   `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora: [false, false, true]}" "segments=[none]" "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact cons_weight=1.0 cons_gate=<instance|none> --out runs/e52c_rung3_<gate>`;
   rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300` (as E52b's rungs); rung 5 as the control's command plus
   `cons_weight=<λ> cons_gate=<gate> seed=<s>`. Probe: `uv run python experiments/scripts/e52c_probe.py`.
+
+## E52c, before the sweep: the control's three seeds span 0.080 cm dev mean, the bar becomes 3.155 cm; both arms pass the GT-ratio rungs at λ = 1, the cross-view ratio falls but misses rung 3's 0.90, and the arms are indistinguishable (issue #52, 18.11.2026)
+- **Setting:** the plan entry above. 3080. Control seeds 1, 2 at 813c3e1 (clean), the E52b control's
+  command plus `seed=<s>`, `--out runs/e52b_control_s<s>`, 18.11 14:31-18:33 (~2.37 s per step).
+  Rungs at bd10710 (clean), 18:33-19:04, λ = 1, `runs/e52c_rung{3,4}_{instance,none}`. Figure
+  `e52c_rungs.jpg`, raw `results/e52c_rungs.yaml`.
+- **Control seeds, dev Chamfer (cm, 20 views, same Déjà View run):**
+
+  | | living room | bedroom | lobby | mean | kept step |
+  |---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | |
+  | seed 0 (E52b) | 1.580 | 1.693 | 6.189 | 3.154 | 2500 |
+  | seed 1 | 1.470 | 1.678 | 6.438 | 3.195 | 1500 |
+  | seed 2 | 1.517 | 1.571 | 6.257 | 3.115 | 3000 |
+  | range | 0.110 | 0.122 | 0.249 | 0.080 | |
+
+  Every seed beats Déjà View on every scene, so the control's gain holds across seeds. The bar is
+  the seed mean, 3.155 cm. By the plan's rule, E52c's margin is max(0.05, 0.080) = 0.080 cm. The
+  per-scene ranges (0.11-0.25 cm) are larger than most per-scene gaps so far, so "2 of 3 scenes" is
+  only readable from seed means. The kept step varies from 1500 to 3000: the choice on val is noisy.
+- **Rungs, λ = 1:**
+
+  | | gate: same instance | any partner | bar |
+  |---|---|---|---|
+  | rung 3 GT ratio, last 50 | 0.842 | 0.843 | < 0.90: pass |
+  | rung 3 c / c_DV, first 50 -> last 50 | 0.984 -> 0.943 | 0.990 -> 0.940 | < 0.90: missed |
+  | rung 4 GT ratio, last 100 (living / bed / lobby) | 0.776 / 0.905 / 0.710 | 0.779 / 0.905 / 0.709 | < 0.95: pass |
+  | rung 4 c / c_DV, first -> last 100, lobby | 0.942 -> 0.910 | 0.948 -> 0.907 | falling: pass |
+
+  The GT ratio matches the control's rungs (0.843; 0.910 / 0.775 / 0.706). The cross-view ratio
+  falls on every scene in both arms but, on the bedroom, flattens at ~0.94 after step 150. That
+  misses rung 3's bar, so the term is not shown to reach a known answer yet. Part of c cannot go:
+  GT points score 0.46 of Déjà View's c on the bedroom (probe), so c / c_DV has a floor near 0.46,
+  plus normal noise. At λ = 1 the GT ratio may set the gradient. The two arms differ by at most
+  0.006 on any number above, as the probe predicted.
+- **Reading:** not yet a pass for the term: rung 3 of the cross-view loss is open. Next, before the
+  sweep: rung 3 on the bedroom at λ = 10, both arms (~6 min each). If c / c_DV then falls well below
+  0.90, the term trains as intended and the sweep should cover larger λ than {0.1, 0.3, 1}.
+  Otherwise, check the gradient path (detached normals, partner choice, the cap's share of points).
+- **Commands:** as in the plan; figure and raw:
+  `uv run python experiments/scripts/e52c_rungs_figures.py`.
