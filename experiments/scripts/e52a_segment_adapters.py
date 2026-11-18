@@ -58,6 +58,8 @@ between views (`cross_view_distance`, src/backbone/adapters.py) over Déjà View
 same draw, partners within one GT instance (`cons_gate: instance`) or any (`none`, the
 control). `train_loss` records the GT ratio alone, comparable to the earlier runs;
 `train_cons_ratio` the distance ratio. GT instances are used in training only.
+`gt_weight` scales the GT ratio in the loss; 0 trains on the distance alone, the check that
+the term can be minimised at all (rung 3 with only the term).
 
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
@@ -278,6 +280,9 @@ def train(
     cons_ratios: list[float] = []
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
+    assert cfg["gt_weight"] >= 0, cfg["gt_weight"]
+    assert cfg["cons_weight"] >= 0, cfg["cons_weight"]
+    assert cfg["gt_weight"] + cfg["cons_weight"] > 0, "nothing to train on"
     for it in range(1, cfg["steps"] + 1):
         scene = train_scenes[rng.integers(len(train_scenes))]
         lo, hi = cfg["view_subset"]
@@ -290,7 +295,7 @@ def train(
         cons_ratio = cons / base_cons.clamp(min=cfg["cons_floor"])
         loss = error / base.clamp(min=cfg["ratio_floor"])
         losses.append(loss.item())
-        loss = loss + cfg["cons_weight"] * cons_ratio
+        loss = cfg["gt_weight"] * loss + cfg["cons_weight"] * cons_ratio
         opt.zero_grad(set_to_none=True)
         loss.backward()
         for g in groups:

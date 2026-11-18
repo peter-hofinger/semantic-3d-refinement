@@ -6093,3 +6093,15 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** as the rung-3 command of the plan with `cons_weight=10.0` and
   `--out runs/e52c_rung3_<gate>_l10`; figure (fourth panel added) and raw:
   `uv run python experiments/scripts/e52c_rungs_figures.py`.
+
+## E52c, plan: rung 3 with the cross-view term alone, the check that it can be minimised at all (issue #52, 18.11.2026)
+- **Why:** at λ = 10 c / c_DV stopped at 0.91 while the GT ratio got worse (entry above). Either
+  the GT ratio holds c up, or the term cannot be driven down by the LoRA at all.
+- **Change:** `gt_weight` (default 1.0, earlier runs unchanged) scales the GT ratio in the loss;
+  `gt_weight=0` trains on c / c_DV alone. `train_loss` still records the GT ratio.
+- **Hypothesis:** with the term alone, c / c_DV on the bedroom falls well below 0.90 within 200
+  steps (last 50 < 0.80). Refuted if it stays >= 0.90: then the term's gradient path is the
+  problem (detached normals, partners re-chosen every step, the cap), not its weight. The GT
+  ratio is expected to rise; how far shows how much c alone conflicts with the GT.
+- **Command** (3080, both gates, ~6 min each): the plan's rung-3 command with
+  `cons_weight=1.0 gt_weight=0.0`, `--out runs/e52c_rung3_<gate>_conly`.
