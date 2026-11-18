@@ -2,12 +2,13 @@
 
 Reads the E52b control at seeds 0, 1, 2 (`runs/e52b_control`, `runs/e52b_control_s1`,
 `runs/e52b_control_s2`) and E52c's rungs 3 and 4 for both arms
-(`runs/e52c_rung{3,4}_{instance,none}`), all `e52a.yaml` of `e52a_segment_adapters.py`
+(`runs/e52c_rung{3,4}_{instance,none}`, λ = 1) and rung 3 at λ = 10
+(`runs/e52c_rung3_{instance,none}_l10`), all `e52a.yaml` of `e52a_segment_adapters.py`
 on the 3080.
 
 1. `e52c_rungs.jpg`: dev Chamfer per scene of each control seed against Déjà View; rung 3
-   (bedroom) GT ratio and cross-view ratio c / c_DV per step, 20-step means, both arms;
-   rung 4 (dev) last-100-step GT and cross-view ratios per scene, both arms.
+   (bedroom) GT ratio and cross-view ratio c / c_DV per step, 20-step means, both arms,
+   at λ = 1 and λ = 10 on one scale; rung 4 (dev) last-100-step GT and cross-view ratios per scene, both arms.
 2. `results/e52c_rungs.yaml`: the numbers above and the rungs' pass values.
 
 uv run python experiments/scripts/e52c_rungs_figures.py
@@ -62,11 +63,12 @@ def rungs() -> dict:
     """Rung 3 last-50 and rung 4 last-100 per-scene ratios of both arms."""
     out: dict = {}
     for arm in ARMS:
-        m3 = model(f"e52c_rung3_{arm}")
-        t, c = np.array(m3["train_loss"]), np.array(m3["train_cons_ratio"])
-        out[f"rung3_{arm}"] = {"gt_last50": float(t[-50:].mean()),
-                               "cons_first50": float(c[:50].mean()),
-                               "cons_last50": float(c[-50:].mean())}  # fmt: skip
+        for suffix in ("", "_l10"):
+            m3 = model(f"e52c_rung3_{arm}{suffix}")
+            t, c = np.array(m3["train_loss"]), np.array(m3["train_cons_ratio"])
+            out[f"rung3_{arm}{suffix}"] = {"gt_last50": float(t[-50:].mean()),
+                                           "cons_first50": float(c[:50].mean()),
+                                           "cons_last50": float(c[-50:].mean())}  # fmt: skip
         m4 = model(f"e52c_rung4_{arm}")
         t, c = np.array(m4["train_loss"]), np.array(m4["train_cons_ratio"])
         scene = np.array(m4["diagnostics"]["scene"])
@@ -89,7 +91,7 @@ def smooth(values: list[float]) -> np.ndarray:
 
 def figure(dev: dict, rung: dict) -> None:
     """Seed spread, rung 3 curves, rung 4 per-scene ratios."""
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(20, 4))
     ax = axes[0]
     labels = [BASE, "seed 0", "seed 1", "seed 2"]
     colours = ["0.6", "#2a9d55", "#5cbf80", "#98d9ae"]
@@ -101,21 +103,21 @@ def figure(dev: dict, rung: dict) -> None:
     ax.set_ylabel("dev Chamfer (cm)")
     ax.set_title("E52b control (LoRA, no segments): 3 seeds", fontsize=10)
     ax.legend(fontsize=8, frameon=False)
-    ax = axes[1]
-    for arm, (label, colour) in ARMS.items():
-        m = model(f"e52c_rung3_{arm}")
-        steps = (np.arange(len(smooth(m["train_loss"]))) + 1) * SMOOTH
-        ax.plot(
-            steps, smooth(m["train_loss"]), color=colour, label=f"GT ratio, {label}"
-        )
-        ax.plot(steps, smooth(m["train_cons_ratio"]), color=colour, ls="--",
-                label=f"c / c_DV, {label}")  # fmt: skip
-    ax.axhline(0.9, color="0.4", lw=0.8, ls=":")
-    ax.set_xlabel("step")
-    ax.set_ylabel(f"ratio to Déjà View ({SMOOTH}-step mean)")
-    ax.set_title("rung 3, bedroom, λ = 1 (pass bar 0.90 dotted)", fontsize=10)
-    ax.legend(fontsize=7, frameon=False)
-    ax = axes[2]
+    for ax, (suffix, lam) in zip(axes[1:3], (("", 1), ("_l10", 10)), strict=True):
+        for arm, (label, colour) in ARMS.items():
+            m = model(f"e52c_rung3_{arm}{suffix}")
+            steps = (np.arange(len(smooth(m["train_loss"]))) + 1) * SMOOTH
+            ax.plot(steps, smooth(m["train_loss"]), color=colour,
+                    label=f"GT ratio, {label}")  # fmt: skip
+            ax.plot(steps, smooth(m["train_cons_ratio"]), color=colour, ls="--",
+                    label=f"c / c_DV, {label}")  # fmt: skip
+        ax.axhline(0.9, color="0.4", lw=0.8, ls=":")
+        ax.set_ylim(0.78, 1.02)
+        ax.set_xlabel("step")
+        ax.set_ylabel(f"ratio to Déjà View ({SMOOTH}-step mean)")
+        ax.set_title(f"rung 3, bedroom, λ = {lam} (pass bar 0.90 dotted)", fontsize=10)
+        ax.legend(fontsize=7, frameon=False)
+    ax = axes[3]
     for a, (arm, (label, colour)) in enumerate(ARMS.items()):
         r = rung[f"rung4_{arm}"]
         x = np.arange(3) + (a - 0.5) * 0.35
@@ -134,8 +136,9 @@ def figure(dev: dict, rung: dict) -> None:
         style(ax)
     fig.suptitle(
         "Seeds of the control differ by up to 0.08 cm dev mean (0.25 cm on the lobby). "
-        "Both E52c arms pass the GT-ratio bars;\nthe cross-view ratio falls but misses "
-        "rung 3's 0.90 at λ = 1. The two arms are indistinguishable.",
+        "Both E52c arms pass the GT-ratio bars at λ = 1;\nthe cross-view ratio falls "
+        "but misses rung 3's 0.90 at λ = 1 (0.94) and at λ = 10 (0.91), where the GT "
+        "ratio rises to 0.92-0.93. The two arms are indistinguishable.",
         fontsize=9,
     )
     fig.tight_layout()

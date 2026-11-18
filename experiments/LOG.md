@@ -6060,3 +6060,36 @@ Interim entry: the check that the plan puts before any table.
   Otherwise, check the gradient path (detached normals, partner choice, the cap's share of points).
 - **Commands:** as in the plan; figure and raw:
   `uv run python experiments/scripts/e52c_rungs_figures.py`.
+
+## E52c, rung 3 at λ = 10: ten times the weight moves the cross-view ratio from 0.94 to 0.91 and costs the GT ratio 0.84 -> 0.92; neither bar is met, the arms stay indistinguishable (issue #52, 18.11.2026)
+- **Setting:** rung 3 of the E52c plan (bedroom, 200 steps, both arms) with `cons_weight=10.0`, at
+  bd10710 (clean), 3080, 18.11 22:17-22:29 (~350 s per arm), `runs/e52c_rung3_{instance,none}_l10`.
+  Hypothesis (entry above): if the term trains as intended, c / c_DV falls well below 0.90 at
+  λ = 10. Refuted if it stays near 0.90 or above.
+- **Result (bedroom, 20 views drawn as 8 per step, ratios to Déjà View on the same draw):**
+
+  | | λ = 1, same instance | λ = 1, any partner | λ = 10, same instance | λ = 10, any partner | bar |
+  |---|---|---|---|---|---|
+  | GT ratio, last 50 | 0.842 | 0.843 | 0.918 | 0.931 | < 0.90 |
+  | c / c_DV, first 50 -> last 50 | 0.984 -> 0.943 | 0.990 -> 0.940 | 0.981 -> 0.909 | 0.988 -> 0.907 | < 0.90 |
+
+  Ten times the weight buys 0.03 of c / c_DV and gives back 0.08-0.09 of the GT ratio. At λ = 10
+  the two ratios fall together and dip at the same step (180, the seeded draw, also seen at
+  λ = 1), so c behaves like a second, weaker copy of the GT error rather than a term the model
+  can drive down on its own. The probe's floor (GT scores 0.46 of Déjà View's c) is far below
+  0.91. The gate again changes nothing (<= 0.013 on any number). No step was clipped in any of
+  the four runs. The median LoRA-up gradient norm grows 2.3 -> 8.2 (λ = 1 -> 10), 3.5x for 10x
+  the weight, so the term's gradient is small next to the GT ratio's; since Adam normalises the
+  step size, λ only shifts the update's direction towards c, and c still barely moves.
+- **Reading:** rung 3 of the cross-view term is still open; the hypothesis is refuted, so the λ
+  sweep is not run yet. The term is "not yet working", not failed: what is missing is a check
+  of its gradient path. Candidates: the normals are detached and taken from the prediction, so
+  moving a point along its partner's normal is the only free direction; nearest partners are
+  re-chosen every step, so the target moves with the prediction; the 0.05 cap may silence the
+  points that carry most of c. Next: log the capped share and the per-step gradient norm of the
+  term against the GT ratio's, and run rung 3 with c alone (needs a GT-ratio weight key, which
+  the script lacks), which must reach c / c_DV well below 0.90 if the term can be minimised at
+  all.
+- **Commands:** as the rung-3 command of the plan with `cons_weight=10.0` and
+  `--out runs/e52c_rung3_<gate>_l10`; figure (fourth panel added) and raw:
+  `uv run python experiments/scripts/e52c_rungs_figures.py`.
