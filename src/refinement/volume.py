@@ -233,10 +233,14 @@ def scene_points(
     return pts, rays, depth, scale
 
 
-def gt_in_frame(
+def gt_alignment(
     rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth
-) -> tuple[np.ndarray, np.ndarray]:
-    """GT points (N, 3) in Deja View's frame (Umeyama onto them) and where GT is."""
+) -> tuple[np.ndarray, np.ndarray, tuple[float, np.ndarray, np.ndarray]]:
+    """GT points (N, 3), where the GT has one (N,), Umeyama (s, R, t) onto them.
+
+    The similarity maps Deja View's points onto the GT pixels' points (the
+    evaluation's alignment): gt = s R dv + t.
+    """
     gt_points = np.stack(
         [
             lift(d.astype(np.float64), k.astype(np.float64), c2w)
@@ -247,7 +251,14 @@ def gt_in_frame(
     ).reshape(-1, 3)
     has = gt.depth.reshape(-1) > 0
     pred = rays[:, :3] + depth[:, None] * rays[:, 3:]
-    s, rotation, t = umeyama(pred[has], gt_points[has])
+    return gt_points, has, umeyama(pred[has], gt_points[has])
+
+
+def gt_in_frame(
+    rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth
+) -> tuple[np.ndarray, np.ndarray]:
+    """GT points (N, 3) in Deja View's frame (Umeyama onto them) and where GT is."""
+    gt_points, has, (s, rotation, t) = gt_alignment(rays, depth, views, gt)
     return (gt_points - t) @ rotation / s, has
 
 
@@ -310,7 +321,48 @@ def block(c_in: int, c_out: int) -> nn.Sequential:
     )  # fmt: skip
 
 
-class VolumeRefiner(nn.Module):
+class UNet3d(nn.Module):
+    """3D U-Net on a grid (C, Z, Y, X): one block per width, average-pool down."""
+
+    def __init__(self, grid_channels: int, widths: list[int]) -> None:
+        """Widths per level; the last output has `widths[0]` channels at full size."""
+        super().__init__()
+        self.down = nn.ModuleList()
+        c = grid_channels
+        for w in widths:
+            self.down.append(block(c, w))
+            c = w
+        self.up = nn.ModuleList(
+            block(widths[i] + widths[i + 1], widths[i]) for i in range(len(widths) - 1)
+        )
+
+    def pyramid(self, grid: Tensor, *, amp: bool = False) -> list[Tensor]:
+        """Return the decoder features (C_i, Z_i, Y_i, X_i), full size first.
+
+        grid: (C_in, Z, Y, X); the sizes halve per level; bfloat16 with amp.
+        """
+        if amp and grid.is_cuda:
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                return [level.float() for level in self.pyramid(grid)]
+        skips, x = [], grid[None]
+        for i, enc in enumerate(self.down):
+            x = enc(x if i == 0 else F.avg_pool3d(x, 2))
+            skips.append(x)
+        levels = [x[0]]
+        for i in reversed(range(len(self.up))):
+            x = F.interpolate(
+                x, size=skips[i].shape[2:], mode="trilinear", align_corners=False
+            )
+            x = self.up[i](torch.cat([x, skips[i]], 1))
+            levels.append(x[0])
+        return levels[::-1]
+
+    def features(self, grid: Tensor, *, amp: bool = False) -> Tensor:
+        """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X); bfloat16 with amp."""
+        return self.pyramid(grid, amp=amp)[0]
+
+
+class VolumeRefiner(UNet3d):
     """3D U-Net on the grid, then a per-pixel head on the sampled features."""
 
     def __init__(
@@ -323,15 +375,7 @@ class VolumeRefiner(nn.Module):
         outputs: int = 1,
     ) -> None:
         """Widths per U-Net level; outputs r (and the keep logit), zero at the start."""
-        super().__init__()
-        self.down = nn.ModuleList()
-        c = grid_channels
-        for w in widths:
-            self.down.append(block(c, w))
-            c = w
-        self.up = nn.ModuleList(
-            block(widths[i] + widths[i + 1], widths[i]) for i in range(len(widths) - 1)
-        )
+        super().__init__(grid_channels, widths)
         self.embed = nn.Embedding(CLASSES, 8) if semantics else None
         point = 3 + 1 + 3 + 3 + (8 if semantics else 0)
         self.head = nn.Sequential(
@@ -353,22 +397,6 @@ class VolumeRefiner(nn.Module):
     def outputs(self) -> int:
         """Head outputs: 1 (r) or 2 (r and the keep logit)."""
         return self.head[-1].out_features
-
-    def features(self, grid: Tensor, *, amp: bool = False) -> Tensor:
-        """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X); bfloat16 with amp."""
-        if amp and grid.is_cuda:
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                return self.features(grid).float()
-        skips, x = [], grid[None]
-        for i, enc in enumerate(self.down):
-            x = enc(x if i == 0 else F.avg_pool3d(x, 2))
-            skips.append(x)
-        for i in reversed(range(len(self.up))):
-            x = F.interpolate(
-                x, size=skips[i].shape[2:], mode="trilinear", align_corners=False
-            )
-            x = self.up[i](torch.cat([x, skips[i]], 1))
-        return x[0]
 
     def forward(self, feats: Tensor, pts: ScenePoints, sel: Tensor) -> Tensor:
         """Residual r (n,) of the selected pixels from U-Net features (C, Z, Y, X)."""
