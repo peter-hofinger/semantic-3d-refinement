@@ -14,10 +14,8 @@ from src.backbone.adapters import (
     SPECIAL_TOKENS,
     SegmentAdapter,
     biased_attention,
-    cross_view_distance,
     forward,
     grid_segments,
-    map_normals,
     patch_segments,
     plain_forward,
     segment_codes,
@@ -200,92 +198,3 @@ def test_checkpoint_recomputes_with_the_same_step(
     monkeypatch.setattr(adapters, "checkpoint", no_checkpoint)
     for a, b in zip(checkpointed, grads(), strict=True):
         torch.testing.assert_close(a, b)
-
-
-def two_views(shift: list[float]) -> tuple[torch.Tensor, ...]:
-    """A 3 x 3 grid on the plane z = 1 in view 0 and shifted by `shift` in view 1."""
-    grid = torch.stack(
-        torch.meshgrid(torch.arange(3.0), torch.arange(3.0), indexing="ij"), -1
-    )
-    a = torch.cat([grid.reshape(-1, 2), torch.ones(9, 1)], 1)
-    x = torch.cat([a, a + torch.tensor(shift)])
-    normal = torch.tensor([0.0, 0, 1]).expand(18, 3)
-    view = torch.arange(2).repeat_interleave(9)
-    return x, normal, view, torch.zeros(18, dtype=torch.long), torch.ones(18)
-
-
-@pytest.mark.parametrize("gate", [True, False])
-def test_cross_view_distance_shifted_copy(gate: bool) -> None:  # noqa: FBT001 (parametrized)
-    x, n, view, inst, depth = two_views([0.0, 0.0, 0.01])
-    out = cross_view_distance(x, n, view, inst, depth / 2, gate=gate, cap=0.05)
-    torch.testing.assert_close(out, torch.tensor(0.02))  # known solution: shift / depth
-    capped = cross_view_distance(
-        x.requires_grad_(), n, view, inst, depth, gate=gate, cap=0.005
-    )
-    capped.backward()
-    assert capped.item() == pytest.approx(0.005)
-    assert x.grad is not None
-    assert not x.grad.any()  # beyond the cap: no partner, no pull
-
-
-def test_cross_view_distance_ignores_sample_spacing() -> None:
-    x, n, view, inst, depth = two_views([0.4, 0.3, 0.0])  # slid within the plane
-    assert cross_view_distance(x, n, view, inst, depth, gate=True, cap=1.0) == 0
-
-
-def test_cross_view_distance_pulls_onto_the_plane() -> None:
-    x, n, view, inst, depth = two_views([0.0, 0.0, 0.01])
-    x.requires_grad_()
-    out = cross_view_distance(x, n, view, inst, depth, gate=True, cap=1.0)
-    out.backward()
-    assert x.grad is not None
-    expected = torch.tensor([0.0, 0, 1 / 18]).repeat(18, 1)  # d|z_p - z_q| / 18 points
-    expected[:9] *= -1
-    torch.testing.assert_close(x.grad, 2 * expected)  # each point is p once and q once
-
-
-def test_cross_view_distance_gate_keeps_partners_in_the_instance() -> None:
-    x = torch.tensor([[0.0, 0, 0], [10, 0, 0], [0.02, 0, 0], [10.03, 0, 0]])
-    n = torch.tensor([1.0, 0, 0]).expand(4, 3)
-    view, inst = torch.tensor([0, 0, 1, 1]), torch.tensor([0, 1, 1, 0])
-    depth = torch.ones(4)
-    free = cross_view_distance(x, n, view, inst, depth, gate=False, cap=100.0)
-    gated = cross_view_distance(x, n, view, inst, depth, gate=True, cap=100.0)
-    torch.testing.assert_close(free, torch.tensor(0.025))
-    torch.testing.assert_close(gated, torch.tensor((2 * 10.03 + 2 * 9.98) / 4))
-
-
-@pytest.mark.parametrize("gate", [True, False])
-def test_cross_view_distance_ignores_single_view_instances(gate: bool) -> None:  # noqa: FBT001 (parametrized)
-    x, n, view, inst, _ = two_views([0.0, 0.0, 0.01])
-    lone = torch.tensor([[50.0, 0, 0], [60, 0, 0]])
-    out = cross_view_distance(
-        torch.cat([x, lone]), torch.cat([n, n[:2]]),
-        torch.cat([view, torch.tensor([0, 1])]),
-        torch.cat([inst, torch.tensor([3, NO_INSTANCE])]), torch.ones(20),
-        gate=gate, cap=100.0,
-    )  # fmt: skip
-    torch.testing.assert_close(out, torch.tensor(0.01))
-
-
-def test_cross_view_distance_invariant_to_order_and_ids() -> None:
-    torch.manual_seed(0)
-    x, view = torch.rand(40, 3), torch.randint(0, 3, (40,))
-    n = torch.nn.functional.normalize(torch.randn(40, 3), dim=-1)
-    inst, depth = torch.randint(0, 4, (40,)), torch.rand(40) + 1
-    perm, relabel = torch.randperm(40), torch.tensor([7, 2, 9, 5])
-    for gate in (True, False):
-        a = cross_view_distance(x, n, view, inst, depth, gate=gate, cap=0.3)
-        b = cross_view_distance(
-            x[perm], n[perm], view[perm], relabel[inst][perm], depth[perm],
-            gate=gate, cap=0.3,
-        )  # fmt: skip
-        torch.testing.assert_close(a, b)
-
-
-def test_map_normals_of_a_tilted_plane() -> None:
-    v, u = torch.meshgrid(torch.arange(6.0), torch.arange(8.0), indexing="ij")
-    points = torch.stack([u, v, 2 + 0.5 * u], -1)[None]  # z = 2 + x / 2
-    expected = torch.nn.functional.normalize(torch.tensor([-0.5, 0, 1]), dim=0)
-    out = map_normals(points, 2)
-    torch.testing.assert_close(out[0, 2:-2, 2:-2], expected.expand(2, 4, 3))

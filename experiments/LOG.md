@@ -6281,3 +6281,8 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** `uv run python experiments/scripts/e52e_gradient_cosine.py` (laptop, 17 s);
   `--plot` redraws the figure from the yaml. Figure `e52e_gradient_cosine.jpg`, raw
   `results/e52e_gradient_cosine.yaml`.
+- **Code removed after E52e:** `cross_view_distance` and `map_normals` (src/backbone/adapters.py,
+  with their tests) and the `cons_*` / `gt_weight` keys of `e52a_segment_adapters.py` served only
+  E52c and E52e, so they left src once both were answered; the E52a/E52b training script and
+  config are back to their state on main. To rerun E52c's rungs, probe and solver check or E52e,
+  check out 33bca5f.

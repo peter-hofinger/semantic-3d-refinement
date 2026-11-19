@@ -25,6 +25,9 @@ c is divided by the GT depth, so a fit that shrinks the aligned cloud lowers c.
 If the term's minimum lies near the GT, minimising it moves the points towards the GT
 (GT ratio < 1) and towards GT's c; fitting the GT should then also lower c.
 
+Needs `cross_view_distance` and `map_normals`, which left src/backbone/adapters.py
+after E52e: check out 33bca5f to rerun.
+
 uv run python experiments/scripts/e52c_solver.py
 writes `experiments/results/e52c_solver.yaml` and `experiments/figures/e52c_solver.jpg`;
 `--plot` redraws the figure from the yaml.

@@ -22,6 +22,9 @@ the same draws is the ceiling a 6000-pixel estimate can reach, and a random dire
 floor (cosine ~ 0 +- 1 / sqrt(dim)). Per-draw cosines (what one training step sees) are
 recorded too.
 
+Needs `cross_view_distance` and `map_normals`, which left src/backbone/adapters.py
+after E52e: check out 33bca5f to rerun.
+
 uv run python experiments/scripts/e52e_gradient_cosine.py
 writes `experiments/results/e52e_gradient_cosine.yaml` and
 `experiments/figures/e52e_gradient_cosine.jpg`; `--plot` redraws from the yaml.

@@ -10,6 +10,9 @@ each map at central-difference strides 2 and 7 px); partners within one GT insta
 not the geometry; the gated / ungated gap on Déjà View bounds how much E52c's two arms
 can differ in what they ask of the model.
 
+Needs `cross_view_distance` and `map_normals`, which left src/backbone/adapters.py
+after E52e: check out 33bca5f to rerun.
+
 uv run python experiments/scripts/e52c_probe.py
 writes `experiments/results/e52c_probe.yaml` and `experiments/figures/e52c_probe.jpg`.
 """

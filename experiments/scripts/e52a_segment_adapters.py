@@ -53,14 +53,6 @@ loop block's attention linears (`src/backbone/adapters.py`), trained at `lr_lora
 Segment kind `none` gives every token no segment, so LoRA alone with `none` is plain
 fine-tuning of Déjà View on Hypersim (E52b's control).
 
-E52c (issue #52): `cons_weight` > 0 adds that weight times the point-to-plane distance
-between views (`cross_view_distance`, src/backbone/adapters.py) over Déjà View's on the
-same draw, partners within one GT instance (`cons_gate: instance`) or any (`none`, the
-control). `train_loss` records the GT ratio alone, comparable to the earlier runs;
-`train_cons_ratio` the distance ratio. GT instances are used in training only.
-`gt_weight` scales the GT ratio in the loss; 0 trains on the distance alone, the check that
-the term can be minimised at all (rung 3 with only the term).
-
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true, false]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
@@ -87,10 +79,8 @@ from src.backbone.adapters import (
     PATCH_SIZE,
     SegmentAdapter,
     conditioned,
-    cross_view_distance,
     forward,
     grid_segments,
-    map_normals,
     patch_segments,
     segment_codes,
 )
@@ -128,7 +118,6 @@ class Scene:
     depth: np.ndarray  # (V, H, W) float32, 0 without GT
     points: np.ndarray  # (V, H, W, 3) float32 GT world points
     segments: np.ndarray  # (V, P) GT instance per patch, -1 none
-    instances: np.ndarray  # (V, H, W) GT instance per pixel, < 0 none
 
 
 def load_scene(raw: dict, name: str) -> Scene:
@@ -143,8 +132,7 @@ def load_scene(raw: dict, name: str) -> Scene:
             )
         ]
     ).astype(np.float32)
-    segments = patch_segments(gt.instance_ids)
-    return Scene(name, views.images, gt.depth, points, segments, gt.instance_ids)
+    return Scene(name, views.images, gt.depth, points, patch_segments(gt.instance_ids))
 
 
 def segments_of(scene: Scene, kind: str, sel: np.ndarray, cfg: dict) -> np.ndarray:
@@ -174,8 +162,8 @@ def step_loss(
     kind: str,
     cfg: dict,
     seed: int,
-) -> tuple[Tensor, Tensor, int]:
-    """One pass's error, cross-view distance (0 if unweighted) and segments dropped."""
+) -> tuple[Tensor, int]:
+    """Return one pass's error on the chosen views (pixel subset from seed), drops."""
     device = next(net.parameters()).device
     images = torch.from_numpy(scene.images[sel]).permute(0, 3, 1, 2).float() / 255
     codes, dropped = codes_of(segments_of(scene, kind, sel, cfg), kind)
@@ -206,21 +194,7 @@ def step_loss(
     aligned = x @ r_t + t
     err = (aligned - y).norm(dim=-1) / depth
     assert torch.isfinite(err).all()
-    cons = torch.zeros((), device=device)
-    if cfg["cons_weight"] > 0:  # E52c: drawn after the Sim(3)'s pixels, which stay
-        at = torch.from_numpy(
-            rng.choice(len(x), size=min(cfg["cons_pixels"], len(x)), replace=False)
-        ).to(device)
-        view = torch.nonzero(valid)[:, 0]
-        inst = torch.from_numpy(scene.instances[sel]).to(device)[valid].long()
-        assert cfg["cons_gate"] in ("instance", "none"), cfg["cons_gate"]
-        with torch.no_grad():  # detached in the term (ICP's fixed target normals)
-            normal = map_normals(pred @ r_t + t, cfg["cons_stride"])[valid]
-        cons = cross_view_distance(
-            aligned[at], normal[at], view[at], inst[at], depth[at],
-            gate=cfg["cons_gate"] == "instance", cap=cfg["cons_cap"],
-        )  # fmt: skip
-    return err.clamp(max=cfg["max_error"]).mean(), cons, dropped
+    return err.clamp(max=cfg["max_error"]).mean(), dropped
 
 
 def fixed_error(
@@ -277,12 +251,8 @@ def train(
     diag: dict = {"base": [], "scene": [], "grad": {g["name"]: [] for g in groups}, "clipped": 0,
                   "norm": {g["name"]: {} for g in groups}}  # fmt: skip
     totals: list[float] = []
-    cons_ratios: list[float] = []
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
-    assert cfg["gt_weight"] >= 0, cfg["gt_weight"]
-    assert cfg["cons_weight"] >= 0, cfg["cons_weight"]
-    assert cfg["gt_weight"] + cfg["cons_weight"] > 0, "nothing to train on"
     for it in range(1, cfg["steps"] + 1):
         scene = train_scenes[rng.integers(len(train_scenes))]
         lo, hi = cfg["view_subset"]
@@ -290,12 +260,9 @@ def train(
         sel = np.sort(rng.choice(len(scene.images), size=k, replace=False))
         seed = int(rng.integers(2**31))
         with torch.no_grad():
-            base, base_cons, _ = step_loss(net, zero, scene, sel, kind, cfg, seed)
-        error, cons, d = step_loss(net, adapter, scene, sel, kind, cfg, seed)
-        cons_ratio = cons / base_cons.clamp(min=cfg["cons_floor"])
+            base = step_loss(net, zero, scene, sel, kind, cfg, seed)[0]
+        error, d = step_loss(net, adapter, scene, sel, kind, cfg, seed)
         loss = error / base.clamp(min=cfg["ratio_floor"])
-        losses.append(loss.item())
-        loss = cfg["gt_weight"] * loss + cfg["cons_weight"] * cons_ratio
         opt.zero_grad(set_to_none=True)
         loss.backward()
         for g in groups:
@@ -310,12 +277,11 @@ def train(
         totals.append(total)
         opt.step()
         decay.step()
-        cons_ratios.append(cons_ratio.item())
+        losses.append(loss.item())
         diag["base"].append(base.item())
         diag["scene"].append(scene.name)
         writer.add_scalar("train/ratio", losses[-1], it)
         writer.add_scalar("train/dv_error", diag["base"][-1], it)
-        writer.add_scalar("train/cons_ratio", cons_ratios[-1], it)
         for g in groups:
             writer.add_scalar(f"grad_norm/{g['name']}", diag["grad"][g["name"]][-1], it)
         if it % cfg["diag_every"] == 0:
@@ -356,7 +322,6 @@ def train(
         "peak_gb": peak_gb(),
         "segments_dropped": dropped,
         "train_loss": losses,
-        "train_cons_ratio": cons_ratios,
         "diagnostics": diag,
     }
 
@@ -479,7 +444,7 @@ def probe(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
                 torch.cuda.synchronize()
                 torch.cuda.reset_peak_memory_stats()
             t0 = time.perf_counter()
-            loss, _, _ = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
+            loss, _ = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
             loss.backward()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -502,7 +467,7 @@ def probe(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
             opt = torch.optim.AdamW(adapter.parameters(), lr=lr, weight_decay=0.0)
             losses = []
             for _ in range(OVERFIT_STEPS + 1):
-                loss, _, _ = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
+                loss, _ = step_loss(net, adapter, scene, sel, "gt", cfg, 0)
                 losses.append(loss.item())
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
@@ -558,8 +523,7 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
         segments = {"gt": patch_segments(gt.instance_ids)}
         for kind in ("grid", "none"):
             segments[kind] = segments_of(
-                Scene(name, views.images, gt.depth, np.empty(0), segments["gt"],
-                      gt.instance_ids),
+                Scene(name, views.images, gt.depth, np.empty(0), segments["gt"]),
                 kind, np.arange(len(views)), cfg)  # fmt: skip
         plain = backbone.predict(views)
         scene_rec = {BASE: score(plain, truth)[0] | {"ray_deg": 0.0}}
