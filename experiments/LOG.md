@@ -7466,3 +7466,17 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion, for #86:** at equal q (E86a) and at equal completeness (E86b), no semantic gain survives in the
   instance voxel density filter on val: plain voxel density is the filter, SAM 3's ids cost ~0.05 cm. Open: what
   GT's instances get right on three scenes (likely objects that SAM 3 misses or merges), not pursued here.
+## Plan: E81a = does the semantic gain shrink as data or model grows (issue #81, 19.11.2026)
+- **Hypothesis** (19 Nov feedback): classes help a small model or a small training set most, and the gain vanishes
+  as either grows, because a large model learns them implicitly. E41b, at full size only, found the classes within
+  seed noise.
+- **Setting:** E41b's 3D refiner (`volume.py`, 128-cell grid, 20k steps, 8-20 views per step, held-out selection on
+  the same 8 scenes), trained on the first 9, 35 and all 145 fitting scenes (train + train_extra in E41b's order),
+  U-Net small (16 / 32 / 64, head 64) and default (32 / 64 / 128, head 128), classes none vs GT (the best case:
+  SAM 3 is run only if GT shows a gap), seeds 0, 1, 2: 36 models, `configs/e81a/`.
+- **Measure:** per size and width, val Chamfer of none minus GT (mean of 3 seeds) against the seed spread (max - min
+  over seeds of each), and dev as a second look.
+- **Prediction:** the gap is largest at 9 scenes with the small U-Net and shrinks towards 0 at 145 scenes.
+- **Refuted if:** at 9 scenes with the small U-Net the gap is within the seed spread.
+- **Compute:** the whole sweep on one machine, never mixed: queued on the 3d-cluster (one 5090 per model) and run
+  on the 3080 meanwhile; the first machine to finish all 36 is the one reported.
