@@ -7161,3 +7161,34 @@ Interim entry: the check that the plan puts before any table.
   `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=<lr> lr_lora=1e-4 align=exact select=val probe_every=10 seed=<s> --out runs/e52b_main_s<s>`.
 - **Cost** (2.3 s per step on the 3080): rungs 3/4 ~30 min; sweep 6 x 500 steps ~2 h; rung 5 two arms
   x 3 seeds x ~2 h ~12 h plus dev scoring. Ask before the sweep and before rung 5.
+
+## E52b, main arms, rungs 3 and 4: LoRA + pooling passes both with GT instances and with grid tiles, and neither arm differs from LoRA alone by more than 0.006 in any rung ratio (issue #52, 19.11.2026)
+- **Setting:** the plan entry above, at e4f7943 (clean), 3080, lr_pool 3e-6, lr_lora 1e-4, seed 0,
+  both arms in one run. Smoke (4 views, 4 steps, `runs/e52b_smoke`, not of record): end to end,
+  2.22 GB peak, step-1 ratio 0.99996 in both arms (zero adapter = Déjà View on the same draw),
+  gradients reach B_k, A, U and D (A and D 0 at step 1 as B_k and U are 0, nonzero after), no
+  segment dropped. Rung 3 17:09-17:21 (349 s per arm, `runs/e52b_rung3`); rung 4's first try was
+  stopped from outside after 7 min (tmux session gone, no error or exit line in the log, shared
+  account; partial run kept as `runs/e52b_rung4_killed` on the 3080), rerun 17:29-17:47 (525 s per
+  arm, `runs/e52b_rung4`). Peak 2.22 GB, 1.75 s per step at 8 views, 0 segments dropped.
+- **Result** (training ratio to Déjà View's error; control = E52b's rungs at lr_lora 1e-4, same
+  seed, so the same scene and view draws in all three):
+
+  | | rung 3 last 50 (prev. 50) | rung 4 living room | bedroom | lobby |
+  |---|---|---|---|---|
+  | LoRA alone (control) | 0.843 (0.891) | 0.775 | 0.910 | 0.706 |
+  | LoRA + pool, GT instances | 0.841 (0.886) | 0.769 | 0.912 | 0.706 |
+  | LoRA + pool, grid tiles | 0.841 (0.886) | 0.770 | 0.908 | 0.704 |
+
+  Both arms pass: rung 3 below 0.90 and falling from the previous 50 steps; rung 4 below 0.95 on
+  every scene. The last 20-step window of rung 3 rises (0.80 -> 0.87) in all three models together,
+  the control included; with the same draws that is a harder draw, not divergence.
+- **Reading:** rungs are diagnostics, no score is reported. While overfitting, the pooling adapter
+  adds nothing on top of LoRA, with GT instances or grid tiles: the three curves lie on each other
+  (figure). This matches the plan's prediction, but it does not decide the main arms: rung 5 measures
+  generalisation on dev, where E52a's pooling alone gained over Déjà View. Next: the lr_pool sweep
+  (both arms, 6 x 500 steps, ~2 h).
+- **Commands:** rungs as in the plan with `view_subset=[8,8]` (3080 job
+  `/home/student/mircea/jobs_e52b_rungs.sh`, rung 4 alone in `jobs_e52b_rung4.sh`); figure and raw:
+  `uv run python experiments/scripts/e52b_rungs_figures.py` -> `figures/e52b_rungs.jpg`,
+  `results/e52b_rungs.yaml`.
