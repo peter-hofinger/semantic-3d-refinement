@@ -74,7 +74,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
-import open3d as o3d
 import torch
 from scipy.spatial import cKDTree
 from torch import Tensor
@@ -239,6 +238,8 @@ def tsdf_points(
     """
     assert depth.ndim == 3 and k.shape == (len(depth), 3, 3), (depth.shape, k.shape)  # noqa: PLR2004
     assert 0 < voxel < trunc, (voxel, trunc)
+    import open3d as o3d  # noqa: PLC0415  only the opt-in fused score; needs libGL, absent on the cluster
+
     integration = o3d.pipelines.integration
     volume = integration.ScalableTSDFVolume(
         voxel_length=voxel,
