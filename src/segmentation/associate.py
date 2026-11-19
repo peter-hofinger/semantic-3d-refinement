@@ -26,6 +26,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from scipy import ndimage, sparse
+from scipy.sparse import csgraph
 
 from src.geometry import Geometry
 from src.loaders import Views
@@ -274,6 +276,68 @@ def absorb_parts(
         if other and host and share >= need and cubes[a] <= ratio * cubes[b]:
             best[a] = max(best.get(a, (0.0, b)), (share, b))
     return joined(seg, [(b, a) for a, (_, b) in best.items()])
+
+
+def claim_unclaimed(
+    seg: Segmentation,
+    geometry: Geometry,
+    side: float,
+    claim: tuple[int, int],
+    label: str = "otherprop",
+) -> Segmentation:
+    """Turn 3D-connected unlabelled regions into new objects of class `label` (E83a).
+
+    Most missed GT segments are small objects of the catch-all classes, which are never
+    prompted, so no mask covers them. A pixel joins only if no mask lies within
+    `claim[0]` pixels in its view (the rims SAM 3 leaves between masks would chain the
+    room into one region); its points fall into cubes of the given side, and each
+    26-connected set of at least `claim[1]` cubes becomes one object, scored 0 so that
+    it ranks last for AP.
+    """
+    rim, min_cubes = claim
+    assert rim >= 0, rim  # noqa: S101
+    assert min_cubes >= 1, min_cubes  # noqa: S101
+    ids = seg.instance_ids
+    assert ids.shape == geometry.depth.shape, (ids.shape, geometry.depth.shape)  # noqa: S101
+    near = np.stack(
+        [
+            ndimage.binary_dilation(v >= 0, iterations=rim) if rim else v >= 0
+            for v in ids
+        ]
+    )
+    free = ~near & (geometry.depth > 0)
+    if not free.any():
+        return seg
+    cells = np.floor(geometry.world_points()[free] / side).astype(np.int64)
+    cells -= cells.min(0) - 1
+    span = int(cells.max()) + 2
+    key = (cells[:, 0] * span + cells[:, 1]) * span + cells[:, 2]
+    cube, pixel_cube = np.unique(key, return_inverse=True)
+    steps = np.array(
+        [
+            (a * span + b) * span + c
+            for a in (-1, 0, 1)
+            for b in (-1, 0, 1)
+            for c in (-1, 0, 1)
+        ]
+    )
+    target = (cube[:, None] + steps).ravel()
+    pos = np.clip(np.searchsorted(cube, target), 0, len(cube) - 1)
+    hit = cube[pos] == target
+    src = np.repeat(np.arange(len(cube)), len(steps))[hit]
+    graph = sparse.coo_matrix((np.ones(hit.sum()), (src, pos[hit])), (len(cube),) * 2)
+    _, component = csgraph.connected_components(graph, directed=False)
+    sizes = np.bincount(component)
+    keep = sizes[component] >= min_cubes
+    start = max(seg.classes, default=-1) + 1
+    region = np.unique(component[keep])
+    new_id = np.full(len(sizes), NO_INSTANCE, dtype=np.int64)
+    new_id[region] = start + np.arange(len(region))
+    out = ids.copy()
+    out[free] = np.where(keep[pixel_cube], new_id[component[pixel_cube]], NO_INSTANCE)
+    classes = dict(seg.classes) | {int(start + n): label for n in range(len(region))}
+    scores = dict(seg.scores) | {int(start + n): 0.0 for n in range(len(region))}
+    return Segmentation(out.astype(np.int32), classes, scores)
 
 
 def joined(seg: Segmentation, links: list[tuple[int, int]]) -> Segmentation:

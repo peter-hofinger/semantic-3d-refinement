@@ -7505,3 +7505,14 @@ Interim entry: the check that the plan puts before any table.
   all four cells, beyond the seed spread at 35 small and 145 small. The plan's refutation criterion (no gap at 9
   scenes, small U-Net) is met, but only because nothing trains there. The hypothesis "semantics help when model or
   data is small" finds no support in this refiner; no model beats Deja View on val.
+## Plan: E83a = unlabelled regions in 3D as catch-all objects (issue #83, 19.11.2026)
+- **Why:** after E59c/E59d (val PQ 0.336), the largest missed share is the catch-all classes SAM 3 is never
+  prompted for: E59a's val split has 187 of 317 missed GT segments there, 142 of them otherprop. Generic prompt
+  words found parts, not objects (E59b).
+- **Setting:** `associate.claim_unclaimed` after merge 0.3 and absorb 0.5:0.1 into things: pixels with no mask
+  within `rim` pixels in their view, put into E59c's cubes, and each 26-connected set of at least `least` cubes
+  becomes one otherprop object with score 0 (ranked last for AP). Opt-in (`e59a_pq_loss.py --claim rim:least`),
+  labels only. `--regrouped-causes` splits the missed segments of the regrouped labels instead of the linked.
+- **Dev sweep:** rim 2 and 5 x least 20, 100, 500; the best on dev runs once on val. 3080 CPU.
+- **Prediction / refuted if:** dev PQ above merge + absorb (0.373) by more than 0.01; refuted if no setting gets
+  there.
