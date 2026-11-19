@@ -77,7 +77,9 @@ MERGE_SIDE = 4  # cube side of merge_touching, in pixel footprints
 MERGES: list[float] = []  # contact shares, set by main
 ABSORBS: list[tuple[float, float]] = []  # (contact, size ratio), set by main
 UNPROMPTED = set(CATCH_ALL)  # emptied by main for a segmentation that prompts them
-CLAIMS: list[tuple[int, int]] = []  # claim_unclaimed (E83a): rim pixels, least cubes
+CLAIMS: list[
+    tuple[int, int, int]
+] = []  # claim_unclaimed (E83a): rim px, least cubes, side
 REGROUPED_CAUSES = [
     False
 ]  # causes of the merged + absorbed labels instead of the linked
@@ -349,9 +351,10 @@ def run_scene(name: str) -> tuple[dict, dict]:
         merged = merge_touching(linked, geometry, side, MERGES[0])
         regrouped = absorb_parts(merged, geometry, side, ABSORBS[0], things)
         base = f"merged {MERGES[0]:g}, absorbed {ABSORBS[0][0]:g}:{ABSORBS[0][1]:g} into things"
-        for rim, least in CLAIMS:
-            claimed = claim_unclaimed(regrouped, geometry, side, (rim, least))
-            variants[f"{base}, claimed {rim}:{least}"] = scores(truth, claimed)
+        for rim, least, cube in CLAIMS:
+            cube_side = cube * side / MERGE_SIDE
+            claimed = claim_unclaimed(regrouped, geometry, cube_side, (rim, least))
+            variants[f"{base}, claimed {rim}:{least}:{cube}"] = scores(truth, claimed)
     for k in (2, 5):
         keep = ~band(gt_full, linked.instance_ids, k)[truth.pixels]
         variants[f"boundary {k}"] = scores(truth, linked, keep)
@@ -469,14 +472,18 @@ def main() -> None:
     parser.add_argument("--segmentation", default=SEGMENTATION[0])
     parser.add_argument("--merge", type=float, nargs="*", default=[])
     parser.add_argument("--absorb", nargs="*", default=[])
-    parser.add_argument("--claim", nargs="*", default=[], help="rim:least_cubes")
+    parser.add_argument(
+        "--claim", nargs="*", default=[], help="rim:least:side (footprints)"
+    )
     parser.add_argument("--regrouped-causes", action="store_true")
     args = parser.parse_args()
     default = args.segmentation == SEGMENTATION[0]
     SEGMENTATION[0] = args.segmentation
     MERGES.extend(args.merge)
     ABSORBS.extend(tuple(map(float, a.split(":"))) for a in args.absorb)
-    CLAIMS.extend(tuple(map(int, c.split(":"))) for c in args.claim)
+    CLAIMS.extend(
+        tuple(map(int, f"{c}:{MERGE_SIDE}".split(":")[:3])) for c in args.claim
+    )
     REGROUPED_CAUSES[0] = args.regrouped_causes
     if "catchall" in args.segmentation:
         UNPROMPTED.clear()

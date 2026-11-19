@@ -7516,3 +7516,15 @@ Interim entry: the check that the plan puts before any table.
 - **Dev sweep:** rim 2 and 5 x least 20, 100, 500; the best on dev runs once on val. 3080 CPU.
 - **Prediction / refuted if:** dev PQ above merge + absorb (0.373) by more than 0.01; refuted if no setting gets
   there.
+
+## E83a: claiming unlabelled regions -> dev PQ 0.373 -> 0.378 at best, under the +0.01 bar; regions too coarse (19.11.2026)
+- **Commit:** 64398fe, 3080 CPU. `experiments/results/e83a_dev_sweep.txt`.
+- **Dev PQ** (merge 0.3 + absorb 0.5:0.1 into things: 0.373): claimed rim:least 2:20 0.375, 2:100 0.377, 2:500 0.377,
+  5:20 0.376, 5:100 0.377, 5:500 0.378. Refuted by the plan's bar; val not run.
+- **Regrouped causes, dev:** of 175 GT segments 121 unmatched, 56 not prompted (catch-alls), 38 merged, 19 missed.
+- **Checks** (one-off, val): 147 of the 187 catch-all GT segments are mostly unlabelled (no mask), not under a
+  wrong class; the rest sit under shelves, chair, wall, lamp. The claimed regions do reach them (4 of 147 get
+  nothing at rim 2, 20 cubes) but are far larger: median IoU 0.08, 16 above 0.5. Neighbouring unlabelled
+  objects chain into one region through cubes of 4 pixel footprints.
+- **Next (E83b):** finer claim cubes (1 and 2 footprints), and claiming on top of the fallback catch-all prompts
+  (E59b) now that merge and absorb glue their parts.
