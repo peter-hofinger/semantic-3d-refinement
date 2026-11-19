@@ -6240,3 +6240,44 @@ Interim entry: the check that the plan puts before any table.
   negative; the gate again changes nothing (<= 0.05).
 - **Command** (laptop 3050, ~20 s, no training):
   `uv run python experiments/scripts/e52e_gradient_cosine.py`.
+
+## E52e: the cross-view term points slightly towards the GT at Déjà View's output (cosine 0.19, with or without scale invariance), but a step of 1% of depth along it already raises the GT error almost as much as a random step; not a usable objective (issue #52, 19.11.2026)
+- **Setting:** the plan entry above. Run of record at 677f81a (clean), laptop 3050, 17 s. A first
+  run before the commit gave the same numbers to the third decimal. 11664 patch log-scales;
+  random-direction cosine std 0.0097; the invariant term changed by 3.6e-7 under a random
+  similarity.
+- **Result (bedroom, 12 views; cosine with the GT error's gradient over all GT pixels; GT ratio =
+  GT error after a step along minus the direction / before, step rms in log-depth):**
+
+  | direction | cosine, 20-draw mean gradient | cosine, one draw | cosine of sign | GT ratio, step 0.1% | 1% | 3% |
+  |---|---|---|---|---|---|---|
+  | GT error, same 20 draws (ceiling) | 0.974 | 0.697 +- 0.005 | 0.858 | 0.964 | 0.850 | 1.532 |
+  | E52c's c, same instance | 0.193 | 0.108 +- 0.011 | 0.203 | 0.995 | 1.047 | 1.472 |
+  | E52c's c, any partner | 0.193 | 0.107 +- 0.011 | 0.194 | 0.995 | 1.047 | 1.470 |
+  | invariant c, same instance | 0.191 | 0.107 +- 0.011 | 0.227 | 0.995 | 1.048 | 1.471 |
+  | invariant c, any partner | 0.191 | 0.106 +- 0.011 | 0.217 | 0.995 | 1.048 | 1.469 |
+  | random direction | 0 +- 0.010 | | | 1.001 | 1.059 | 1.397 |
+
+  1. The cosine is positive, about 20 random-direction stds above zero: at Déjà View's output
+     the term's descent does point towards the GT, and so does its sign (Adam's direction).
+     The plan's expectation for E52c's term (near zero or negative) was wrong.
+  2. It is weak: 0.19 means 98% of a step's length is orthogonal to the GT error's descent.
+     A step of 0.1% of depth lowers the GT error by 0.5% (the GT's own step: 3.6%); at 1% it
+     raises it by 4.8%, against 5.9% for a random step and -15% for the GT's. One 6000-px draw,
+     what one training step sees, gives 0.11.
+  3. Scale invariance changes nothing at first order (0.191 vs 0.193): E52c's route 2 (shrinking
+     the alignment) is what many steps do, not the starting direction. The gate changes no
+     cosine by more than 0.003, a fourth time.
+- **Reading:** by the plan's numbers the hypothesis is neither supported (0.19 < 0.3) nor refuted
+  (> 0.1). The step check settles what the cosine left open: the useful component is real but
+  is lost by a step of 1% of depth, so the term cannot drive refinement on its own (as in E52c's
+  term-alone rung and solver), and with the GT loss it would mostly add an orthogonal push.
+  This is consistent with the team's reprojection refiner on val this week (cross-view votes vs
+  error r ~ 0.15): Déjà View's views agree with each other, so cross-view disagreement carries
+  little of its error, whatever the normalisation or the gate. Limits: one scene, 12 views,
+  first order at Déjà View's output, patch log-scales, not the LoRA's weight space. Status of
+  segments in the training loss (#52): "not yet working"; missing is a signal whose direction
+  is substantially the GT's, which cross-view agreement within an instance is not here.
+- **Commands:** `uv run python experiments/scripts/e52e_gradient_cosine.py` (laptop, 17 s);
+  `--plot` redraws the figure from the yaml. Figure `e52e_gradient_cosine.jpg`, raw
+  `results/e52e_gradient_cosine.yaml`.
