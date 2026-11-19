@@ -7104,3 +7104,60 @@ Interim entry: the check that the plan puts before any table.
   E52c and E52e, so they left src once both were answered; the E52a/E52b training script and
   config are back to their state on main. To rerun E52c's rungs, probe and solver check or E52e,
   check out 33bca5f.
+
+## Plan: E52b, main arms = the control's LoRA plus the pooling adapter, fed GT instances or grid tiles: do segment inputs gain over plain fine-tuning when trained jointly with it (issue #52, 19.11.2026)
+- **Goal:** E52b's plan named two parts: the control (LoRA, no segments) and the main arms (LoRA +
+  segment pooling, GT vs grid). Only the control ran. It set the bar at dev Chamfer 3.155 cm (mean of
+  seeds 0-2, range 0.080 cm; Déjà View 3.500). E52a's pooling adapter alone gained the same with GT
+  instances as with grid tiles (3.330 / 3.326 cm), and E52c/E52e found segments in the loss not yet
+  working. The main arms are #52's done condition: LoRA with segment inputs against the same LoRA
+  without them, at the same training.
+- **Model:** the control's LoRA (rank 16 on `qkv` and `proj` of both attentions of the shared loop
+  block, U zero) plus E52a's pooling adapter between loop steps, x += B_k A (m_s - x): m_s is the
+  mean token of the token's segment over all views, A (768 -> 16) random, B_k zero per step. Both
+  start at zero, so step 0 is Déjà View bit for bit (test `test_zero_adapter_is_dejaview_bit_for_bit`).
+  Gradients reach both and no frozen weight (`test_gradients_reach_only_the_adapter`, pool and LoRA
+  together). ~0.35 M parameters. No code change: the script's model flags are (bias, pool, lora) ->
+  (false, true, true).
+- **Arms:** lora_pool-gt (GT instances per 14 px patch) and lora_pool-grid (3 x 3 even tiles per
+  view: the same parameters with no semantics). LoRA alone is the E52b control (3 seeds, already run,
+  same 3080).
+- **Hypothesis and the numbers that would refute it:** lora_pool-gt beats Déjà View, the control
+  and lora_pool-grid on dev mean Chamfer (mean over seeds 0-2 per arm), each by more than the
+  control's seed range 0.080 cm, and on 2 of 3 scenes. (E52b's first rule said 0.05 cm; the seed
+  range measured since, E52c's entry, is larger, so it replaces it.) gt within 0.080 cm of grid
+  refutes "segment inputs add to LoRA". grid within 0.080 cm of the control means the pooling adapter
+  adds no capacity on top of LoRA. **Prediction:** gt ends within the margin of grid, as without
+  LoRA (E52a, fourth run). A gain would need LoRA to make the segment means usable, which nothing
+  so far shows.
+- **Training:** as the control (120 train scenes, 16 held out, val every 250 steps, 3000 steps,
+  8-12 views per step, ratio to Déjà View's error, `align=exact`, bf16, state kept on val, probe
+  every 10 steps). lr_lora 1e-4 (control's sweep), lr_pool from the sweep below.
+- **Ladder** (`docs/experiments.md`; 3080):
+  - Rungs 0-2: the tests above. Smoke on the 3080 (bedroom, 4 views, 4 steps, not of record) checks
+    the joint model runs end to end.
+  - Rung 3, overfit the bedroom `ai_006_007` (8 views, 200 steps), both arms. **Pass:** last-50
+    training ratio below 0.90 and no rise over the last 100 steps (control 0.843; pool alone
+    0.834 / 0.820).
+  - Rung 4, dev (3 scenes, 300 steps). **Pass:** last-100 ratio below 0.95 on each scene.
+  - Sweep lr_pool in {1e-6, 3e-6, 1e-5} at lr_lora 1e-4, both arms alike (500 steps, `--splits`
+    none, least val ratio at step 500; pool alone used 3e-6). The control's lr was swept the same way.
+    Each arm takes its own best lr.
+  - Rung 5, 3000 steps, seeds 0, 1, 2 per arm, dev scored. Only rung 5's scores are reported.
+- **Reading:** dev Chamfer (cm) per scene and mean, seed mean and range per arm, against Déjà View
+  3.500, the control 3.155 and the other arm; val and held-out curves; stability by the probe's rule.
+  Rerun noise on one GPU (val up to 0.007 between bf16 reruns) is below the margin. If gt and grid
+  tie with rungs 3/4 passed and both arms swept alike, the verdict is "segment inputs give LoRA no
+  gain here", stated for this adapter, with the budget and spread logged.
+- **Not in this experiment:** gating (presentation feedback, 19.11), a learned scalar
+  tanh(α_k) or per-token gate sigmoid(w · x) on the pooling branch, which lets the model learn where
+  to trust a segment. One change at a time: it follows only once the ungated arms are read. Init
+  note for it: a gate at 0 together with B_k = 0 never trains (each gradient is proportional to the
+  other), so one of the two starts nonzero.
+- **Commands** (3080): rung 3
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=3e-6 lr_lora=1e-4 "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact --out runs/e52b_rung3`;
+  rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300`; sweep as the control's with
+  this model, `lr_pool=<lr>`, `steps=500`, `--out runs/e52b_pool_sweep_<lr>`; rung 5
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=<lr> lr_lora=1e-4 align=exact select=val probe_every=10 seed=<s> --out runs/e52b_main_s<s>`.
+- **Cost** (2.3 s per step on the 3080): rungs 3/4 ~30 min; sweep 6 x 500 steps ~2 h; rung 5 two arms
+  x 3 seeds x ~2 h ~12 h plus dev scoring. Ask before the sweep and before rung 5.
