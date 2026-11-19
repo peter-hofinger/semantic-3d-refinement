@@ -5957,6 +5957,824 @@ Interim entry: the check that the plan puts before any table.
   `steps=500`, `--out runs/e52b_sweep_<lr>`). Figure and raw:
   `uv run python experiments/scripts/e52b_figures.py runs/e52b_control runs/e52a4 runs/e52b_sweep`.
 
+## Plan: E57c = E57a's keep head, trained to predict the distance to the ground-truth surface (issue #57, 17.11.2026)
+- **Goal:** issue #57 asks whether a learned filter beats the instance voxel density filter at an equal kept
+  fraction. E57a (Pouya) trained a keep logit on a binary label (error in the lower half) and lost badly: it
+  ranked pixels well but deleted whole regions. Peter's variant: the head regresses each pixel's distance to the
+  ground-truth surface and the points of largest predicted distance are dropped. Does that version beat density,
+  and does the answer change what a perfect distance would give?
+- **Setting** (`src/refinement/volume.py`, `keep.target: distance`; configs `e57c_overfit_bedroom.yaml`,
+  `e57c_overfit_dev.yaml`, `e57c_volume.yaml`): E57a's keep-only model (E41b's data, grid, U-Net, steps, view
+  subsets; the depth stays Déjà View's) with the second output trained by L1 on the nearest-GT-point distance of
+  the pixel's point in Déjà View's frame (Umeyama of its points onto the GT, the evaluation's alignment), in units
+  of the scene's median depth. L1 gives a conditional median, so a point behind a wall does not dominate; no
+  threshold or label quantile is involved. Every pixel has a target, including those without GT depth. The kept
+  step minimizes the held-out distance L1 (E57a: the kept error); `scene_eval` ranks by the negated prediction at
+  keep 0.5, as for E57a. U-Net 1.4M parameters (E41b's; over the ladder's 1M for rung 0, kept to compare with
+  E57a).
+- **Ladder** (`docs/experiments.md`): rung 1, the target on the bedroom as an image; rung 2, time per step; rung 3,
+  overfit `ai_006_007` (1000 steps); rung 4, overfit `dev` (2000 steps); rung 5, train on train + train_extra,
+  validate on `val` (curves in TensorBoard under `runs/`, 3 seeds, none and SAM 3 classes). Rungs 3 and 4 are
+  diagnostics: nothing from them is a score.
+- **Oracle arm** (needs no training): the same cut by the *true* distance on dev and val. It is the ceiling of any
+  distance head at keep 0.5. If the ceiling does not beat density in Chamfer, no head can.
+- **Evaluation** (`experiments/configs/e57c.yaml`, `e57c_oracle.yaml`; `scene_eval`'s `keep_by`): Déjà View whole,
+  kept 0.5 by instance voxel density, kept 0.5 by the head, kept 0.5 by the oracle, on dev and val; Chamfer,
+  accuracy, completeness as E57a reports them.
+- **Baselines:** Déjà View (dev 3.500, val 5.102 cm), instance voxel density kept 0.5 (val 3.817), flag-refine-filter
+  (3.669), E57a's keep head (val 9.49 to 12.37 cm).
+- **Expected, written before running:** the head ranks well (rank correlation with the true distance clearly above
+  0) but loses to density in Chamfer, as E57a did: the true distance is as smooth over a surface as its error
+  label, so the cut still opens holes. The oracle shows how much of the gap is ranking and how much is the cut.
+- **Checks:** tests (the target is 0 on the GT and bounded by the shift of a displaced patch, the score drops the
+  largest predicted distance, the head overfits a smooth distance on CPU); the untrained head leaves the depth
+  bit for bit.
+
+## E57c: a distance head, rungs 0-4 and the oracle -> a perfect distance ranking only ties density on val; rung 5 (the learned head on val) not run (issue #57, 17.11.2026)
+- **Commits:** 3461588 (head, configs, tests), af740c1 (plan), this commit (oracle, figure, results); RTX 3080
+  shared with another job (5.4 GB taken), so the evaluation ran on the CPU. The runs' `git` says dirty: two
+  unrelated E27a figure files were modified in the tree, nothing of E57c.
+- **Commands:**
+  - `volume-refine --config configs/e57c_overfit_bedroom.yaml --out runs/e57c/overfit_bedroom --reserve-gb 0`, then
+    the same with `e57c_overfit_dev.yaml` (rungs 3 and 4; TensorBoard under `runs/e57c/*/tensorboard/`).
+  - `uv run python -m experiments.scripts.e57c_oracle` (the true distance of every dev and val pixel, 14 scenes),
+    `CUDA_VISIBLE_DEVICES= scene_eval --cfg experiments/configs/e57c_oracle.yaml --splits dev val`,
+    `e57c_table.py runs/e57c_oracle-20261117-200725 > results/e57c_oracle.txt`, `e57c_figures.py --head
+    volume-dist-none > results/e57c_figures.txt`.
+- **Ladder:** rung 0, 1.44M parameters (E41b's U-Net, kept to compare with E57a; over the 1M the ladder asks for);
+  rung 1, the target as an image (below): zero on well-reconstructed surfaces, bright at furniture outlines and
+  on whole wall patches Déjà View misplaces; rung 2, 0.19 s per step (batch 100 000 pixels, 8-20 views, 128
+  cells, 20 evaluations included), target computation 1.6 s per scene (Umeyama 0.3 s, nearest GT point 1.3 s);
+  rung 3 (bedroom, 1000 steps): held-out = train distance L1 0.00719 -> 0.00085 (median depths), rank correlation
+  with the true distance 0.94, still falling; rung 4 (dev, 2000 steps): 0.00639 -> 0.00102, correlation 0.89,
+  still falling. Both overfit (an 8x and 6x fall, not 0, in 1000 and 2000 steps), and the outputs differ per
+  scene (the three dev scenes' mean distances are 0.3, 0.7 and 0.9 %). Diagnostics: not scores.
+- **Oracle results** (Chamfer cm, accuracy / completeness / Chamfer, means over scenes, Déjà View K = 16, 20 views
+  at 504 px, kept 0.5 per scene; every Déjà View and density number repeats E27a and E57a):
+
+  | split | Déjà View | instance voxel density | true distance (oracle) |
+  |---|---|---|---|
+  | dev (3 scenes) | 4.675 / 2.324 / 3.500 | 2.998 / 3.597 / 3.298 | 1.521 / 3.931 / 2.726 |
+  | val (11 scenes) | 6.061 / 4.142 / 5.102 | 3.013 / 4.621 / 3.817 | 1.510 / 6.401 / 3.955 |
+
+  The oracle beats density in Chamfer on 3 of 3 dev scenes and on 5 of 11 val scenes; on val it is 0.14 cm worse in
+  the mean (ai_009_009 alone 2.4 cm worse, ai_004_003 0.8). A perfect ranker is far the more accurate (1.51 against
+  3.01 cm) and loses it in completeness (6.40 against 4.62).
+- **Figure:** `figures/e57c_bedroom.jpg` (views 18, 0, 12, 6): the true distance and the rung 4 head's prediction
+  (trained on this scene) agree closely; the pixels the true distance drops are whole surfaces (the wall and the
+  door in views 0 and 6, whole walls), while density drops pixels scattered over the image. Dropping the least
+  accurate half therefore leaves holes the GT then misses; dropping the densest half removes redundancy.
+- **Conclusion:**
+  - What is established: the cut at keep 0.5 by the *true* distance gains 0.57 cm on dev and loses 0.14 cm on
+    val against instance voxel density at the same q. That is one q; the accuracy oracle's curve on dev and val (`results/e57c_oracle_curve_dev_val.txt`, same script's first version, 4 min 57 s) shows its
+    Chamfer is lowest at q 0.7 (dev) and 0.8 (val), where it is 29% and 36% below Déjà View, and density was
+    not run at those q, so "a distance head cannot beat density" is not shown. It stands at q 0.5 only.
+  - What is not established: that the trained head loses. Rung 5 has not run: this checkout holds dev, val and
+    three other scenes, no train scene, and the job (3 seeds, 20k steps, ~1.5 h each on a shared GPU) is past
+    the 30-minute limit. Until it runs, the learned head is "not yet run", and the ceiling is a bound on what
+    ranking by distance can do, not a measurement of the head.
+  - The oracle bounds only rankings by distance; a head trained for completeness-aware cuts is not covered.
+- **Limits:** one cut (0.5); dev and val only (test untouched); the oracle's val gap to density (0.14 cm) is
+  inside what 11 scenes with one very hard scene (ai_009_009, Chamfer 11 to 16 cm) can move; the ladder's rungs 3
+  and 4 were one seed each.
+
+## Plan: E57c, three oracles = Déjà View cut by each pixel's true accuracy, completeness and Chamfer (issue #57, 17.11.2026)
+- **Goal:** the accuracy oracle (true distance of the pixel's point to the GT) lowers Déjà View's Chamfer by about a
+  third on dev and val (best q 0.7 to 0.8), but Chamfer rises again below that q. Peter's question: rank by the
+  quantity the evaluation scores. How far do a completeness oracle and a Chamfer oracle get?
+- **Definitions** (Déjà View's full, unfiltered cloud, aligned by one Umeyama onto the GT as the evaluation does;
+  every pixel has one prediction and one GT point, so both map 1:1 to pixels): accuracy a_i = distance of pixel i's
+  predicted point to the nearest GT point; completeness c_i = distance of pixel i's GT point to the nearest
+  predicted point; Chamfer (a_i + c_i) / 2. Each oracle drops the pixels of largest value: scores -a_i, -c_i,
+  -(a_i + c_i) / 2 (higher keeps). Completeness here is read off the unfiltered cloud, not recomputed for the kept
+  set; recomputing it per q is the later step.
+- **Setting:** `experiments/scripts/e57c_oracle_curve.py`, dev only (3 scenes), q = 1, 0.9 ... 0.1; each kept set is
+  realigned and scored as `scene_eval` scores the scene (accuracy, completeness, Chamfer). Ranking over the pixels
+  that have a GT point (all but 0.01% on dev). No density, no label scores.
+- **Expected, written before running:** the accuracy oracle repeats the previous run (best Chamfer 2.479 at q 0.7).
+  The completeness oracle drops pixels the cloud does not cover well, which are mostly bad pixels too, so it lowers
+  Chamfer as well, but less than the accuracy oracle on accuracy. The Chamfer oracle is best or tied at most q.
+
+## E57c, three oracles: ranking by the pixel's completeness or Chamfer is worse than by its accuracy at every q (dev, 17.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python experiments/scripts/e57c_oracle_curve.py --splits dev --per-scene`
+  -> `results/e57c_oracles_dev.txt`, 4 min 9 s on the CPU (3 scenes, 3 oracles x 10 q, each kept set realigned and
+  scored); the tree is dirty (unrelated E27a figure files, this script and plan uncommitted).
+- **Results** (dev, mean of 3 scenes; Chamfer cm, accuracy / completeness in cm in the file; q 1.0 is Déjà View, 3.500):
+
+  | q | accuracy oracle | completeness oracle | Chamfer oracle |
+  |---|---|---|---|
+  | 0.9 | 2.724 | 3.323 | 2.813 |
+  | 0.8 | 2.514 | 3.493 | 2.762 |
+  | 0.7 | **2.479** | 3.742 | 2.851 |
+  | 0.6 | 2.546 | 3.966 | 3.052 |
+  | 0.5 | 2.726 | 4.207 | 3.375 |
+  | 0.3 | 3.453 | 5.051 | 4.463 |
+  | 0.1 | 5.444 | 6.702 | 7.786 |
+
+  The accuracy oracle repeats the earlier run (best 2.479 at q 0.7). The completeness oracle is below Déjà View only
+  at q 0.9 (3.323) and above it from q 0.7 on; its accuracy at q 0.5 is 2.70 cm (accuracy oracle 1.52) and its
+  completeness 5.72 (3.93). The Chamfer oracle's best is 2.762 at q 0.8, 0.28 cm above the accuracy oracle's.
+- **Earlier run, accuracy oracle only, dev and val** (`results/e57c_oracle_curve_dev_val.txt`; its own mean line
+  pools both splits, the split means are computed from its per-scene lines): Chamfer at best q, dev 2.479 (q 0.7),
+  val 3.270 (q 0.8), against Déjà View's 3.500 and 5.102; every scene's best q is between 0.6 and 0.9.
+- **Against what was expected (written before running):** the completeness oracle was expected to lower Chamfer
+  at moderate q, and the Chamfer oracle to be best or tied; neither holds. 
+- **Why (read from the definitions, not tested):** c_i of the unfiltered cloud is large where the GT is not covered
+  by any prediction nearby; those pixels are the ones whose neighbours' points are the nearest points of the
+  uncovered GT, so dropping them uncovers more GT. It measures a coverage defect, not what removing the pixel
+  gains. Averaging it with a_i dilutes a_i, the signal that works.
+- **Limits:** dev only (3 scenes); completeness read off the unfiltered cloud, not recomputed per q (the planned next
+  step); one scene's pixels without GT (0.01%) are not ranked; no density row, so no equal-q comparison with it.
+
+## Plan: E57c, marginal oracle = drop a point iff its accuracy gain exceeds the completeness it costs (issue #57, 17.11.2026)
+- **Goal:** Peter's simple Chamfer oracle: per point, the accuracy gain from dropping it minus the completeness
+  drop. The earlier (a_i + c_i) / 2 oracle (c_i of the unfiltered cloud) lost to the accuracy oracle at every q.
+- **Definition** (full aligned cloud, one removal at a time): dropping point i lowers the accuracy mean by
+  (a_i - mean a) / (K - 1) and raises the completeness mean by m_i / N, m_i = sum of (d2 - d1) over the GT points
+  whose nearest predicted point is i (d1, d2 their nearest and second nearest). With K ~ N it helps Chamfer iff
+  a_i - mean a > m_i. Score (higher keeps) m_i - a_i, cut at q as before; also the cut it defines itself, a_i - mean a
+  > m_i, which needs no q. First order: neighbours that cover each other both have m_i ~ 0, and dropping both uncovers
+  more than the sum.
+- **Setting:** `e57c_oracle_curve.py --oracles marginal`, dev, q = 1 ... 0.1, no density.
+- **Expected, written before running:** below the accuracy oracle at fixed q (it drops redundant neighbour pairs
+  together); its own cut keeps a share of the pixels near q 0.7 to 0.9 and lands close to the accuracy oracle's best.
+
+## E57c, marginal oracle: dropping a point iff its accuracy gain exceeds the completeness it costs -> dev Chamfer 3.500 -> 2.202 (q 0.6), 2.238 at its own cut, below the accuracy oracle at every q <= 0.9 (dev, 17.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python experiments/scripts/e57c_oracle_curve.py --splits dev --per-scene
+  --oracles marginal` -> `results/e57c_oracle_marginal_dev.txt`, 1 min 40 s (CPU). Tree dirty as before.
+- **Results** (dev, mean of 3 scenes; accuracy / completeness / Chamfer, cm; Déjà View 4.675 / 2.324 / 3.500):
+
+  | q | marginal oracle | accuracy oracle (Chamfer only) |
+  |---|---|---|
+  | 0.9 | 3.009 / 2.324 / 2.667 | 2.724 |
+  | 0.7 | 1.987 / 2.526 / 2.257 | 2.479 |
+  | 0.6 | 1.720 / 2.683 / **2.202** | 2.546 |
+  | 0.5 | 1.530 / 2.899 / 2.214 | 2.726 |
+  | 0.3 | 1.295 / 3.516 / 2.406 | 3.453 |
+  | 0.1 | 1.280 / 4.358 / 2.819 | 5.444 |
+
+  Its own cut (a_i - mean a > m_i, no q chosen) keeps 0.678 of the pixels (0.706, 0.653, 0.674 per scene) and scores
+  1.914 / 2.563 / **2.238**; per scene Chamfer 1.00, 1.31, 4.40 against Déjà View's 1.60, 1.85, 7.05.
+- **Against what was expected (written before running):** it was expected below the accuracy oracle at fixed q because
+  neighbours that cover each other get dropped together; it is above it (better) at every q from 0.9 to 0.1, and its
+  own cut lands at q 0.68, as expected. The first-order marginals cost little here.
+- **Reading:** a point costs completeness only if it is the nearest of GT that nothing else is near, so dropping
+  the points with m_i ~ 0 and large a_i first leaves completeness at 2.32 cm down to q 0.9, where the accuracy oracle
+  already loses 0.1. The best Chamfer is 37% below Déjà View's (accuracy oracle's best: 29%).
+- **Limits:** dev only (3 scenes), no val; the optimum is unknown (the exact problem is a facility-location
+  problem, NP-hard in general, and this is the first step of its drop heuristic), so 2.202 is not a lower bound; no density row
+  at equal q; oracle scores use GT.
+
+## Plan: E57c, oracle zoo = every ranking of Déjà View's pixels we could think of, top 5 swept against density and confidence (issue #57, 17.11.2026)
+- **Goal (Peter, overnight, no questions possible):** list all oracles (rankings that use the GT, no training), rank
+  them, sweep the top 5 over q on dev, and compare with the two real rankings that exist today, instance voxel density
+  (E45) and Déjà View's own confidence, at equal q (neither was measured at q != 0.5 so far).
+- **Brainstorm and literature.** Sparsification plots with an oracle that sorts by the true error are standard for
+  uncertainty (Ilg et al. 2018 for flow; AUSE = area between the method's curve and the oracle's): our accuracy
+  oracle. MVS point filters are learned confidences or classifiers (DeepC-MVS, Kuhn et al. 3DV 2020; DELS-MVS,
+  Sormann et al.; per-class outlier classifiers for urban MVS, ISPRS 2018). Subset selection for Chamfer is
+  k-median / facility location (monotone submodular variants have a 1 - 1/e greedy guarantee, not this signed
+  objective); no paper found that selects a point subset by Chamfer. Facility-location facts and these references
+  come from a web search, not read in full.
+- **Candidates** (pixel i, a_i accuracy, m_i completeness cost of dropping it alone):
+  1. accuracy -a_i (done: dev best 2.479); 2. completeness -c_i (done, worse); 3. (a_i + c_i)/2 (done, worse);
+  4. marginal m_i - a_i, one shot (done: 2.202 at q 0.6); 5. reverse greedy on the exact gain, recomputed every round
+  (10% steps; ends in `greedy-own` when each round drops all positive-gain pixels); 6. same-pixel GT error e_i
+  (what Déjà View's confidence loss targets, conf* = alpha / (gamma E[e_i])); 7. window-averaged accuracy (what a head
+  that sees neighbourhoods but not single pixels could reach: separates variance from smooth bias); 8. F-score at
+  tolerance tau: optimal is a hard cut a_i > tau (a pixel with a_i > tau covers no GT within tau), the same ranking as 1;
+  9. exact subset: k-median with opening costs, NP-hard in general, only the greedy path is tried; 10. swap local
+  search from the greedy solution: a refinement of 5, not run; 11. oracles by view or instance (drop a whole
+  segment): not a pixel ranking, left out.
+- **Ranking of the candidates before running** (potential for Chamfer, and how learnable the score is from the
+  prediction alone): 5 and 4 best potential; 1 the basis of any distance head and the sparsification standard; 6 the
+  only one a confidence loss can reach as it stands; 7 the realistic cap of a head with a receptive field; 2, 3
+  measured worse than 1, 8 equals 1, 9 and 10 cost more than they tell. **Top 5 swept: accuracy, marginal, greedy
+  (10% steps) with greedy-own, pixel, smooth (7 x 7).** Rankings run with them: density, confidence.
+- **Setting:** `e57c_oracle_curve.py --splits dev --per-scene`, CPU, q = 1 ... 0.1, Chamfer averaged over q as an
+  AUSE-like area. Tree dirty.
+- **Expected, written before running:** greedy <= marginal <= accuracy in Chamfer at every q; pixel close to
+  accuracy (slightly worse); smooth clearly worse than accuracy at small q if flying points are single pixels, close to
+  it if the errors are smooth; confidence between density and accuracy oracle; density no better than the confidence
+  at q <= 0.7. The plan was written a few minutes after the run was started; nothing had been read from it yet.
+
+## E57c, oracle zoo: a greedy Chamfer oracle reaches 2.0 cm on dev (-43%), the accuracy oracle 2.48, density 3.19, Déjà View's confidence never beats the uncut cloud (dev, 17.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python experiments/scripts/e57c_oracle_curve.py --splits dev
+  --per-scene` -> `results/e57c_oracle_zoo_dev.txt` (11 min, CPU; 200 s per scene, almost all of it the density
+  baseline and SAM 3 linking); `--rankings greedy --grid 0.7 0.5 0.3 --step 0.05` and `--grid 0.6 0.5 0.4 --step 0.025`
+  -> `results/e57c_greedy_steps_dev.txt` (30 s per scene). Dev (3 scenes, 20 views at 504 px, Déjà View K = 16), one
+  Umeyama per cut, cm. Tree dirty as before.
+- **Results** (dev mean; Chamfer in cm by q, Déjà View uncut 3.500 = accuracy 4.675 / completeness 2.324):
+
+  | ranking | q 0.9 | 0.7 | 0.6 | 0.5 | 0.4 | 0.3 | 0.1 | best | mean over q 0.1-1 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | greedy, 10% steps (oracle) | 2.667 | 2.181 | 2.081 | 2.048 | 2.057 | 2.099 | 2.277 | **2.048** (0.5) | 2.343 |
+  | marginal, one shot (oracle) | 2.667 | 2.257 | 2.202 | 2.214 | 2.283 | 2.406 | 2.819 | 2.202 (0.6) | 2.528 |
+  | accuracy (oracle) | 2.724 | 2.479 | 2.546 | 2.726 | 3.028 | 3.453 | 5.444 | 2.479 (0.7) | 3.254 |
+  | pixel: same-pixel GT error (oracle) | 2.791 | 2.722 | 3.013 | 3.560 | 4.359 | 5.347 | 10.549 | 2.713 (0.8) | 4.549 |
+  | smooth: accuracy, 7 x 7 mean (oracle) | 2.848 | 2.972 | 3.334 | 3.925 | 4.781 | 6.777 | 17.094 | 2.769 (0.8) | 5.770 |
+  | instance voxel density | 3.429 | 3.277 | 3.188 | 3.299 | 5.307 | 7.757 | 53.873 | 3.188 (0.6) | 10.221 |
+  | Déjà View confidence | 4.289 | 12.753 | 17.884 | 25.376 | 31.955 | 41.512 | 99.769 | 3.500 (1.0) | 30.827 |
+
+  Greedy step size (K rounds to q 0.5): one shot (K = 1) 2.214, 10% (K = 5) 2.048, 5% (K = 10) 2.020, 2.5% (K = 20)
+  1.993: converged near 2.0 (-43%). `greedy-own` (drop all positive gains each round, 16 rounds) ends at q 0.159 with
+  2.348, worse: simultaneous drops overshoot. The one-shot marginal's own cut: 2.238 at q 0.678. Per scene
+  (ai_010_007 / ai_006_007 / ai_044_001; uncut 1.601 / 1.846 / 7.053) the best Chamfer of greedy 0.87 / 1.04 / 4.12,
+  marginal 0.93 / 1.21 / 4.39, accuracy 1.07 / 1.41 / 4.92, density 1.44 / 1.69 / 6.36, confidence 1.60 / 1.81 / 6.98:
+  the order greedy < marginal < accuracy < density < confidence holds in each scene.
+- **Against what was expected (written before running):** greedy <= marginal <= accuracy at every q: yes. Pixel
+  close to accuracy: no, much worse (2.713 best, 3.56 at q 0.5 against 2.73). Smooth clearly worse at small q: yes,
+  but its accuracy hardly suffers (q 0.5: 1.626 against 1.521); the cost is completeness (6.22 against 3.93).
+  Confidence between density and the accuracy oracle: wrong, it is far below density; its accuracy is better than
+  density's at equal q (q 0.5: 2.220 against 3.001, as in E45) but its completeness collapses (48.5 cm at q 0.5), so
+  at no q does it beat the uncut cloud in Chamfer.
+- **Reading.**
+  1. The step from accuracy (2.48) to marginal/greedy (2.0-2.2) is the completeness term m_i: what a pixel contributes
+     that no other pixel, in any view, covers. Pixel-wise scores (accuracy, same-pixel error, confidence) cannot see it; only
+     a score that depends on the other views' points can.
+  2. Confidence and density drop whole surfaces (completeness up to 100+ cm at q 0.1) where the oracles drop redundant
+     points of the same views; a plausible cause, not tested here, is that their low scores sit on the same surface in every view, so a cut removes what nothing else covers.
+  3. Same-pixel error is a worse ranking than distance to the nearest GT point (a point sliding along a surface is not
+     wrong): the target of Déjà View's confidence loss, taken to its limit (conf* = alpha / (gamma E[e_i]), E57c
+     discussion), ranks like `pixel` at best, not like `accuracy`, and not like greedy.
+  4. The accuracy gain survives 7 x 7 smoothing, the completeness does not: accuracy errors are spatially coherent
+     enough for a network with context; deciding what is redundant needs per-pixel resolution across views.
+- **Design consequence (a recommendation, not a measurement).** A better confidence loss for the backbone would stay
+  pointwise, so it cannot reach m_i, and it needs the backbone retrained; a post-hoc filter head sees every view's
+  points at once (E41b's volume features do), works on any backbone's output (Déjà View, Solv3R, SegVGGT), and
+  can be trained on the one-shot marginal label (`a_i - mean a > m_i`, binary, its own cut ~ q 0.68, no q to choose; the
+  greedy path as a soft target is a refinement) or the greedy gain. Next experiment: E57a's head with that label,
+  rungs 3-5, against density at equal q on val, with GT labels computed in about 1 min per scene.
+- **Limits:** dev only (3 scenes), no val, one seed (oracles have none); every oracle uses GT and none is trained, so
+  none is a result of a method. The GT cloud is the depth of the same 20 views, so completeness is measured on points other
+  views also cover: the m_i term, and with it greedy's edge, may be smaller against a mesh of the whole scene.
+  Greedy is a heuristic: 1.993 is not a lower bound. Facility-location and literature statements above are from a web
+  search, not read in full. DV's training config was read from the installed `dvlt` package, not the released checkpoint's.
+
+## E57c, clouds: the bedroom's points after each ranking's cut at its best q (dev q, bedroom ai_006_007, 18.11.2026)
+- **What:** `uv run python -m experiments.scripts.e57c_clouds > experiments/results/e57c_clouds.txt` (1 min, GPU
+  for the splats) -> `figures/e57c_clouds_{dollhouse_colors,dollhouse_shaded,view18_pulledback_colors,view0_...,view12_...,view6_...}.jpg`.
+  Each panel: the pixels a ranking keeps of Déjà View's 20-view cloud, aligned onto the GT, in image colors (the
+  dollhouse also shaded), same camera in every panel. q = the ranking's best dev-mean q from
+  `results/e57c_oracle_zoo_dev.txt` (greedy 0.5, marginal 0.6, accuracy 0.7, same-pixel error 0.8, smoothed accuracy
+  0.8, density 0.6). Déjà View's confidence is cut as `dvlt.viz.pointcloud.build_pointcloud` does (drop the pixels
+  below a percentile of the confidence; the viewer's default is 50), not at a best q, because on dev no q beat the
+  uncut cloud. I took that from the installed package's viewer, not from the paper, which I have not read.
+- **Bedroom Chamfer of each panel (cm; Déjà View uncut 1.846):** greedy 1.135, marginal 1.276, accuracy 1.429,
+  same-pixel 1.595, smooth 1.570, density 1.725, confidence at 0.5 **6.293**. The order matches dev's.
+- **What the figures show** (looked at the dollhouse in colors and shaded and the interior view 18; views 0, 12, 6 saved, not
+  looked at): the oracles remove the debris above the floor and in front of the bed; confidence at 0.5 leaves
+  white holes in the floor, the right wall and the ceiling side, i.e. whole surfaces, while the bed stays; density keeps most
+  of the floor debris; the streaks between the bedpost and the camera in view 18 survive every cut, the greedy one
+  included. Why was not looked into.
+- **Limits:** one scene, chosen as the presentation scene before this run, not a sample; dev's best q, not the bedroom's own.
+
+## Plan: E57c, confidence in the greedy oracle = (A) greedy with the accuracy estimated as kappa / conf, (B) confidence cut first, then the oracle's points back (issue #57, 18.11.2026)
+- **Goal (Peter):** (A) how much of the greedy oracle's 2.05 cm survives when only its accuracy term is estimated from Déjà View's confidence
+  (conf* = alpha / (gamma E[error]) -> error estimate kappa / conf; m_i still true); (B) cut by confidence, then add back the pixels the
+  greedy oracle keeps if they lie farther than delta from the confidence-kept cloud. The gaps this leaves in the surface are for later.
+- **Setting:** `e57c_hybrid.py --splits dev`, CPU, dev 3 scenes, 20 views, cm, the evaluation's cuts. A: kappa one scalar per scene,
+  mean(kappa / conf) = the scene's true mean accuracy (a GT statistic, disclosed), also x0.5 and x2 (sensitivity, not tuning:
+  all three reported), q = 0.9 ... 0.1, with the true-a greedy in the same run. B: q_c in {0.5, 0.7, 0.9} (0.5 = the viewer's default),
+  greedy q_g = 0.5, delta in {0, 1, 2, 4, 8, inf} cm (0 = union, inf = confidence alone); control `fill`: every pixel farther than
+  delta is added, oracle or not (shows whether the oracle's information matters beyond hole filling).
+- **Expected, written before running:** A: between the accuracy oracle (best 2.479) and true-a greedy (2.048), say 2.3-2.8, so below density
+  (3.188); not better than the true-a greedy at any q. B: far below the confidence cut's 25.4 at q_c 0.5; the best delta at 2-4 cm with
+  Chamfer near 2.5-3.5; `fill` clearly worse than the oracle's points at the same delta; the union (delta 0) keeps the oracle's
+  accuracy gain but is the worst for the share kept.
+
+## E57c, confidence in the greedy oracle: (A) kappa / conf as the accuracy gives 2.70-2.88 cm (true-a greedy 2.05, density 3.19); (B) confidence first and the oracle's points back never beats the oracle alone (dev, 18.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python -m experiments.scripts.e57c_hybrid --splits dev` ->
+  `results/e57c_hybrid_dev.txt` (9 min, CPU, 3 min per scene, mostly density and SAM 3 linking in `rank_scores`). Dev, cm,
+  Déjà View uncut 3.500 (4.675 / 2.324). Tree dirty.
+- **A. Greedy with the accuracy from confidence** (true m_i; kappa per scene from the true mean accuracy; Chamfer, best q in brackets):
+
+  | accuracy used | q 0.9 | 0.7 | 0.5 | 0.3 | best (q) |
+  |---|---|---|---|---|---|
+  | true a_i (greedy oracle) | 2.667 | 2.181 | 2.048 | 2.099 | 2.048 (0.5) |
+  | kappa / conf x0.5 | 2.930 | 2.763 | 2.727 | 2.806 | 2.704 (0.6) |
+  | kappa / conf x1 | 3.021 | 2.941 | 2.919 | 3.068 | 2.882 (0.6) |
+  | kappa / conf x2 | 3.141 | 3.162 | 3.176 | 3.401 | 3.117 (0.6) |
+  | for reference: accuracy oracle / density | 2.724 / 3.429 | 2.479 / 3.277 | 2.726 / 3.299 | 3.453 / 7.757 | 2.479 / 3.188 |
+
+  At q 0.5, x1: accuracy 2.19 (true-a greedy 1.53), completeness 3.65 (2.56): the estimated error ranks worse, and the true m_i
+  cannot make up for it. All three kappa scales are below density and the uncut cloud at every q <= 0.9, none below the accuracy
+  oracle's best (2.479, true a, no m). Smaller kappa (more weight on m_i) is better at all three values; the trend ends at least
+  below x0.5, not searched.
+- **B. Confidence cut at q_c, then the greedy oracle's pixels (q_g 0.5) farther than delta from the kept cloud** (kept share, Chamfer):
+
+  | q_c | delta 0 (union) | 1 cm | 2 cm | 4 cm | 8 cm | inf (confidence alone) | `fill` (any pixel) delta 1 / 8 cm |
+  |---|---|---|---|---|---|---|---|
+  | 0.5 | 0.696, 2.524 | 0.654, 2.551 | 0.625, 2.589 | 0.603, 2.644 | 0.588, 2.716 | 0.500, 25.376 | 0.920, 3.541 / 0.756, 3.652 |
+  | 0.7 | 0.806, 2.666 | 0.781, 2.684 | 0.762, 2.704 | 0.747, 2.733 | 0.737, 2.781 | 0.700, 12.753 | 0.950, 3.517 / 0.839, 3.552 |
+  | 0.9 | 0.926, 2.889 | 0.920, 2.893 | 0.914, 2.900 | 0.909, 2.913 | 0.906, 2.939 | 0.900, 4.289 | 0.987, 3.496 / 0.941, 3.390 |
+
+  Per scene, q_c 0.5 union: 1.08 / 1.40 / 5.09 (ai_010_007 / ai_006_007 / ai_044_001), against uncut 1.60 / 1.85 / 7.05 and the greedy
+  oracle alone at q 0.5: 0.87-1.04-4.12 (best per scene).
+- **Against what was expected (written before running):** A: 2.3-2.8, between the accuracy oracle and the true-a greedy, below density:
+  x0.5 inside (2.70), x1 just outside (2.88), x2 outside (3.12); all below density, none below the true-a greedy, as expected. B: far
+  below confidence's 25.4: yes; best delta 2-4 cm, Chamfer 2.5-3.5: wrong, the best delta is 0 (every oracle pixel back, 2.524) and
+  Chamfer rises monotonically with delta; `fill` clearly worse than the oracle's points: yes (3.4-3.65 against 2.5-2.9, close to the
+  uncut 3.50).
+- **Reading.**
+  1. Confidence as the accuracy estimate keeps about half of the greedy oracle's gain over the uncut cloud at its best q
+     ((3.50 - 2.70) / (3.50 - 2.05) = 55% at x0.5, 43% at x1) and beats density (3.19) once the completeness term is known; the
+     completeness term must be estimated for it to count, and this run does not do that.
+  2. B is dominated by the oracle alone at equal share (union 0.696: 2.524; greedy at 0.7: 2.181): the confidence-kept pixels
+     contain many that the oracle would drop (union accuracy 2.45 against 1.99 at the same share). The more is cut by confidence
+     first, the better the union (q_c 0.5 < 0.7 < 0.9), towards the oracle alone. Confidence as a first stage costs; as a feature
+     of a learned oracle-label head it may still help.
+  3. Filling the holes by distance alone brings the uncut cloud back (3.4-3.65, uncut 3.50): the distance carries no information about
+     which pixels are right; what helps is the oracle's selection, so the gaps in the surface are the oracle's job, not a geometric one.
+- **Limits:** dev only (3 scenes), no val; A's kappa uses one GT statistic per scene; the scale was not searched beyond three values;
+  B's oracle points use the GT, so it is a ceiling of "confidence first", not a method; the gaps in the surface that B leaves were not
+  measured separately from completeness.
+
+## E57c, clouds of the confidence hybrids: the bedroom after A and B (18.11.2026)
+- **What:** `uv run python -m experiments.scripts.e57c_clouds_hybrid > experiments/results/e57c_clouds_hybrid.txt` ->
+  `figures/e57c_clouds_hybrid_{dollhouse_colors,dollhouse_shaded,view18_pulledback_colors,view0_...,view12_...,view6_...}.jpg`; same cameras and splats as
+  `e57c_clouds` (its drawing is now `render`). Bedroom Chamfer (cm; uncut 1.846): greedy true a q 0.5 1.135; A kappa/conf x0.5 q 0.6 1.447,
+  x1 q 0.6 1.500; B confidence 0.5 + oracle, delta 0: 1.400 (kept 0.70), delta 8 cm: 1.646 (0.57); control, any pixel farther than 8 cm:
+  2.064 (0.71); confidence alone 6.293 (0.50). The same order as dev's.
+- **Looked at** the dollhouse in colors and the interior view 18 (views 0, 12, 6 saved, not looked at): A's clouds are as clean as the
+  oracle's above the floor and in front of the bed, with a few holes in the bed cover in view 18; B with delta 8 cm shows the gaps Peter
+  expected as thin white seams, 8 cm wide, along the confidence cut's boundary (a ring around the wall hole in view 18), and B's delta 0 is
+  seamless; the control brings the debris above the floor back. One scene, dev's q.
+
+## Plan: E57c, verifier = the SAM 3 masks carry the confident pixels across the confidence holes, Déjà View's own points come back where they agree (issue #57, 18.11.2026)
+- **Goal (Peter):** fill the confidence cut's gaps and the band seams of `e57c_hybrid` B with the segmentation masks, without worsening what the
+  confidence cut already covers; visualize confidence with the cut as an isoline next to the oracle values.
+- **Idea:** E58a filled the flagged pixels' depth from the kept ones (weighted Laplace membrane, SAM 3 edges cut) and lost: Déjà View's own
+  depth at those pixels (3.20 % error) beats every fill (3.61 % SAM 3). So no new depth: the membrane only verifies. A dropped pixel returns with
+  its own Déjà View point iff |membrane depth / Déjà View depth - 1| <= eps; a known (confident) pixel is never touched; a flying point off the
+  extrapolated surface stays out. No GT, no oracle in the rule.
+- **Setting:** `e57c_verify.py`; dev, cm, the evaluation's cuts; q_c in {0.5 (viewer default), 0.7}, eps in {0.5, 1, 2, 4} % (all reported, not
+  tuned; E58a's fill error within SAM 3 instances is about 1 %); diagnostics: mean a_i of the pixels that come back, their share inside the greedy
+  oracle's keep set (q 0.5). `--figure`: bedroom views 18, 0, 12, 6, columns image + SAM 3 borders, confidence, a_i, m_i, greedy keep, membrane
+  residual, the isoline in each.
+- **Expected, written before running:** Chamfer far below the confidence cut alone (dev 25.4 at q_c 0.5, 12.8 at 0.7) and the best eps at 1-2 %;
+  not below the oracle fill's union (2.524, 2.666), and about at density (3.19); the pixels that come back more accurate than the dropped ones
+  that stay out, and more often in the oracle's set than the 0.5 base rate. Failure mode I expect: planes only, so objects and the bed
+  stay holes, and flying points close to a wall pass the test.
+- **Added before the dev run, after looking at the bedroom figure** (`results/e57c_verify_bedroom.txt`, `figures/e57c_verify_bedroom.jpg`: bedroom
+  Chamfer of the confidence cut at 0.5 6.293 -> 3.546 at eps 2 %, 3.109 at 4 %, uncut 1.846; the pixels back are in the oracle's set 0.45-0.47 of the time):
+  the confidence isoline differs strongly between views (view 6's room is almost all on one side, view 0's almost all on the other), and the
+  membrane's residual is small near the known pixels and large far from them (extrapolation to the image border). So two more confidence cuts are
+  scored: confidence ranked within each view (q 0.5) and within each SAM 3 instance (q 0.5), same eps. Expected: both lose less completeness than
+  the global cut (dev 48.5 at q 0.5); the verifier brings Chamfer down further but not below the uncut 3.500.
+
+## E57c, verifier result: the masks' membrane does not rescue the confidence cut on dev; per-instance ranking helps most, no cut reaches the uncut 3.500 (dev, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_verify --figure` (bedroom, 1 min) and `CUDA_VISIBLE_DEVICES= uv run python
+  -m experiments.scripts.e57c_verify --splits dev` (5 min) -> `results/e57c_verify_{bedroom,dev}.txt`, `figures/e57c_verify_bedroom.jpg`. Dev, cm. Tree dirty.
+- **Results** (dev mean Chamfer, kept share in brackets; uncut 3.500, density best 3.188, oracle union 2.524):
+
+  | confidence cut | alone | + verifier eps 1 % | 2 % | 4 % |
+  |---|---|---|---|---|
+  | global q 0.5 | 25.376 (0.50) | 15.893 (0.57) | 14.973 (0.61) | 14.037 (0.65) |
+  | global q 0.7 | 12.753 (0.70) | 10.092 (0.75) | 9.650 (0.78) | 8.883 (0.81) |
+  | per view q 0.5 | 23.695 (0.50) | 16.958 (0.59) | 14.353 (0.63) | 13.099 (0.69) |
+  | per instance q 0.5 | 5.354 (0.50) | 4.798 (0.61) | 4.674 (0.65) | 4.490 (0.71) |
+
+  Per scene (eps 2 %; ai_010_007 / ai_006_007 / ai_044_001): global 0.5 4.38 / 3.55 / 36.99, global 0.7 3.34 / 2.37 / 23.25, per instance 2.24 / 2.45 / 9.34;
+  uncut 1.60 / 1.85 / 7.05. The mean accuracy of the pixels that come back is 5.0-5.7 cm; the dropped ones average 7.1 (global 0.5) and 5.75 (per
+  instance) cm, derived from the uncut 4.675 and the kept accuracy, so the check is somewhat selective for the global cut and not for the per-instance one.
+- **Against what was expected:** Chamfer far below the confidence alone: yes (25.4 -> 14.0); best eps 1-2 %: no, it falls monotonically to 4 %, the
+  largest tried; not below the oracle union and about at density: no, far above both and above the uncut cloud; per view / per instance lose less
+  completeness: per instance yes (7.1 cm against 48.5), per view barely (45.1); the verifier below uncut: no, at no setting.
+- **Reading** (bedroom figure, all four presentation views): the confidence is a smooth per-view map and its median isoline cuts whole regions per view
+  (view 6's room mostly on one side, view 0's on the other); the oracle drops most of views 0 and 6 and keeps other views of the same surfaces (a view
+  selection per surface patch, m_i being the cross-view redundancy); [correction, see the seams entry below: its keep mask is not blockwise per (view, instance),
+  only 15.5 % of the pixels lie in blocks it keeps < 10 % or > 90 % of]. The membrane residual is small only near the
+  known pixels and grows to > 30 % toward the image border (extrapolation), so the verifier fills bands and holes between known pixels, not large
+  regions, and ai_044_001, where the confidence leaves most of the scene out, stays at 9-37 cm.
+- **Limits:** dev, 3 scenes; eps not tuned beyond four values and still improving at the edge; no val.
+
+## Plan: E57c, confidence ranked within each voxel (issue #57, 18.11.2026)
+- **Goal:** the verifier above fails because a global confidence cut removes surfaces that every view sees low; the oracle thins redundant views instead.
+  Peter asked for an elegant version that fills the gaps without worsening surfaces the confidence already covers. Rule, no GT, no mask test: in each
+  voxel of the 20-view cloud keep the most confident round(q n) of its n pixels (`keep_top_within`; n = 1 is dropped for q <= 0.5). A surface is thinned where several
+  views cover it and kept where one does: no hole, no band; the pixels dropped first in a voxel are the least confident ones.
+- **Setting:** `e57c_voxel_conf.py --splits dev` (started before this entry was written, nothing read from it yet); voxel side = `pixel_footprint` x {1, 2, 4}, grouped
+  by SAM 3 instance or not, q in {0.9, 0.7, 0.5, 0.3}; dev, cm, the evaluation's cuts. Baselines at equal q: density (q 0.9 3.429, 0.7 3.277, 0.5 3.299, 0.3 7.757), global
+  confidence (4.289 / 12.753 / 25.376 / 41.512), accuracy oracle (2.724 / 2.479 / 2.726 / 3.453), greedy oracle (2.667 / 2.181 / 2.048 / 2.099).
+- **Expected, written before running:** completeness stays near the uncut 2.3-3 cm down to q 0.5 for every side (a voxel keeps pixels); Chamfer below density at
+  q 0.9 and 0.7 (it is thinning by confidence, which was the better accuracy ranker), the best side x2 or x4; not below the accuracy oracle; at q 0.3 it
+  drops to where voxels hold few pixels and gets worse (singletons dropped).
+
+## E57c, confidence ranked within each voxel: completeness is kept, accuracy is not gained -> Chamfer 3.30-3.70 at every setting, density's level at best (dev, 18.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python -m experiments.scripts.e57c_voxel_conf --splits dev` -> `results/e57c_voxel_conf_dev.txt` (6 min, CPU). Dev, cm,
+  uncut 3.500 (4.675 / 2.324). Tree dirty.
+- **Results** (dev mean; kept share, accuracy / completeness / Chamfer; no grouping by instance, the per-instance rows within 0.03 cm of them):
+
+  | voxel side | q 0.9 | q 0.7 | q 0.5 | q 0.3 |
+  |---|---|---|---|---|
+  | x1 footprint | 0.974, 4.729 / 2.332 / 3.530 | 0.792, 4.979 / 2.381 / 3.680 | 0.298, 3.026 / 7.219 / 5.123 | 0.216, 3.170 / 7.284 / 5.227 |
+  | x2 | 0.924, 4.757 / 2.347 / 3.552 | 0.713, 4.877 / 2.447 / 3.662 | 0.465, 3.817 / 2.834 / **3.326** | 0.298, 3.940 / 2.983 / 3.462 |
+  | x4 | 0.902, 4.698 / 2.365 / 3.532 | 0.702, 4.676 / 2.485 / 3.580 | 0.496, 4.233 / 2.699 / 3.466 | 0.300, 4.273 / 2.970 / 3.621 |
+
+  Density at equal q: 3.429 / 3.277 / 3.299 / 7.757; global confidence 4.289 / 12.753 / 25.376 / 41.512; accuracy oracle 2.724 / 2.479 / 2.726 / 3.453.
+- **Against what was expected (written before running):** completeness near uncut down to q 0.5: yes for x2 and x4 (2.7-2.8), no for x1 (7.2: its share is 0.30, not 0.5, as it drops voxels
+  with one pixel; how many pixels those are was not counted); Chamfer below density at q 0.9 and 0.7: no (3.55 / 3.66 against 3.43 / 3.28); not below the accuracy oracle: yes;
+  worse at q 0.3: yes for x1, mild for the others.
+- **Reading.** The cut no longer removes surfaces, and it no longer gains accuracy: at share ~0.5 the kept accuracy is 3.8-4.2 cm (x2, x4) against 2.22 for the global
+  confidence cut and 3.00 for density. Within a voxel the points sit on one patch of surface and their confidences say little about which are the accurate ones; what
+  the global confidence knows is which regions are bad, and that is exactly what removes whole surfaces. So no confidence-only rule here (global, per view, per instance,
+  membrane-verified, per voxel) gets below the uncut 3.500 by more than 0.2 cm; the oracle's 2.0-2.5 needs a signal that separates accurate from inaccurate points of the
+  same patch, which Déjà View's confidence does not provide.
+- **Not tried (candidates, not results):** cross-view consensus inside a voxel (each point's depth against the other views' points of its voxel, E45's MVS-consistency
+  filter lost to density by 0.13 cm as a global filter); the within-voxel ranking by the true a_i as the ceiling of any per-voxel thinning; the learned head on the greedy label
+  with confidence and voxel statistics as inputs (what the volumetric head already sees).
+- **Limits:** dev only; x1/x2/x4 and q on four values; one grouping rule; no val.
+
+## E57c, seams: the confidence's drop order and the oracle's side by side with the SAM 3 masks, and the pixels of the 8 cm gate (bedroom, 18.11.2026)
+- **What:** `uv run python -m experiments.scripts.e57c_seams > experiments/results/e57c_seams.txt` (1 min) -> `figures/e57c_seams_views.jpg` (views 18, 0, 12, 6)
+  and `figures/e57c_seams_mask.jpg` (the same, cropped to each view's largest SAM 3 mask, white outside). It replaces the verifier figure as the picture for deriving a
+  combination (Peter's request: both rankings per pixel, the masks, and the combination at 8 cm). Columns: confidence's drop order v; the greedy oracle's drop order v
+  (the largest kept fraction at which the pixel is still kept, from the greedy path in 10 % rounds: the oracle's own value); SAM 3 masks on the image; the combination of
+  `e57c_hybrid` B (q_c 0.5, q_g 0.5, delta 8 cm): kept by confidence, added from the oracle (> 8 cm from kept), kept by the oracle but within 8 cm (the seam), dropped.
+- **Shares of the GT pixels:** dropped 0.305, kept by confidence 0.500, oracle added 0.070, seam 0.125. Of the 0.5 the oracle keeps, 0.30 lie in the confidence's kept set.
+- **Looked at** both figures. Inside a large mask (the walls) the confidence is a smooth field, green in the middle of the wall and red toward its borders, and its isoline cuts the
+  wall in one curve; the oracle's order on the same wall is speckled at pixel scale with a large-scale trend (view 6's wall almost all red, view 12's left part green); the seam
+  (orange) is a band on the dropped side of the isoline, up to the width of the gate, with the blue pixels behind it.
+- **Check:** the share of GT pixels lying in a (view, SAM 3 instance) block that a cut keeps < 10 % or > 90 % of (449 blocks): confidence q 0.5 0.379, greedy oracle q 0.5 0.155. The
+  oracle is not an all-or-nothing choice per (view, mask).
+- **Limits:** one scene; the order v of the oracle is the greedy path's, with 10 % rounds; the purity check is a count, not a test of any method.
+
+## E57c, view 18 in four colors: the gate's seam is the thick blue band, the reintroduced pixels sit only far from the confidence's kept set (bedroom, 18.11.2026)
+- **What:** `uv run python -m experiments.scripts.e57c_four_colors > experiments/results/e57c_four_colors.txt` -> `figures/e57c_four_colors_view18.jpg`. Confidence q_c 0.5, greedy
+  oracle q_g 0.5, gate 8 cm as `e57c_hybrid` B. White: kept by the confidence cut; red: dropped by confidence and by the oracle (dropped whatever the gate); green: dropped by confidence,
+  kept by the oracle, > 8 cm from kept (reintroduced); blue: the same but within 8 cm (the seam). My reading of Peter's four colors: his "white, filtered regardless of threshold"
+  cannot be a fourth class beside "red, dropped by confidence" unless white is the kept set, so white is the kept set; to be confirmed.
+- **Shares** (of view 18 / of all GT pixels): kept 0.525 / 0.500; red 0.255 / 0.305; green 0.089 / 0.070; blue 0.131 / 0.125.
+- **Looked at:** the blue band follows the confidence's kept boundary on the wall, around the dresser and the bed frame, 10-30 pixels wide; green is the left wall away from the kept region;
+  red is the right wall and the bed frame, where the oracle also drops.
+
+## Plan and result: E57c, two ways to close the gate's seam, bedroom view 18 (18.11.2026)
+- **Rules** (Peter): (1) the oracle decides only in a confidence band, 0.5 < v_conf <= 0.8, no distance gate; beyond the band dropped. (2) the gate's blue pixels come back
+  if they lie on a straight run (row, column, both diagonals of the view's image; one pass) of blue pixels of one SAM 3 instance, with a white (confidence-kept) pixel at one end
+  and a green (oracle-reintroduced) pixel at the other. `e57c_two_fills.py` -> `figures/e57c_two_fills_view18.jpg`, `results/e57c_two_fills.txt`; bedroom only, nothing tuned (0.8 and
+  the four directions picked before running).
+- **Expected, written before running:** (1) Chamfer between the union (1.400) and the 8 cm gate (1.646), no seam; (2) few blue pixels come back (the seam is bounded by white on one side and
+  by dropped pixels on the other), Chamfer within 0.05 cm of the gate's 1.646.
+- **Result** (bedroom, all 20 views; uncut 1.846, confidence alone 6.293, B gate 8 cm 1.646 at kept 0.570, B union 1.400 at 0.695): (1) band: kept 0.626, Chamfer **2.481**;
+  (2) lines: kept 0.586, Chamfer **1.608**; on view 18 rule 2 brings back 2.7 % of the pixels (gold) and leaves 10.5 % blue.
+- **Against what was expected:** (1) wrong: 2.481 is worse than the gate, not between union and gate; the pixels the oracle keeps beyond the band (v_conf > 0.8, the least confident
+  fifth) are lost, and they are coverage nothing else gives (view 18: 5.2 % of its pixels are oracle-kept beyond the band); the seam is closed, the completeness is not. (2) as expected:
+  within 0.05 cm of the gate (1.646 -> 1.608), few pixels come back, the strip it fills on the left wall is the one between white and green; the seam stays where red, not green, lies behind it.
+- **Looked at** `figures/e57c_two_fills_view18.jpg`. Limits: one scene; the band edge 0.8 and the four directions were not varied; rule 2 is one pass; both rules use the oracle's keep.
+- **Band edge, Peter's correction:** "a band of confidence between 0.3 and 0.5", read as the confidence percentile 0.3-0.5, i.e. v in (0.5, 0.7] (his reading of the band is narrower than my 0.8; the band
+  on the kept side, 0.3 < v <= 0.5, would only let the oracle drop pixels, no seam to close). Bedroom sweep of rule 1's band edge (kept, Chamfer cm): 0.6 0.541, 4.560; **0.7 0.585, 3.250**;
+  0.8 0.626, 2.481; 0.9 0.664, 1.749; 1.0 (= union) 0.695, 1.400; the narrower the band, the worse, monotonically. `figures/e57c_two_fills_view18.jpg` now shows 0.7 (the 0.8 version:
+  `..._band08.jpg`, `results/e57c_two_fills_band08.txt`); rule 2 unchanged (1.608). Expected before running: worse than 0.8's 2.481, because every oracle-kept pixel beyond the band is lost; confirmed.
+
+## Plan and result: E57c, the 8 cm gate with a confidence band, view 18 (18.11.2026)
+- **Correction of my reading (Peter):** the last plots were not what he meant. He expects the same white (confidence percentile c > 0.5) as in `e57c_four_colors`, and the seam (oracle-kept, within 8 cm of the kept
+  set) split by the confidence: blue, c <= 0.3, not reintroduced; yellow, 0.3 < c <= 0.5, reintroduced; green as before. `e57c_band_gate.py` -> `figures/e57c_band_gate_view18.jpg`,
+  `results/e57c_band_gate.txt`; bedroom, the band's lower edge also swept (0.4, 0.3, 0.2, 0.1, 0 = every near oracle pixel back).
+- **Expected, written before running:** Chamfer between the gate's 1.646 and the union's 1.400, falling as the lower edge goes to 0; yellow a thin strip along the white's border on view 18, blue the thicker, farther part of the old seam.
+- **Result** (bedroom, all 20 views; uncut 1.846, 8 cm gate 1.646 at kept 0.570, union 1.400 at 0.695): lower band edge c = 0.4: kept 0.605, Chamfer 1.558; **0.3: 0.637, 1.488**; 0.2: 0.660, 1.449;
+  0.1: 0.680, 1.422; 0: 0.695, 1.400. Shares of view 18: white 0.525, red 0.255, green 0.089, yellow 0.080, blue 0.051 (all GT pixels: 0.500, 0.305, 0.070, 0.066, 0.059).
+- **Against what was expected:** between the gate and the union, falling towards the union as the edge goes to 0: yes. Yellow a strip along the white's border, blue the part farther from it (bed frame, floor edge): yes
+  (`figures/e57c_band_gate_view18.jpg`, looked at). Limits: one scene; the Chamfer falls monotonically with the share kept and no equal-share comparison with the greedy oracle or density was made here.
+
+## E57c, clouds of the seam fills and the union: the bedroom, same views (18.11.2026)
+- **What:** `uv run python -m experiments.scripts.e57c_clouds_fills > experiments/results/e57c_clouds_fills.txt` -> `figures/e57c_clouds_fills_{dollhouse_colors,dollhouse_shaded,view18_pulledback_colors,view0_...,view12_...,view6_...}.jpg`.
+  Panels: ground truth, Déjà View, confidence q 0.5, confidence + oracle with the 8 cm gate, + straight-run fill, + confidence band 0.3 < c <= 0.5, union (no gate), greedy oracle q 0.5, density q 0.6.
+  Chamfer of the bedroom ai_006_007 (cm, all 20 views, one scene, not the dev mean): 1.846, 6.293, 1.646, 1.608, 1.488, 1.400, 1.135, 1.725.
+- **Looked at** the dollhouse in colors and view 18 (views 0, 12, 6 and the shaded dollhouse saved, not looked at): the gate leaves the white ring on the wall in view 18, the straight-run fill leaves part of it
+  (right side), the band version and the union show a continuous wall; the remaining holes in the band version are the wardrobe window and bits of the bed cover.
+
+## Plan: E57c, debugging the white squiggles of "gate + straight-run fill" in the pulled-back view 18 (18.11.2026)
+- **Goal (Peter):** the straight-run fill is the most complete-looking cloud, but thin white lines remain on the wall (right of the door). Find where they come from: inside SAM 3 masks or at their borders,
+  at the border of a source view, salt-and-pepper confidence, a lone non-blue pixel stopping a run; then fixes (dilation / closing before the fill?).
+- **Method** (`e57c_squiggles.py`, bedroom, no new scores): render the cloud from the same camera twice with an id buffer (`render.splat` with the flat pixel index as color): the kept pixels
+  and all pixels. A *gap* pixel of the render: no kept splat, but a dropped pixel is visible there; it names the dropped source pixel (view, y, x) and its category (blue: the oracle keeps it,
+  the fill did not bring it back; red: the oracle drops it too). Figure 1: the render with the gaps colored by category, by source view, and a zoom on the right wall. Figure 2: the source
+  views of the zone in image space (categories, SAM 3 borders, confidence percentile). Counts for the zone: category, source view, distance to the image border and to a SAM 3 border, isolated
+  or one-pixel-wide dropped pixels, confidence percentile, and for the blue ones why no run closed (the run's two ends: white, red, green, gold, image border, other instance).
+- **Expected, written before running:** most gap pixels are blue (the fill's rule fails, the oracle wants them); the dominant failure is a run closed by white at both ends (a thin seam between two
+  confidence-kept regions, no green seed), then runs ending at red; few at image borders or SAM 3 borders.
+
+## E57c, squiggles [WRONG, corrected in the entry below]: the white lines of the straight-run fill are the oracle's own drops, bad points that no other view's patch closes (bedroom, pulled-back view 18, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_squiggles > experiments/results/e57c_squiggles.txt` (1.5 min) -> `figures/e57c_squiggles_render.jpg` (the render, gaps by category and by source
+  view, zoom), `figures/e57c_squiggles_sources.jpg` (the zone's three main source views: categories, SAM 3 borders, confidence percentile). Looked at both. The zone is a box on the right wall
+  (render rows 30-260, columns 400-560): it holds the long squiggle and the wardrobe window, so its counts mix both.
+- **Results** (gap pixel = no kept splat, a dropped pixel visible behind it): of 13 925 gap pixels of the render 11 898 are **red** (dropped by the confidence cut and by the oracle) and 2 027 blue
+  (the oracle keeps them, the fill did not); in the zone 3 525 red, 57 blue. The zone's 1 732 source pixels come from 14 views (view 7: 750, 6: 294, 12: 236). Of them: blue 36; within 2 px of a
+  SAM 3 border 727 (42 %; all pixels of those views: 16.8 %); instance -1 234; within 8 px of the image border 21; all four neighbors kept 0; one pixel wide between kept pixels 10; confidence
+  percentile c > 0.3 365 (21 %). True accuracy a_i of the source pixels: median 5.25 cm, 90th percentile 19.7 (all pixels: median 1.78); 3D distance to the nearest kept pixel: median 5.87 cm,
+  90th 18.6. Across a gap pixel in the render: different source views on the two sides 1 512, same view 477, no kept pixel within 4 px on both sides 1 593. The few blue ones: the shortest run ends in
+  (dropped, green) 12, (green, other instance) 9, (dropped, dropped) 8, (dropped, other instance) 7.
+- **Against what was expected:** wrong. Expected mostly blue gap pixels and runs closed by white at both ends: the squiggles are red, and the blue ones fail on runs that end in dropped pixels, not (white, white).
+  Few image-border or SAM 3 border cases was right for the image border (21 of 1 732), not for SAM 3 borders (2.5 x their base rate).
+- **Reading.** The squiggle is a strip of bad points (median 5 cm off) that the oracle removes for accuracy and that costs it no completeness, because the kept patches from different source views
+  on both sides lie within a few mm of the GT points there; in the splat render the patches do not touch and a hairline of background (or of the bad points) shows. The Chamfer is blind to it (a GT point
+  in the sliver has a kept point at most a splat radius away). It is not salt-and-pepper (no isolated pixel), not the image border, and a lone non-blue pixel stopping a run only matters for the 15 % blue gaps,
+  so dilation or closing before the fill would not touch it.
+- **Candidate fixes** (not run): (a) a coverage-aware completeness in the oracle: m_i counts the GT points whose nearest kept pixel would be farther than the splat radius (a threshold, F-score like), so
+  a sliver wider than a splat costs; (b) a closing in 3D of the kept set at the pixel footprint (re-add dropped pixels that bridge two kept patches, within a tolerance of their surfaces; the source pixels are
+  6 cm off, so a pure distance test would bring bad points back, and the test must use the kept patches' extrapolated surface); (c) cosmetic: a larger splat radius for kept pixels (closes hairlines in the
+  render, changes no score). Limits: one scene, one camera; zone chosen by eye; a_i uses the GT.
+
+## E57c, squiggles, correction: they are the blue pixels the fill did not bring back, the oracle-alone cloud covers them (bedroom, 18.11.2026)
+- **What was wrong (Peter's objection: the greedy oracle alone shows no such lines, so "dropped by both" is odd):** I identified each gap pixel with the *nearest* dropped pixel of the all-pixels render. That is an
+  occluder in front of the gap (a bad point, hence "red", a_i median 5 cm), not what is missing behind it. The right question is which oracle-kept pixel would cover the gap. The kept set differs from the oracle's
+  set only by the blue pixels (oracle-kept, not brought back) and by pixels the confidence keeps and the oracle drops, so the oracle-alone cloud covers a gap pixel only through a blue one.
+- **Check** (`e57c_squiggles.py` now renders the blue pixels and the oracle-alone cloud as id buffers; `results/e57c_squiggles_blue.txt`; the first run's output stays in `results/e57c_squiggles.txt`): of the render's 13 925 gap
+  pixels 8 438 (61 %) are covered by the oracle-alone cloud, all through blue pixels, 5 487 by neither (holes of the oracle alone too: the wardrobe window, the bed cover); in the right-wall zone 1 150 of 3 582 (32 %)
+  and 2 432 by neither. The long squiggle is of the first kind (blue in `figures/e57c_squiggles_render.jpg`).
+- **The squiggle's source pixels** (586 blue pixels from 8 views: 12: 213, 14: 203, 6: 62, 8: 58, 7: 43): true accuracy median 1.42 cm (90th percentile 1.72; all pixels 1.78), so good points; 3D distance to the nearest kept
+  pixel median 3.8 cm, max 6.3 (inside the 8 cm gate); within 2 px of a SAM 3 border 61 (10 %, base rate 16.9 %), image border 11, instance -1 16, isolated 0; confidence percentile c > 0.3: 258 (44 %).
+- **Why the straight-run rule missed them** (shortest run of blue pixels of one instance through each pixel; its two ends): (dropped, green) 247, (dropped, dropped) 214, (dropped, other instance) 28, (dropped, kept) 19,
+  (gold, kept) 15, (dropped, gold) 14, others 49. 523 of 586 (89 %) have a dropped (red) end; only 19 (3 %) have white at one end. In the source view the squiggle is a thin blue strip between a red region (the oracle
+  drops it) and a green one: the 8 cm gate measures proximity in 3D to the kept pixels of *other* views, the rule needs white and green neighbours in the *same* view's image. The two do not coincide.
+- **Not salt-and-pepper, not the image border, not mainly SAM 3 borders** (10 % against 16.9 % base rate): erosion or dilation before the fill would not close it either; what is missing is a rule attaching these pixels
+  to what is kept, e.g. a blue pixel on a run with a kept (green or white) end, or a smaller gate than 8 cm (the squiggle's pixels lie at 2-6 cm; at delta 2 cm they are back, as the earlier delta sweep shows).
+- **Limits:** one scene and camera; the zone chosen by eye; a_i uses the GT. Candidate rules not run.
+
+## Plan: E57c, the product of the remaining confidence and the oracle's keep order (issue #57, 18.11.2026)
+- **Idea (Peter):** no distance gate, only the two rankings. (1) Cut by confidence: pixels with percentile c > 0.5 stay. (2) For the others, u = c / 0.5 in [0, 1] (the remaining confidence) times
+  k in [0, 1], the greedy oracle's keep order (the position in its removal sequence / N; 1 = removed last; ties of a round broken by that round's score); pixel kept iff u k >= tau. Plot u k on the
+  bedroom's view 18 (confidence-kept pixels white) and try thresholds.
+- **Setting:** `e57c_product.py`, bedroom, all 20 views, greedy in rounds of 5 % of the pixels down to 5 %. Thresholds given as the kept share (0.52 ... union 0.695), Chamfer (cm) of the product cut, of the
+  oracle alone at the same share (the cost of using confidence at all), and the earlier variants as references (8 cm gate 1.646 at 0.570, band 0.3 < c <= 0.5 1.488 at 0.637, union 1.400 at 0.695, oracle alone q 0.5 1.135).
+- **Expected, written before running:** the product is no fix by itself: Chamfer at equal share within 0.1 cm of the band/gate variants at the same share, above the oracle alone; it multiplies away the pixels the oracle ranks
+  high and the confidence low, which are the seam's coverage. No render of the squiggles in this step.
+
+## E57c, product of the remaining confidence and the oracle order: it does not fix the performance, at equal share it is 0.6-1.3 cm worse than the gate and band variants (bedroom, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_product > experiments/results/e57c_product.txt` (1.5 min) -> `figures/e57c_product_view18.jpg` (looked at). Thresholds as quantiles (Peter's request): the top
+  fraction of the confidence-dropped pixels by u k, equal to the kept share; u and k are ranks already (u = c / 0.5, k the position in the greedy removal sequence / N, rounds of 5 %).
+- **Results** (bedroom, all 20 views; Chamfer cm; the oracle alone at the same share is the cost of the confidence at all; references at near shares: 8 cm gate 1.646 at 0.570, band 0.3 < c <= 0.5 1.488 at 0.637,
+  union 1.400 at 0.695; confidence cut alone 6.293 at 0.500):
+
+  | top fraction of the dropped | kept share | tau | product cut | oracle alone |
+  |---|---|---|---|---|
+  | 0.04 | 0.520 | 0.705 | 4.210 | 1.130 |
+  | 0.10 | 0.550 | 0.551 | 3.289 | 1.152 |
+  | 0.14 | 0.570 | 0.479 | 2.912 | 1.167 |
+  | 0.20 | 0.600 | 0.396 | 2.537 | 1.192 |
+  | 0.28 | 0.640 | 0.312 | 2.252 | 1.225 |
+  | 0.36 | 0.680 | 0.247 | 1.993 | 1.261 |
+  | 0.39 | 0.695 | 0.227 | 1.911 | 1.275 |
+
+- **Against what was expected (written before running):** within 0.1 cm of the band/gate variants at equal share: wrong, it is 0.6-1.3 cm worse (0.570: 2.912 against the gate's 1.646; 0.637 to 0.640: about 2.25 against the band's 1.488; 0.695: 1.911 against the union's 1.400); above
+  the oracle alone: yes; it multiplies away the pixels the oracle ranks high and the confidence low: consistent with the maps.
+- **Reading** (view 18): u k is a ramp that decays away from the confidence border, so the cut is seam-free (green touches white) but regional: it reintroduces the left wall next to the white and drops the pixels
+  further out and in the bed frame, as confidence does. Among the confidence-dropped pixels u and k are close to independent (the joint histogram is nearly flat, apart from a row at k = 0 where the oracle drops pixels
+  of every confidence): the confidence says little about which dropped pixels the oracle wants, so a product lets it outvote the oracle. No threshold of this product recovers the union or the gate at equal share.
+- **Not run:** an exponent on u (u^a k, a = 0 is the oracle alone), the oracle's order with the confidence as tie-breaker, min / rank-sum combinations. Limits: one scene, no render of the clouds, no val.
+
+## Plan: E57c, two gradients and a quantile cut of the undecided pixels (issue #57, 18.11.2026)
+- **Idea (Peter):** confidence gradient g_c = 1 for the percentile c >= 0.5, linear to 0 at c <= 0.25; oracle gradient g_o = 1 for an oracle-kept pixel more than 10 cm from the confidence-kept set, linear
+  to 0 at 0 cm (an oracle-dropped pixel: 0). Pixels with c >= 0.5 and oracle-kept pixels farther than 10 cm are decided (kept) and do not count to the quantile. The undecided ones (c < 0.5, not far-oracle)
+  are ranked by p = g_c g_o and the top fraction q of them is kept, q = 0, 0.1, ..., 1.0 (q = 0: confidence plus the far oracle pixels, the 8 cm gate with 10 cm; q = 1: everything). Ties (p = 0: c <= 0.25
+  or oracle-dropped) broken by the seeded random order of `filters.ranks`.
+- **Setting:** `e57c_gradients.py`, bedroom, all 20 views, greedy oracle q_g 0.5 in 10 % rounds as in the gate variants; per q the kept share and Chamfer (cm), the oracle alone at the same share (5 % rounds) as the
+  floor, and the references: gate 8 cm 1.646 at 0.570, band 0.3 < c <= 0.5 1.488 at 0.637, union 1.400 at 0.695, uncut 1.846, product u k at 0.640 2.252.
+- **Expected, written before running:** q = 0 near the gate (1.6-1.7, share about 0.56); the Chamfer falls as q rises, not below the band variant at equal share (the p = 0 ties, the low-confidence quarter and the
+  oracle-dropped pixels, enter late and by chance), and the curve returns to the uncut 1.846 at q = 1. A minimum near 1.4-1.6 at q 0.3-0.6. No render of the clouds in this step.
+
+## E57c, two gradients and a quantile cut: best 1.462 cm at q 0.2 (kept 0.652), where the pixels with p > 0 run out; beyond it random ties raise it to the uncut 1.846 (bedroom, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_gradients > experiments/results/e57c_gradients.txt` (1.5 min) -> `figures/e57c_gradients_view18.jpg` (looked at). Bedroom, all 20 views, cm.
+- **Setup facts:** decided and kept 0.565 (confidence 0.500, oracle-kept farther than 10 cm 0.065); undecided 0.435, of which 81.2 % have p = 0 (c <= 0.25: 47.9 %, oracle-dropped: 70.0 %), so only 18.8 % of the pool,
+  8.2 % of all pixels, have p > 0, and the ties are broken by the seeded random order.
+- **Results** (kept share, accuracy / completeness / Chamfer; the oracle alone at the same share in brackets):
+
+  | q | kept | accuracy / completeness / Chamfer | oracle alone |
+  |---|---|---|---|
+  | 0.0 | 0.565 | 1.668 / 1.692 / 1.680 | 1.163 |
+  | 0.1 | 0.608 | 1.622 / 1.426 / 1.524 | 1.198 |
+  | **0.2** | 0.652 | 1.604 / 1.320 / **1.462** | 1.235 |
+  | 0.3 | 0.695 | 1.767 / 1.253 / 1.510 | 1.276 |
+  | 0.5 | 0.782 | 2.040 / 1.212 / 1.626 | 1.364 |
+  | 0.7 | 0.869 | 2.262 / 1.191 / 1.726 | 1.470 |
+  | 1.0 | 1.000 | 2.520 / 1.172 / 1.846 | 1.846 |
+
+  References: 8 cm gate 1.646 at 0.570 (q 0 here, 10 cm: 1.680 at 0.565), band 0.3 < c <= 0.5 1.488 at 0.637, union 1.400 at 0.695 (here q 0.3: 1.510), uncut 1.846, product u k 1.911 at 0.695.
+- **Against what was expected (written before running):** q = 0 near the gate: yes (1.680); a minimum near 1.4-1.6 at q 0.3-0.6: it is at q 0.2 (1.462), earlier than expected because the pool has few p > 0 pixels; not below the band variant at
+  equal share: 1.462 at 0.652 against 1.488 at 0.637, no clear difference; returns to 1.846 at q = 1: yes.
+- **Reading:** the useful part of the curve ends at q about 0.19, where the p > 0 pixels (oracle-kept, c > 0.25, d < 10 cm; a ribbon along the confidence border in view 18) run out; the rest of the sweep keeps tie pixels at random
+  (the speckled maps at q 0.4 and 0.6), so accuracy worsens steadily and Chamfer drifts to the uncut value. At equal share the cut is 0.1 cm above the union (1.510 against 1.400 at 0.695) and 0.2-0.3 cm above the oracle alone.
+  The gradients are the band rule with a soft edge; they add no information beyond c > 0.25 and the oracle's keep.
+- **Limits:** one scene; ties by random order (a deterministic tie-break, for example the oracle's keep order k, was not tried); no render of the clouds.
+
+## Plan: E57c, the two-gradient cut rerun lean, with g_c from 0 to 0.5, and its quantile isolines (issue #57, 18.11.2026)
+- **Change (Peter):** the confidence gradient goes from 0 at c = 0 to 1 at c >= 0.5 (g_c = min(c / 0.5, 1)); the oracle gradient and the rest as in the entry above. Rerun lean: no SAM 3 linking (`load_inputs` does it), no density,
+  nothing but Chamfer; the per-scene arrays (points, a_i, the greedy order, c, d) cached in `runs/e57c/` so a rerun only evaluates the cuts. Stage times are printed. Plot: the product p with the thresholds of the quantiles q as
+  isolines, next to the heatmap of the quantile (rank of p among the undecided pixels, ties at their mean rank), isolines at q = 0.1 ... 0.9, and the Chamfer against q.
+- **Expected, written before running:** the same shape as with 0.25 (best below the gate and near the band variant, back to 1.846 at q = 1), the minimum at q 0.3 or earlier, where the pixels with p > 0 (oracle-kept near pixels with c > 0, about 30 % of the
+  undecided ones) run out, 1.45-1.5; first run well under the 1.5 min of the last one, later runs only the evaluations.
+
+## E57c, two gradients with g_c from 0 to 0.5, lean: the best cut is the union itself, 1.400 cm at q 0.3; the lean run takes 30 s (bedroom, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_gradients --floor > experiments/results/e57c_gradients_v2.txt` -> `figures/e57c_gradients_isolines_view18.jpg` (looked at). Stage times of the first run: load 1.3 s, arrays 24.6 s
+  (computed once, cached in `runs/e57c/`; 0.5 s after), gradients 0.5 s, sweep 22 s for the 11 Chamfers (44 s with the oracle-alone column `--floor`): 70 s first, 30 s later, against about 90 s for the version that
+  linked SAM 3 and computed the density. The Chamfers dominate: two KD-trees of up to 3.8 M and 2.5 M points per cut, realigned as `evaluate` does.
+- **Results** (bedroom, all 20 views, cm; decided and kept 0.565, undecided 0.435 of which p = 0: 70.0 %, all oracle-dropped):
+
+  | q | kept | accuracy / completeness / Chamfer | oracle alone |
+  |---|---|---|---|
+  | 0.0 | 0.565 | 1.668 / 1.692 / 1.680 | 1.163 |
+  | 0.1 | 0.608 | 1.624 / 1.382 / 1.503 | 1.198 |
+  | 0.2 | 0.652 | 1.584 / 1.285 / 1.435 | 1.235 |
+  | **0.3** | 0.695 | 1.547 / 1.253 / **1.400** | 1.276 |
+  | 0.4 | 0.739 | 1.736 / 1.201 / 1.469 | 1.318 |
+  | 0.5 | 0.782 | 1.903 / 1.191 / 1.547 | 1.364 |
+  | 0.7 | 0.869 | 2.189 / 1.181 / 1.685 | 1.470 |
+  | 1.0 | 1.000 | 2.520 / 1.172 / 1.846 | 1.846 |
+
+- **Against what was expected (written before running):** same shape: yes; minimum at q 0.3 or earlier: at 0.3; Chamfer 1.45-1.5 there: it is 1.400, below the range, because with c > 0 every oracle-kept undecided pixel
+  has p > 0, so q = 0.3 (30 % of the undecided = exactly those pixels) is the union of the confidence cut and the oracle: the same 0.695 and 1.400 as before. Beyond it the cut adds pixels the oracle drops, by the random tie-break.
+- **Reading:** the gradient orders the pixels of the union; its prefixes (q 0.1, 0.2: 1.503, 1.435) are worse than the whole, so ordering by p adds nothing in Chamfer over the union and over the oracle alone at the same share
+  (1.276 at 0.695). In view 18 the gradient is a ribbon next to the confidence border (white to green through yellow-orange); 70 % of the undecided pixels are red (p = 0).
+- **Figure** (Peter's coloring): white = kept by confidence, green = oracle-kept > 10 cm, the undecided pixels red (p = 0) through yellow to green (p = 1), black isolines at the p thresholds of the quantiles q (none beyond q 0.3: ties); the
+  quantile heatmap (ties at their mean rank) and Chamfer against q next to it. Limits: one scene; no render of the clouds; ties by seeded random order.
+
+## Plan: E57c, the mean of the two gradients instead of their product (issue #57, 18.11.2026)
+- **Idea (Peter):** p = (g_c + g_o) / 2, because the product penalizes values near zero too much. Everything else as in the two-gradient entry (g_c = min(c / 0.5, 1), g_o = clip(d / 10 cm, 0, 1) for oracle-kept pixels, 0 for the others;
+  decided: c >= 0.5 and oracle-kept farther than 10 cm; q of the undecided, 0 ... 1). `e57c_gradients.py --combine mean`.
+- **Expected, written before running:** no ties any more (oracle-dropped pixels are ranked by g_c / 2 < 0.5); they enter among the oracle-kept ones, so the high-confidence oracle-dropped pixels just below c = 0.5 come in before the
+  low-confidence oracle-kept ones; Chamfer no better than the union (1.400 at 0.695), the minimum at a q of 0.2-0.4 at 1.40-1.55, and above the product's curve for q beyond the union's 0.3, below it before.
+
+## E57c, mean of the two gradients: a flat curve at 1.54 cm for q 0.1-0.6, no ties, never the union's 1.400 (bedroom, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_gradients --combine mean --floor > experiments/results/e57c_gradients_mean.txt` (30 s + 22 s for the floor, cached arrays) ->
+  `figures/e57c_gradients_mean_isolines_view18.jpg` (looked at). Bedroom, all 20 views, cm.
+- **Results** (kept, Chamfer; the product's value at the nearest kept share in brackets):
+
+  | q | kept | accuracy / completeness / Chamfer | product (same q) |
+  |---|---|---|---|
+  | 0.0 | 0.565 | 1.668 / 1.692 / 1.680 | 1.680 |
+  | 0.1 | 0.608 | 1.646 / 1.446 / 1.546 | 1.503 |
+  | 0.2 | 0.652 | 1.706 / 1.384 / 1.545 | 1.435 |
+  | 0.3 | 0.695 | 1.755 / 1.326 / 1.541 | 1.400 |
+  | 0.5 | 0.782 | 1.843 / 1.239 / 1.541 | 1.547 |
+  | 0.7 | 0.869 | 1.963 / 1.164 / 1.563 | 1.685 |
+  | 0.9 | 0.956 | 2.146 / 1.129 / 1.638 | 1.797 |
+  | 1.0 | 1.000 | 2.520 / 1.172 / 1.846 | 1.846 |
+
+  Minimum 1.541 at q 0.3-0.5 (kept 0.70-0.78); oracle alone at 0.695: 1.276; union 1.400; band variant 1.488 at 0.637.
+- **Against what was expected (written before running):** no ties: yes (p = 0 for none); no better than the union: yes (1.541 against 1.400); minimum 1.40-1.55: 1.541; above the product's curve for q beyond 0.3 and below it before: wrong, the product is
+  better up to q 0.4 and the mean from q 0.5 or 0.6 on (equal at 0.5).
+- **Reading:** the mean is flat (1.541-1.546 from q 0.1 to 0.6) and degrades slowly towards the uncut value (1.638 at 0.956 kept, 0.2 cm below uncut), where the product reaches its 1.400 only at its q 0.3 and climbs
+  linearly afterwards (1.797 at 0.956 kept): the mean is the more stable curve and the product the better minimum. The oracle-dropped pixels are now ranked by confidence (g_c / 2 < 0.5), the high-confidence ones just below the cut come in
+  among the oracle-kept ones, which costs the 0.14 cm against the union. The p map is a smooth gradient over the whole undecided area (figure), as asked for earlier. Limits: one scene; no render of the clouds.
+
+## Plan: E57c, clouds of the two-gradient cuts at their best q, next to the references (issue #57, 18.11.2026)
+- **What (Peter):** RGB clouds of the bedroom in the usual views: ground truth, Déjà View, confidence only (q 0.5), greedy oracle only (q 0.5), the straight-run fusion (gate 8 cm + straight runs within a SAM 3 instance),
+  the product and the mean of the two gradients at the q of their lowest bedroom Chamfer (picked among q = 0, 0.1, ..., 1.0 in the script, so on the bedroom itself: a presentation scene, not a tuned value). `e57c_clouds_gradients.py`;
+  `e57c_clouds.render` now takes any number of panels.
+- **Expected, written before running:** the product's best cut is the union (q 0.3, kept 0.695, 1.400) and looks like the straight-run fusion with the seam closed; the mean's best (q about 0.3-0.5, 1.541) keeps more low-confidence debris
+  in the flat floor regions (it ranks the oracle-dropped pixels by confidence) and looks the noisiest of the three fusions; the hairlines of the straight-run fusion stay.
+- **Result** (`results/e57c_clouds_gradients.txt`; figures `e57c_clouds_gradients_{dollhouse_colors,dollhouse_shaded,view18_pulledback_colors,view0_...,view12_...,view6_...}.jpg`; looked at the dollhouse in colors and view 18): best q on the bedroom: product
+  0.3 (1.400, kept 0.695, the union), sum 0.4 (1.541, kept 0.739; q 0.3 and 0.5 give 1.541 too). Chamfer / kept: Déjà View 1.846 / 1.00, confidence only 6.293 / 0.50, oracle only 1.135 / 0.50, straight-run fusion 1.608 / 0.586.
+- **Against what was expected:** the product's best looks like the fusion with the seam closed: yes, the wall in view 18 is continuous; the straight-run fusion keeps its white hairline on the wall: yes; the sum's best the noisiest of the three: not visible, it looks
+  like the product's (smooth wall and floor, the bed frame debris as in the oracle-only panel); the differences between the two gradient cuts are small at this size.
+- **Limits:** one scene; q picked on the bedroom's own Chamfer (a presentation scene, not a tuned value); views 0, 12, 6 and the shaded dollhouse saved, not looked at.
+
+## Plan: E57c, all the methods of the last clouds on dev (issue #57, 18.11.2026)
+- **Goal (Peter):** score on dev (3 scenes, 20 views at 504 px, Déjà View K = 16, SAM 3 image mode linked with the working association, cm, the evaluation's cuts, one Umeyama per cut) the panels of `e57c_clouds_gradients`: Déjà View, confidence only (q 0.5),
+  greedy oracle only (q 0.5), the straight-run fusion (gate 8 cm + straight runs in a SAM 3 instance), the product and the mean of the two gradients; plus instance voxel density (q 0.5 and 0.6) as the one real filter. `e57c_dev_methods.py --splits dev`.
+- **The q of the gradient cuts:** the full sweep q = 0 ... 1 is reported; "best" is the q with the lowest dev mean (chosen on dev, three scenes, so optimistic: it is not a held-out number); the bedroom's q (product 0.3, mean 0.4) as the second row. No val.
+- **Expected, written before running (Peter expects the oracle first):** greedy oracle best (about 2.05 as in the zoo run); product at its best q second at about 2.5-3.0 (on the bedroom it recovers 63 % of the oracle's gain over Déjà View); the mean about 2.7-3.2; straight-run
+  fusion about 2.8-3.4; density 3.2-3.3; Déjà View 3.500; confidence only far the worst (25.4). The ai_044_001 scene (7.05 uncut) may order the middle methods differently.
+
+## E57c, all methods on dev: the greedy oracle is first by 0.45 cm, the product of the gradients second (2.498), then the mean (2.626) and the straight-run fusion (2.680), density 3.188, Déjà View 3.500, confidence only 25.376 (dev, 18.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python -m experiments.scripts.e57c_dev_methods --splits dev > experiments/results/e57c_dev_methods.txt` (4 min, CPU, 80 s per scene). Dev, 3 scenes, cm, the evaluation's cuts. Tree dirty.
+- **Results** (dev mean; kept share, accuracy / completeness / Chamfer; per scene Chamfer ai_010_007 / ai_006_007 / ai_044_001):
+
+  | method | kept | accuracy / completeness / Chamfer | per scene |
+  |---|---|---|---|
+  | **greedy oracle only q 0.5** | 0.500 | 1.533 / 2.562 / **2.048** | 0.88 / 1.14 / 4.13 |
+  | product of the gradients, q 0.3 (best on dev = the bedroom's) | 0.708 | 2.632 / 2.364 / 2.498 | 1.09 / 1.40 / 5.00 |
+  | mean of the gradients, q 0.2 (best on dev) | 0.667 | 2.596 / 2.655 / 2.626 | 1.19 / 1.54 / 5.15 |
+  | mean, q 0.4 (the bedroom's) | 0.750 | 2.818 / 2.514 / 2.666 | 1.23 / 1.54 / 5.23 |
+  | straight-run fusion (gate 8 cm) | 0.603 | 2.513 / 2.848 / 2.680 | 1.21 / 1.61 / 5.22 |
+  | density q 0.6 | 0.600 | 3.550 / 2.827 / 3.188 | 1.48 / 1.73 / 6.36 |
+  | density q 0.5 | 0.500 | 3.001 / 3.596 / 3.299 | 1.73 / 1.69 / 6.47 |
+  | Déjà View | 1.000 | 4.675 / 2.324 / 3.500 | 1.60 / 1.85 / 7.05 |
+  | confidence only q 0.5 | 0.500 | 2.220 / 48.532 / 25.376 | 8.20 / 6.29 / 61.63 |
+
+  The product's sweep (Chamfer by q): 0.0 2.747, 0.1 2.600, 0.2 2.545, **0.3 2.498**, 0.4 2.640, 0.5 2.797, 0.7 3.103, 0.9 3.377, 1.0 3.500; the mean's: 0.0 2.747, 0.1 2.627, 0.2 2.626, 0.3 2.638, 0.4 2.666, 0.5 2.704, 0.7 2.829, 0.9 3.062, 1.0 3.500.
+- **Against what was expected (written before running):** the oracle first: yes, and the order oracle < product < mean < straight-run fusion < density < Déjà View < confidence holds in each of the three scenes; oracle 2.05: yes (2.048); product 2.5-3.0: 2.498, at the edge; mean
+  2.7-3.2: 2.626, below the range; fusion 2.8-3.4: 2.680, below; density 3.2-3.3: 3.188 and 3.299; Déjà View 3.500; confidence 25.4: 25.376.
+- **Reading:** against Déjà View the oracle is -41 %, the product -29 %, the mean -25 %, the fusion -23 %, density -9 %. The product and the fusion beat density by 0.5-0.7 cm in every scene. All of them except Déjà View, density and confidence use the greedy oracle, so
+  they are not methods: the product, the mean and the fusion are ceilings of "confidence cut first, oracle's pixels back". The oracle alone beats every one of them, so adding the confidence cut costs 0.45-0.6 cm; the same gap as on the bedroom (1.135 against 1.400).
+  The mean is the flatter curve (2.63-2.70 for q 0.1-0.5, the product 2.50-2.80) and the product the lower minimum, as on the bedroom.
+- **Limits:** dev only, 3 scenes, no val, no seeds; the q of the product and the mean chosen on dev (the product's 0.3 also the bedroom's; the mean's best 0.2 differs from the bedroom's 0.4) so their best rows are optimistic; oracles use the GT.
+
+## Plan: E57c, the squiggle in category colors, from the pulled-back camera and in its source views (issue #57, 18.11.2026)
+- **Question (Peter):** how can the top right of the pulled-back view 18 be filled while a squiggle of uniform width persists, if a blue pixel (the oracle keeps it, the straight-run fill did not bring it back) lies there? Render it like the four-color view 18.
+- **Hypothesis, written before running:** the strip is the gate's own width. Green pixels are by definition more than 8 cm from every confidence-kept (white) pixel, blue ones less than 8 cm: a blue strip between a white patch and a green patch is about 8 cm wide in 3D whatever the views,
+  hence the uniform width; and the straight-run rule looks for white and green neighbours in the same source view's image, while the white and the green flank the strip in other views. Check: the 3D distance of the strip's blue source pixels to the nearest white and to the nearest green
+  pixel should be about 4 cm each (their sum near 8 cm; the earlier median to the nearest kept was 3.8 cm).
+- **Method** (`e57c_squiggle_categories.py`, bedroom): (1) the pulled-back view-18 camera, every pixel colored by its category (white kept by confidence, green oracle beyond 8 cm, gold blue-brought-back, blue oracle-kept not brought back, red dropped), nearest point wins,
+  with and without the red ones; zoom on the zone; (2) the zone's main source views in image space in the same colors, the strip's source pixels marked.
+- **Result** (`results/e57c_squiggle_categories.txt`; `figures/e57c_squiggle_categories_render.jpg`, `..._sources.jpg`, looked at both): in the pulled-back camera, with the red points left out, the zone shows a blue band (the oracle keeps it, not brought back) between a white patch
+  (confidence-kept) on the left and a green patch (oracle-kept, more than 8 cm from white) on the right; with the red points included the nearest points are red almost everywhere, in front of them. The strip's 586 blue source pixels: 3D distance to the nearest white pixel median 4.54 cm
+  (10th-90th percentile 2.96-6.27), to the nearest green 6.61 (2.93-15.88), their sum median 10.81 (8.53-19.71); the gate is 8 cm. The pixels sit in views 12, 14, 6 as thin lines along the border of a red and a green region, not next to white (`..._sources.jpg`).
+- **Against the hypothesis (written before running):** a strip of the gate's width between white and green: yes, in the render. The sum of the distances is at least 8 cm by construction (green is more than 8 cm from white); its median is 10.8 and its 10th percentile 8.5, so the blue pixels
+  lie on short bridges between a white and a green pixel, as expected; the individual distances (4.5 and 6.6 cm) are not both about 4, the strip being nearer to white. The uniform width is therefore not another view's coverage: the strip is the set of oracle-kept pixels closer than the gate to the white patch and not green, and it is
+  missing from the fusion because the straight-run rule needs white and green neighbors in the source view's image, which the strip's source pixels do not have.
+- **Implication:** the gate creates a band of its own width wherever a white and a green patch meet in 3D; the union (no gate) has none, which is also what the product's best q, 0.3, reproduces. A 3D bridge rule (a blue pixel with a white and a green pixel each within the gate) is a candidate, not run.
+
+## Plan: E57c, the squiggle colored in the views, and the SAM 3 instance-id maps (issue #57, 18.11.2026)
+- **Peter asked which I had colored: the 3D render or the view.** The first figure of the previous entry (`e57c_squiggle_categories_render.jpg`) colors the 3D render from the pulled-back camera (every pixel of all 20 views splatted); its second figure (`..._sources.jpg`)
+  colors views 12, 14, 6 in image space. He wants the views: `e57c_view_maps.py` draws view 18 and the strip's three main source views in image space: the categories of the straight-run fusion, the SAM 3 instance-id maps colored by id (ids are linked across views, the largest labeled with
+  their number) and the image, with the strip marked: in the source views its own source pixels, in view 18 the strip's 3D points projected into the view.
+- **Checks printed:** the categories of view 18's own pixels where the strip projects, and whether view 18's instance id there equals the id of the strip's source pixel (cross-view identity).
+- **Expected, written before running:** in view 18 the strip projects onto pixels that view 18 itself keeps (white) or drops (red), mostly of the same instance id as the strip's source pixels (the wall).
+- **Result** (`results/e57c_view_maps.txt`, `figures/e57c_view_maps.jpg`, looked at): the strip (586 source pixels: views 12: 213, 14: 203, 6: 62, 8: 58, 7: 43, 18: 3) projected into view 18 lands on 583 pixels inside its image, on the right part of the wall (instance 170, the largest). View 18's own category at those pixels: red 425,
+  white 90, blue 58, green 8, gold 2: where the squiggle appears in the pulled-back render, view 18's own pixels are mostly dropped by confidence and oracle; the coverage the gap lacks is the other views' blue pixels. The strip pixels' own instance ids: 170 for 505 of 586 (the wall), 100 for 58, -1 for 16;
+  view 18's instance id at the projected pixels equals the strip pixel's id for 72.6 % (the ids are linked across views: the wall is 170 in views 18, 12, 14 and 6). In the source views the strip is a thin line inside the wall mask at the border between the red and the green or white regions of the category map.
+- **Against what was expected (written before running):** the strip projects onto view 18 pixels that it keeps (white) or drops (red): mostly red (73 %), white 15 %; mostly the same instance id: 73 %, the wall. Limits: one scene; the projection uses the GT camera pose and the pixel-corner convention is ignored (a pixel of error at most).
+- **Correction after Peter's question (is the squiggle another id?):** the magenta squiggle in the instance-id column was my overlay of the strip's pixels, not a segment. `e57c_view_maps.py` now draws no overlay on the maps; the strip is a fourth column of its own. Under it: instance 170 (the wall) for 505 of the 586 strip
+  pixels (views 12: 213, 14: 195, 6: 59, 7: 33, 19: 3, 18: 2), instance 100 for 58 (all from view 8: this instance has 0 pixels in views 18, 12, 14, 6, so view 8 gives that part of the wall another id), no instance for 16, 135 for 4. In the maps of views 18, 12, 14, 6 the strip lies inside the wall's mask; no thin region of its own id.
+
+## Plan: E57c, reprojected white as seeds for the straight-run rule (issue #57, 18.11.2026)
+- **Idea (Peter):** where a view's pixels are red (dropped by confidence and oracle), let the confidence-kept (white) points of other views with the SAME SAM 3 instance id inpaint "True" into that view's keep mask by reprojection, each point coloring exactly one pixel
+  (no splat diameter); then connect white with green as before (`e57c_two_fills` rule 2). Reason: the squiggle's source pixels (views 12, 14, 6) are blue strips between red and green in their own images; the white that flanks the strip in 3D lies in another view (view 18), so the rule
+  found no white end. Reprojecting view 18's white into view 12 puts a white end next to the strip.
+- **Rule** (`e57c_reproject.py`): for each target view v, each white pixel of the other views with an instance id >= 0: project its aligned 3D point (GT camera pose, pixel = floor of the projection) into v; if it lands in the image on a RED pixel of v with the same instance id, that pixel is a *seed*.
+  No depth test, no radius. Straight-run rule with the seeds counted as white (real white and seeds at one end, green at the other, one instance, blue between). Two kept sets: **A, seeds as white for the rule only** (the seeds themselves are not kept: only blue pixels come back),
+  **B, literal reading: the seeds are kept too** (view v's own red points at the seed pixels). Peter's wording ("inpaint True into the red areas of the keep mask") is B; A is the variant without the red points.
+- **Checks:** seeds per view; the share of the strip's 586 source pixels brought back (baseline without seeds, A); the gap pixels of the pulled-back render inside the zone that the oracle-alone cloud covers (baseline, A, B); bedroom Chamfer; figures: the pulled-back clouds and the views 18, 12, 14, 6 before / seeds / after.
+- **Expected, written before running:** the seeds land mostly on the red wall pixels of views 12, 14, 6 next to the strip; A brings back most of the strip's source pixels (the baseline none or few) and closes the squiggle; B adds redundant pixels and costs Chamfer
+  (the oracle dropped them), A is at 1.40-1.60 (baseline 1.608, union 1.400); wrong seeds (occluded projections of the same wall id) are possible since there is no depth test.
+
+## E57c, reprojected white as seeds: the squiggle shrinks by 72 % and the bedroom Chamfer improves to 1.575 cm; keeping the seeds too (B) is worse, 1.674 (bedroom, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_reproject > experiments/results/e57c_reproject.txt` (2 min) -> `figures/e57c_reproject_clouds_{dollhouse_colors,dollhouse_shaded,view18_pulledback_colors,view0_...,view12_...,view6_...}.jpg`,
+  `figures/e57c_reproject_views.jpg` (views 18, 12, 14, 6: before, seeds, after, instance ids). Looked at the view 18 clouds and the views figure. Bedroom, all 20 views, cm.
+- **Results:** seeds per view 327 to 50 935 (of 15 308 to 95 934 red pixels); blue pixels brought back: 59 368 without seeds, 102 153 with (of 477 291 blue). The strip's 586 source pixels brought back: 0 % without seeds, 45.6 % with. Zone gap pixels of the pulled-back render that the oracle-alone cloud covers:
+  1 150 without seeds, 317 with A, 266 with B, 0 for the union. Chamfer (kept): fusion without seeds 1.608 (0.586), **A 1.575 (0.597)**, B 1.674 (0.703), union 1.400 (0.695), oracle alone 1.135 (0.500).
+- **Against what was expected (written before running):** seeds land next to the strip: yes, and over large red areas of the door and wall in views 14 and 6 (the same instance, white in another view); A brings back most of the strip: 46 %, not most; closes the squiggle: the hairline on the wall of view 18 is gone in the render, 72 % fewer gap pixels in the zone, 317 remain;
+  B costs Chamfer: yes (+0.10 against A, flying debris back in the render); A at 1.40-1.60: 1.575, at the upper edge, 0.03 cm below the fusion without seeds.
+- **Reading:** the reprojected white gives the straight-run rule the white end the strip's source view lacked; the remaining gap pixels are strips whose runs still end in red or in another instance. The seeds have no depth test, so a white point seen from behind an occluder can seed a red pixel of the same id (not checked how often).
+  The union is still the best Chamfer and has no gap at all. Limits: bedroom only, no dev, the zone chosen by eye, the strip's 586 pixels defined by the baseline.
+
+## Plan: E57c, the greedy oracle on Déjà View's depth lifted through the ground-truth cameras (issue #57, 18.11.2026)
+- **Idea (Peter):** keep only Déjà View's depth maps and replace its rays and cameras by the ground truth's (GT intrinsics and pose, pixel centers +0.5), then apply the greedy oracle; he expects an even lower Chamfer.
+- **Setting** (`e57c_gt_rays.py --splits dev`, lean: the cached views, GT and geometry only, no SAM 3, no density): per view the points are `lift(s d, K_GT, c2w_GT)`, d Déjà View's z-depth, s the one global scale of the Umeyama alignment of the usual cloud (Déjà View's depth is in its own scale,
+  the GT cameras in metres; no other fit of the depth); then the evaluation's single Umeyama per cut as for everything else. Compared in the same run with the usual cloud (Déjà View's ray map replaced by its pinhole fit, `scene_from_geometry`), uncut and the greedy oracle (10 % rounds) at q = 0.9 ... 0.1, dev, 3 scenes, cm.
+  This uses the GT cameras: a diagnostic of what the camera error costs, not a method.
+- **Expected, written before running (E35: one Sim(3) per view removes 4-7 % of Déjà View's error on Hypersim):** a modest gain, not a large one: uncut 3.500 -> 3.2-3.4, the oracle's best 2.048 -> 1.8-2.0 (5-10 %), the same q (0.5) best; the gain larger on ai_044_001 (the scene of the largest error).
+
+## E57c, Déjà View's depth through the GT cameras: no lower Chamfer, uncut 3.576 against 3.500 and the oracle's best 2.041 against 2.048 (dev, 18.11.2026)
+- **Commands:** `CUDA_VISIBLE_DEVICES= uv run python -m experiments.scripts.e57c_gt_rays --splits dev > experiments/results/e57c_gt_rays_dev.txt` (3 min, CPU, 65 s per scene). Dev, 3 scenes, cm, the evaluation's cuts. Tree dirty.
+- **Results** (dev mean; kept share, accuracy / completeness / Chamfer; per scene Chamfer ai_010_007 / ai_006_007 / ai_044_001):
+
+  | cloud | cut | accuracy / completeness / Chamfer | per scene |
+  |---|---|---|---|
+  | usual (Déjà View's pinhole-fit rays) | uncut | 4.675 / 2.324 / 3.500 | 1.60 / 1.85 / 7.05 |
+  | GT rays, depth x global scale | uncut | 4.578 / 2.574 / 3.576 | 1.64 / 1.71 / 7.38 |
+  | usual | greedy oracle q 0.5 (best) | 1.533 / 2.562 / 2.048 | 0.88 / 1.14 / 4.13 |
+  | GT rays | greedy oracle q 0.5 | 1.480 / 2.688 / 2.084 | 0.91 / 1.09 / 4.26 |
+  | GT rays | greedy oracle q 0.3 (best) | 1.173 / 2.908 / 2.041 | 0.91 / 1.10 / 4.11 |
+  | usual | oracle q 0.3 | 1.295 / 2.903 / 2.099 | 0.88 / 1.04 / 4.38 |
+
+  The best Chamfer over q per scene: usual 0.87 / 1.04 / 4.12, GT rays 0.90 / 1.08 / 4.10.
+- **Against what was expected (written before running):** uncut 3.2-3.4: wrong, 3.576, 0.076 above the usual cloud; the oracle's best 1.8-2.0: wrong, 2.041, 0.007 below the usual cloud's 2.048 and at another q (0.3, not 0.5); a larger gain on ai_044_001: its uncut error rises (7.05 -> 7.38),
+  its oracle's best moves 4.12 -> 4.10.
+- **Reading:** the GT cameras improve the accuracy (uncut 4.675 -> 4.578, at q 0.3 the oracle's 1.295 -> 1.173, -9 %) and lose completeness (uncut 2.324 -> 2.574, +0.25 cm), so the Chamfer does not move. Hypotheses, not tested: the one global scale s fits Déjà View's depth to the GT metric only on average, and its per-view
+  scale and the depth errors are consistent with its own cameras (the usual cloud uses them), so GT camera centres expose them; the ray grid of the pinhole fit is already removed in the usual cloud. Together with E35 (camera error 4-7 % of the error on Hypersim) the camera is not where the Chamfer is lost.
+- **Limits:** dev only, 3 scenes, no val; the scale s taken from the usual cloud's Umeyama (a per-view or a depth-only fit to the GT was not tried, and would use more GT); the oracle uses the GT; no render.
+
+## Plan: E57c, seeds without any instance information, and a summary of all approaches with their runtimes (issue #57, 18.11.2026)
+- **Last idea (Peter):** variant A (reprojected white as seeds for the straight-run rule, the seeds not kept) with the whole scene as one instance: the seeds need no instance match, the runs need no same-instance check. Run on dev and on the bedroom (render, gap pixels of the squiggle zone, views before / seeds / after).
+  Control not asked for, needed to separate the effects: the fusion without seeds and without instances.
+- **Summary run** (`e57c_summary.py --splits dev`): one pass over dev that scores every approach (Déjà View, confidence only q 0.5, density q 0.6, greedy oracle q 0.5, the one-shot marginal oracle q 0.6, the union of confidence and oracle, the fusion without seeds with and without instances, A with and without instances,
+  the product and the mean of the gradients at their dev-best q) and times the stages of each per scene (CPU, 16 cores, one run per stage: the algorithm without loading, SAM 3, the Chamfer scoring), with the optimized variants: `e57c_fast.greedy_fast` (exactly the reference's masks, checked) and the confidence cut by a partition instead of a sort.
+- **Expected, written before running:** without instances A seeds red pixels of other instances and bridges more of the blue strips: more of the strip comes back, the squiggle shrinks further, the Chamfer within 0.05 cm of A with instances (bedroom 1.575, dev not yet run) and visual quality the same or slightly more debris;
+  every algorithm's own runtime is seconds per scene (the oracle's greedy rounds the largest, 5-9 s on the bedroom); the oracle-free ones (confidence 0.01 s, density 4 s) are cheaper, and none needs a GPU.
+
+## E57c, summary run: seeds without instance information are the best fusion at 2.621 cm on dev; every approach's own runtime is seconds per scene (dev, bedroom, 18.11.2026)
+- **Commands:** `uv run python -m experiments.scripts.e57c_summary --splits dev > experiments/results/e57c_summary_dev.txt` (7 min: 117-150 s per scene, almost all of it the 33 Chamfer scorings; figures `e57c_summary_clouds_*.jpg` and `e57c_summary_views_one_instance.jpg` from the bedroom inside the same run; looked at the view 18 clouds and the views figure).
+- **Metrics** (dev mean, cm; kept, accuracy / completeness / Chamfer; per scene ai_010_007 / ai_006_007 / ai_044_001): Déjà View 1.000, 4.675 / 2.324 / 3.500 (1.60 / 1.85 / 7.05); confidence only q 0.5 0.500, 2.220 / 48.532 / 25.376; density q 0.6 0.600, 3.550 / 2.827 / 3.188 (1.48 / 1.73 / 6.36);
+  greedy oracle q 0.5 0.500, 1.533 / 2.562 / **2.048** (0.88 / 1.14 / 4.13); one-round marginal oracle q 0.6 0.600, 1.720 / 2.683 / 2.202; union (no gate) 0.696, 2.446 / 2.602 / 2.524; product q 0.3 0.708, 2.632 / 2.364 / 2.498; mean q 0.2 0.667, 2.596 / 2.655 / 2.626; fusion without seeds, ids 0.603, 2.513 / 2.848 / 2.680;
+  fusion without seeds, one instance 0.608, 2.505 / 2.832 / 2.668; A with ids 0.616, 2.507 / 2.796 / 2.651 (1.17 / 1.58 / 5.20); **A without instances 0.629, 2.497 / 2.744 / 2.621** (1.16 / 1.54 / 5.16). All earlier rows reproduce the earlier dev run.
+- **Bedroom** (Chamfer, kept, squiggle-zone gap pixels the oracle-alone cloud covers): fusion without seeds 1.608, 0.586, 1 150; same, one instance 1.597, 0.589, 1 061; A with ids 1.575, 0.597, 317; A without instances **1.539**, 0.610, **202**; union 1.400, 0.695, 0.
+- **Against what was expected (written before running):** more of the strip comes back and the squiggle shrinks further: yes (202 against 317 gap pixels); Chamfer within 0.05 cm of A with instances: yes (dev 2.621 against 2.651, bedroom 1.539 against 1.575); visual quality the same or slightly more debris: the same in the view 18 render (the wall continuous, the wardrobe window and the bed cover
+  still have holes). The control separates the effects: dropping the instances alone moves the fusion by 0.012 cm on dev (2.680 -> 2.668); the seeds do the work (2.668 -> 2.621 without ids, 2.680 -> 2.651 with them), the instances were not needed.
+- **Stage times** (s per scene, dev mean of 3, CPU 16 cores, one run per stage, 3.8 M pixels (20 x 378 x 504); without the loading, the SAM 3 linking and the Chamfer scoring): lift 0.04; confidence cut by sort 1.02, by partition 0.01; density 3.73; Umeyama 0.54; accuracy a_i 1.36; greedy reference 9.26, incremental (`greedy_fast`, identical masks) 5.71; one marginal round 1.01; gate 8 cm 0.53;
+  straight runs 1.61 (ids) / 1.66 (one instance); seeds 2.71 / 2.81; runs with seeds 1.67 / 1.71; distance to the kept 0.54; gradient ranking 0.24. **Totals of the optimized variants:** confidence only 0.01; density 3.74; greedy oracle 7.61 (reference 11.16); marginal oracle 2.92; union 7.62; fusion without seeds 9.76; A with ids 12.53; A without instances 12.67;
+  product / mean 9.41 (the percentile by a sort, 1.02 of it). Everything except confidence only, density and Déjà View needs the GT (the oracle: align, a_i, greedy), so these totals are the cost of computing the oracle and the fusion, not of a deployable method; a learned head would replace the oracle's 7.6 s by its forward pass (not measured).
+- **Limits:** dev only, 3 scenes, no val, no seeds; the q of the product and the mean chosen on dev; the bedroom's visuals are one scene; times from one run per stage on a shared machine; the density's 3.7 s is the reference implementation (not optimized).
+
+## E57c, the figures of the issue-#76 report (18.11.2026)
+- **What:** `uv run python -m experiments.scripts.e57c_figures_issue76` (all five, about 3 minutes; `--only algorithms anatomy peeling steps mechanism`); design tokens and layout in `e57c_style.py` (one palette, laid out in inches). Bedroom `ai_006_007`, numbers the dev means of `results/e57c_summary_dev.txt`
+  (the accuracy, same-pixel and smoothed oracles from `e57c_oracle_zoo_dev.txt`; the greedy's q curve from the same file). Looked at every figure.
+  1. `figures/e57c_issue76_algorithms.png` (and `_dollhouse.png`): all fifteen measured approaches as clouds, grouped (no GT / oracle / oracle + confidence), with the dev Chamfer, Δ against Déjà View, kept share, runtime and a bar on a common 0-3.5 cm scale.
+  2. `e57c_issue76_oracle_anatomy.png`: view 18 in six panels: the image, the error (a_i minus the mean), the coverage a point provides (m_i), their net, the greedy order, the kept set at q 0.5.
+  3. `e57c_issue76_oracle_peeling.png`: six clouds at q 1.0 ... 0.1 over the dev curves of accuracy, completeness and Chamfer, minimum marked.
+  4. `e57c_issue76_fusion_steps.png`: Fusion A without instance information in four steps (Déjà View, confidence threshold, + the oracle's pixels, + the bridge) with a zoom on the seam.
+  5. `e57c_issue76_fusion_mechanism.png`: the bridge in image space (view 12): before, the seeds, after.
+- **Design decisions:** the saturated colors of the debugging maps are replaced by one palette with one meaning each (steel blue: kept by confidence; teal: kept by the oracle; amber: bridged; rose: the seam; violet: seed; slate: error; light gray: dropped); the cloud ground is slate gray so that holes in white walls show.
+  The clouds of figure 1 are bedroom renders and the numbers dev means: both are named in the subtitle.
+- **Limits:** figures from one scene; the stage times are those of the dev summary; figure 5's crop is fixed by eye around the strip's source pixels of view 12.
+
+## E57c, what the pull request carries (18.11.2026)
+- **Committed:** the oracle scripts and their results (`e57c_oracle_curve`, `e57c_fast`), the fusion and its seams (`e57c_seams`, `e57c_hybrid`, `e57c_two_fills`, `e57c_squiggles`, `e57c_squiggle_categories`, `e57c_reproject`), the gradient cuts and the confidence-only fixes that failed (`e57c_gradients`, `e57c_product`, `e57c_verify`,
+  `e57c_voxel_conf`, `e57c_gt_rays`), the summary with the stage times (`e57c_summary`), the figures of the report on issue #76 (`e57c_style`, `e57c_figures_issue76`, six JPEGs) and the text of that report (`results/e57c_issue76_comment.md`); tests for the cost of a point, the greedy and its incremental version, the straight-run rule and the seeds.
+- **Not committed:** the debug renders and the one-off scripts of the entries above (the first clouds, the clouds of the hybrids, fills and gradients, the four-color view, the band gate, the view maps, `e57c_dev_methods`, `e57c_clouds`): superseded by `e57c_summary` and the report's figures, their numbers stay in the entries as recorded; the figures they wrote are not in git.
+  Result files of versions of scripts that have changed since (`e57c_gradients.txt`, `e57c_two_fills_band08.txt`) are not committed either; `results/e57c_summary_dev.txt` reproduces every dev row of `e57c_dev_methods` and of the earlier runs (rerun after the cleanup: all Chamfers identical, stage times within 0.2 s). `e57c_oracles_dev.txt` and `e57c_oracle_curve_dev_val.txt` come from earlier revisions of `e57c_oracle_curve` (`--rankings accuracy completeness chamfer marginal` reproduces them).
 ## Plan: E52c = the E52b control's LoRA trained with a cross-view point-to-plane loss whose partners lie in one GT instance, against the same loss with any partner (issue #52, 18.11.2026)
 - **Goal:** E52a's segment adapters gained no more with GT instances than with grid tiles, and the
   E52b control (LoRA, no segments) set the bar at 3.154 cm dev Chamfer. Can instances help when

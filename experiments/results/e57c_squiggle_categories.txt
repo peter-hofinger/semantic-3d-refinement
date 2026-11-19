@@ -1,0 +1,3 @@
+3D distance of the strip's 586 blue source pixels to the nearest white pixel (cm): median 4.54, 10th 2.96, 90th 6.27
+3D distance of the strip's 586 blue source pixels to the nearest green pixel (cm): median 6.61, 10th 2.93, 90th 15.88
+sum of the two (cm): median 10.81, 10th 8.53, 90th 19.71; gate 8 cm

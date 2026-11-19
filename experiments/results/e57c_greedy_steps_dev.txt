@@ -1,0 +1,26 @@
+ai_010_007_cam_00: 29 s
+ai_006_007_cam_00: 27 s
+ai_044_001_cam_00: 29 s
+dev: mean over 3 scenes
+  greedy: accuracy / completeness / Chamfer (cm)
+    q 0.7: 1.990 / 2.327 / 2.158
+    q 0.5: 1.535 / 2.505 / 2.020
+    q 0.3: 1.299 / 2.833 / 2.066
+  Chamfer (cm)           greedy
+    q 0.7                2.158
+    q 0.5                2.020
+    q 0.3                2.066
+    mean over q         2.082
+ai_010_007_cam_00: 42 s
+ai_006_007_cam_00: 41 s
+ai_044_001_cam_00: 44 s
+dev: mean over 3 scenes
+  greedy: accuracy / completeness / Chamfer (cm)
+    q 0.6: 1.726 / 2.334 / 2.030
+    q 0.5: 1.536 / 2.451 / 1.993
+    q 0.4: 1.396 / 2.603 / 2.000
+  Chamfer (cm)           greedy
+    q 0.6                2.030
+    q 0.5                1.993
+    q 0.4                2.000
+    mean over q         2.008

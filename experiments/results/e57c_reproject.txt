@@ -1,0 +1,13 @@
+wrote e57c_reproject_clouds_dollhouse_colors.jpg
+wrote e57c_reproject_clouds_dollhouse_shaded.jpg
+wrote e57c_reproject_clouds_view18_pulledback_colors.jpg
+wrote e57c_reproject_clouds_view0_pulledback_colors.jpg
+wrote e57c_reproject_clouds_view12_pulledback_colors.jpg
+wrote e57c_reproject_clouds_view6_pulledback_colors.jpg
+seeds per view: [2615, 327, 3839, 8738, 3116, 17262, 41478, 50380, 13441, 16070, 9852, 14244, 15256, 18400, 42602, 4158, 50935, 46215, 5098, 39362] (red pixels per view [33255, 58576, 42737, 57646, 15308, 42452, 95934, 93627, 35821, 51652, 37327, 80163, 49522, 38542, 75855, 44743, 89551, 82184, 48489, 86949])
+blue pixels brought back: without seeds 59368, with seeds 102153 (blue in total 477291)
+the strip of the baseline: 586 source pixels; brought back: baseline 0.456 (with seeds), 0.000 (without)
+fusion without seeds: kept 0.586, Chamfer 1.608 cm, zone gap pixels covered by the oracle-alone cloud 1150
+A: seeds as white for the rule: kept 0.597, Chamfer 1.575 cm, zone gap pixels covered by the oracle-alone cloud 317
+B: seeds kept too: kept 0.703, Chamfer 1.674 cm, zone gap pixels covered by the oracle-alone cloud 266
+union, no gate: kept 0.695, Chamfer 1.400 cm, zone gap pixels covered by the oracle-alone cloud 0

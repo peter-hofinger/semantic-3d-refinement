@@ -1,0 +1,26 @@
+render (480, 640): gap pixels 13925, holes (nothing behind either) 110; zone (slice(30, 260, None), slice(400, 560, None)): gap 3582
+render: 13925 gap pixels; covered by the oracle-alone cloud 8438, by its blue pixels (oracle keeps, the fill did not bring back) 8438, by neither 5487
+zone: 3582 gap pixels; covered by the oracle-alone cloud 1150, by its blue pixels (oracle keeps, the fill did not bring back) 1150, by neither 2432
+zone: 586 source pixels in 8 views; most: [(12, 213), (14, 203), (6, 62), (8, 58), (7, 43), (18, 3)]
+zone source pixels: {'category blue': 586, 'category red': 0, 'within 2 px of a SAM 3 border': 61, 'within 8 px of the image border': 11, 'instance -1': 16, 'all 4 neighbors kept (isolated)': 0, 'kept on both sides in a row or column (one pixel wide)': 0, 'confidence percentile c > 0.3': 258} of 586
+base rate: 0.169 of all pixels of those views lie within 2 px of a SAM 3 border
+3D distance of the zone's source pixels to the nearest kept pixel (cm): median 3.82, 90th percentile 5.00, max 6.28
+true accuracy a_i of the zone's source pixels (cm): median 1.42, 90th percentile 1.72; all pixels: median 1.78
+what lies on the two sides of a gap pixel of the zone (kept render pixels within 4 px): {'same source view on both sides': 477, 'no kept pixel within 4 px on both sides': 1593, 'different source views': 1512}
+blue ones: ends of the shortest straight run (why no run was closed by white and green):
+  ('dropped', 'green'): 247
+  ('dropped', 'dropped'): 214
+  ('dropped', 'other instance'): 28
+  ('green', 'other instance'): 20
+  ('dropped', 'kept'): 19
+  ('gold', 'kept'): 15
+  ('dropped', 'gold'): 14
+  ('gold', 'green'): 8
+  ('green', 'green'): 7
+  ('green', 'image border'): 3
+  ('kept', 'other instance'): 3
+  ('other instance', 'other instance'): 2
+  ('gold', 'gold'): 2
+  ('image border', 'other instance'): 2
+  ('gold', 'other instance'): 1
+  ('dropped', 'image border'): 1
