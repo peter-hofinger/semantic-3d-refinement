@@ -6197,3 +6197,18 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** `uv run python experiments/scripts/e52c_solver.py` (3080, ~4 min);
   `--plot` redraws the figure from the yaml. Figure `e52c_solver.jpg`, raw
   `results/e52c_solver.yaml`.
+
+## E52c closed: segments in the training loss are not yet working; the cross-view term has to be replaced, not tuned (issue #52, 19.11.2026)
+- **What was tested:** LoRA on frozen Déjà View with the GT ratio plus a cross-view
+  point-to-plane term whose partners lie in the same GT instance, against the same term with
+  any partner (the semantics-free twin). Bar: the LoRA control's seed mean, dev 3.155 cm,
+  margin 0.080 cm (entries above).
+- **Where it stopped:** before the λ sweep and before rung 5, so no dev score of E52c exists.
+  The term never reached a known answer: c / c_DV on the bedroom stayed at 0.94 (λ = 1),
+  0.91 (λ = 10) and 0.89-0.90 (term alone), and the solver check showed its minima lie away
+  from the GT (c falls while the GT error rises, then by shrinking the alignment). The instance
+  gate changed no number by more than 0.013, as the probe predicted (<= 6%).
+- **Status:** "not yet working", not "fails": missing are a term whose descent agrees with the
+  GT error at Déjà View's output (test: gradient cosine, scale-invariant c) and then the sweep,
+  seeds and ablations. The E52b control (LoRA without segments, dev 3.500 -> 3.155 cm over 3
+  seeds) stays the bar for any segment method in #52.
