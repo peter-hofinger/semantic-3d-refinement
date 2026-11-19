@@ -1,0 +1,48 @@
+git: 813c3e1c3d1b99854b5bc4136c2978612004092a-dirty
+settings:
+  views: 12
+  pixels: 6000
+  cap: 0.05
+  strides:
+  - 2
+  - 7
+scenes:
+  ai_010_007_cam_00:
+    point_gt_gate: 0.0172053724527359
+    plane_s2_gt_gate: 0.0012680708896368742
+    plane_s7_gt_gate: 0.0017251760000362992
+    point_gt_any: 0.01699697971343994
+    plane_s2_gt_any: 0.0013641492696478963
+    plane_s7_gt_any: 0.0017518578097224236
+    point_dejaview_gate: 0.018135154619812965
+    plane_s2_dejaview_gate: 0.00395586621016264
+    plane_s7_dejaview_gate: 0.003812596667557955
+    point_dejaview_any: 0.017690908163785934
+    plane_s2_dejaview_any: 0.0038184188306331635
+    plane_s7_dejaview_any: 0.003696398576721549
+  ai_006_007_cam_00:
+    point_gt_gate: 0.024649381637573242
+    plane_s2_gt_gate: 0.004807149525731802
+    plane_s7_gt_gate: 0.005965651944279671
+    point_gt_any: 0.024288902059197426
+    plane_s2_gt_any: 0.005380554590374231
+    plane_s7_gt_any: 0.00622108718380332
+    point_dejaview_gate: 0.026794232428073883
+    plane_s2_dejaview_gate: 0.010369068942964077
+    plane_s7_dejaview_gate: 0.010269129648804665
+    point_dejaview_any: 0.025995636358857155
+    plane_s2_dejaview_any: 0.01030329242348671
+    plane_s7_dejaview_any: 0.010237796232104301
+  ai_044_001_cam_00:
+    point_gt_gate: 0.023753853514790535
+    plane_s2_gt_gate: 0.0047124214470386505
+    plane_s7_gt_gate: 0.005826955661177635
+    point_gt_any: 0.023452067747712135
+    plane_s2_gt_any: 0.005497195292264223
+    plane_s7_gt_any: 0.00619087740778923
+    point_dejaview_gate: 0.02563478797674179
+    plane_s2_dejaview_gate: 0.008553587831556797
+    plane_s7_dejaview_gate: 0.008477598428726196
+    point_dejaview_any: 0.02509048394858837
+    plane_s2_dejaview_any: 0.009078715927898884
+    plane_s7_dejaview_any: 0.008841756731271744

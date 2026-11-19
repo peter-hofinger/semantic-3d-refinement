@@ -1,0 +1,81 @@
+git: 677f81a53be1a5f8bd3f89f3258def3237e72edb
+settings:
+  scene: ai_006_007_cam_00
+  views: 12
+  pixels: 6000
+  draws: 20
+  cap: 0.05
+  stride: 2
+  device: cuda
+terms:
+  built_gate:
+    cosine_mean_gradient: 0.19319458837469133
+    cosine_per_draw_mean: 0.1079209461039156
+    cosine_per_draw_std: 0.011365027013263237
+    cosine_sign: 0.20301831644634277
+    gt_ratio_after_step:
+      gradient_0.001: 0.9946321845054626
+      gradient_0.01: 1.04733407497406
+      gradient_0.03: 1.4717937707901
+      sign_0.001: 0.99346923828125
+      sign_0.01: 1.0389769077301025
+      sign_0.03: 1.6150038242340088
+  built_any:
+    cosine_mean_gradient: 0.19293103640420228
+    cosine_per_draw_mean: 0.10716908577679454
+    cosine_per_draw_std: 0.011380249489965353
+    cosine_sign: 0.19419901540741252
+    gt_ratio_after_step:
+      gradient_0.001: 0.9946423172950745
+      gradient_0.01: 1.0471904277801514
+      gradient_0.03: 1.46990966796875
+      sign_0.001: 0.9937900304794312
+      sign_0.01: 1.0410072803497314
+      sign_0.03: 1.6165857315063477
+  invariant_gate:
+    cosine_mean_gradient: 0.1912778731101401
+    cosine_per_draw_mean: 0.10692113721194349
+    cosine_per_draw_std: 0.011303698472549755
+    cosine_sign: 0.22678445612809778
+    gt_ratio_after_step:
+      gradient_0.001: 0.9946975111961365
+      gradient_0.01: 1.0482298135757446
+      gradient_0.03: 1.4711871147155762
+      sign_0.001: 0.9925969839096069
+      sign_0.01: 1.0255402326583862
+      sign_0.03: 1.5660496950149536
+  invariant_any:
+    cosine_mean_gradient: 0.19101803378940527
+    cosine_per_draw_mean: 0.10625872492554063
+    cosine_per_draw_std: 0.011389273533060667
+    cosine_sign: 0.21698459744222537
+    gt_ratio_after_step:
+      gradient_0.001: 0.9947090744972229
+      gradient_0.01: 1.0481221675872803
+      gradient_0.03: 1.469279408454895
+      sign_0.001: 0.992952823638916
+      sign_0.01: 1.028146505355835
+      sign_0.03: 1.5701383352279663
+ceiling:
+  cosine_mean_gradient: 0.9743393767301838
+  cosine_per_draw_mean: 0.6973593350634174
+  cosine_per_draw_std: 0.004551954965769842
+  cosine_sign: 0.8582555242850807
+  gt_ratio_after_step:
+    gradient_0.001: 0.9642599821090698
+    gradient_0.01: 0.8503860831260681
+    gradient_0.03: 1.532004714012146
+    sign_0.001: 0.9687305092811584
+    sign_0.01: 0.8498755693435669
+    sign_0.03: 1.390802025794983
+random_gt_ratio_after_step:
+  gradient_0.001: 1.0006362199783325
+  gradient_0.01: 1.059319019317627
+  gradient_0.03: 1.3973332643508911
+  sign_0.001: 1.0003256797790527
+  sign_0.01: 1.058885097503662
+  sign_0.03: 1.4414414167404175
+floor_std: 0.009732948208089183
+dim: 11664
+invariance_drift: 3.5762786865234375e-07
+seconds: 17.02066639997065

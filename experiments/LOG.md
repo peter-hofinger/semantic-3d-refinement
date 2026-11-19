@@ -6775,3 +6775,332 @@ Interim entry: the check that the plan puts before any table.
   `e57c_voxel_conf`, `e57c_gt_rays`), the summary with the stage times (`e57c_summary`), the figures of the report on issue #76 (`e57c_style`, `e57c_figures_issue76`, six JPEGs) and the text of that report (`results/e57c_issue76_comment.md`); tests for the cost of a point, the greedy and its incremental version, the straight-run rule and the seeds.
 - **Not committed:** the debug renders and the one-off scripts of the entries above (the first clouds, the clouds of the hybrids, fills and gradients, the four-color view, the band gate, the view maps, `e57c_dev_methods`, `e57c_clouds`): superseded by `e57c_summary` and the report's figures, their numbers stay in the entries as recorded; the figures they wrote are not in git.
   Result files of versions of scripts that have changed since (`e57c_gradients.txt`, `e57c_two_fills_band08.txt`) are not committed either; `results/e57c_summary_dev.txt` reproduces every dev row of `e57c_dev_methods` and of the earlier runs (rerun after the cleanup: all Chamfers identical, stage times within 0.2 s). `e57c_oracles_dev.txt` and `e57c_oracle_curve_dev_val.txt` come from earlier revisions of `e57c_oracle_curve` (`--rankings accuracy completeness chamfer marginal` reproduces them).
+## Plan: E52c = the E52b control's LoRA trained with a cross-view point-to-plane loss whose partners lie in one GT instance, against the same loss with any partner (issue #52, 18.11.2026)
+- **Goal:** E52a's segment adapters gained no more with GT instances than with grid tiles, and the
+  E52b control (LoRA, no segments) set the bar at 3.154 cm dev Chamfer. Can instances help when
+  they only shape the training loss, with no segments at test time? E52c asks the LoRA to make each
+  point lie on its own instance's surface as the other views predict it. The same loss with any
+  partner, ignoring instances, is the control: the CLAUDE.md rule's "same method without semantics".
+- **Loss** (`cross_view_distance`, `map_normals` in `src/backbone/adapters.py`, module docstring):
+  loss = GT ratio (as the control) + λ c / c_DV, with c_DV Déjà View's c on the same draw (one
+  extra no-grad pass, as the GT ratio), floored at 1e-3. c = mean over 6000 random GT-valid pixels
+  of the step's views (the Sim(3)-aligned points of the exact alignment) of
+  min(|n_q · (x_p - x_q)| / z_p, 0.05). q is the nearest point of another view and of the same GT
+  instance (`cons_gate: instance`) or any (`none`). n_q is the predicted map's normal (central
+  differences 2 px apart, detached as ICP's target normals), and z_p is the GT depth. Partners and
+  normals come from the prediction and the instance id alone. GT correspondences would make the
+  term the GT loss reweighted. Both arms average over the same points (instances seen in 2+ views).
+- **Probe before any run** (`experiments/scripts/e52c_probe.py`, figure `e52c_probe.jpg`, raw
+  `results/e52c_probe.yaml`; laptop, Déjà View on each dev scene's 12 fixed views; c capped at 0.05):
+
+  | | living room | bedroom | lobby |
+  |---|---|---|---|
+  | point to point, GT points | 0.0172 | 0.0246 | 0.0238 |
+  | point to point, Déjà View | 0.0181 | 0.0268 | 0.0256 |
+  | point to plane, GT points, gate / any | 0.0013 / 0.0014 | 0.0048 / 0.0054 | 0.0047 / 0.0055 |
+  | point to plane, Déjà View, gate / any | 0.0040 / 0.0038 | 0.0104 / 0.0103 | 0.0086 / 0.0091 |
+
+  The first draft (point to point) scored perfect geometry within 10% of Déjà View. It measures
+  how far apart 6000 samples lie, and its gradient would pull points together, so it was dropped
+  before any run. Point to plane scores Déjà View 2-3x above GT on all three scenes; normals 7 px
+  apart change it by at most 0.0012. The gate changes Déjà View's c by at most 6% (lobby
+  0.0086 vs 0.0091). On GT it lowers the floor by up to 15%, as it drops partners across instance
+  boundaries.
+- **Hypothesis and the numbers that would refute it:** the gated arm beats Déjà View, the control
+  and the any-partner arm on dev mean Chamfer, each by more than the larger of 0.05 cm and the
+  control's seed range (max - min over seeds 0-2, running now on the 3080), and on 2 of 3 scenes.
+  Gated within that margin of any-partner refutes "instances add to this loss". Any-partner within
+  it of the control refutes "a cross-view term adds to GT supervision" (no verdict on instances
+  then). **Prediction from the probe:** the gate changes what the loss asks of Déjà View by under
+  6%, so the two arms end within the spread of each other.
+- **Training:** as the control (LoRA r16 on qkv and proj of both attentions of the loop block, lr
+  1e-4, 3000 steps, 8-12 views, `align=exact`, bf16, state kept on val, probe every 10 steps).
+  Only `cons_weight` and `cons_gate` change. `train_loss` keeps the GT ratio alone, and
+  `train_cons_ratio` logs c / c_DV. Laptop smoke (bedroom + living room, 4 views, 4 steps, both
+  gates, `runs/e52c_smoke_<gate>`, not of record): runs end to end at 1.43 GB and 3.5 s per step.
+  c / c_DV is 1.01-1.02 at step 1 with a zero LoRA: the known gap between the grad (checkpointed)
+  and the no-grad path, larger on c than on the GT ratio (~0.999) because c is small.
+- **Ladder** (`docs/experiments.md`; 3080, after the control seeds), λ = 1 in rungs 3/4, both arms:
+  - Rung 3, bedroom, 200 steps. **Pass:** last-50 GT ratio below 0.90 (the control: 0.843) and
+    last-50 c / c_DV below 0.90.
+  - Rung 4, dev, 300 steps. **Pass:** last-100 GT ratio below 0.95 on each scene, and c / c_DV
+    falling.
+  - Sweep λ in {0.1, 0.3, 1} for both arms (500 steps, `--splits` none; least val ratio at step 500).
+    The control's lr was swept the same way. Ask before (6 runs, ~2 h).
+  - Rung 5, 3000 steps per arm at its λ, dev scored. The seeds per arm are set from the control's
+    seed range before these runs (asked; ~2 h per run).
+- **Reading:** dev Chamfer (cm) per scene and mean against Déjà View 3.500, the control (mean over
+  its seeds) and the other arm; val curves; stability by the probe rule. With rungs 3/4 passed and
+  both arms swept alike, a gated arm within the margin of any-partner is "fails for this loss",
+  stated for this term only, with the budget and spread logged.
+- **Commands** (3080): rung 3
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora: [false, false, true]}" "segments=[none]" "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact cons_weight=1.0 cons_gate=<instance|none> --out runs/e52c_rung3_<gate>`;
+  rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300` (as E52b's rungs); rung 5 as the control's command plus
+  `cons_weight=<λ> cons_gate=<gate> seed=<s>`. Probe: `uv run python experiments/scripts/e52c_probe.py`.
+
+## E52c, before the sweep: the control's three seeds span 0.080 cm dev mean, the bar becomes 3.155 cm; both arms pass the GT-ratio rungs at λ = 1, the cross-view ratio falls but misses rung 3's 0.90, and the arms are indistinguishable (issue #52, 18.11.2026)
+- **Setting:** the plan entry above. 3080. Control seeds 1, 2 at 813c3e1 (clean), the E52b control's
+  command plus `seed=<s>`, `--out runs/e52b_control_s<s>`, 18.11 14:31-18:33 (~2.37 s per step).
+  Rungs at bd10710 (clean), 18:33-19:04, λ = 1, `runs/e52c_rung{3,4}_{instance,none}`. Figure
+  `e52c_rungs.jpg`, raw `results/e52c_rungs.yaml`.
+- **Control seeds, dev Chamfer (cm, 20 views, same Déjà View run):**
+
+  | | living room | bedroom | lobby | mean | kept step |
+  |---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | |
+  | seed 0 (E52b) | 1.580 | 1.693 | 6.189 | 3.154 | 2500 |
+  | seed 1 | 1.470 | 1.678 | 6.438 | 3.195 | 1500 |
+  | seed 2 | 1.517 | 1.571 | 6.257 | 3.115 | 3000 |
+  | range | 0.110 | 0.122 | 0.249 | 0.080 | |
+
+  Every seed beats Déjà View on every scene, so the control's gain holds across seeds. The bar is
+  the seed mean, 3.155 cm. By the plan's rule, E52c's margin is max(0.05, 0.080) = 0.080 cm. The
+  per-scene ranges (0.11-0.25 cm) are larger than most per-scene gaps so far, so "2 of 3 scenes" is
+  only readable from seed means. The kept step varies from 1500 to 3000: the choice on val is noisy.
+- **Rungs, λ = 1:**
+
+  | | gate: same instance | any partner | bar |
+  |---|---|---|---|
+  | rung 3 GT ratio, last 50 | 0.842 | 0.843 | < 0.90: pass |
+  | rung 3 c / c_DV, first 50 -> last 50 | 0.984 -> 0.943 | 0.990 -> 0.940 | < 0.90: missed |
+  | rung 4 GT ratio, last 100 (living / bed / lobby) | 0.776 / 0.905 / 0.710 | 0.779 / 0.905 / 0.709 | < 0.95: pass |
+  | rung 4 c / c_DV, first -> last 100, lobby | 0.942 -> 0.910 | 0.948 -> 0.907 | falling: pass |
+
+  The GT ratio matches the control's rungs (0.843; 0.910 / 0.775 / 0.706). The cross-view ratio
+  falls on every scene in both arms but, on the bedroom, flattens at ~0.94 after step 150. That
+  misses rung 3's bar, so the term is not shown to reach a known answer yet. Part of c cannot go:
+  GT points score 0.46 of Déjà View's c on the bedroom (probe), so c / c_DV has a floor near 0.46,
+  plus normal noise. At λ = 1 the GT ratio may set the gradient. The two arms differ by at most
+  0.006 on any number above, as the probe predicted.
+- **Reading:** not yet a pass for the term: rung 3 of the cross-view loss is open. Next, before the
+  sweep: rung 3 on the bedroom at λ = 10, both arms (~6 min each). If c / c_DV then falls well below
+  0.90, the term trains as intended and the sweep should cover larger λ than {0.1, 0.3, 1}.
+  Otherwise, check the gradient path (detached normals, partner choice, the cap's share of points).
+- **Commands:** as in the plan; figure and raw:
+  `uv run python experiments/scripts/e52c_rungs_figures.py`.
+
+## E52c, rung 3 at λ = 10: ten times the weight moves the cross-view ratio from 0.94 to 0.91 and costs the GT ratio 0.84 -> 0.92; neither bar is met, the arms stay indistinguishable (issue #52, 18.11.2026)
+- **Setting:** rung 3 of the E52c plan (bedroom, 200 steps, both arms) with `cons_weight=10.0`, at
+  bd10710 (clean), 3080, 18.11 22:17-22:29 (~350 s per arm), `runs/e52c_rung3_{instance,none}_l10`.
+  Hypothesis (entry above): if the term trains as intended, c / c_DV falls well below 0.90 at
+  λ = 10. Refuted if it stays near 0.90 or above.
+- **Result (bedroom, 20 views drawn as 8 per step, ratios to Déjà View on the same draw):**
+
+  | | λ = 1, same instance | λ = 1, any partner | λ = 10, same instance | λ = 10, any partner | bar |
+  |---|---|---|---|---|---|
+  | GT ratio, last 50 | 0.842 | 0.843 | 0.918 | 0.931 | < 0.90 |
+  | c / c_DV, first 50 -> last 50 | 0.984 -> 0.943 | 0.990 -> 0.940 | 0.981 -> 0.909 | 0.988 -> 0.907 | < 0.90 |
+
+  Ten times the weight buys 0.03 of c / c_DV and gives back 0.08-0.09 of the GT ratio. At λ = 10
+  the two ratios fall together and dip at the same step (180, the seeded draw, also seen at
+  λ = 1), so c behaves like a second, weaker copy of the GT error rather than a term the model
+  can drive down on its own. The probe's floor (GT scores 0.46 of Déjà View's c) is far below
+  0.91. The gate again changes nothing (<= 0.013 on any number). No step was clipped in any of
+  the four runs. The median LoRA-up gradient norm grows 2.3 -> 8.2 (λ = 1 -> 10), 3.5x for 10x
+  the weight, so the term's gradient is small next to the GT ratio's; since Adam normalises the
+  step size, λ only shifts the update's direction towards c, and c still barely moves.
+- **Reading:** rung 3 of the cross-view term is still open; the hypothesis is refuted, so the λ
+  sweep is not run yet. The term is "not yet working", not failed: what is missing is a check
+  of its gradient path. Candidates: the normals are detached and taken from the prediction, so
+  moving a point along its partner's normal is the only free direction; nearest partners are
+  re-chosen every step, so the target moves with the prediction; the 0.05 cap may silence the
+  points that carry most of c. Next: log the capped share and the per-step gradient norm of the
+  term against the GT ratio's, and run rung 3 with c alone (needs a GT-ratio weight key, which
+  the script lacks), which must reach c / c_DV well below 0.90 if the term can be minimised at
+  all.
+- **Commands:** as the rung-3 command of the plan with `cons_weight=10.0` and
+  `--out runs/e52c_rung3_<gate>_l10`; figure (fourth panel added) and raw:
+  `uv run python experiments/scripts/e52c_rungs_figures.py`.
+
+## E52c, plan: rung 3 with the cross-view term alone, the check that it can be minimised at all (issue #52, 18.11.2026)
+- **Why:** at λ = 10 c / c_DV stopped at 0.91 while the GT ratio got worse (entry above). Either
+  the GT ratio holds c up, or the term cannot be driven down by the LoRA at all.
+- **Change:** `gt_weight` (default 1.0, earlier runs unchanged) scales the GT ratio in the loss;
+  `gt_weight=0` trains on c / c_DV alone. `train_loss` still records the GT ratio.
+- **Hypothesis:** with the term alone, c / c_DV on the bedroom falls well below 0.90 within 200
+  steps (last 50 < 0.80). Refuted if it stays >= 0.90: then the term's gradient path is the
+  problem (detached normals, partners re-chosen every step, the cap), not its weight. The GT
+  ratio is expected to rise; how far shows how much c alone conflicts with the GT.
+- **Command** (3080, both gates, ~6 min each): the plan's rung-3 command with
+  `cons_weight=1.0 gt_weight=0.0`, `--out runs/e52c_rung3_<gate>_conly`.
+
+## E52c, rung 3 with the cross-view term alone: c / c_DV stops at 0.89-0.90 while the GT ratio climbs to 1.13-1.23, so the term itself cannot be driven down by the LoRA; the λ sweep is dropped until its gradient path is understood (issue #52, 18.11.2026)
+- **Setting:** the plan entry above, at 34f1183 (clean), 3080, 18.11 22:43-22:56 (~347 s per arm),
+  `runs/e52c_rung3_{instance,none}_conly`.
+- **Result (bedroom, 200 steps, ratios to Déjà View on the same draw; λ = 1 and λ = 10 from the
+  entries above):**
+
+  | | λ = 1 | λ = 10 | term alone | bar |
+  |---|---|---|---|---|
+  | c / c_DV, last 50, same instance | 0.943 | 0.909 | 0.902 | < 0.80 (term alone) |
+  | c / c_DV, last 50, any partner | 0.940 | 0.907 | 0.890 | |
+  | GT ratio, last 50, same instance | 0.842 | 0.918 | 1.133 | |
+  | GT ratio, last 50, any partner | 0.843 | 0.931 | 1.228 | |
+  | median LoRA-up gradient norm, same instance | 2.32 | 8.19 | 0.80 | |
+  | val ratio at step 200, same instance / any partner | 1.002 / 0.999 | 1.002 / 1.001 | 1.086 / 1.134 | |
+
+  Without the GT ratio, c / c_DV ends where it ended at λ = 10 (0.89-0.90; the 20-step means
+  flatten from step 160), so the GT ratio was not what held it at 0.91. Meanwhile the geometry
+  moves away from the GT: the GT ratio passes 1.0 at step ~90 and keeps rising (20-step peak
+  1.22 / 1.33), and val worsens by 9-13%. The term's own gradient is small: its median norm
+  alone is 0.80, about a third of the GT ratio's (2.3 at λ = 1), and 10 x 0.80 matches the 8.2
+  of λ = 10. The probe's floor (GT scores 0.46 of Déjà View's c) is far away, so the LoRA lowers
+  c by distorting the scene, not by moving it towards the GT. The gate changes c by 0.012.
+- **Reading:** refuted: the term alone does not reach a known answer (rung 3), so a λ sweep or
+  seeds would only measure a term that does not work as intended. The term is "not yet
+  working": what is missing is a solver-level check that removes the network. Next, on cached
+  Déjà View output: minimise c directly over per-pixel depth (or a per-view affine) of the
+  bedroom's 20 views and see whether it reaches the GT's c (0.46) and moves the points towards
+  the GT. If it does, the LoRA's parameterisation limits the term; if not, the term (detached
+  prediction normals, partners re-chosen every step, the 0.05 cap) has minima away from the GT.
+- **Commands:** the plan's command; figure (rung-3 panel for the term alone added) and raw:
+  `uv run python experiments/scripts/e52c_rungs_figures.py`.
+
+## E52c, plan: solver check of the cross-view term without the network (issue #52, 19.11.2026)
+- **Why:** trained alone, the term stopped at c / c_DV 0.89-0.90 while the GT error grew past
+  Déjà View's (entry above). Either the LoRA cannot express the change the term asks for, or the
+  term's minima lie away from the GT.
+- **Setting:** `experiments/scripts/e52c_solver.py`. Déjà View's cached depth of the bedroom's 12
+  probe views (pinhole rays), Adam on a log-scale per 14 px patch (bilinear) or a scale and
+  offset per view, 1000 steps, lr 1e-3, the exact Sim(3) re-fit every step, 6000 drawn pixels.
+  Loss: c gated by instance, c with any partner, or the GT error (the solver's known answer).
+  lr 1e-2 raised c in every arm within 4 steps (depth steps of 1% are twice Déjà View's c), so
+  1e-3 was set on a 50-step laptop smoke test before this entry (patch arms: c 0.75, GT ratio
+  1.14 at step 50; GT arm: GT ratio 0.71, c 0.86).
+- **Hypothesis:** the term's minimum lies near the GT: minimising c on patches reaches c / c_DV
+  near GT's (0.49 gated on this draw) and the GT ratio ends below 1. Refuted if the GT ratio
+  ends above 1 while c falls (the term's minima lie away from the GT; then a different term,
+  not a different λ or network, is needed). The GT arm must reach a GT ratio well below 1 for
+  the check to count.
+- **Command** (3080, ~1-2 min per arm): `uv run python experiments/scripts/e52c_solver.py`.
+
+## E52c, solver check: minimising the cross-view term on Déjà View's own depth moves away from the GT, first directly, then by shrinking the alignment; the term's minima lie away from the GT (issue #52, 19.11.2026)
+- **Setting:** the plan entry above. Run of record at b91def6 (clean), 3080, 19.11 00:50-00:54
+  (~40 s per arm). Two earlier runs at 95adc6d and 3076a05 gave the same ratios to the third
+  decimal; b91def6 only adds the Sim(3) scale and wider depth quantiles to the record. The
+  figure's labels were redrawn from the yaml with `--plot` (no new numbers). GT's own c / c_DV on
+  the fixed draw: 0.492 (same instance), 0.550 (any partner).
+- **Result (bedroom, 12 views, ratios to Déjà View; scale = the Sim(3)'s scale over Déjà View's;
+  depth = final over start depth, 0.1 / 5 / 50 / 95 / 99.9% quantiles):**
+
+  | free variables, loss | GT ratio | c / c_DV (own rule) | scale | depth quantiles |
+  |---|---|---|---|---|
+  | patch, c same instance, step 100 | 1.43 | 0.696 | 0.985 | |
+  | patch, c same instance, step 1000 | 17.26 | 0.378 | 0.466 | 0.89 / 0.97 / 1.00 / 1.05 / 4.17 |
+  | patch, c any partner, step 1000 | 17.24 | 0.368 | 0.467 | 0.89 / 0.96 / 1.00 / 1.05 / 4.17 |
+  | patch, GT error (known answer) | 0.679 | 0.854 | 0.996 | 0.90 / 0.98 / 1.00 / 1.02 / 1.08 |
+  | view, c same instance | 0.983 | 0.937 | 0.998 | 0.95 / 0.99 / 1.00 / 1.01 / 1.01 |
+  | view, c any partner | 0.983 | 0.938 | 0.999 | 0.95 / 0.99 / 1.00 / 1.01 / 1.01 |
+  | view, GT error (known answer) | 0.929 | 0.971 | 0.996 | 0.97 / 0.99 / 1.00 / 1.01 / 1.01 |
+
+  The solver passes its own check: fitting the GT on patches lowers the GT ratio to 0.68. Two
+  ways c is lowered away from the GT:
+  1. Directly: in the first 100 steps c falls 30% while the GT error rises 43%, with the fit's
+     scale still at 0.985. Déjà View's depth is not near a minimum of c that is near the GT:
+     c's descent direction from there moves the points off the GT.
+  2. Through the alignment: afterwards 0.1% of the pixels are pushed to ~4x their depth, the
+     least-squares Sim(3) shrinks the cloud to 0.47 of its size, and c, divided by the fixed GT
+     depth, shrinks with it, to 0.38, below GT's own 0.49. 90% of the depth moves by under 5%.
+  Fitting the GT lowers c only to 0.85, far from GT's 0.49: most of the c that separates Déjà
+  View from GT lies below the 14 px patch scale. Per-view scale and offset barely move either
+  number. The gate again makes no difference (0.011).
+- **Reading:** the hypothesis is refuted: the cross-view term's minima lie away from the GT on
+  the bedroom, so no λ, network or seed can make it a proxy for GT error. This explains rung 3
+  with the term alone (c 0.89-0.90, GT ratio 1.13-1.23); whether the LoRA also used the scale
+  route was not recorded there. Limits: one scene, 12 views, patch-scale freedom. A term that
+  could work has to (a) be invariant to the alignment's scale, e.g. divided by the predicted
+  depth or computed before the Sim(3), which removes route 2 only, and (b) descend towards the
+  GT from Déjà View's output; the cheap test for (b) is the cosine between the gradients of c
+  and of the GT error at Déjà View's depth, before any training.
+- **Commands:** `uv run python experiments/scripts/e52c_solver.py` (3080, ~4 min);
+  `--plot` redraws the figure from the yaml. Figure `e52c_solver.jpg`, raw
+  `results/e52c_solver.yaml`.
+
+## E52c closed: segments in the training loss are not yet working; the cross-view term has to be replaced, not tuned (issue #52, 19.11.2026)
+- **What was tested:** LoRA on frozen Déjà View with the GT ratio plus a cross-view
+  point-to-plane term whose partners lie in the same GT instance, against the same term with
+  any partner (the semantics-free twin). Bar: the LoRA control's seed mean, dev 3.155 cm,
+  margin 0.080 cm (entries above).
+- **Where it stopped:** before the λ sweep and before rung 5, so no dev score of E52c exists.
+  The term never reached a known answer: c / c_DV on the bedroom stayed at 0.94 (λ = 1),
+  0.91 (λ = 10) and 0.89-0.90 (term alone), and the solver check showed its minima lie away
+  from the GT (c falls while the GT error rises, then by shrinking the alignment). The instance
+  gate changed no number by more than 0.013, as the probe predicted (<= 6%).
+- **Status:** "not yet working", not "fails": missing are a term whose descent agrees with the
+  GT error at Déjà View's output (test: gradient cosine, scale-invariant c) and then the sweep,
+  seeds and ablations. The E52b control (LoRA without segments, dev 3.500 -> 3.155 cm over 3
+  seeds) stays the bar for any segment method in #52.
+
+## E52e, plan: does a scale-invariant cross-view term point towards the GT at Déjà View's output; gradient cosine before any training (issue #52, 19.11.2026)
+- **Why:** E52c closed with the cross-view term's minima away from the GT, by two routes: c fell
+  while the GT error rose in the first 100 solver steps, then fell further by shrinking the
+  Sim(3) (c was divided by the fixed GT depth after the fit). E52c's reading named the cheap
+  test for a replacement: the cosine between the gradients of the term and of the GT error at
+  Déjà View's depth. A positive cosine is the first-order condition for the term to lower the
+  GT error; without it no λ, network or seed can help.
+- **Setting:** `experiments/scripts/e52e_gradient_cosine.py`, the solver check's problem
+  (bedroom, 12 probe views, pinhole rays, log-scale per 14 px patch at zero = Déjà View's
+  depth). Terms: E52c's c as built (after the exact Sim(3), over GT depth), and an invariant c:
+  the same point-to-plane distance on the raw points before any alignment, over the predicted
+  depth, so a similarity leaves it unchanged (asserted at run time, drift < 1e-3) and route 2
+  is gone. Each gated by GT instance and with any partner. Target: the GT error's gradient
+  over all GT-valid pixels. A term's gradient is the mean over 20 draws of 6000 px; the GT
+  error on the same draws is the ceiling, 200 random directions the floor; per-draw cosines
+  are recorded as one training step would see them. Added after a first run had
+  shown a positive cosine (cosines unchanged by the addition): the cosine of sign(gradient), the
+  direction of Adam's first steps, and the GT error after steps along each direction with an
+  rms of 0.1%, 1% and 3% of log-depth, against a random direction of the same size.
+- **Hypothesis:** the invariant c descends towards the GT: its mean-gradient cosine with the
+  GT error's is above 0.3. Refuted if it is at or below 0.1 (or within 2 std of the random
+  floor): then the term's direction at Déjà View's output is not the GT's, and route 1 is a
+  property of cross-view agreement itself, not of the normalisation. Expected from E52c's
+  route 1 (c down 30%, GT error up 43% at scale 0.985): the built c's cosine is near zero or
+  negative; the gate again changes nothing (<= 0.05).
+- **Command** (laptop 3050, ~20 s, no training):
+  `uv run python experiments/scripts/e52e_gradient_cosine.py`.
+
+## E52e: the cross-view term points slightly towards the GT at Déjà View's output (cosine 0.19, with or without scale invariance), but a step of 1% of depth along it already raises the GT error almost as much as a random step; not a usable objective (issue #52, 19.11.2026)
+- **Setting:** the plan entry above. Run of record at 677f81a (clean), laptop 3050, 17 s. A first
+  run before the commit gave the same numbers to the third decimal. 11664 patch log-scales;
+  random-direction cosine std 0.0097; the invariant term changed by 3.6e-7 under a random
+  similarity.
+- **Result (bedroom, 12 views; cosine with the GT error's gradient over all GT pixels; GT ratio =
+  GT error after a step along minus the direction / before, step rms in log-depth):**
+
+  | direction | cosine, 20-draw mean gradient | cosine, one draw | cosine of sign | GT ratio, step 0.1% | 1% | 3% |
+  |---|---|---|---|---|---|---|
+  | GT error, same 20 draws (ceiling) | 0.974 | 0.697 +- 0.005 | 0.858 | 0.964 | 0.850 | 1.532 |
+  | E52c's c, same instance | 0.193 | 0.108 +- 0.011 | 0.203 | 0.995 | 1.047 | 1.472 |
+  | E52c's c, any partner | 0.193 | 0.107 +- 0.011 | 0.194 | 0.995 | 1.047 | 1.470 |
+  | invariant c, same instance | 0.191 | 0.107 +- 0.011 | 0.227 | 0.995 | 1.048 | 1.471 |
+  | invariant c, any partner | 0.191 | 0.106 +- 0.011 | 0.217 | 0.995 | 1.048 | 1.469 |
+  | random direction | 0 +- 0.010 | | | 1.001 | 1.059 | 1.397 |
+
+  1. The cosine is positive, about 20 random-direction stds above zero: at Déjà View's output
+     the term's descent does point towards the GT, and so does its sign (Adam's direction).
+     The plan's expectation for E52c's term (near zero or negative) was wrong.
+  2. It is weak: 0.19 means 98% of a step's length is orthogonal to the GT error's descent.
+     A step of 0.1% of depth lowers the GT error by 0.5% (the GT's own step: 3.6%); at 1% it
+     raises it by 4.8%, against 5.9% for a random step and -15% for the GT's. One 6000-px draw,
+     what one training step sees, gives 0.11.
+  3. Scale invariance changes nothing at first order (0.191 vs 0.193): E52c's route 2 (shrinking
+     the alignment) is what many steps do, not the starting direction. The gate changes no
+     cosine by more than 0.003, a fourth time.
+- **Reading:** by the plan's numbers the hypothesis is neither supported (0.19 < 0.3) nor refuted
+  (> 0.1). The step check settles what the cosine left open: the useful component is real but
+  is lost by a step of 1% of depth, so the term cannot drive refinement on its own (as in E52c's
+  term-alone rung and solver), and with the GT loss it would mostly add an orthogonal push.
+  This is consistent with the team's reprojection refiner on val this week (cross-view votes vs
+  error r ~ 0.15): Déjà View's views agree with each other, so cross-view disagreement carries
+  little of its error, whatever the normalisation or the gate. Limits: one scene, 12 views,
+  first order at Déjà View's output, patch log-scales, not the LoRA's weight space. Status of
+  segments in the training loss (#52): "not yet working"; missing is a signal whose direction
+  is substantially the GT's, which cross-view agreement within an instance is not here.
+- **Commands:** `uv run python experiments/scripts/e52e_gradient_cosine.py` (laptop, 17 s);
+  `--plot` redraws the figure from the yaml. Figure `e52e_gradient_cosine.jpg`, raw
+  `results/e52e_gradient_cosine.yaml`.
+- **Code removed after E52e:** `cross_view_distance` and `map_normals` (src/backbone/adapters.py,
+  with their tests) and the `cons_*` / `gt_weight` keys of `e52a_segment_adapters.py` served only
+  E52c and E52e, so they left src once both were answered; the E52a/E52b training script and
+  config are back to their state on main. To rerun E52c's rungs, probe and solver check or E52e,
+  check out 33bca5f.
