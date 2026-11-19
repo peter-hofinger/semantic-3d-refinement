@@ -6212,3 +6212,31 @@ Interim entry: the check that the plan puts before any table.
   GT error at Déjà View's output (test: gradient cosine, scale-invariant c) and then the sweep,
   seeds and ablations. The E52b control (LoRA without segments, dev 3.500 -> 3.155 cm over 3
   seeds) stays the bar for any segment method in #52.
+
+## E52e, plan: does a scale-invariant cross-view term point towards the GT at Déjà View's output; gradient cosine before any training (issue #52, 19.11.2026)
+- **Why:** E52c closed with the cross-view term's minima away from the GT, by two routes: c fell
+  while the GT error rose in the first 100 solver steps, then fell further by shrinking the
+  Sim(3) (c was divided by the fixed GT depth after the fit). E52c's reading named the cheap
+  test for a replacement: the cosine between the gradients of the term and of the GT error at
+  Déjà View's depth. A positive cosine is the first-order condition for the term to lower the
+  GT error; without it no λ, network or seed can help.
+- **Setting:** `experiments/scripts/e52e_gradient_cosine.py`, the solver check's problem
+  (bedroom, 12 probe views, pinhole rays, log-scale per 14 px patch at zero = Déjà View's
+  depth). Terms: E52c's c as built (after the exact Sim(3), over GT depth), and an invariant c:
+  the same point-to-plane distance on the raw points before any alignment, over the predicted
+  depth, so a similarity leaves it unchanged (asserted at run time, drift < 1e-3) and route 2
+  is gone. Each gated by GT instance and with any partner. Target: the GT error's gradient
+  over all GT-valid pixels. A term's gradient is the mean over 20 draws of 6000 px; the GT
+  error on the same draws is the ceiling, 200 random directions the floor; per-draw cosines
+  are recorded as one training step would see them. Added after a first run had
+  shown a positive cosine (cosines unchanged by the addition): the cosine of sign(gradient), the
+  direction of Adam's first steps, and the GT error after steps along each direction with an
+  rms of 0.1%, 1% and 3% of log-depth, against a random direction of the same size.
+- **Hypothesis:** the invariant c descends towards the GT: its mean-gradient cosine with the
+  GT error's is above 0.3. Refuted if it is at or below 0.1 (or within 2 std of the random
+  floor): then the term's direction at Déjà View's output is not the GT's, and route 1 is a
+  property of cross-view agreement itself, not of the normalisation. Expected from E52c's
+  route 1 (c down 30%, GT error up 43% at scale 0.985): the built c's cosine is near zero or
+  negative; the gate again changes nothing (<= 0.05).
+- **Command** (laptop 3050, ~20 s, no training):
+  `uv run python experiments/scripts/e52e_gradient_cosine.py`.
