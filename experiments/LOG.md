@@ -7436,3 +7436,29 @@ Interim entry: the check that the plan puts before any table.
   (iii) the loss at step 1000 is not below E84d's 1.485, i.e. the gain does not help the optimization at all. Rung 3 counts
   as passed below 1.41. A run that passes (iii) but fails (i) says the loss's minimum itself, not the path, gives a bad cut.
 - **Stage times and numbers:** in the result.
+- **E84e result (bedroom, one run, seed 0, git bb83e2b, tree "dirty" only by the unrelated e27a files; 1000 steps, step median
+  0.33 s on a shared GPU, 0.20 s alone, peak 2.6 GB):** refuted by (i); (ii) and (iii) pass, (iii) only barely. Run
+  `runs/e84e_overfit_bedroom-20261120-104120`, figures `e84e_curves.jpg`, `e84e_s_views.jpg` (s saved at the T of that step),
+  sweep `results/e84e_cut_sweep.txt` (cm; uncut 1.846 / completeness 1.172; E84d in brackets).
+
+  | step (T) | loss | exact, Bernoulli draw (A / C, kept) | exact, s >= 0.5 (A / C, kept) | s in (0.05, 0.95) |
+  |---|---|---|---|---|
+  | 100 (0.63) | 1.638 | 1.622 (1.808 / 1.436, 0.51) | 12.79 (1.397 / 24.18, 0.38) | 0.73 |
+  | 500 (0.10) | 1.495 | 1.452 (1.493 / 1.410, 0.51) | 3.511 (1.327 / 5.696, 0.47) | 0.44 |
+  | 1000 (0.10) | **1.459** [1.485] | **1.446** [1.467] (1.562 / 1.331, 0.57) | **2.256** [3.243] (1.354 / 3.158, 0.52) | 0.51 [0.60] |
+
+- **What happened:** no saturation (mean s 0.51-0.59). The gain made s more decided (undecided share 0.51 against E84d's 0.60 at
+  step 1000) and the loss a little lower (1.459 against 1.485, -1.8 %, one seed), the Bernoulli cloud 1.446 (-21.7 % against
+  uncut). The thresholded cloud is 2.256 at step 1000 but 2.4-3.0 over steps 800-950: no better than uncut 1.846 and not
+  stable between evaluations. The top 70 % by s is 1.520 (E84d 1.539), the top 50 % 2.759. `e84e_s_views.jpg`: the same
+  layout as E84d (floor, bed, desk at 1; far walls at 0.1-0.5 in contiguous patches), only sharper.
+- **Against the criteria:** (i) thresholded 2.256 is not below 1.846: refuted; (ii) no saturation; (iii) the loss at step 1000
+  is below 1.485, by less than the E84d curve's own slope would suggest (the loss was still falling) and from one seed.
+  Rung 3 is not passed.
+- **Reading:** E84d's state is not only slow. Ten times the logit gain moves the loss by 2 % and does not leave the pattern, while
+  oracle-shaped soft states score 1.19-1.34 (E84d follow-up). So the head's state looks like a stable basin of the loss under
+  this head and init, not a path artefact; that is a reading from two runs, not a test. Untested: whether it is the head
+  (capacity, shared weights across views) or the loss (a basin of s on the walls): free per-pixel logits from the same init would
+  separate the two; so would starting the head at an oracle-shaped s and watching whether descent keeps it. A noisy relaxation
+  (relaxed Bernoulli, straight-through) would change the objective, which this run did not.
+- **Status:** E84 "not yet working"; missing: a rung-3 head whose cut beats uncut. Dev rung and baseline comparison not run.
