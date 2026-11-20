@@ -7462,3 +7462,24 @@ Interim entry: the check that the plan puts before any table.
   separate the two; so would starting the head at an oracle-shaped s and watching whether descent keeps it. A noisy relaxation
   (relaxed Bernoulli, straight-through) would change the objective, which this run did not.
 - **Status:** E84 "not yet working"; missing: a rung-3 head whose cut beats uncut. Dev rung and baseline comparison not run.
+
+## E84, baseline at equal kept share: Déjà View's confidence against the head's s in one alignment (bedroom, 20.11.2026)
+- **Why:** the brief asks for the comparison with Déjà View's confidence at the same kept share; E57c measured it with a
+  re-alignment per cut (dev mean), so it is redone here in the loss's fixed alignment, next to E84d's s
+  (`e84_confidence_cut.py` -> `results/e84_confidence_cut.txt`; bedroom, a diagnostic; the head was trained on this scene,
+  the confidence was not, so the comparison favours the head).
+- **Results** (exact Chamfer cm, accuracy / completeness; uncut 1.846 = 2.520 / 1.172):
+
+  | kept share q | Déjà View confidence | E84d's s |
+  |---|---|---|
+  | 0.9 | 1.888 (2.174 / 1.602) | 1.663 (2.132 / 1.194) |
+  | 0.7 | 3.068 (1.945 / 4.192) | **1.539** (1.760 / 1.318) |
+  | 0.5 | 6.303 (1.736 / 10.869) | 2.455 (1.364 / 3.547) |
+  | 0.3 | 14.243 (1.399 / 27.087) | 15.174 (1.180 / 29.168) |
+
+- **Reading:** the confidence improves accuracy and ruins completeness at every q < 1 and never beats the uncut cloud in
+  Chamfer, as in E57c's dev mean (never below 3.500 uncut). Déjà View's confidence is c = 1 + exp(x) >= 1, no probability, so
+  there is no cut at 0.5: its cut is a quantile. The head's s at the same share has the better accuracy (q 0.5: 1.364 against
+  1.736) and a third of the completeness loss; it beats uncut for q 0.6-0.9 (best 1.539 at 0.7, -17 %) and is no better
+  than the confidence at q 0.3. The loss's own expected share is 0.53 (mean s), but the deterministic cut that minimizes the
+  Chamfer of the ranking is about 0.7: an independent thinning at 53 % costs completeness 1.37, the cut at 53 % costs 3.2.
