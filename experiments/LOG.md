@@ -7323,3 +7323,38 @@ Interim entry: the check that the plan puts before any table.
   Chamfer in the loss's alignment of the oracle is lower (0.950, loss 0.858). The refutations stand because the runs'
   own scores (E84b 1.747, E84c 1.846) are above even the uncut cloud's 1.846 minus a margin, in both protocols (the
   uncut cloud is the same in both). A rung-3 bar in the loss's own alignment is the oracle path's 0.950.
+
+## E84a, follow-ups: where the probes come from, what a larger R costs, and a Poisson-tail charge for a missed GT point (bedroom, 20.11.2026)
+- **Correction of wording:** the R probes of a GT point are its R nearest predictions in 3D over all 20 views (one KD-tree), not
+  the neighbours of a pixel or of a 14 px patch; "neighbours in the same dropped region" meant 3D proximity.
+- **Probe origin** (`experiments/scripts/e84a_probe_scaling.py` -> `results/e84a_probe_scaling.txt`, R = 8): only 28-31 %
+  of each rank's probes lie in the view of the GT point's own pixel; the 8 probes span 2.08 views on average, 28 % of GT points
+  have all 8 in one view, 28 % in three or more; the rank-1 probe is the GT point's own pixel for 1.2 % of them (the prediction
+  does not sit on its GT pixel's point). So a probe list mixes views, and whether a point is covered depends on other views' s.
+- **Cost of a larger R** (same script; C term only, over chunks of 250 k GT points, index int32, 3 passes, RTX 3080 10 GB;
+  head pass and A not included): R = 8 / 32 / 64 / 128: KD probes 2.1 / 3.2 / 4.6 / 7.2 s; C fwd+bwd 0.16 / 0.22 / 0.32 /
+  0.52 s; peak GPU 0.47 / 1.64 / 3.19 / 6.29 GB; probes 0.26 / 0.99 / 1.97 / 3.92 GB per scene (cache file the same).
+  The unchunked loss in `keep_chamfer.py` (int64 index, whole scene) peaks at 2.6 GB for R = 8 and 5.0 GB for R = 16 and ran
+  out of memory at R = 32 (measured before the chunked version; R = 16, 32 caches deleted again).
+- **Poisson-tail charge** (`e84a_tail_model.py` -> `results/e84a_tail_model.txt`; a diagnostic, nothing trained; suggested by
+  Peter): model the nearest kept prediction beyond the probes as the nearest point of a planar Poisson process thinned by
+  the local keep rate; its distance is Rayleigh, the radial marginal of an isotropic 2D Gaussian. With kappa = sum of s over
+  the R probes the expected distance is d_R (1 + sqrt(pi) erfcx(sqrt kappa) / (2 sqrt kappa)), capped at the scene's
+  upper bound. Completeness in cm (exact = Bernoulli draws; Déjà View uncut 1.172):
+
+  | state | exact | d_(R+1) charge (E84a) | Poisson tail |
+  |---|---|---|---|
+  | uniform c = 0.5 | 1.315 | 1.314 | 1.315 |
+  | c = 0.2 | 1.578 | 1.547 | 1.618 |
+  | c = 0.1 | 1.850 | 1.700 | 2.040 |
+  | c = 0.02 | 2.866 | 1.873 | 4.186 |
+  | c = 0.01 | 3.576 | 1.899 | 5.879 |
+  | E84a head, step 50 (mean s 0.24) | 7.457 | 1.796 | 27.807 |
+  | step 100 (0.18) | 13.045 | 1.815 | 61.920 |
+  | step 200 (0.09) | 26.714 | 1.855 | 158.636 |
+
+- **Reading:** the tail charge has the right direction (it grows as s falls, so no plateau at the empty cloud) and is
+  within 10 % for c >= 0.1, but it overshoots as the keep rate falls (+64 % at c = 0.01) and by 3.7-5.9 times on the head's
+  spatially clustered s, so it is neither exact nor a bound there. Probable causes, untested: the planar density
+  R / (pi d_R^2) understates the 20-view point density (overlapping layers), and sum s over 8 probes is a noisy keep rate for
+  a clustered s. Not trained on; whether its overshoot is a usable penalty (a smooth version of E84b's constant) is open.

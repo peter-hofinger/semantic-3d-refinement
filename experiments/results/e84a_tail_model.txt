@@ -1,0 +1,12 @@
+bedroom ai_006_007_cam_00, R = 8, completeness in cm; scene upper bound 1114 cm
+uniform keep probability c, exact = mean of 3 Bernoulli draws
+c = 0.50: exact   1.315 | d_(R+1) charge   1.314 | Poisson tail   1.315
+c = 0.20: exact   1.578 | d_(R+1) charge   1.547 | Poisson tail   1.618
+c = 0.10: exact   1.850 | d_(R+1) charge   1.700 | Poisson tail   2.040
+c = 0.05: exact   2.208 | d_(R+1) charge   1.801 | Poisson tail   2.725
+c = 0.02: exact   2.866 | d_(R+1) charge   1.873 | Poisson tail   4.186
+c = 0.01: exact   3.576 | d_(R+1) charge   1.899 | Poisson tail   5.879
+E84a head snapshots, one Bernoulli draw (seed = step)
+step 50 (mean s 0.242): exact   7.457 | d_(R+1) charge   1.796 | Poisson tail  27.807
+step 100 (mean s 0.179): exact  13.045 | d_(R+1) charge   1.815 | Poisson tail  61.920
+step 200 (mean s 0.088): exact  26.714 | d_(R+1) charge   1.855 | Poisson tail 158.636
