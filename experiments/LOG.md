@@ -7531,3 +7531,20 @@ Interim entry: the check that the plan puts before any table.
 - **Where the head is now aligned and where it is not:** aligned: the raw x and its activation (s is the odds-image of c), the
   hidden conv, the starting weights, E84g's rate (Déjà View's stage-2 finetune, no warmup). Not Déjà View's and ours: the
   independent-keep model, the Poisson tail charge, R = 8, the cap U, eps, constant Adam, the cut.
+
+## E84, Déjà View's confidence loss against the expected Chamfer: what each one asks of a pixel (bedroom, 20.11.2026)
+- **Déjà View** (`dvlt.model_components.loss.common.ConfLoss`, from the installed package; its released configs disable it):
+  per pixel l = gamma c e - alpha log c, c = 1 + exp(x) >= 1, e the absolute depth error of the same pixel after dividing
+  depth and GT by a per-scene scale, alpha = 0.2, gamma = 1, mean over pixels after a 0.98 quantile mask of the losses.
+  Separable over pixels; optimum c = alpha / (gamma e) per pixel (a Laplace-like scale: c is a loss weight and an
+  uncertainty, not a decision); nothing in the loss counts or covers points.
+- **Ours:** L = (A + C) / 2 of the cloud kept with probability s: A weights a_i, the distance to the nearest GT point of any pixel
+  (cm, after one Umeyama); C is each GT point's expected distance to its nearest kept probe among the R nearest predictions
+  over all views, so a pixel's s enters the loss of the GT points it covers. Coupled across pixels and views, and the loss
+  itself trades accuracy against completeness (hence a share to keep).
+- **Measured** (`e84_confidence_target.py` -> `results/e84_confidence_target.txt`; e_i is here the 3D distance to the GT
+  point of the same pixel after the loss's alignment, a proxy for Déjà View's depth-space error): the nearest GT point of a
+  prediction is its own pixel's for 1.0 % of 3.81 M pixels; a_i / e_i has median 0.57 and a_i < e_i / 2 for 43.6 %;
+  mean a_i 2.52 cm, mean e_i 6.82 cm. Spearman: Déjà View's confidence with -e_i 0.49, with -a_i 0.35, a_i with e_i 0.73.
+  So the same-pixel error is not the accuracy term's a_i for most pixels, and the confidence ranks its own target only
+  moderately.
