@@ -7608,3 +7608,33 @@ Interim entry: the check that the plan puts before any table.
   (inference from C and from the smoothing check, no mask figure looked at): the true a is salt-and-pepper so its cut thins
   every region, a smooth head's cut removes whole regions. Not tested: a larger head or a decayed rate (the loss may still
   be capacity- or optimiser-limited), free per-pixel x as the upper end, a mask figure.
+
+## E84j, E84k, E84l: is E84i limited by the head, by the optimiser, or not at all? (bedroom ai_006_007, 20.11.2026)
+- **E84j** (`e84j_free_logits.py`): every pixel's x is a free parameter on E84i's loss, started at Déjà View's x, Adam lr 0.1,
+  2000 steps. **Hypothesis:** the separable loss reaches its floor (-0.537) and the cut by x is the cut by -a, so exact Chamfer
+  of the top share is within 1 % of the true-a ranking (q 0.9 / 0.7 / 0.5 / 0.3: 1.543 / 1.387 / 1.369 / 1.569). Refuted if
+  the loss stays more than 0.01 above the floor or q 0.5 is above 1.383. Expected to hold; it checks the loss and the code,
+  not a hypothesis about the method.
+- **E84k** (`e84k_overfit_bedroom.yaml`): E84i's head and loss, cosine decay 1e-3 -> 1e-5 over 3000 steps.
+  **E84l** (`e84l_overfit_bedroom.yaml`): the same schedule, a larger head (128 channels, 3 convolutions 3 x 3, random init).
+  **Hypothesis (the user's, the head is the limit):** the head converges to a tight margin of the true-a ranking, q 0.5 at most
+  1.41 and q 0.7 at most 1.43. **My expectation:** E84k stays near E84i (q 0.5 above 3, the optimiser is not what limits it);
+  E84l's loss falls further (below -0.50) but the q 0.5 Chamfer stays above 2.0, because the 66 cached channels carry
+  little of the per-pixel part of a. Refuted (user's) if q 0.5 > 1.41 or q 0.7 > 1.43 for E84l.
+- **Results** (`results/e84jkl_bedroom.txt`; exact Chamfer cm, uncut 1.846, the true-a ranking in brackets):
+
+  | run | loss (floor -0.537) | q 0.9 (1.543) | q 0.7 (1.387) | q 0.5 (1.369) | q 0.3 (1.569) |
+  |---|---|---|---|---|---|
+  | E84j free x | -0.5372 | 1.543 | 1.387 | 1.369 | 1.569 |
+  | E84i Déjà View's head, 1000 steps | -0.486 | 1.727 | 2.130 | 3.591 | 11.662 |
+  | E84k same, cosine rate, 3000 steps | -0.489 | 1.698 | 2.002 | 3.226 | 8.917 |
+  | E84l 128 ch, 3 convs, 3000 steps | -0.498 | 1.625 | 1.780 | 2.357 | 5.296 |
+
+- **Reading:** E84j holds: the loss reaches its floor within 100 steps and the cut by x is the true-a ranking to the third
+  decimal, so the loss and the code are exact and everything between 1.369 and E84i is the head. The user's hypothesis is
+  refuted for E84l (q 0.5 2.357 against <= 1.41, q 0.7 1.780 against <= 1.43). My expectations: E84k stays near E84i (held: the
+  decayed rate moves q 0.5 3.591 -> 3.226, the optimiser is not the main limit); E84l's loss below -0.50 (missed by 0.002, -0.498) and
+  q 0.5 above 2.0 (held, 2.357). The capacity trend is monotone and not saturated: the 128-channel head with a 7 x 7 field
+  closes 57 % of the loss gap (E84i 44 %), beats uncut at q 0.9 and 0.7 (1.625, 1.780) but not at 0.5 (2.357), and its
+  completeness at q 0.5 is 3.49 cm against 1.85 for the true-a ranking: the cut still removes regions, less so. Not tested:
+  a larger or deeper head, other seeds (one seed each), the dev rung.

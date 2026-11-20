@@ -1,0 +1,16 @@
+# E84j rung 3 (issue #84): free per-pixel x (no head) on Déjà View's ConfLoss with the accuracy distance as e, started at
+# Déjà View's x. The head-free end of E84i: the optimum is x = log(alpha / (gamma a) - 1), the true-a ranking.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scene: ai_006_007_cam_00
+alpha: 0.2
+gamma: 1.0
+r: 8
+miss: bound
+steps: 2000
+lr: 0.1           # Adam on each pixel's x, constant
+chunk: 4
+shares: [0.9, 0.7, 0.5, 0.3]
+eval_every: 100
+seed: 0

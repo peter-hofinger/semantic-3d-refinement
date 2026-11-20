@@ -8,7 +8,8 @@ Rung 3 of docs/experiments.md is the bedroom
 alone, rung 4 the dev scenes: the config's `scenes`. A step is every scene once, their
 losses averaged. Every `eval_every` steps the exact Chamfer of the thresholded cloud is
 logged next to the loss, per scene, so a falling loss with a rising exact completeness
-shows. Writes `runs/<cfg>-<time>/{run.yaml, head.pt, probabilities_<scene>[_step<k>].npy, tb/}`,
+shows. `head: {hidden, extra}` sizes a head that is not Déjà View's copy (E84l), `lr_end` decays the rate
+by a cosine to it (E84k). Writes `runs/<cfg>-<time>/{run.yaml, head.pt, probabilities_<scene>[_step<k>].npy, tb/}`,
 the snapshots at the config's `snapshots` steps (before that step's update).
 
 `uv run python experiments/scripts/e84a_train.py --cfg configs/e84a_overfit_bedroom.yaml`
@@ -100,9 +101,16 @@ def main() -> None:
         steps = int(raw["backbone"].removeprefix("dejaview_k"))
         head = KeepHead.from_deja_view(DejaViewBackbone(steps=steps).output_block())
     else:
-        head = KeepHead()
+        head = KeepHead(**raw.get("head", {}))
     head = head.cuda()
     optimizer = torch.optim.Adam(head.parameters(), lr=raw["lr"])
+    decay = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, raw["steps"], eta_min=raw["lr_end"]
+        )
+        if "lr_end" in raw
+        else None
+    )
     history, step_s = [], []
     with SummaryWriter(out / "tb") as writer:
         for step in range(raw["steps"] + 1):
@@ -145,6 +153,8 @@ def main() -> None:
                     )
             if step < raw["steps"]:
                 optimizer.step()
+                if decay is not None:
+                    decay.step()
             mean = {k: float(np.mean([r[k] for r in record])) for k in record[0]}
             for key, value in mean.items():
                 writer.add_scalar(f"train/{key}", value, step)

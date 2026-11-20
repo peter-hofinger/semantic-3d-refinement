@@ -66,15 +66,25 @@ DEPTH_TOLERANCE = 1e-2  # median relative depth change of the re-run backbone, b
 class KeepHead(nn.Module):
     """Keep probability per pixel from Déjà View's depth-decoder features."""
 
-    def __init__(self) -> None:
-        """Build the convolutions of `net`; `temperature` scales the logit (E84e)."""
+    def __init__(self, hidden: int = HIDDEN, extra: int = 0) -> None:
+        """Build the convolutions of `net`; `temperature` scales the logit (E84e).
+
+        The defaults are Déjà View's block; `extra` more 3 x 3 convolutions with ReLU of
+        `hidden` channels widen the receptive field and the capacity (E84l).
+        """
         super().__init__()
+        assert hidden >= 1 and extra >= 0, (hidden, extra)
         self.temperature = 1.0
-        self.net = nn.Sequential(
-            nn.Conv2d(FEATURES, HIDDEN, 3, padding=1, padding_mode="replicate"),
+        layers: list[nn.Module] = [
+            nn.Conv2d(FEATURES, hidden, 3, padding=1, padding_mode="replicate"),
             nn.ReLU(inplace=True),
-            nn.Conv2d(HIDDEN, 1, 1),
-        )
+        ]
+        for _ in range(extra):
+            layers += [
+                nn.Conv2d(hidden, hidden, 3, padding=1, padding_mode="replicate"),
+                nn.ReLU(inplace=True),
+            ]
+        self.net = nn.Sequential(*layers, nn.Conv2d(hidden, 1, 1))
 
     @classmethod
     def from_deja_view(cls, block: nn.Module) -> "KeepHead":

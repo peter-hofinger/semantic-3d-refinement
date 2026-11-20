@@ -291,3 +291,16 @@ def test_chunked_confidence_backprop_gives_the_full_scene_gradient(
         confidence_backward(head, scene, chunk, 1.0, 0.2, 1.0, quantile)
         for p, q in zip(head.parameters(), reference.parameters(), strict=True):
             assert torch.allclose(p.grad, q.grad, rtol=1e-4, atol=1e-7)
+
+
+def test_extra_layers_widen_the_receptive_field_by_one_pixel_per_side_each() -> None:
+    torch.manual_seed(0)
+    assert len(KeepHead().net) == len(KeepHead(hidden=32, extra=0).net) == 3
+    for extra in (0, 2):
+        head = KeepHead(hidden=16, extra=extra)
+        x = torch.randn(1, FEATURES, 15, 15, requires_grad=True)
+        head.logits(x)[0, 7, 7].backward()
+        reach = (x.grad.abs().sum(dim=(0, 1)) > 0).nonzero()
+        radius = 1 + extra  # one 3 x 3 conv per layer, each adds one pixel
+        assert reach.min() == 7 - radius
+        assert reach.max() == 7 + radius
