@@ -7376,3 +7376,37 @@ Interim entry: the check that the plan puts before any table.
   The loss is not exact here: it overshoots the completeness on clustered s (up to 5.9x in the offline test), so the
   exact Chamfer is what is judged, next to the loss.
 - **Stage times and numbers:** in the result.
+- **E84d result (bedroom, one run, seed 0, git efa60c9, tree "dirty" only by the untracked e27a figure files; 1000 steps, step
+  median 0.33 s on a shared GPU, 0.20 s alone, peak 2.6 GB, scenes loaded in 2.2 s from cache):** refuted by (ii), not by (i)
+  or (iii). Run `runs/e84d_overfit_bedroom-20261120-100928`, figures `e84d_curves.jpg`, `e84d_s_views.jpg`, sweep
+  `results/e84d_cut_sweep.txt` (cm; uncut Déjà View: Chamfer 1.846, completeness 1.172).
+
+  | step | loss L | exact, Bernoulli(s) draw (A / C, kept) | exact, s >= 0.5 (A / C, kept) | mean s |
+  |---|---|---|---|---|
+  | 0 | 1.926 | 1.877 (2.472 / 1.283, 0.58) | 1.831 (2.487 / 1.174, 1.00) | 0.538 |
+  | 100 | 1.646 | 1.630 (1.831 / 1.430, 0.52) | 12.36 (1.437 / 23.28, 0.39) | 0.515 |
+  | 500 | 1.529 | 1.508 (1.604 / 1.412, 0.51) | 4.721 (1.290 / 8.151, 0.44) | 0.511 |
+  | 1000 | 1.485 | **1.467** (1.562 / 1.372, 0.53) | **3.243** (1.304 / 5.182, 0.47) | 0.529 |
+
+- **What happened:** no collapse: s stays at mean 0.5 and the loss falls monotonically (1.926 -> 1.485, still -0.002 per 25 steps
+  at the end), within 1.2 % of the exact Chamfer of a Bernoulli(s) draw at every step (E84a undershot by up to 27x in
+  completeness). The Bernoulli cloud is 20.5 % below the uncut cloud (1.467 against 1.846) in 53 % of the points; accuracy
+  2.47 -> 1.56 cm for completeness 1.28 -> 1.37 cm. That is the quantity the loss optimizes, and it improves. It does not
+  reach the 1.41 bar, and it is a single draw (no seed or draw spread logged).
+- **But the thresholded cloud, the one a user would take, is far worse than uncut:** 3.243 at s >= 0.5 (completeness 5.2 cm,
+  uncut 1.172), because the head does not push s to 0 or 1: 10 % of the pixels have s = 1 (near, accurate surfaces: floor,
+  bed, desk), the median is 0.40 and 1 % lie below 0.001. `e84d_s_views.jpg`: far walls get a smooth s of 0.1-0.5, not a
+  switch-off. Under independent keeps a wall thinned at s = 0.3 is still covered by its 20 views; a hard cut at 0.5 removes
+  whole contiguous regions, the same "all probes dropped" case the loss cannot see. The loss is optimized for a randomized
+  cloud, so the sampled and the thresholded cloud are two different objects. Ordering by s is still useful: the top 70 %
+  by s gives 1.539 (1.760 / 1.318) and the top 90 % 1.663, both below uncut 1.846 (steps 1000; on the training scene, a
+  diagnostic, no cut chosen from it), while top 50 % is 2.455 and top 20 % 32.2. The oracle path in this alignment reaches
+  0.950 at 20 %.
+- **Against the criteria:** (i) no collapse; (ii) thresholded 3.243 is not below E84b's 1.747: refuted; (iii) the completeness
+  does not rise while the loss falls (the Bernoulli completeness falls 1.42 -> 1.37 over the last 500 steps).
+  Rung 3 is not passed: the sampled cloud is 20.5 % better than uncut but the thresholded cloud is worse, and neither
+  approaches the oracle's 0.95. Dev rung and the comparison to Déjà View's confidence were not run.
+- **Status:** E84 "not yet working"; missing: a rung-3 head whose deterministic cut, not only a Bernoulli draw, beats the
+  uncut cloud by the oracle's margin. Not tried: a loss that makes s binary without a second term (annealing, a hard-concrete
+  relaxation, straight-through sampling), more steps (the loss is still falling), larger R, the clamp ablation, the
+  seed or draw spread, volume features across views.
