@@ -7268,3 +7268,24 @@ Interim entry: the check that the plan puts before any table.
   **Refuted** if it ends above 1.41 (then the descent stalls in the landscape or the 3 x 3 field and a larger lr does not
   help; I expect then 1.6-1.75), or if it collapses or diverges (nothing kept, NaN). If it reaches 1.41 only at a
   fractional s with Bernoulli far from the threshold, reported as such.
+
+## E84c: ten times the learning rate makes the head keep everything: s = 1.000 from step 25, the sigmoid saturates and the loss sits at the uncut 1.846 cm (bedroom, 20.11.2026)
+- **Command** (RTX 3080, tree dirty = the new config, base 75f2d76): `uv run python experiments/scripts/e84a_train.py
+  --cfg configs/e84c_overfit_bedroom.yaml` -> `runs/e84c_overfit_bedroom-20261120-090351`: E84b with `lr: 1.0e-2`.
+- **Result:** step 0: L 3.099 (the miss charge at s = 0.54), exact Chamfer of the s >= 0.5 cloud 1.846. From step 25 to
+  1000 L = 1.846 to three decimals (A 2.520 / C 1.172, the uncut cloud's), mean s 1.000, 0 % of the pixels in
+  (0.05, 0.95), thresholded and Bernoulli exact Chamfer 1.846. No figure: s is 1 everywhere.
+- **Against what was expected (written before running):** thresholded Chamfer below 1.41 and kept share below 80 %:
+  **refuted** (1.846, 100 %); no collapse, no divergence. I had expected 1.6-1.75 if the lr did not help; it is worse than
+  E84b's lr, which reached 1.747. The head does not stall in a basin of the landscape, it leaves the gradient's reach:
+  the first steps drive every logit far above 0 to remove the miss charge, and a saturated sigmoid (s(1 - s) < 1e-3) passes
+  no gradient back, so the all-keep cloud is a trap the optimizer cannot leave. A mechanism read off the numbers, not
+  yet tested (no logit histogram was logged).
+- **Status of E84 (rung 3, bedroom):** as specified (E84a) the loss is minimal at the empty cloud; with the upper-bound
+  miss charge (E84b) it is honest and the head learns the accuracy ordering slowly, 1.747 cm thresholded at lr 1e-3 after
+  1000 steps (uncut 1.846, accuracy oracle 1.41, greedy 1.04); at lr 1e-2 (E84c) it sticks at the uncut cloud. None passes
+  rung 3, so there is no dev rung, no dev evaluation and no claim against Déjà View's confidence, density or the oracle:
+  **not yet working**, the missing rung is rung 3. Not tried: a smaller lr or more steps, a logit initialised so that
+  s starts near 1 without the miss charge's first push, the clamp(logit, 0, 1) of the issue's ablation (it has zero
+  gradient outside [0, 1] too), annealing U, larger R, or all views at once (E41b's volume features), which #84's own
+  premise asks for.
