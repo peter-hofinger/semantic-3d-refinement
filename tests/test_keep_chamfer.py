@@ -6,8 +6,10 @@ import math
 import numpy as np
 import pytest
 import torch
+from dvlt.common.constants import DataField
 from dvlt.model.dvlt.heads import DecoderHead
 from dvlt.model_components.head_activations import activate_head
+from dvlt.model_components.loss import DepthLoss
 from scipy.integrate import quad
 
 from src.refinement.keep_chamfer import (
@@ -16,6 +18,8 @@ from src.refinement.keep_chamfer import (
     KeepHead,
     KeepScene,
     Probes,
+    confidence_backward,
+    confidence_loss,
     exact_chamfer,
     expected_chamfer,
     loss_backward,
@@ -112,6 +116,7 @@ def test_chunked_backprop_gives_the_full_scene_gradient(*, tail: bool) -> None:
         truth,
         probes,
         tensors(probes),
+        1.0,
     )
     reference = KeepHead()
     s = reference(scene.features.float())[valid]
@@ -221,3 +226,68 @@ def test_the_head_from_deja_view_is_its_confidence_as_one_minus_one_over_c() -> 
     assert (conf >= 1).all()
     assert torch.allclose(s, 1 - 1 / conf, atol=1e-6)
     assert ((s >= 0.5) == (conf >= 2)).all()
+
+
+def test_the_confidence_loss_is_deja_views_and_minimal_at_alpha_over_gamma_a() -> None:
+    alpha, gamma = 0.2, 1.0
+    torch.manual_seed(0)
+    a = torch.rand(400, dtype=torch.float64) * 0.1 + 0.02  # alpha / a in 2 .. 10
+    x = torch.log(alpha / (gamma * a) - 1)  # c = 1 + exp(x) = alpha / (gamma a)
+    ours = confidence_loss(x, a, alpha, gamma, None)
+    depth = (1.0 + a).reshape(1, 1, 20, 20)
+    gt = torch.ones_like(depth)
+    batch = {
+        DataField.DEPTHS: gt,
+        DataField.POINT_MASKS: torch.ones_like(gt, dtype=torch.bool),
+        DataField.IS_SYNTHETIC: torch.ones(gt.shape[:2], dtype=torch.bool),
+    }
+    reference, _ = DepthLoss(
+        grad_loss=None, valid_range=-1.0, alpha=alpha, gamma=gamma, disable_conf=False
+    )({"depth": depth, "depth_conf": (1 + torch.exp(x)).reshape(depth.shape)}, batch)
+    assert torch.allclose(ours, reference)
+    x.requires_grad_()
+    confidence_loss(x, a, alpha, gamma, None).backward()
+    assert x.grad.abs().max() < 1e-9  # the optimum is stationary
+    for shift in (-0.1, 0.1):
+        assert confidence_loss(x.detach() + shift, a, alpha, gamma, None) > ours
+
+
+def test_the_quantile_drops_the_largest_losses() -> None:
+    x = torch.zeros(100)
+    a = torch.arange(100.0) / 100
+    kept = confidence_loss(x, a, 0.2, 1.0, 0.9)
+    full = 2 * a - 0.2 * math.log(2)
+    assert torch.isclose(kept, full[full <= torch.quantile(full, 0.9)].mean())
+    assert kept < confidence_loss(x, a, 0.2, 1.0, None)
+
+
+@pytest.mark.parametrize("quantile", [None, 0.9])
+def test_chunked_confidence_backprop_gives_the_full_scene_gradient(
+    quantile: float | None,
+) -> None:
+    torch.manual_seed(0)
+    v, h, w = 5, 6, 7
+    pred, truth = clouds(v * h * w - 4, seed=6)
+    probes = Probes.build(pred, truth, r=4, miss="bound")
+    valid = torch.ones(v, h, w, dtype=torch.bool)
+    valid.view(-1)[[3, 40, 77, 120]] = False
+    scene = KeepScene(
+        "toy",
+        torch.randn(v, FEATURES, h, w).half(),
+        valid,
+        pred,
+        truth,
+        probes,
+        tensors(probes),
+        0.5,
+    )
+    reference = KeepHead()
+    x = reference.logits(scene.features.float())[valid]
+    a = scene.tensors[0] / (100.0 * scene.scale)
+    confidence_loss(x, a, 0.2, 1.0, quantile).backward()
+    for chunk in (1, 2, 5):
+        head = KeepHead()
+        head.load_state_dict(reference.state_dict())
+        confidence_backward(head, scene, chunk, 1.0, 0.2, 1.0, quantile)
+        for p, q in zip(head.parameters(), reference.parameters(), strict=True):
+            assert torch.allclose(p.grad, q.grad, rtol=1e-4, atol=1e-7)

@@ -2,7 +2,9 @@
 
 One head (`src.refinement.keep_chamfer`, a copy of Déjà View's confidence branch) is the
 only trainable part, one loss, whole scenes per step (see the module's docstring for how
-the whole-scene sums are backpropagated). Rung 3 of docs/experiments.md is the bedroom
+the whole-scene sums are backpropagated). `loss: confidence` (E84i) replaces the expected Chamfer by
+Déjà View's ConfLoss on the head's x, with the point's distance to the nearest GT point as its error.
+Rung 3 of docs/experiments.md is the bedroom
 alone, rung 4 the dev scenes: the config's `scenes`. A step is every scene once, their
 losses averaged. Every `eval_every` steps the exact Chamfer of the thresholded cloud is
 logged next to the loss, per scene, so a falling loss with a rising exact completeness
@@ -26,6 +28,7 @@ from src.backbone.dejaview import DejaViewBackbone
 from src.refinement.keep_chamfer import (
     KeepHead,
     KeepScene,
+    confidence_backward,
     exact_chamfer,
     loss_backward,
     probabilities,
@@ -33,19 +36,31 @@ from src.refinement.keep_chamfer import (
 
 
 def evaluate(
-    head: KeepHead, scene: KeepScene, chunk: int, threshold: float, seed: int
+    head: KeepHead,
+    scene: KeepScene,
+    chunk: int,
+    threshold: float,
+    shares: list[float],
+    seed: int,
 ) -> dict:
-    """Exact Chamfer of the cloud of s >= threshold and of one Bernoulli(s) draw, and s's spread."""
+    """Exact Chamfer of s >= threshold, of the top `shares` by s and of one Bernoulli(s) draw, and s's spread."""
     with torch.no_grad():
         s = probabilities(head, scene.features, chunk)[scene.valid]
         draw = torch.bernoulli(s, generator=torch.Generator(s.device).manual_seed(seed))
+        order = torch.argsort(s, descending=True)
 
     def score(kept: torch.Tensor) -> dict[str, float]:
         return exact_chamfer(kept.cpu().numpy(), scene.probes, scene.pred, scene.truth)
 
+    def top(share: float) -> torch.Tensor:
+        kept = torch.zeros_like(s, dtype=torch.bool)
+        kept[order[: round(share * len(s))]] = True
+        return kept
+
     return {
         "threshold": score(s >= threshold),
         "bernoulli": score(draw.bool()),
+        **{f"top{share}": score(top(share)) for share in shares},
         "s": {
             "mean": s.mean().item(),
             "above_half": (s >= 0.5).float().mean().item(),
@@ -94,17 +109,31 @@ def main() -> None:
             head.temperature = temperature(raw.get("temperature"), step)
             t0 = sync()
             optimizer.zero_grad()
-            record = [
-                loss_backward(
-                    head,
-                    s,
-                    raw["eps"],
-                    raw["chunk"],
-                    1 / len(scenes),
-                    tail=raw.get("tail", False),
-                )
-                for s in scenes
-            ]
+            if raw.get("loss") == "confidence":
+                record = [
+                    confidence_backward(
+                        head,
+                        s,
+                        raw["chunk"],
+                        1 / len(scenes),
+                        raw["alpha"],
+                        raw["gamma"],
+                        raw["quantile"],
+                    )
+                    for s in scenes
+                ]
+            else:
+                record = [
+                    loss_backward(
+                        head,
+                        s,
+                        raw["eps"],
+                        raw["chunk"],
+                        1 / len(scenes),
+                        tail=raw.get("tail", False),
+                    )
+                    for s in scenes
+                ]
             step_s.append(sync() - t0)
             if step in raw["snapshots"]:
                 for s in scenes:
@@ -121,7 +150,14 @@ def main() -> None:
                 writer.add_scalar(f"train/{key}", value, step)
             if step % raw["eval_every"] == 0:
                 exact = [
-                    evaluate(head, s, raw["chunk"], raw["threshold"], step)
+                    evaluate(
+                        head,
+                        s,
+                        raw["chunk"],
+                        raw["threshold"],
+                        raw.get("shares", []),
+                        step,
+                    )
                     for s in scenes
                 ]
                 for s, e in zip(scenes, exact, strict=True):
@@ -137,9 +173,9 @@ def main() -> None:
                     }
                 )
                 print(
-                    f"step {step}: L {mean['loss']:.3f} A {mean['accuracy_cm']:.3f} "
-                    f"C {mean['completeness_cm']:.3f} | mean s {mean['mean_s']:.3f} "
-                    f"(T {head.temperature:.2f}) | "
+                    f"step {step}: "
+                    + " ".join(f"{k} {v:.3f}" for k, v in mean.items())
+                    + f" (T {head.temperature:.2f}) | "
                     + " | ".join(
                         f"{cut} "
                         + " ".join(
@@ -147,7 +183,8 @@ def main() -> None:
                             f"C {e[cut]['completeness_cm']:.3f} kept {e[cut]['kept']:.2f})"
                             for e in exact
                         )
-                        for cut in ("threshold", "bernoulli")
+                        for cut in exact[0]
+                        if cut != "s"
                     )
                     + f" | {step_s[-1]:.2f} s/step"
                 )

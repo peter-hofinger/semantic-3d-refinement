@@ -92,15 +92,19 @@ class KeepHead(nn.Module):
             head.net[2].bias.copy_(block[2].bias[-1:])
         return head
 
+    def logits(self, x: Tensor) -> Tensor:
+        """Return the raw output x (B, H, W) of features (B, 66, H, W); c = 1 + e^x."""
+        assert x.ndim == 4 and x.shape[1] == FEATURES, x.shape  # noqa: PLR2004
+        return self.net(x)[:, 0]
+
     def forward(self, x: Tensor) -> Tensor:
         """Probabilities (B, H, W) in (0, 1) of float features (B, 66, H, W).
 
         s = sigmoid(logit / temperature), a gain on the logit: the cut at s = 0.5 is the
         logit's sign at any temperature and the loss as a function of s is unchanged.
         """
-        assert x.ndim == 4 and x.shape[1] == FEATURES, x.shape  # noqa: PLR2004
         assert self.temperature > 0, self.temperature
-        s = torch.sigmoid(self.net(x)[:, 0] / self.temperature)
+        s = torch.sigmoid(self.logits(x) / self.temperature)
         assert torch.isfinite(s).all()
         return s
 
@@ -239,6 +243,7 @@ class KeepScene:
     truth: np.ndarray  # (N, 3) float64, m
     probes: Probes
     tensors: tuple[Tensor, Tensor, Tensor]  # a, index (int64), dist on the device
+    scale: float  # m, the mean distance of the GT points to the first camera's centre
 
     @classmethod
     def load(cls, name: str, cfg: dict, device: str) -> "KeepScene":
@@ -281,6 +286,9 @@ class KeepScene:
                 torch.from_numpy(probes.a).to(device),
                 torch.from_numpy(probes.index.astype(np.int64)).to(device),
                 torch.from_numpy(probes.dist).to(device),
+            ),
+            float(
+                np.linalg.norm(truth.points - v.cam_to_world[0][:3, 3], axis=-1).mean()
             ),
         )
 
@@ -344,4 +352,56 @@ def loss_backward(  # noqa: PLR0913 - head, scene, the config's eps, chunk, weig
         "accuracy_cm": acc.item(),
         "completeness_cm": comp.item(),
         "mean_s": s.mean().item(),
+    }
+
+
+def confidence_loss(
+    x: Tensor, a: Tensor, alpha: float, gamma: float, quantile: float | None
+) -> Tensor:
+    """Return Déjà View's ConfLoss: the mean of gamma c a - alpha log c, c = 1 + exp(x).
+
+    `a` is the normalized error; a pixel's loss is minimal at c = alpha / (gamma a),
+    floor 1. With `quantile`, pixels with a loss above it are left out as in ConfLoss.
+    """
+    assert x.shape == a.shape and x.ndim == 1 and alpha > 0 and gamma > 0
+    c = 1 + torch.exp(x)
+    loss = gamma * c * a - alpha * torch.log(c)
+    if quantile is not None:
+        loss = loss[loss <= torch.quantile(loss.detach(), quantile)]
+    return loss.mean()
+
+
+def confidence_backward(  # noqa: PLR0913, PLR0917 - head, scene, chunk, weight, the loss's constants
+    head: KeepHead,
+    scene: KeepScene,
+    chunk: int,
+    weight: float,
+    alpha: float,
+    gamma: float,
+    quantile: float | None,
+) -> dict[str, float]:
+    """Backpropagate `weight` x ConfLoss of the head's x, whole-scene exact.
+
+    The error is the point's distance to the nearest GT point (the accuracy term's a_i)
+    over the scene scale. Returns the loss and the mean c and s as floats.
+    """
+    with torch.no_grad():
+        x_map = torch.cat(
+            [
+                head.logits(scene.features[i : i + chunk].float())
+                for i in range(0, len(scene.features), chunk)
+            ]
+        )
+    x = x_map[scene.valid].clone().requires_grad_()
+    a = scene.tensors[0] / (CM * scene.scale)
+    loss = confidence_loss(x, a, alpha, gamma, quantile)
+    (weight * loss).backward()
+    grad = torch.zeros_like(x_map)
+    grad[scene.valid] = x.grad
+    for i in range(0, len(grad), chunk):
+        head.logits(scene.features[i : i + chunk].float()).backward(grad[i : i + chunk])
+    return {
+        "loss": loss.item(),
+        "mean_c": (1 + torch.exp(x)).mean().item(),
+        "mean_s": torch.sigmoid(x).mean().item(),
     }

@@ -7583,3 +7583,28 @@ Interim entry: the check that the plan puts before any table.
 - **Not explained:** E57c's `pixel` oracle (same-pixel 3D error) gave 3.560 at q 0.5 on dev against 1.699 here for the same
   ranking; the differences are the per-cut re-alignment of E57c, the dev mean (uncut 3.500) against this one scene (1.846), and
   a different set of pixels; none was tested.
+
+## E84i, the head on Déjà View's own confidence loss with the accuracy distance as its error (bedroom ai_006_007, 20.11.2026)
+- **Change:** the head is Déjà View's confidence branch from its released weights (E84g/h), the loss is its ConfLoss
+  `gamma c a - alpha log c`, c = 1 + exp(x), alpha 0.2, gamma 1, a = the point's distance to the nearest GT point over the
+  scene scale (3.205 m), no quantile mask, mean over the 3.81 M pixels. Separable over pixels: no keep probability, no
+  completeness term. The cut is a kept share of x. Config `configs/e84i_overfit_bedroom.yaml`, `loss: confidence`.
+- **Reference** (not a model; the ranking by the true a, same alignment, uncut 1.846): q 0.9 / 0.7 / 0.5 / 0.3 gives
+  1.543 / 1.387 / 1.369 / 1.569. Free per-pixel x would reach it exactly (c* = alpha / (gamma a)); the head is the limit.
+- **Hypothesis (the user's):** the loss is exact, so the overfit head converges to a tight margin of that ranking:
+  Chamfer within 3 % of it, <= 1.41 at q 0.5 and <= 1.43 at q 0.7. Refuted if either is above.
+- **My expectation, stated before I read the run:** it will miss. The head sees only 3 x 3 features, and the loss's optimum for a
+  head is alpha / E[a | features], not alpha / a; the smoothing check (e averaged over windows) already cost 1.578 -> 1.820
+  (7 x 7). I expect q 0.5 between 1.5 and 1.8, below uncut 1.846 and above 1.41. Beating uncut at q 0.5 and 0.7 is the weaker pass.
+- **Result (1000 steps, 0.13 s/step, seed 0; `results/e84i_overfit_bedroom.txt`):** ConfLoss -0.446 (Déjà View's weights) -> -0.486,
+  flat to 3 decimals over the last 250 steps, floor of a free per-pixel c* -0.537. Exact Chamfer of the top share of x
+  (uncut 1.846; the true-a ranking in brackets): q 0.9 1.727 (1.543), q 0.7 2.130 (1.387), q 0.5 3.591 (1.369), q 0.3 11.662
+  (1.569). Spearman(x, -a) 0.593 (Déjà View's c: 0.35), top-share IoU with the true-a mask 0.89 / 0.71 / 0.57.
+- **Reading:** the hypothesis is refuted (q 0.5 3.591 against <= 1.41, q 0.7 2.130 against <= 1.43) and my expectation was too
+  kind (I said 1.5-1.8 at q 0.5). Only q 0.9 beats uncut. The head does learn the accuracy term: A at q 0.5 is 1.342 against
+  2.520 uncut and 0.888 for the true-a ranking, and the loss covers 44 % of the way from the start to the
+  floor. What fails is completeness: C is 5.84 cm at q 0.5 against 1.85 for the true-a ranking at the same share. A
+  per-pixel loss is exact for the accuracy term but blind to coverage, and the head's errors are spatially correlated
+  (inference from C and from the smoothing check, no mask figure looked at): the true a is salt-and-pepper so its cut thins
+  every region, a smooth head's cut removes whole regions. Not tested: a larger head or a decayed rate (the loss may still
+  be capacity- or optimiser-limited), free per-pixel x as the upper end, a mask figure.

@@ -1,0 +1,9 @@
+E84i, bedroom ai_006_007, 1000 steps, run runs/e84i_overfit_bedroom-20261120-160353 (seed 0, lr 1e-3, 0.13 s/step)
+exact Chamfer cm (A / C), fixed alignment; uncut 1.846 (2.520 / 1.172); ranking by the true a for reference
+share  head step 1000              true-a ranking
+0.9    1.727 (2.075 / 1.380)       1.543 (1.838 / 1.247)
+0.7    2.130 (1.694 / 2.565)       1.387 (1.283 / 1.491)
+0.5    3.591 (1.342 / 5.840)       1.369 (0.888 / 1.850)
+0.3    11.662 (1.075 / 22.250)     1.569 (0.556 / 2.582)
+ConfLoss: start (Deja View's weights) -0.446, step 500 -0.483, step 750 -0.484, step 1000 -0.486; floor with free per-pixel c* -0.537
+Spearman(x, -a) 0.593; IoU of the head's top share with the true-a top share: 0.885 (0.9), 0.713 (0.7), 0.572 (0.5)
