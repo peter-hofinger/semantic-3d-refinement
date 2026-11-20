@@ -7410,3 +7410,12 @@ Interim entry: the check that the plan puts before any table.
   uncut cloud by the oracle's margin. Not tried: a loss that makes s binary without a second term (annealing, a hard-concrete
   relaxation, straight-through sampling), more steps (the loss is still falling), larger R, the clamp ablation, the
   seed or draw spread, volume features across views.
+- **E84d, follow-up: the loss's own optimum is not where the head stopped** (`e84d_oracle_soft.py` -> `results/e84d_oracle_soft.txt`,
+  bedroom, the training scene; a diagnostic, no cut chosen). The greedy oracle's masks (exact Chamfer 1.300 / 1.120 / 1.033 at
+  q = 0.7 / 0.5 / 0.2, also the cloud a cut at 0.5 gives) scored with E84d's loss at s = eps + (1 - 2 eps) mask: eps = 0.02 gives
+  1.338 / 1.189 / 1.189, all below the trained head's 1.485, and eps = 0.1 gives 1.348 / 1.230 / 1.291. At exactly binary s the
+  loss is 13.5 / 21.4 / 74.8: a GT point whose 8 probes are all dropped has kappa = 0, and the tail charge is then the cap U.
+  So the loss does rank oracle-shaped states far below the head's soft state and a cut at 0.5 of such a state is the oracle's
+  cloud; E84d's state is a poor local optimum or not converged (the loss was still falling), not the loss's minimum. The
+  charge is a cliff at kappa -> 0: the minimum lies at small s > 0 on dropped regions, not at the vertex. Only three oracle
+  masks and four eps were tried; the loss's true minimum may be lower still.
