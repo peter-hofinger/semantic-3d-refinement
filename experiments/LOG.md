@@ -7419,3 +7419,20 @@ Interim entry: the check that the plan puts before any table.
   cloud; E84d's state is a poor local optimum or not converged (the loss was still falling), not the loss's minimum. The
   charge is a cliff at kappa -> 0: the minimum lies at small s > 0 on dropped regions, not at the vertex. Only three oracle
   masks and four eps were tried; the loss's true minimum may be lower still.
+
+## E84e: rung 3 with a logit temperature, from the path to the cut (issue #84, bedroom ai_006_007, 20.11.2026)
+- **Change (one):** E84d with s = sigmoid(logit / T), T falling geometrically from 1 to 0.1 over the first 500 of 1000 steps
+  (`configs/e84e_overfit_bedroom.yaml`, `KeepHead.temperature`); everything else E84d (tail charge, R = 8, lr 1e-3, seed 0).
+- **What it is, and what it is not:** without noise, sigmoid(z / T) is a gain on the logit. The loss as a function of s is
+  E84d's and so are its minima; the cut at s = 0.5 is the logit's sign at any T. It is not deterministic annealing of the
+  objective (that would add noise, a relaxed Bernoulli sample, or an entropy term) and I recommended it as if it were; the
+  corrected reading is that it changes only the optimizer's path. It tests one thing: that E84d stopped on a slow path, not
+  at the loss's minimum (the oracle-shaped states in the E84d follow-up score 1.19-1.34 against its 1.485, the loss was
+  still falling).
+- **Hypothesis:** with up to 10x the gain the head reaches a bimodal s (about 0.02 / 0.98) with the loss near the oracle-shaped
+  states, and the thresholded cloud then follows the Bernoulli one instead of being twice as bad.
+- **Refuted if** (bedroom, exact Chamfer in the loss's alignment, uncut 1.846): (i) the thresholded Chamfer at step 1000 is not
+  below the uncut 1.846 (E84d: 3.243); or (ii) the head saturates, mean s >= 0.99 or <= 0.01 at any logged step (E84c, E84a); or
+  (iii) the loss at step 1000 is not below E84d's 1.485, i.e. the gain does not help the optimization at all. Rung 3 counts
+  as passed below 1.41. A run that passes (iii) but fails (i) says the loss's minimum itself, not the path, gives a bad cut.
+- **Stage times and numbers:** in the result.
