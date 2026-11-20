@@ -7192,3 +7192,54 @@ Interim entry: the check that the plan puts before any table.
   `/home/student/mircea/jobs_e52b_rungs.sh`, rung 4 alone in `jobs_e52b_rung4.sh`); figure and raw:
   `uv run python experiments/scripts/e52b_rungs_figures.py` -> `figures/e52b_rungs.jpg`,
   `results/e52b_rungs.yaml`.
+
+## E52b, main arms, lr_pool sweep: every lr and both arms end within the rerun noise of each other and of LoRA alone; by the rule GT takes 3e-6, grid 1e-5 (issue #52, 20.11.2026)
+- **Setting:** the plan's sweep at e4f7943 (clean), 3080, bf16, lr_lora 1e-4, 500 steps, `--splits`
+  none, both arms per run, seed 0; 19.11 23:45 - 20.11 01:47 (~19.5 min per arm). Runs
+  `runs/e52b_pool_sweep_<lr>`; job `/home/student/mircea/jobs_e52b_pool_sweep.sh`.
+- **Ratio to Déjà View's error at step 250 / 500** (held-out 16 train scenes, val 11 scenes):
+
+  | lr_pool | gt held-out | gt val | grid held-out | grid val |
+  |---|---|---|---|---|
+  | 1e-6 | 0.9818 / 0.9754 | 0.9658 / 0.9638 | 0.9787 / 0.9743 | 0.9745 / 0.9640 |
+  | 3e-6 | 0.9795 / 0.9762 | 0.9675 / **0.9568** | 0.9792 / 0.9748 | 0.9707 / 0.9636 |
+  | 1e-5 | 0.9801 / 0.9781 | 0.9700 / 0.9583 | 0.9768 / 0.9719 | 0.9682 / **0.9597** |
+
+- **Reading:** the rule (least val ratio at 500) picks 3e-6 for gt and 1e-5 for grid. Every gap is
+  0.0015-0.007, inside the rerun spread at step 500 (0.007, E52b control), so the sweep separates
+  neither the lrs nor the arms. LoRA alone at its chosen lr: val 0.9627 at step 500 (control sweep).
+
+## Plan: E52f, data-scaling curve: does the GT-over-grid gain appear when the adapters train on few scenes (issues #52, #81, 20.11.2026)
+- **Question (presentation feedback, 19.11, issue #13):** a semantic advantage should be largest when
+  the model or the data is small and vanish as either grows, because a foundation model learns
+  semantics implicitly. Every E52 test so far trained on 120 scenes, where that hypothesis predicts a
+  tie, so a tie there does not refute it. Here the data axis is varied; the model axis is not.
+- **Relation to #81:** #81 tests the same hypothesis on the 3D refiner (`volume.py`, classes none /
+  SAM 3 / GT, 9-133 rooms, two widths, 3 seeds). E52f adds the large-model end: adapters inside
+  frozen Déjà View. #81 predicts a gap at few rooms for the small refiner; for DV, the largest
+  model, it predicts the smallest gap. Both report the gap as with minus without semantics on val
+  (here grid stands for without, and the val ratio for Chamfer: the training script scores val by
+  the ratio only), so the two curves can share one plot against the number of train scenes.
+- **Arms:** E52b's main arms, lora_pool-gt (lr_pool 3e-6) and lora_pool-grid (lr_pool 1e-5), each
+  with its sweep lr, lr_lora 1e-4. One change against the sweep: the number of train scenes.
+- **Train sizes:** 3, 10, 30 and 120 scenes, nested: the first n of a seeded permutation
+  (`numpy.random.default_rng(0).permutation(120)`) of the 120 train scenes, so a larger set contains
+  every smaller one and no family of scene ids is favoured (the sorted list is grouped by id). 120 =
+  the default split with its 16 held-out scenes; the smaller sizes `held_out=0` and named
+  `train_scenes`. Lists in the job script.
+- **Training:** as the sweep, 500 steps at every size (same compute, not the same epochs), val (11
+  scenes) every 100 steps, state kept on val, probe every 10 steps, seed 0. At 3 scenes 500 steps
+  overfit; val selection picks the state before.
+- **Hypothesis and the numbers that would refute it:** gap = grid's kept val ratio - gt's. The
+  hypothesis predicts a gap that grows as the train set shrinks: above 0.014 (the largest move of val
+  between two evals, E52a/b) at 3 or 10 scenes, and larger than at 120. Gap within +-0.007 (rerun
+  spread) at every size refutes it for this model on Hypersim. **Prediction:** within the spread at
+  every size, as rungs 3 and 4 (1 and 3 scenes) tied on the training scenes; but rungs measure fit,
+  not generalisation, which is what this run measures.
+- **Scope:** one seed and one subset per size; a gap above the bar at small n is a first positive, to
+  be repeated with two more subset draws before it counts. Not dev-scored (val only): a choice of
+  direction, not a reported result.
+- **Cost:** 8 runs x ~20 min = ~2.7 h on the 3080.
+- **Command** (per size and arm; job `/home/student/mircea/jobs_e52f_scaling.sh`):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set steps=500 eval_every=100 align=exact select=val probe_every=10 "models={lora_pool: [false, true, true]}" "segments=[<arm>]" lr_pool=<lr> lr_lora=1e-4 held_out=0 "train_scenes=[<first n>]" --out runs/e52f_n<n>_<arm>`
+  (at 120 without `held_out` and `train_scenes`).
