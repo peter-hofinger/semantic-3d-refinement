@@ -18,10 +18,11 @@ pi_j(1..R) with distances d_j1 <= ... <= d_jR and the (R+1)-th, d_j,R+1.
 The nearest kept prediction of j is pi_j(r) iff pi_j(r) is kept and the nearer probes
 are not, so C is the exact expected completeness whenever one of the R probes is kept;
 if all R are dropped it charges d_j,R+1, a lower bound of the true distance (E84a), or
-an upper bound of any distance (E84b, `Probes.build`). At
-binary s with every GT point having a kept probe, A is the mean accuracy and C the
-completeness of the kept cloud, so L is its Chamfer (`exact_chamfer` computes it without
-the probe limit).
+an upper bound of any distance (E84b, `Probes.build`), or, with `tail`, the expected
+distance of a thinned planar Poisson process beyond the probes, capped at that bound
+(E84d, `tail_distance`). At binary s with every GT point having a kept probe, A is the
+mean accuracy and C the completeness of the kept cloud, so L is its Chamfer
+(`exact_chamfer` computes it without the probe limit).
 A is a ratio of expectations, not the expectation of the ratio.
 
 A and C are whole-scene sums, so they are not minibatched. `loss_backward` computes s of
@@ -36,6 +37,7 @@ convolution, ReLU and a 1 x 1 convolution on the 66 channels (64 upsampled featu
 a UV encoding) that block reads. Only it trains; the features are cached per scene.
 """
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -133,17 +135,37 @@ class Probes:
             return cls(f["a"], f["index"], f["dist"])
 
 
-def expected_chamfer(
-    s: Tensor, a: Tensor, index: Tensor, dist: Tensor, eps: float
+def tail_distance(kappa: Tensor, d_r: Tensor, cap: Tensor) -> Tensor:
+    """Return the expected distance (cm) to the nearest kept prediction beyond probe R.
+
+    Planar Poisson process thinned by the keep rate: R probes with keep mass kappa lie
+    within d_r, so the density is kappa / (pi d_r^2) and the nearest kept point at
+    x >= d_r has survival exp(-kappa (x^2 - d_r^2) / d_r^2) (Rayleigh, the radial
+    marginal of an isotropic 2D Gaussian). Its mean is d_r (1 + sqrt(pi)
+    erfcx(sqrt(kappa)) / (2 sqrt(kappa))), capped at `cap`, an upper bound.
+    """
+    root = kappa.clamp_min(1e-12).sqrt()
+    mean = d_r * (1 + math.sqrt(math.pi) * torch.special.erfcx(root) / (2 * root))
+    return mean.minimum(cap)
+
+
+def expected_chamfer(  # noqa: PLR0913 - the equation's symbols: s, a, index, dist, eps
+    s: Tensor, a: Tensor, index: Tensor, dist: Tensor, eps: float, *, tail: bool = False
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Loss L, accuracy A and completeness C of keep probabilities s (N,)."""
+    """Loss L, accuracy A and completeness C of keep probabilities s (N,).
+
+    `tail` charges a GT point whose probes are all dropped `tail_distance` instead of
+    dist[:, -1]; that column must then be the upper bound (`miss="bound"`).
+    """
     assert s.shape == a.shape == index.shape[:1] and eps > 0, (s.shape, index.shape)
     assert dist.shape == (len(s), index.shape[1] + 1), dist.shape
     assert (s >= 0).all() and (s <= 1).all()
     acc = (s * a).sum() / (s.sum() + eps)
-    drop = torch.cumprod(1 - s[index], dim=1)  # nearer probes up to r are all dropped
+    kept = s[index]
+    drop = torch.cumprod(1 - kept, dim=1)  # nearer probes up to r are all dropped
     first = torch.cat([torch.ones_like(drop[:, :1]), drop[:, :-1]], dim=1)
-    comp = ((dist[:, :-1] * s[index] * first).sum(1) + dist[:, -1] * drop[:, -1]).mean()
+    miss = tail_distance(kept.sum(1), dist[:, -2], dist[:, -1]) if tail else dist[:, -1]
+    comp = ((dist[:, :-1] * kept * first).sum(1) + miss * drop[:, -1]).mean()
     assert torch.isfinite(acc) and torch.isfinite(comp)
     return (acc + comp) / 2, acc, comp
 
@@ -269,8 +291,14 @@ def probabilities(head: KeepHead, features: Tensor, chunk: int) -> Tensor:
     )
 
 
-def loss_backward(
-    head: KeepHead, scene: KeepScene, eps: float, chunk: int, weight: float = 1.0
+def loss_backward(  # noqa: PLR0913 - head, scene, the config's eps, chunk, weight, tail
+    head: KeepHead,
+    scene: KeepScene,
+    eps: float,
+    chunk: int,
+    weight: float = 1.0,
+    *,
+    tail: bool = False,
 ) -> dict[str, float]:
     """Backpropagate `weight` x the scene's loss into the head, whole-scene exact.
 
@@ -279,7 +307,7 @@ def loss_backward(
     with torch.no_grad():
         s_map = probabilities(head, scene.features, chunk)
     s = s_map[scene.valid].clone().requires_grad_()
-    loss, acc, comp = expected_chamfer(s, *scene.tensors, eps)
+    loss, acc, comp = expected_chamfer(s, *scene.tensors, eps, tail=tail)
     (weight * loss).backward()
     grad = torch.zeros_like(s_map)
     grad[scene.valid] = s.grad

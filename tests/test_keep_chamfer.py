@@ -1,11 +1,13 @@
 """E84a: the expected Chamfer loss, its exact value, gradient caching, the head."""
 
 import itertools
+import math
 
 import numpy as np
 import pytest
 import torch
 from dvlt.model.dvlt.heads import DecoderHead
+from scipy.integrate import quad
 
 from src.refinement.keep_chamfer import (
     FEATURES,
@@ -16,6 +18,7 @@ from src.refinement.keep_chamfer import (
     exact_chamfer,
     expected_chamfer,
     loss_backward,
+    tail_distance,
 )
 
 
@@ -92,11 +95,12 @@ def test_the_exact_chamfer_needs_no_probe_list() -> None:
     assert comp.item() <= ref_comp + 1e-6  # a dropped list is charged a lower bound
 
 
-def test_chunked_backprop_gives_the_full_scene_gradient() -> None:
+@pytest.mark.parametrize("tail", [False, True])
+def test_chunked_backprop_gives_the_full_scene_gradient(*, tail: bool) -> None:
     torch.manual_seed(0)
     v, h, w = 5, 6, 7
     pred, truth = clouds(v * h * w - 4, seed=6)
-    probes = Probes.build(pred, truth, r=4)
+    probes = Probes.build(pred, truth, r=4, miss="bound")
     valid = torch.ones(v, h, w, dtype=torch.bool)
     valid.view(-1)[[3, 40, 77, 120]] = False  # pixels without GT
     scene = KeepScene(
@@ -110,11 +114,11 @@ def test_chunked_backprop_gives_the_full_scene_gradient() -> None:
     )
     reference = KeepHead()
     s = reference(scene.features.float())[valid]
-    expected_chamfer(s, *scene.tensors, eps=1e-6)[0].backward()
+    expected_chamfer(s, *scene.tensors, eps=1e-6, tail=tail)[0].backward()
     for chunk in (1, 2, 5):
         head = KeepHead()
         head.load_state_dict(reference.state_dict())
-        loss_backward(head, scene, 1e-6, chunk)
+        loss_backward(head, scene, 1e-6, chunk, tail=tail)
         for p, q in zip(head.parameters(), reference.parameters(), strict=True):
             assert torch.allclose(p.grad, q.grad, rtol=1e-4, atol=1e-7)
 
@@ -151,3 +155,40 @@ def test_an_upper_bound_miss_charge_makes_the_loss_an_upper_bound() -> None:
         torch.from_numpy(kept).float(), *tensors(probes), eps=1e-9
     )
     assert comp.item() == pytest.approx(brute(kept, pred, truth)[1], rel=1e-5)
+
+
+@pytest.mark.parametrize(("kappa", "d_r"), [(0.3, 1.5), (2.0, 0.7), (8.0, 2.0)])
+def test_the_tail_distance_is_the_mean_of_the_thinned_poisson_nearest_point(
+    kappa: float, d_r: float
+) -> None:
+    survival = lambda x: math.exp(-kappa * (x**2 - d_r**2) / d_r**2)  # noqa: E731
+    mean = d_r + quad(survival, d_r, math.inf)[0]
+    got = tail_distance(torch.tensor([kappa]), torch.tensor([d_r]), torch.tensor([1e9]))
+    assert got.item() == pytest.approx(mean, rel=1e-5)
+
+
+def test_the_tail_charge_is_capped_grows_as_s_falls_and_has_a_gradient() -> None:
+    pred, truth = clouds(80, seed=9)
+    probes = Probes.build(pred, truth, r=3, miss="bound")
+    a, index, dist = tensors(probes)
+    for c in (0.5, 0.1, 0.01):
+        s = torch.full((80,), c, requires_grad=True)
+        _, _, comp = expected_chamfer(s, a, index, dist, eps=1e-9, tail=True)
+        _, _, capped = expected_chamfer(s, a, index, dist, eps=1e-9)
+        near = dist.clone()
+        near[:, -1] = dist[:, -2]  # a miss charged the R-th probe's distance
+        _, _, floor = expected_chamfer(s, a, index, near, eps=1e-9)
+        assert floor.item() <= comp.item() <= capped.item()
+        comp.backward()
+        assert torch.isfinite(s.grad).all()
+        assert (s.grad != 0).any()
+    low = torch.full((80,), 0.01)
+    mid = torch.full((80,), 0.1)
+    assert (
+        expected_chamfer(low, a, index, dist, eps=1e-9, tail=True)[2]
+        > expected_chamfer(mid, a, index, dist, eps=1e-9, tail=True)[2]
+    )
+    kept = torch.ones(80)  # every probe kept: nothing left for the tail to charge
+    assert expected_chamfer(kept, a, index, dist, eps=1e-9, tail=True)[2].item() == (
+        pytest.approx(expected_chamfer(kept, a, index, dist, eps=1e-9)[2].item())
+    )

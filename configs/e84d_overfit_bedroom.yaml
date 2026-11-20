@@ -1,0 +1,19 @@
+# E84d rung 3 (issue #84, docs/experiments.md): the keep head, trained on the expected Chamfer of
+# the kept cloud alone (src/refinement/keep_chamfer.py), overfits the bedroom ai_006_007; a GT point whose R probes are
+# all dropped is charged the expected distance of a keep-rate-thinned Poisson process beyond them. A diagnostic, not a
+# result: a step is the whole scene, 20 views.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+r: 8              # probes per GT point: its R nearest predictions
+miss: bound       # the cap of the tail charge: an upper bound of any distance (the cache of E84b)
+tail: true        # charge a missed GT point the Poisson tail distance, not the cap
+eps: 1.0e-6       # in A's denominator, in pixels
+steps: 1000
+lr: 1.0e-3        # Adam, constant, no weight decay
+chunk: 4          # views per head pass; the gradient is the whole scene's whatever this is
+threshold: 0.5    # the cut of the logged exact Chamfer
+eval_every: 25
+seed: 0
+snapshots: [0, 50, 100, 200, 500, 1000]   # steps whose keep probabilities are saved for the figures

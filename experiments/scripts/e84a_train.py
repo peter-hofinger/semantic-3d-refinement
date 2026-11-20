@@ -80,7 +80,14 @@ def main() -> None:
             t0 = sync()
             optimizer.zero_grad()
             record = [
-                loss_backward(head, s, raw["eps"], raw["chunk"], 1 / len(scenes))
+                loss_backward(
+                    head,
+                    s,
+                    raw["eps"],
+                    raw["chunk"],
+                    1 / len(scenes),
+                    tail=raw.get("tail", False),
+                )
                 for s in scenes
             ]
             step_s.append(sync() - t0)
