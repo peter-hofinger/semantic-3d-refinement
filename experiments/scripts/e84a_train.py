@@ -22,6 +22,7 @@ import yaml
 from torch.utils.tensorboard import SummaryWriter
 
 from src.analysis.scene_eval import git_hash
+from src.backbone.dejaview import DejaViewBackbone
 from src.refinement.keep_chamfer import (
     KeepHead,
     KeepScene,
@@ -80,7 +81,12 @@ def main() -> None:
     t0 = sync()
     scenes = [KeepScene.load(name, raw, "cuda") for name in raw["scenes"]]
     load_s = sync() - t0
-    head = KeepHead().cuda()
+    if raw.get("init") == "deja_view":
+        steps = int(raw["backbone"].removeprefix("dejaview_k"))
+        head = KeepHead.from_deja_view(DejaViewBackbone(steps=steps).output_block())
+    else:
+        head = KeepHead()
+    head = head.cuda()
     optimizer = torch.optim.Adam(head.parameters(), lr=raw["lr"])
     history, step_s = [], []
     with SummaryWriter(out / "tb") as writer:

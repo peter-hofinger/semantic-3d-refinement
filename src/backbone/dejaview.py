@@ -50,6 +50,10 @@ class DejaViewBackbone:
             self._model = model
         return self._model, self._accelerator
 
+    def output_block(self) -> torch.nn.Module:
+        """Return the depth decoder's output block, which ends in (depth, conf)."""
+        return self._load()[0].model.depth_decoder.output_block
+
     def predict(
         self, views: Views, forward: Callable[[Any, Tensor], dict] | None = None
     ) -> Geometry:

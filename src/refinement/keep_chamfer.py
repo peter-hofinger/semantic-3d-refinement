@@ -35,6 +35,9 @@ The head copies the confidence branch of Déjà View's convolutional depth head
 (`dvlt.model.dvlt.heads.DecoderHead.output_block`, from MoGe's ConvStack): a 3 x 3
 convolution, ReLU and a 1 x 1 convolution on the 66 channels (64 upsampled features and
 a UV encoding) that block reads. Only it trains; the features are cached per scene.
+Déjà View's confidence is c = 1 + exp(x) >= 1, not a probability: s = sigmoid(x) =
+1 - 1/c is its monotone image in (0, 1), and `KeepHead.from_deja_view` starts from the
+released weights, so the head's ranking is Déjà View's until the loss moves it (E84g).
 """
 
 import math
@@ -72,6 +75,22 @@ class KeepHead(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(HIDDEN, 1, 1),
         )
+
+    @classmethod
+    def from_deja_view(cls, block: nn.Module) -> "KeepHead":
+        """Return a head at Déjà View's confidence, copied from the block.
+
+        The block's 1 x 1 conv outputs (depth, conf), conf last, with c = 1 + exp(x).
+        s = sigmoid(x) = 1 - 1 / c (c - 1 is the odds of s) is a monotone function of c,
+        and equal to it at the start.
+        """
+        head = cls()
+        assert [type(m) for m in block] == [type(m) for m in head.net]
+        with torch.no_grad():
+            head.net[0].load_state_dict(block[0].state_dict())
+            head.net[2].weight.copy_(block[2].weight[-1:])
+            head.net[2].bias.copy_(block[2].bias[-1:])
+        return head
 
     def forward(self, x: Tensor) -> Tensor:
         """Probabilities (B, H, W) in (0, 1) of float features (B, 66, H, W).

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 from dvlt.model.dvlt.heads import DecoderHead
+from dvlt.model_components.head_activations import activate_head
 from scipy.integrate import quad
 
 from src.refinement.keep_chamfer import (
@@ -206,3 +207,17 @@ def test_the_temperature_is_a_gain_on_the_logit_and_leaves_the_cut_where_it_is()
         s = head(x)
         assert torch.allclose(s, torch.sigmoid(logit / temperature))
         assert ((s >= 0.5) == (logit >= 0)).all()
+
+
+def test_the_head_from_deja_view_is_its_confidence_as_one_minus_one_over_c() -> None:
+    torch.manual_seed(2)
+    block = DecoderHead(in_dim=8, out_dim=2, head_type="conv").output_block
+    x = torch.randn(2, FEATURES, 5, 6)
+    with torch.no_grad():
+        _, conf = activate_head(
+            block(x), activation="exp_clamped", conf_activation="exp_plus_one"
+        )
+        s = KeepHead.from_deja_view(block)(x)
+    assert (conf >= 1).all()
+    assert torch.allclose(s, 1 - 1 / conf, atol=1e-6)
+    assert ((s >= 0.5) == (conf >= 2)).all()
