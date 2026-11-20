@@ -7150,3 +7150,59 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** `uv run python -m experiments.scripts.e84a_train --cfg configs/e84a_overfit_bedroom.yaml`, then
   `configs/e84a_overfit_dev.yaml`; evaluation `uv run python -m experiments.scripts.e84a_eval --run runs/<run>`
   and `scene_eval` with `configs/e84a_eval.yaml`.
+
+## E84a: not yet working; the expected-Chamfer loss as specified has its global minimum at the empty cloud, and rung 3 trains straight into it (bedroom, 20.11.2026)
+- **Code:** `src/refinement/keep_chamfer.py` (head, loss, probes, exact Chamfer, gradient caching), `tests/test_keep_chamfer.py`,
+  `experiments/scripts/e84a_{train,loss_profile,figures}.py`, `configs/e84a_overfit_{bedroom,dev}.yaml`. The head is
+  a copy of `DecoderHead.output_block` (checked against the installed dvlt in a test) on the 66 channels it reads, 19.3 k
+  parameters; features cached as fp16 (503 MB per scene), the backbone re-run once per scene (its depth asserted to
+  stay within 1e-2 median relative of the cached geometry). Whole-scene sums, no minibatch bias: s of all pixels without
+  grad, L and dL/ds on the full s, then the head re-run per chunk of views with grad and backpropagated with its slice
+  of dL/ds; equals the full-batch gradient (test, chunks 1, 2, 5). Tests (CPU, seconds): at binary s with every GT point
+  keeping a probe L equals the brute-force Chamfer; C equals the enumerated expectation over all 2^7 draws (R = n - 1);
+  `exact_chamfer` equals brute force with R = 2 where the fallback query runs. The all-kept loss is 1.8458 cm,
+  scene_eval's Déjà View bedroom 1.846.
+- **Commands** (RTX 3080, tree dirty = the new files, base 5012dda): `uv run python experiments/scripts/e84a_train.py
+  --cfg configs/e84a_overfit_bedroom.yaml` -> `runs/e84a_overfit_bedroom-20261120-084816` (R = 8, eps 1e-6, Adam 1e-3
+  constant, 1000 steps, seed 0; one step = the scene's 3.81 M pixels, 0.22 s median, 3.0 GB peak, 2.2 s to load the cached
+  scene, the first-run caches (re-run backbone, KD-tree probes) took about 15 s); `e84a_loss_profile.py` ->
+  `results/e84a_loss_profile.txt`; `e84a_figures.py` -> `figures/e84a_{curves,s_views}.jpg`. The same trajectory came
+  out in three runs; the first two crashed at step 225 in my own evaluation, which asserted a non-empty cloud, and
+  were rerun with the evaluation fixed.
+- **Result, rung 3** (bedroom ai_006_007; cm, fixed alignment; "exact" = KD-tree Chamfer of one Bernoulli(s) draw,
+  seed = step; Déjà View uncut 1.846 = A 2.520 / C 1.172):
+
+  | step | L (loss) | A / C of the loss | mean s | exact Chamfer, Bernoulli | exact completeness, Bernoulli | exact Chamfer, s >= 0.5 |
+  |---|---|---|---|---|---|---|
+  | 0 | 1.926 | 2.559 / 1.293 | 0.538 | 1.877 | 1.283 | 1.831 (everything kept) |
+  | 25 | 1.566 | 1.324 / 1.809 | 0.195 | 2.782 | 4.247 | 51.5 |
+  | 100 | 1.490 | 1.164 / 1.815 | 0.180 | 7.090 | 13.015 | 47.6 |
+  | 200 | 1.455 | 1.056 / 1.855 | 0.088 | 14.218 | 27.403 | 53.8 |
+  | 225 | 1.190 | 0.455 / 1.926 | 0.000 | 152.99 | 305.58 | nothing kept |
+  | 600-1000 | 0.963 | 0.000 / 1.926 | 0.000 | nothing kept | - | nothing kept |
+
+  The loss ends at 0.963 cm, below the greedy oracle's 1.04 and the uncut 1.846, with an empty cloud.
+- **Why** (`results/e84a_loss_profile.txt`, uniform s = c): for c >= 0.5 the loss equals the exact Bernoulli Chamfer to 0.1 %
+  (c = 0.5: 1.917 against 1.918; the share of GT points without a kept probe is 0.4 %), so the loss is right where its R
+  probes suffice. As c falls the share rises (0.17 at c = 0.2, 0.92 at c = 0.01) and the loss charges those points
+  d_j,R+1, a lower bound, so it undershoots (c = 0.01: 2.21 against 3.06). The empty cloud is the limit: A -> 0
+  (sum s -> 0 with eps = 1e-6 in the denominator) and C = mean d_j,R+1 = 1.927 cm, L(0) = 0.964 cm; R = 16, 32, 64 give
+  L(0) = 1.14, 1.38, 1.70 cm, all below the uncut cloud. So no finite R fixes it: switching points off is always
+  cheaper than the truncation charge, and the accurate-points-only A term pulls the same way. `figures/e84a_s_views.jpg`
+  (views 18, 0, 12, 6): at step 50 the head keeps the near floor and bed, where a_i is small, and switches off the
+  walls, where a_i is 3-5+ cm and where a dropped list is charged only d_9; by step 200 almost nothing is above 0.5.
+- **Against what was expected (written before running):** the bedroom's thresholded exact Chamfer below the accuracy
+  oracle's 1.41: **refuted** (51 cm at step 25, then an empty cloud; the only value near the uncut one is step 0's, where
+  every s is above 0.5). The gaming criterion (L falls while the exact completeness rises) fired from step 25 on: L
+  1.926 -> 0.963 while the Bernoulli completeness goes 1.28 -> 4.2 -> 305 cm. Bernoulli within 10 % of L: true only where
+  s >= 0.5 holds almost everywhere (step 0: 1.877 against 1.926), false after step 25.
+- **Reading:** not yet working, and not a failure of the head, the optimizer or the data: the objective is wrong where
+  it is cheapest to be wrong. The expected completeness is exact only while every GT point keeps a probe among its R
+  nearest; the loss gives the optimizer a way out of that regime that pays. This is a loss defect in rung 3's sense
+  (docs/experiments.md: targets, loss or optimizer), so the ladder stops here: rung 4 (dev) and the dev evaluation against
+  Déjà View, its confidence at the same kept share and the oracle were not run, since the head keeps nothing. The next
+  step is a change at this rung, one change: E84b charges a GT point whose R probes are all dropped an upper bound of
+  its distance instead of the lower bound d_j,R+1, so leaving the covered regime costs more than the point is worth.
+- **Limits:** one scene, one seed, R = 8 (R = 16-64 only through L(0), not trained), one learning rate; the sigmoid-vs-clamp
+  ablation not run (the sigmoid is not what fails). The exact Chamfer is at the loss's fixed alignment, scene_eval's
+  per-cut Umeyama was not used since no cut survived. The profile's Bernoulli numbers are means of 3 draws.
