@@ -1,11 +1,11 @@
 """E84a figures: the loss against the exact Chamfer over the steps, and s per view.
 
-`e84a_curves.jpg`: per step the loss L next to the exact Chamfer (cm, fixed alignment) of
+`<prefix>_curves.jpg`: per step the loss L next to the exact Chamfer (cm, fixed alignment) of
 one Bernoulli(s) draw and of the thresholded cloud, the exact completeness, and the mean s.
-`e84a_s_views.jpg` (bedroom only, views 18, 0, 12, 6 of issue #7): the image, the
+`<prefix>_s_views.jpg` (bedroom only, views 18, 0, 12, 6 of issue #7): the image, the
 prediction's distance to the GT a_i (cm), and s at each saved step, all s on [0, 1].
 
-`uv run python experiments/scripts/e84a_figures.py --run runs/<run> --out experiments/figures`
+`uv run python experiments/scripts/e84a_figures.py --run runs/<run> --out experiments/figures --prefix e84a`
 """
 
 import argparse
@@ -23,7 +23,7 @@ VIEWS = (18, 0, 12, 6)
 A_RANGE = 5.0  # cm, the colour scale of a_i
 
 
-def curves(run: Path, out: Path) -> None:
+def curves(run: Path, out: Path, prefix: str) -> None:
     """Loss and exact scores over the steps."""
     record = yaml.safe_load((run / "run.yaml").read_text())["history"]
     step = [h["step"] for h in record]
@@ -40,7 +40,7 @@ def curves(run: Path, out: Path) -> None:
         xlabel="step",
         ylabel="Chamfer (cm)",
         yscale="log",
-        title="Loss falls, exact Chamfer of the cloud it describes rises",
+        title="loss and the exact Chamfer of its cloud",
     )
     ax[1].plot(step, [h["completeness_cm"] for h in record], label="C of the loss")
     ax[1].plot(
@@ -58,7 +58,7 @@ def curves(run: Path, out: Path) -> None:
         xlabel="step",
         ylabel="completeness (cm)",
         yscale="log",
-        title="Completeness: the loss' term and the exact one",
+        title="completeness: the loss' term and the exact one",
     )
     ax[2].plot(step, [h["mean_s"] for h in record], label="mean s")
     ax[2].plot(
@@ -66,19 +66,20 @@ def curves(run: Path, out: Path) -> None:
         [e["s"]["above_half"] for e in exact],
         label="share of pixels with s >= 0.5",
     )
-    ax[2].set(xlabel="step", ylabel="share", title="The head switches the cloud off")
+    ax[2].set(xlabel="step", ylabel="share", title="how much of the cloud is kept")
     for a in ax:
         a.legend(fontsize=7)
         a.grid(alpha=0.3)
-    fig.suptitle(f"E84a rung 3, bedroom {SCENE}, R = 8: {run.name}", fontsize=10)
+    fig.suptitle(f"{prefix} rung 3, bedroom {SCENE}: {run.name}", fontsize=10)
     fig.tight_layout()
-    fig.savefig(out / "e84a_curves.jpg", dpi=130)
+    fig.savefig(out / f"{prefix}_curves.jpg", dpi=130)
     plt.close(fig)
 
 
-def maps(run: Path, out: Path) -> None:
+def maps(run: Path, out: Path, prefix: str) -> None:
     """Image, a_i and s at the saved steps for the four presentation views."""
-    cfg = yaml.safe_load((run / "run.yaml").read_text())["config"]
+    # E84a's runs predate the key `miss`, their loss charged d_(R+1)
+    cfg = {"miss": "next"} | yaml.safe_load((run / "run.yaml").read_text())["config"]
     scene = KeepScene.load(SCENE, cfg, "cpu")
     images = Views.load(Path(cfg["root"]) / SCENE / f"{cfg['views']}.npz").images
     a_map = np.zeros(scene.valid.shape, dtype=np.float32)
@@ -123,10 +124,10 @@ def maps(run: Path, out: Path) -> None:
     fig.colorbar(shown, ax=ax[1], fraction=0.02, label="cm (clipped at 5)")
     fig.colorbar(im, ax=ax[2:], fraction=0.02, label="keep probability s")
     fig.suptitle(
-        "E84a rung 3, bedroom: a_i and the head's s over the steps (shared scales; s = 1 keep)",
+        f"{prefix} rung 3, bedroom: a_i and the head's s at the saved steps (shared scales, s = 1 keep)",
         fontsize=10,
     )
-    fig.savefig(out / "e84a_s_views.jpg", dpi=110, bbox_inches="tight")
+    fig.savefig(out / f"{prefix}_s_views.jpg", dpi=110, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -135,9 +136,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--prefix", required=True, help="figure names, e.g. e84b")
     args = parser.parse_args()
-    curves(args.run, args.out)
-    maps(args.run, args.out)
+    curves(args.run, args.out, args.prefix)
+    maps(args.run, args.out, args.prefix)
 
 
 if __name__ == "__main__":

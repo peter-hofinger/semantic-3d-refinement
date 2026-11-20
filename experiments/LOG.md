@@ -7225,3 +7225,46 @@ Interim entry: the check that the plan puts before any table.
   question.
 - **Command:** `uv run python experiments/scripts/e84a_train.py --cfg configs/e84b_overfit_bedroom.yaml`; rung 4 and the dev
   evaluation only if rung 3 passes.
+
+## E84b: charging a miss an upper bound removes the collapse, and the head is stable and honest but stays at 97.5 % kept; bedroom thresholded Chamfer 1.747 against the uncut 1.846, still falling at step 1000 (bedroom, 20.11.2026)
+- **Command** (RTX 3080, tree dirty = the new files, base 25868a7): `uv run python experiments/scripts/e84a_train.py
+  --cfg configs/e84b_overfit_bedroom.yaml` -> `runs/e84b_overfit_bedroom-20261120-085532`: E84a's rung 3 with
+  `miss: bound` (U = 100 (max |t - c| + max |p - c|) cm), nothing else. Figures `figures/e84b_{curves,s_views}.jpg`,
+  looked at. A test shows the loss with this charge is an upper bound of the brute-force completeness and equal to it
+  when every GT point keeps a probe.
+- **Result** (cm, fixed alignment; Déjà View uncut 1.846 = A 2.520 / C 1.172; exact = KD-tree on the cloud):
+
+  | step | L | mean s | s in (0.05, 0.95) | exact Chamfer, Bernoulli draw (A / C, kept) | exact Chamfer, s >= 0.5 (A / C, kept) |
+  |---|---|---|---|---|---|
+  | 0 | 3.099 | 0.538 | 1.00 | 1.902 (2.554 / 1.250, 0.66) | 1.846 (all kept) |
+  | 25 | 1.843 | 0.973 | 0.05 | 1.842 (2.508 / 1.177, 0.97) | 1.846 |
+  | 100 | 1.793 | 0.919 | 0.56 | 1.784 (2.368 / 1.201, 0.92) | 1.795 (2.410 / 1.179, 0.99) |
+  | 500 | 1.753 | 0.904 | 0.41 | 1.745 (2.285 / 1.204, 0.90) | 1.770 (2.358 / 1.181, 0.985) |
+  | 1000 | 1.733 | 0.901 | 0.36 | 1.723 (2.246 / 1.201, 0.90) | **1.747** (2.311 / 1.183, 0.975) |
+
+  The loss tracks the exact Chamfer of its own cloud within 0.6 % from step 25 on (1.733 against 1.723 at step 1000), the
+  gaming of E84a is gone, and the exact completeness never leaves 1.17-1.23 cm. 0.34 s per step (E84a 0.22: the
+  GPU was shared).
+- **Against what was expected (written before running):** (a) collapse: no; the head keeps 97.5 % at s >= 0.5. (b) stays
+  at the uncut cloud: nearly; step 25 is the all-keep state (mean s 0.973, 1.842) and the loss then falls only 0.1 cm in
+  975 steps, 1.747 thresholded and 1.723 Bernoulli, 5.4 % and 6.7 % below the uncut cloud, and it is still falling at
+  the end (-0.006 cm per 125 steps). (c) thresholded Chamfer below the accuracy oracle's 1.41: **refuted** at this
+  budget (1.747). Bernoulli within 10 % of L: yes (0.6 %). The loss and the exact Chamfer agree, so what fails is the
+  descent, not the objective.
+- **Reading** (hypotheses, not tested): the first 25 steps push every s to 1 to remove the miss charge (U P(miss) is 1000
+  times a centimetre), and from there a fractional s costs: at s = 0.6 a GT point misses with 0.4^8 = 7e-4, times U
+  of about 10 m. Dropping a point is cheap only when its GT neighbours' other probes sit at s = 1, a structured
+  (binary) state the gradient at a uniform s = 0.9 does not point to. Figure: after 1000 steps s is low (0.4-0.6) on
+  the far walls of views 12 and 6, where a_i is largest, and dips on depth edges, so the head learned the
+  accuracy ordering, but nowhere low enough to pay. The sigmoid saturating near 1 (s = 0.97 has a gradient factor of 0.03)
+  also slows it. Whether 10 times the learning rate escapes this (optimization) or not (landscape, or the 3 x 3 field) is
+  the next, single change: E84c.
+- **Limits:** one scene, one seed, one learning rate, 1000 steps; rung 3 not passed, so no dev rung and no dev evaluation.
+
+## Plan: E84c, E84b with ten times the learning rate (issue #84, 20.11.2026)
+- **Change:** `lr: 1.0e-2` (E84b: 1.0e-3), `configs/e84c_overfit_bedroom.yaml`, 1000 steps, all else as E84b; one change.
+- **Hypothesis, written before running:** E84b is optimization-limited, not landscape-limited: with 10 times the step the
+  bedroom's thresholded exact Chamfer falls below 1.41 cm within 1000 steps and the kept share below 80 %.
+  **Refuted** if it ends above 1.41 (then the descent stalls in the landscape or the 3 x 3 field and a larger lr does not
+  help; I expect then 1.6-1.75), or if it collapses or diverges (nothing kept, NaN). If it reaches 1.41 only at a
+  fractional s with Bernoulli far from the threshold, reported as such.
