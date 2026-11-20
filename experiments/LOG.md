@@ -7548,3 +7548,38 @@ Interim entry: the check that the plan puts before any table.
   mean a_i 2.52 cm, mean e_i 6.82 cm. Spearman: Déjà View's confidence with -e_i 0.49, with -a_i 0.35, a_i with e_i 0.73.
   So the same-pixel error is not the accuracy term's a_i for most pixels, and the confidence ranks its own target only
   moderately.
+
+## E84, the optimum of Déjà View's confidence loss as a filter, against its actual confidence (bedroom, 20.11.2026)
+- **Script** `experiments/scripts/e84_dejaview_optimum_filter.py` (test `tests/test_e84_dejaview_optimum.py`, which checks the
+  optimum against the installed `dvlt` `DepthLoss` itself): c* = max(1, alpha / (gamma e)) with alpha = 0.2, gamma = 1 (ConfLoss
+  defaults; the released configs train no confidence loss), e = |d / s_pred - d_gt / s_gt| the same-pixel depth error with each
+  depth divided by the mean distance of its valid world points to the first camera's centre (assumed to be Déjà View's
+  origin: its first pose is the identity; GT scale 3.205 m). The filter keeps c* >= tau, i.e. e <= alpha / (gamma tau); at a
+  kept share q it ranks by -e. A diagnostic on the bedroom: the filter uses the GT, no cut is chosen.
+  `results/e84_dejaview_optimum_filter.txt`, figures `e84_dejaview_optimum_{masks,calibration}.jpg` (views 18, 0, 12, 6).
+- **Results** (3.81 M pixels; exact Chamfer cm in the loss's fixed alignment, uncut 1.846):
+  - c: median 17.5, range 1.01-60.0; c*: median 22.2, 1.1 % at the floor c* = 1; Spearman(c, c*) 0.38, median c / c* 0.83.
+  - Same numeric threshold (kept share of c >= tau | c* >= tau | IoU): tau 2: 0.993 | 0.982 | 0.984; 5: 0.970 | 0.955 | 0.963;
+    10: 0.895 | 0.859 | 0.869; 20: 0.358 | 0.551 | 0.390.
+  - Same kept share q (IoU; Chamfer of the confidence cut | of the optimum's cut):
+
+    | q | IoU | confidence | optimum of Déjà View's loss |
+    |---|---|---|---|
+    | 0.9 | 0.902 | 1.888 (2.174 / 1.602) | 1.662 (2.075 / 1.249) |
+    | 0.7 | 0.669 | 3.068 (1.945 / 4.192) | **1.578** (1.698 / 1.457) |
+    | 0.5 | 0.459 | 6.303 (1.736 / 10.869) | 1.645 (1.466 / 1.825) |
+    | 0.3 | 0.253 | 14.243 (1.399 / 27.087) | 2.018 (1.261 / 2.775) |
+    | 0.1 | 0.090 | 42.825 (1.183 / 84.468) | 3.291 (1.129 / 5.452) |
+
+  - Per view at q = 0.5: IoU 0.53 (view 18), 0.48 (0), 0.43 (12), 0.25 (6).
+- **Reading:** (a) the optimum of Déjà View's own loss is a good filter: it beats the uncut cloud for q 0.5-0.9 (best 1.578 at
+  0.7, -14.5 %) and keeps completeness within 1.2-1.8 cm, where the actual confidence ruins it (10.9 cm at q 0.5). The loss as
+  written is not what fails; the predicted confidence is. (b) c is a smooth field (`..._masks.jpg`: low at depth edges and thin
+  structure, otherwise slowly varying) with a compressed range (10-56 over most pixels, a ceiling at 60.0, cause not checked)
+  while c* is high-frequency with a range of 1 to 1e6; the two agree in the middle (median ratio 0.83, and at tau <= 10
+  nearly the same kept share) and disagree in rank (0.38) and in the tails, so a cut at q 0.5 overlaps by 0.46. (c) the
+  ranking by -e (z-depth error) and by the 3D distance to the same-pixel GT point give 1.645 / 1.699 at q 0.5 and 1.578 /
+  1.633 at 0.7 (scratch check, not saved), both worse than by a_i (the nearest-GT distance: 1.369 / 1.387), as in E57c's order.
+- **Not explained:** E57c's `pixel` oracle (same-pixel 3D error) gave 3.560 at q 0.5 on dev against 1.699 here for the same
+  ranking; the differences are the per-cut re-alignment of E57c, the dev mean (uncut 3.500) against this one scene (1.846), and
+  a different set of pixels; none was tested.
