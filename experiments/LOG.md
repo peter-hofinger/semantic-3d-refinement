@@ -7104,3 +7104,49 @@ Interim entry: the check that the plan puts before any table.
   E52c and E52e, so they left src once both were answered; the E52a/E52b training script and
   config are back to their state on main. To rerun E52c's rungs, probe and solver check or E52e,
   check out 33bca5f.
+
+## Plan: E84a, a keep head trained on the expected Chamfer of the kept cloud itself, not on the oracle's mask (issue #84, 20.11.2026)
+- **Why:** #84 asks for a model that predicts the greedy oracle's keep set. Imitating a mask hides the real
+  objective, the minimal Chamfer of the kept cloud, and the greedy is only a heuristic (K = 5 / 20 rounds: 2.048 /
+  1.993 on dev, not a lower bound). E84a trains on the objective itself: one head, one loss, the expected Chamfer of
+  the cloud that keeps prediction i with probability s_i.
+- **Head:** a copy of the confidence branch of Déjà View's convolutional depth head (`dvlt.model.dvlt.heads.DecoderHead`,
+  `output_block`: Conv 3 x 3 (64 + 2 UV -> 32), ReLU, Conv 1 x 1 -> out), one output, fed with the features that
+  `output_block` reads in the frozen model (66 channels per pixel, 378 x 504). s = sigmoid(logit). Fresh initialisation
+  (logit 0, s about 0.5), not DV's confidence weights, so DV's confidence is not a starting point. Only the head
+  trains. Cached per scene as fp16; the backbone never reruns after the cache.
+- **Loss** (per scene, N = pixels with GT depth, prediction i and GT point j share a pixel; cm; the predictions
+  aligned once by Umeyama on all N, scene_eval's own path):
+  A(s) = sum_i s_i a_i / (sum_i s_i + eps), C(s) = 1/N sum_j [sum_{r <= R} d_jr s_pi_j(r) prod_{r' < r} (1 - s_pi_j(r')) +
+  d_j,R+1 prod_r (1 - s_pi_j(r))], L = (A + C) / 2, R = 8 in the config, eps = 1e-6. a_i: distance to the nearest GT
+  point; d_jr: the r-th nearest prediction of GT point j. C is the exact expectation of the completeness when every
+  prediction is kept independently with probability s, if one of the R probes is kept; where all R are dropped it
+  charges d_j,R+1, a lower bound of the true distance. A is a ratio of expectations, not the expectation of the ratio.
+  No other term.
+- **Minibatches:** none of the loss. A and C are whole-scene sums, so a step is one scene, whole: s of all pixels is
+  computed without grad in chunks of views, L and dL/ds are computed on the full s, and the chunks are re-run with
+  grad and backpropagated with their slice of dL/ds (gradient caching). The gradient equals the full-batch one
+  (tested), no sub-sampling, no rescaling; a step over several scenes averages the scenes' L, as the dev mean does.
+- **Evaluation** (dev, never test): per scene and mean, A, C, Chamfer of (a) the exact Chamfer of the kept cloud in the
+  loss's fixed alignment (KD-tree, not the loss's probe lists), next to the loss value L and the kept share, for s >= t
+  (thresholded) and for Bernoulli(s) draws (seeds 0-4, mean and spread); (b) scene_eval's protocol, one Umeyama per
+  output on the kept pixels, for the same cuts, Déjà View uncut, and Déjà View's confidence at the thresholded kept
+  share. The cut t is picked on dev only. Completeness is against the depth of the same 20 views. A falling L with a
+  rising exact completeness means the loss is gamed.
+- **Rungs** (docs/experiments.md): 3 overfits `ai_006_007_cam_00` (20 views, one step = the scene), 4 the three dev
+  scenes. Adam, lr 1e-3 constant, no weight decay, no scheduler, seed 0, bf16 off. Rung 5 (train scenes, val) is not
+  part of E84a: it exceeds 30 min and needs the train scenes, so a result here is a diagnostic, not a score.
+- **Hypothesis, written before running:** the head's thresholded (t = 0.5) exact Chamfer on the bedroom ends below the
+  accuracy oracle's 1.41 cm (a pointwise ranking by a_i with the GT, E57c) and at best near the greedy's 1.04 (uncut
+  1.846); the head sees only 3 x 3 pixels of DV's features, so I expect 1.1 to 1.4, and exceeding 1.04 is possible
+  because the greedy is not a bound and E84a optimises soft keep. **Refuted** if the bedroom's exact thresholded
+  Chamfer is above 1.41 after the step budget: then a pixelwise head on this objective cannot even match the accuracy
+  oracle, and #84's premise of needing all views at once stands. Rung 4: refuted if the dev mean (scene_eval) is above
+  the accuracy oracle's 2.479 (greedy 2.048, density 3.188, uncut 3.500). Gaming: refuted if exact completeness at
+  the threshold exceeds the uncut cloud's while L falls. Bernoulli: its mean exact Chamfer within 10 % of L when s is
+  near binary; DV's confidence at the same share far worse (E57c: 25.4 at q 0.5 on dev).
+- **Ablation, if the main run works:** the sigmoid replaced by clamp(logit, 0, 1) (same bias-free head, logit
+  initialised at 0.5 by the bias); not run before the main result is in.
+- **Commands:** `uv run python -m experiments.scripts.e84a_train --cfg configs/e84a_overfit_bedroom.yaml`, then
+  `configs/e84a_overfit_dev.yaml`; evaluation `uv run python -m experiments.scripts.e84a_eval --run runs/<run>`
+  and `scene_eval` with `configs/e84a_eval.yaml`.
