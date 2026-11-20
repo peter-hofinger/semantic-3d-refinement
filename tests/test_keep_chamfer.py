@@ -192,3 +192,17 @@ def test_the_tail_charge_is_capped_grows_as_s_falls_and_has_a_gradient() -> None
     assert expected_chamfer(kept, a, index, dist, eps=1e-9, tail=True)[2].item() == (
         pytest.approx(expected_chamfer(kept, a, index, dist, eps=1e-9)[2].item())
     )
+
+
+def test_the_temperature_is_a_gain_on_the_logit_and_leaves_the_cut_where_it_is() -> (
+    None
+):
+    torch.manual_seed(1)
+    head = KeepHead()
+    x = torch.randn(2, FEATURES, 5, 6)
+    logit = head.net(x)[:, 0]
+    for temperature in (1.0, 0.25, 0.05):
+        head.temperature = temperature
+        s = head(x)
+        assert torch.allclose(s, torch.sigmoid(logit / temperature))
+        assert ((s >= 0.5) == (logit >= 0)).all()

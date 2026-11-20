@@ -53,6 +53,14 @@ def evaluate(
     }
 
 
+def temperature(cfg: dict | None, step: int) -> float:
+    """Logit temperature at a step: geometric from cfg's start to end over cfg's steps."""
+    if cfg is None:
+        return 1.0
+    fraction = min(step / cfg["steps"], 1.0)
+    return cfg["start"] * (cfg["end"] / cfg["start"]) ** fraction
+
+
 def sync() -> float:
     """Wall time after the GPU's queue is empty."""
     torch.cuda.synchronize()
@@ -77,6 +85,7 @@ def main() -> None:
     history, step_s = [], []
     with SummaryWriter(out / "tb") as writer:
         for step in range(raw["steps"] + 1):
+            head.temperature = temperature(raw.get("temperature"), step)
             t0 = sync()
             optimizer.zero_grad()
             record = [
@@ -117,12 +126,14 @@ def main() -> None:
                     {
                         "step": step,
                         **mean,
+                        "temperature": head.temperature,
                         "exact": dict(zip(raw["scenes"], exact, strict=True)),
                     }
                 )
                 print(
                     f"step {step}: L {mean['loss']:.3f} A {mean['accuracy_cm']:.3f} "
-                    f"C {mean['completeness_cm']:.3f} | mean s {mean['mean_s']:.3f} | "
+                    f"C {mean['completeness_cm']:.3f} | mean s {mean['mean_s']:.3f} "
+                    f"(T {head.temperature:.2f}) | "
                     + " | ".join(
                         f"{cut} "
                         + " ".join(

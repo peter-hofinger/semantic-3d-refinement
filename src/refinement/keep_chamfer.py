@@ -64,8 +64,9 @@ class KeepHead(nn.Module):
     """Keep probability per pixel from Déjà View's depth-decoder features."""
 
     def __init__(self) -> None:
-        """Build the convolutions of `net`."""
+        """Build the convolutions of `net`; `temperature` scales the logit (E84e)."""
         super().__init__()
+        self.temperature = 1.0
         self.net = nn.Sequential(
             nn.Conv2d(FEATURES, HIDDEN, 3, padding=1, padding_mode="replicate"),
             nn.ReLU(inplace=True),
@@ -73,9 +74,14 @@ class KeepHead(nn.Module):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        """Probabilities (B, H, W) in (0, 1) of float features (B, 66, H, W)."""
+        """Probabilities (B, H, W) in (0, 1) of float features (B, 66, H, W).
+
+        s = sigmoid(logit / temperature), a gain on the logit: the cut at s = 0.5 is the
+        logit's sign at any temperature and the loss as a function of s is unchanged.
+        """
         assert x.ndim == 4 and x.shape[1] == FEATURES, x.shape  # noqa: PLR2004
-        s = torch.sigmoid(self.net(x)[:, 0])
+        assert self.temperature > 0, self.temperature
+        s = torch.sigmoid(self.net(x)[:, 0] / self.temperature)
         assert torch.isfinite(s).all()
         return s
 
