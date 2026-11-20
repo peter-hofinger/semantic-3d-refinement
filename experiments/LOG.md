@@ -7206,3 +7206,22 @@ Interim entry: the check that the plan puts before any table.
 - **Limits:** one scene, one seed, R = 8 (R = 16-64 only through L(0), not trained), one learning rate; the sigmoid-vs-clamp
   ablation not run (the sigmoid is not what fails). The exact Chamfer is at the loss's fixed alignment, scene_eval's
   per-cut Umeyama was not used since no cut survived. The profile's Bernoulli numbers are means of 3 draws.
+
+## Plan: E84b, E84a's loss with an upper-bound charge for a GT point whose R probes are all dropped (issue #84, 20.11.2026)
+- **Why:** E84a trained into the empty cloud because a miss (all R probes of a GT point dropped) is charged d_j,R+1, a
+  lower bound of the true distance, so the loss undershoots exactly where the head switches points off, and
+  L(0) = mean d_R+1 / 2 = 0.96 cm lies below every real cloud. One change, nothing else: the miss is charged an upper
+  bound U of the distance from any GT point to any prediction, U = 100 (max_j |t_j - c| + max_i |p_i - c|) cm with c the
+  GT mean (triangle inequality; a scene constant, no tuned value). The loss is then an upper bound of the
+  expected Chamfer that is exact where every GT point keeps a probe, and L(0) = U / 2 (empty cloud: all points miss).
+  Config key `miss: next` (E84a) or `bound` (E84b); R = 8, eps, head, optimizer, seed, steps as in E84a rung 3.
+- **Hypothesis, written before running:** the head no longer collapses: mean s stays above 0.05 for all 1000 steps and the
+  Bernoulli exact Chamfer stays within 10 % of L after step 100, because a binary-ish s covers every GT point's probe list
+  (the oracle's structure) and the loss is then exact. The bedroom's thresholded (t = 0.5) exact Chamfer falls below the
+  accuracy oracle's 1.41 cm (uncut 1.846, greedy 1.04). **Refuted** if (a) it collapses again (nothing kept), (b) it stays
+  at s -> 1, the uncut cloud's 1.846 (the loss then has a local minimum at keeping everything), or (c) the thresholded
+  exact Chamfer ends above 1.41. A different outcome, e.g. a fractional s everywhere with Bernoulli far from the
+  threshold, is reported as such. If (c) fails but the others hold, the pixelwise head's 3 x 3 field is the limit, E84a's
+  question.
+- **Command:** `uv run python experiments/scripts/e84a_train.py --cfg configs/e84b_overfit_bedroom.yaml`; rung 4 and the dev
+  evaluation only if rung 3 passes.
