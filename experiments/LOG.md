@@ -7358,3 +7358,21 @@ Interim entry: the check that the plan puts before any table.
   spatially clustered s, so it is neither exact nor a bound there. Probable causes, untested: the planar density
   R / (pi d_R^2) understates the 20-view point density (overlapping layers), and sum s over 8 probes is a noisy keep rate for
   a clustered s. Not trained on; whether its overshoot is a usable penalty (a smooth version of E84b's constant) is open.
+
+## E84d: rung 3 with the Poisson-tail charge for a missed GT point (issue #84, bedroom ai_006_007, 20.11.2026)
+- **Change (one):** E84b with `tail: true`. A GT point whose R = 8 probes are all dropped is charged not the constant upper
+  bound U (E84b) nor d_(R+1) (E84a) but the expected distance of the nearest kept prediction of a planar Poisson process
+  thinned by the local keep rate, d_R (1 + sqrt(pi) erfcx(sqrt kappa) / (2 sqrt kappa)), kappa = sum of s over the 8 probes,
+  capped at U (`tail_distance`; derivation in the follow-ups entry above; suggested by Peter). The cache of E84b's probes is reused.
+  Same head, lr 1e-3, 1000 steps, seed 0, `configs/e84d_overfit_bedroom.yaml`.
+- **Hypothesis:** the charge rises as s falls (E84a's plateau, where the charge stayed 1-2 cm, is gone) and, unlike E84b's
+  constant, it is graded, so the descent should leave s = 1 (E84b: 97.5 % kept, 1.747 thresholded) and find the interior
+  minimum, without switching off whole walls.
+- **Refuted if** (bedroom, thresholded at 0.5 and Bernoulli, exact Chamfer in the loss's alignment, uncut 1.846):
+  (i) the collapse of E84a returns: mean s < 0.05 with Bernoulli completeness > 5 cm (uncut 1.172) at any step; or
+  (ii) the thresholded exact Chamfer at step 1000 is not below E84b's 1.747; or
+  (iii) the exact completeness rises while the loss falls over the last 200 steps (the loss is gamed).
+  Rung 3 counts as passed below 1.41 (the bar of E84a-c; the oracle path's own minimum in this alignment is 0.950).
+  The loss is not exact here: it overshoots the completeness on clustered s (up to 5.9x in the offline test), so the
+  exact Chamfer is what is judged, next to the loss.
+- **Stage times and numbers:** in the result.
