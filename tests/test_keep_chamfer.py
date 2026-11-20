@@ -129,3 +129,25 @@ def test_the_head_is_the_confidence_branch_of_deja_views_output_block() -> None:
         assert mine.weight.shape[1:] == theirs.weight.shape[1:]
     assert ours[0].weight.shape == (HIDDEN, FEATURES, 3, 3)
     assert ours[2].weight.shape[0] == 1  # the one output: the keep logit
+
+
+def test_an_upper_bound_miss_charge_makes_the_loss_an_upper_bound() -> None:
+    pred, truth = clouds(80, seed=7)
+    probes = Probes.build(pred, truth, r=2, miss="bound")
+    bound = 100 * (
+        np.linalg.norm(truth - truth.mean(0), axis=1).max()
+        + np.linalg.norm(pred - truth.mean(0), axis=1).max()
+    )
+    d = 100 * np.linalg.norm(pred[:, None] - truth[None], axis=-1)
+    assert bound >= d.max()  # of every GT-prediction distance
+    assert (probes.dist[:, -1] == np.float32(bound)).all()
+    kept = np.random.default_rng(8).random(80) < 0.3
+    _, _, comp = expected_chamfer(
+        torch.from_numpy(kept).float(), *tensors(probes), eps=1e-9
+    )
+    assert comp.item() >= brute(kept, pred, truth)[1] - 1e-4
+    kept[:] = True  # every GT point keeps a probe: exact again
+    _, _, comp = expected_chamfer(
+        torch.from_numpy(kept).float(), *tensors(probes), eps=1e-9
+    )
+    assert comp.item() == pytest.approx(brute(kept, pred, truth)[1], rel=1e-5)

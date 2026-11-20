@@ -34,6 +34,7 @@ def main() -> None:
         "views": "views_n20_uniform_504",
         "backbone": "dejaview_k16",
         "r": args.r,
+        "miss": "next",
     }
     scene = KeepScene.load(SCENE, cfg, "cuda")
     n = len(scene.pred)

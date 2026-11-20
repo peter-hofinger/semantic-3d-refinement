@@ -17,7 +17,8 @@ pi_j(1..R) with distances d_j1 <= ... <= d_jR and the (R+1)-th, d_j,R+1.
 
 The nearest kept prediction of j is pi_j(r) iff pi_j(r) is kept and the nearer probes
 are not, so C is the exact expected completeness whenever one of the R probes is kept;
-if all R are dropped it charges d_j,R+1, a lower bound of the true distance. At
+if all R are dropped it charges d_j,R+1, a lower bound of the true distance (E84a), or
+an upper bound of any distance (E84b, `Probes.build`). At
 binary s with every GT point having a kept probe, A is the mean accuracy and C the
 completeness of the kept cloud, so L is its Chamfer (`exact_chamfer` computes it without
 the probe limit).
@@ -94,15 +95,31 @@ class Probes:
         assert self.index.min() >= 0 and self.index.max() < n
 
     @classmethod
-    def build(cls, pred: np.ndarray, truth: np.ndarray, r: int) -> "Probes":
-        """Probes of aligned predictions (N, 3) against the GT points (M, 3), M = N."""
+    def build(
+        cls, pred: np.ndarray, truth: np.ndarray, r: int, miss: str = "next"
+    ) -> "Probes":
+        """Probes of aligned predictions (N, 3) against the GT points (M, 3), M = N.
+
+        `miss` is what the loss charges a GT point whose R probes are all dropped: its
+        (R + 1)-th distance, a lower bound of the truth (`next`, E84a), or an upper
+        bound of any GT-prediction distance (`bound`, E84b): max_j |t_j - c| +
+        max_i |p_i - c| by the triangle inequality, c the GT mean.
+        """
         assert pred.shape == truth.shape and pred.shape[1] == 3 and r >= 1, pred.shape  # noqa: PLR2004
+        assert miss in ("next", "bound"), miss
         tree = cKDTree(pred, balanced_tree=False, compact_nodes=False)
         dist, index = tree.query(truth, r + 1, workers=-1)
+        dist = CM * dist
+        if miss == "bound":
+            c = truth.mean(0)
+            dist[:, r] = CM * (
+                np.linalg.norm(truth - c, axis=1).max()
+                + np.linalg.norm(pred - c, axis=1).max()
+            )
         return cls(
             (CM * nearest_distances(truth, pred)).astype(np.float32),
             index[:, :r].astype(np.int32),
-            (CM * dist).astype(np.float32),
+            dist.astype(np.float32),
         )
 
     def save(self, path: Path) -> None:
@@ -180,9 +197,9 @@ class KeepScene:
     def load(cls, name: str, cfg: dict, device: str) -> "KeepScene":
         """Load a scene's cache, building features and probes on first use.
 
-        `cfg` is a config's root, views, backbone and r.
+        `cfg` is a config's root, views, backbone, r and miss (see `Probes.build`).
         """
-        views, backbone, r = cfg["views"], cfg["backbone"], cfg["r"]
+        views, backbone, r, miss = (cfg[k] for k in ("views", "backbone", "r", "miss"))
         folder = Path(cfg["root"]) / name
         gt = GroundTruth.load(folder / f"gt_{views}.npz")
         v = Views.load(folder / f"{views}.npz")
@@ -198,9 +215,9 @@ class KeepScene:
             steps = int(backbone.removeprefix("dejaview_k"))
             np.save(feature_file, capture_features(steps, v, geometry))
         features = torch.from_numpy(np.load(feature_file))
-        probe_file = folder / f"e84a_probes_r{r}_{backbone}_{views}.npz"
+        probe_file = folder / f"e84a_probes_r{r}_{miss}_{backbone}_{views}.npz"
         if not probe_file.is_file():
-            Probes.build(pred, truth.points, r).save(probe_file)
+            Probes.build(pred, truth.points, r, miss).save(probe_file)
         probes = Probes.load(probe_file)
         assert truth.pixels is not None and len(pred) == len(probes.a)
         assert (

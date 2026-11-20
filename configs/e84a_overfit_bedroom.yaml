@@ -6,6 +6,7 @@ views: views_n20_uniform_504
 backbone: dejaview_k16
 scenes: [ai_006_007_cam_00]
 r: 8              # probes per GT point: its R nearest predictions
+miss: next        # what a GT point whose R probes are all dropped is charged: d_(R+1), a lower bound
 eps: 1.0e-6       # in A's denominator, in pixels
 steps: 1000
 lr: 1.0e-3        # Adam, constant, no weight decay
