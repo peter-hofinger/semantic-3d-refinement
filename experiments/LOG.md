@@ -7483,3 +7483,23 @@ Interim entry: the check that the plan puts before any table.
   1.736) and a third of the completeness loss; it beats uncut for q 0.6-0.9 (best 1.539 at 0.7, -17 %) and is no better
   than the confidence at q 0.3. The loss's own expected share is 0.53 (mean s), but the deterministic cut that minimizes the
   Chamfer of the ranking is about 0.7: an independent thinning at 53 % costs completeness 1.37, the cut at 53 % costs 3.2.
+
+## E84g and E84h: rung 3 with the head started from Déjà View's own confidence (issue #84, bedroom ai_006_007, 20.11.2026)
+- **Why:** E84a-e used a randomly initialised head with a sigmoid, an idiosyncratic choice (the brief assumed the sigmoid was
+  Déjà View's). Déjà View's confidence is c = 1 + exp(x) >= 1 (`head_activations.py`; no sigmoid anywhere in `dvlt`), and
+  its released config trains no confidence loss (`disable_conf: true`). The least idiosyncratic head is Déjà View's own:
+  the released `output_block`'s 3 x 3 conv and its confidence channel, s = sigmoid(x) = 1 - 1/c (c - 1 is the odds of s: the
+  monotone image of c in (0, 1), the same x), `KeepHead.from_deja_view`. Checked on the bedroom's cached features: the head's s
+  equals 1 - 1/c of the cached confidence to 4e-4 (max), median 3e-6; mean s 0.930, 99.3 % of pixels at s >= 0.5 (c >= 2).
+- **Change (one, plus the learning rate):** E84d with `init: deja_view`. E84g uses Déjà View's own stage-2 finetune rate,
+  1e-4 (`dvlt-large-depthconv-stage2.yaml`; its warmup of 500 steps is not used); E84h uses E84d's 1e-3, so the effect of
+  the init is not mixed with the rate. Tail charge, R = 8, 1000 steps, seed 0, no temperature.
+- **Hypothesis:** the start is Déjà View's ranking (accurate kept points, collapsing completeness when cut); the expected
+  Chamfer sees other views' probes and so what a pixel contributes that no other view covers (E57c's m_i), and
+  fine-tunes the ranking so that the cut at s >= 0.5 (c >= 2) beats the uncut cloud, and beats the random-init runs
+  (E84d 3.243, E84e 2.256 at that cut).
+- **Refuted if** (bedroom, exact Chamfer in the loss's alignment, uncut 1.846; per run): (i) the thresholded Chamfer (s >= 0.5)
+  at step 1000 is not below 1.846; or (ii) the head does not move: mean s >= 0.99 at step 1000, or collapses to <= 0.01; or
+  (iii) the loss at step 1000 is not below E84d's 1.485. Rung 3 counts as passed below 1.41. Reported next to it: the
+  Bernoulli cloud (E84d 1.467) and the top-q sweep.
+- **Stage times and numbers:** in the result.
