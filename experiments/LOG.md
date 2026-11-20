@@ -7503,3 +7503,31 @@ Interim entry: the check that the plan puts before any table.
   (iii) the loss at step 1000 is not below E84d's 1.485. Rung 3 counts as passed below 1.41. Reported next to it: the
   Bernoulli cloud (E84d 1.467) and the top-q sweep.
 - **Stage times and numbers:** in the result.
+- **E84g / E84h result (bedroom, one run each, seed 0, git 7718a56 with the unrelated e27a files dirty; 1000 steps, step median
+  0.20-0.33 s, peak 2.6 GB):** both refuted by (i); E84g also by (iii); (ii) holds. Runs `runs/e84g_overfit_bedroom-20261120-111248`
+  (lr 1e-4) and `runs/e84h_overfit_bedroom-20261120-111702` (lr 1e-3); figures `e84{g,h}_{curves,s_views}.jpg`, sweeps
+  `results/e84{g,h}_cut_sweep.txt` (cm; uncut 1.846 / completeness 1.172; E84d in brackets).
+
+  | run | loss at 1000 | exact, Bernoulli draw (A / C, kept) | exact, s >= 0.5 (A / C, kept) | top 70 % by s | Spearman(s, c) |
+  |---|---|---|---|---|---|
+  | E84g, lr 1e-4 | 1.610 | 1.595 (1.765 / 1.426, 0.50) | 7.570 (1.385 / 13.754, 0.41) | 3.041 | 0.72 |
+  | E84h, lr 1e-3 | 1.478 | 1.455 (1.520 / 1.390, 0.51) | 3.729 (1.274 / 6.185, 0.45) | 1.525 | 0.56 |
+  | E84d, random init | [1.485] | [1.467] | [3.243] | [1.539] | [0.56] |
+
+- **What happened:** the start is Déjà View's confidence (Spearman 1.0 with c; after one update the cut at c >= 2 keeps 99 % and
+  scores 1.794 / 1.769 against uncut 1.846: Déjà View's natural cut already helps by 2.8 %, hardly). Within 50 steps mean s
+  falls from 0.93 to 0.52-0.56 and the cut's kept share from 0.99 to 0.39-0.54, and the cut's Chamfer rises to 4.9-11.1 (completeness 8-21 cm):
+  the loss moves the head away from Déjà View's ranking at once, at 1e-4 as at 1e-3. At step 1000 the s maps (`e84g_s_views.jpg`)
+  show the same layout as E84d and E84e (floor, bed, desk near 1, far walls 0.1-0.5) and the ranking correlates with Déjà View's
+  confidence at 0.72 (E84g) and 0.56 (E84h), the same 0.56 as the randomly initialised E84d. E84h matches E84d within 0.5 % in loss
+  and 0.012 in the Bernoulli cloud, and is worse on the cut (3.729 against 3.243); the 1e-4 run is slower (loss 1.610) and worse
+  on every cut.
+- **Against the criteria:** E84g (i) 7.570 not below 1.846: refuted; (ii) mean s 0.505 holds; (iii) 1.610 not below 1.485:
+  refuted. E84h (i) 3.729: refuted; (ii) holds; (iii) 1.478 below 1.485 by 0.5 %, within what one seed could move. Rung 3 is not passed.
+- **Reading:** the failure is not the initialisation or the activation. Three starts (random, Déjà View's confidence at two rates)
+  end in the same soft state, which points at the loss with this head, not at a bad path; E84e's two-run reading is
+  strengthened. Still untested, and what separates the two: free per-pixel logits (head or loss) and an oracle-shaped start;
+  the oracle-shaped soft states score 1.19-1.34 against these 1.46-1.61, so this state is not the loss's minimum over all s.
+- **Where the head is now aligned and where it is not:** aligned: the raw x and its activation (s is the odds-image of c), the
+  hidden conv, the starting weights, E84g's rate (Déjà View's stage-2 finetune, no warmup). Not Déjà View's and ours: the
+  independent-keep model, the Poisson tail charge, R = 8, the cap U, eps, constant Adam, the cut.
