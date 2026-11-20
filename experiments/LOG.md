@@ -7151,7 +7151,7 @@ Interim entry: the check that the plan puts before any table.
   `configs/e84a_overfit_dev.yaml`; evaluation `uv run python -m experiments.scripts.e84a_eval --run runs/<run>`
   and `scene_eval` with `configs/e84a_eval.yaml`.
 
-## E84a: not yet working; the expected-Chamfer loss as specified has its global minimum at the empty cloud, and rung 3 trains straight into it (bedroom, 20.11.2026)
+## E84a: not yet working; the expected-Chamfer loss as specified has a spurious basin at the empty cloud, and rung 3 trains straight into it [the 'global minimum' of the first title is WRONG, corrected in the entry at the end] (bedroom, 20.11.2026)
 - **Code:** `src/refinement/keep_chamfer.py` (head, loss, probes, exact Chamfer, gradient caching), `tests/test_keep_chamfer.py`,
   `experiments/scripts/e84a_{train,loss_profile,figures}.py`, `configs/e84a_overfit_{bedroom,dev}.yaml`. The head is
   a copy of `DecoderHead.output_block` (checked against the installed dvlt in a test) on the 66 channels it reads, 19.3 k
@@ -7289,3 +7289,37 @@ Interim entry: the check that the plan puts before any table.
   s starts near 1 without the miss charge's first push, the clamp(logit, 0, 1) of the issue's ablation (it has zero
   gradient outside [0, 1] too), annealing U, larger R, or all views at once (E41b's volume features), which #84's own
   premise asks for.
+
+## E84a, correction: the empty cloud is not the loss's global minimum; the loss is U-shaped along the oracle's path with a lower minimum, and rung 3 falls into a worse basin (bedroom, 20.11.2026)
+- **What was wrong:** the E84a entry says the loss has its global minimum at the empty cloud, "below every real cloud",
+  "below the greedy oracle's 1.04". That compared the loss at the empty cloud (0.963, fixed alignment on all pixels) with
+  1.04, the greedy oracle's Chamfer under E57c's protocol (one Umeyama per cut, on the kept pixels). Not the same number.
+- **Check** (`experiments/scripts/e84a_oracle_path.py` -> `results/e84a_oracle_path.txt`): the greedy oracle's masks
+  at q = 0.9 ... 0.01 on the bedroom, scored in the loss's fixed alignment (cm; R = 8, miss: next):
+
+  | q | exact Chamfer (A / C) | loss L (A / C) | GT points with no kept probe |
+  |---|---|---|---|
+  | 0.9 | 1.520 (1.838 / 1.202) | 1.506 (1.838 / 1.174) | 0.006 |
+  | 0.5 | 1.092 (0.894 / 1.291) | 1.043 (0.894 / 1.192) | 0.035 |
+  | 0.2 | **0.950** (0.456 / 1.443) | **0.858** (0.456 / 1.260) | 0.108 |
+  | 0.1 | 0.985 (0.387 / 1.584) | 0.866 (0.387 / 1.345) | 0.184 |
+  | 0.02 | 1.284 (0.495 / 2.074) | 1.051 (0.495 / 1.606) | 0.484 |
+  | 0.01 | 1.532 (0.470 / 2.594) | 1.099 (0.470 / 1.728) | 0.671 |
+
+  Both the exact Chamfer and the loss are U-shaped over the kept share with their minimum at q = 0.2 (uncut 1.846, so
+  -49 % exact), as the premise of the experiment assumes. The loss undershoots increasingly (0.23 cm at q = 0.02, 0.43 at
+  q = 0.01) because of the misses, but it does not lose the minimum. The empty cloud's loss, 0.963, is above the minimum
+  of this path, 0.858: it is not the global minimum.
+- **Corrected reading of E84a:** the objective contains the oracle-like optimum; rung 3 did not find it. From s about 0.5 the
+  steepest descent concentrates s on the accurate near surfaces and switches off whole far walls (figure `e84a_s_views.jpg`,
+  step 50). There the R = 8 nearest predictions of a GT point are all neighbours in the same dropped region, so the loss
+  charges d_(R+1) of 1-2 cm where the true distance is tens of cm (Bernoulli completeness 4 -> 27 cm at steps 25 -> 200):
+  the loss undershoots most for spatially coherent drops, not for uniform thinning (uniform c = 0.01: 2.21 against 3.06).
+  The descent ends on a plateau with logits -40 to -200 and sum s = 1e-15 below eps, where A = 3e-9 (A is a weighted
+  mean of a only while sum s >> eps; at the end it is the eps artefact) and L = 0.963. So E84a's failure is an
+  optimization path into a region where the loss is wrong, not a minimum of the loss at the empty cloud. The statements
+  "no finite R fixes it" and "L(0) below every real cloud" are withdrawn; L(0) = mean d_(R+1) / 2 stays true as a value.
+- **Also:** the refutation thresholds I wrote for E84a-c (1.41 and 1.04) come from E57c's re-aligned protocol; the exact
+  Chamfer in the loss's alignment of the oracle is lower (0.950, loss 0.858). The refutations stand because the runs'
+  own scores (E84b 1.747, E84c 1.846) are above even the uncut cloud's 1.846 minus a margin, in both protocols (the
+  uncut cloud is the same in both). A rung-3 bar in the loss's own alignment is the oracle path's 0.950.
