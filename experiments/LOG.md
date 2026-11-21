@@ -6920,3 +6920,80 @@ Interim entry: the check that the plan puts before any table.
   `uv run generate-cloud --config configs/e69a.yaml --rung overfit1 --lr-file runs/e69a/lr.yaml`, then `uv run python
   experiments/scripts/e69a_gate.py config overfit1`, `uv run python -m src.analysis.cloud_eval --cfg runs/e69a/overfit1_eval.yaml --splits
   dev` and `uv run python experiments/scripts/e69a_gate.py gate overfit1`; the figures: `experiments/scripts/e69a_renders.py`.
+
+## E69a, result: the ladder stops at rung 3, no arm overfits the bedroom to half its gap to the oracle; "not yet working" (issue #69, 21.11.2026)
+- **Setting:** the plan above, unchanged (`configs/e69a.yaml`, gates and evaluation as planned), run on an RTX 5090 (VC15-VC18 partition
+  `rtx_5090`; the plan's timings are from a shared RTX 3080) with `JOBS=3` (three arms on the one GPU), one seed, commit 0f2b4da plus ca5e83f (the
+  fix below). Data: 54 Hypersim scenes (40 train, 11 val, 3 dev) downloaded and prepared on the login node, Déjà View (K = 16) and SAM 3 (nyu40 at
+  0.3) run on the 5090. Déjà View on this GPU differs from the 3080's by a little: bedroom Chamfer 1.837 cm (plan 1.846), dev mean 3.480 (3.501), and
+  the reach table (`experiments/results/e69a_reach.txt`) moved by 0.01 to 0.05 per entry; `offset: 2` still reaches 85% or more of the points on every
+  scene. Rungs 1 and 2 and the learning-rate rung were passed; rung 3 failed its gate; rungs 4, 5 and the class sources were not run. Test and stress
+  were not touched; val was not used (rung 3 does not read it).
+- **Commands:** `sbatch slurm/e69a.sbatch` (untracked: tests, then `JOBS=3 experiments/scripts/e69a.sh`; `HF_HUB_OFFLINE=1`; a stand-in `git`
+  on `PATH`, because the compute nodes have no git binary and `git_hash()` calls it). Jobs 3502 (SAM 3 failed: gated-repo 401 without a token),
+  3540 (git missing), 3554 (resume lost the curves), 3664 (same), 3675 (scorer wanted DSINE normals), 3680 (rung 3 gate). Figure:
+  `experiments/scripts/e69a_rung3.py` -> `experiments/figures/e69a_rung3.jpg`.
+- **What had to be fixed to run it, none of it a change to the experiment:**
+  (1) the cluster has no HF token and the SAM 3 processor asks the gated repo for an optional file, so jobs run offline from the cache;
+  (2) no git on compute nodes: a stand-in `git` answering `rev-parse` and `status` from files the submitter writes, so every run record carries the true
+  hash and "-dirty"; (3) **a bug in the repo, fixed in ca5e83f:** `run_model` rewrote a loaded model's record from scratch, so a resumed run lost each
+  model's `seconds` and `curve` and `e69a_gate.py lr` raised `KeyError: 'curve'`; a loaded model now keeps both (test:
+  `test_a_resumed_model_keeps_the_curve_of_its_training`); (4) `cloud_eval` refuses to start unless every scene has a cached DSINE normals file,
+  which the plan's prepare step never made (the 3080 had them): DSINE-hub at a6b7d25 (git-ignored, non-commercial) ran on the login CPU for the 14
+  dev and val scenes; the scorer does not read them for these metrics. The learning-rate probes that a resume had stripped of their curves were
+  set aside (`runs/e69a/stale_*`) and retrained; nothing was deleted.
+- **Rung 2 (speed), RTX 5090:** the train step takes 0.05 to 0.08 s and a step with its validation crop 0.08 to 0.16 s (plan, 3080: 0.25-0.45 and
+  0.48-0.83 s), peak 1.3 to 3.0 GiB; every arm passes the gate by a wide margin. Three arms at once take about 0.3 s a step each, so `JOBS=3` buys
+  little. Training 1 200 steps took 375 to 516 s per arm at three at a time; scoring takes 2 to 6 s per variant and scene.
+- **Learning rate (300 steps on the bedroom, best fixed train error in cells, one seed):**
+
+  | arm | 3e-4 | 1e-3 | 3e-3 | chosen |
+  |---|---|---|---|---|
+  | lattice | 0.366 | 0.346 | 0.328 | 3e-3 |
+  | gated | 0.360 | 0.363 | 0.326 | 3e-3 |
+  | implicit | 0.418 | 0.408 | 0.406 | 3e-3 |
+  | split | 0.379 | 0.389 | 0.392 | 3e-4 |
+  | seeded | 0.246 | 0.302 | 0.288 | 3e-4 |
+  | seeded-render | 0.294 | 0.338 | 0.350 | 3e-4 |
+
+  The fixed error moves by about 0.04 between neighbouring evaluations of one run (right panel of the figure), so the rates of lattice, gated,
+  implicit and split are within the noise of the probe; only seeded's 3e-4 stands out. The rate was not tuned further.
+- **Rung 3 (overfit the bedroom ai_006_007, 1 200 steps, kept step = least fixed train error; Chamfer cm, scored by `cloud_eval` on the 20 views;
+  baselines on the same scorer: Déjà View 1.837 (accuracy 2.51, completeness 1.16), kept 0.75 1.786, kept 0.5 1.732, voxel mean at 192 cells 4.445,
+  densest half 2.651, `oracle-lattice` 0.267, `oracle-seeded` 0.153):**
+
+  | arm | lr | accuracy | completeness | Chamfer | gap to its oracle closed (gate: 0.5) | dev mean Chamfer (3 scenes, trained on only the bedroom) | best fixed train error (cells) |
+  |---|---|---|---|---|---|---|---|
+  | lattice | 3e-3 | 2.88 | 1.22 | 2.052 | -0.137 | 4.887 | 0.282 (step 1000) |
+  | gated | 3e-3 | 2.68 | 1.23 | 1.953 | -0.074 | 4.758 | 0.292 (1000) |
+  | implicit | 3e-3 | 3.07 | 1.16 | 2.112 | -0.175 | 5.465 | 0.288 (1000) |
+  | split | 3e-4 | 2.38 | 1.25 | 1.816 | +0.013 | 4.416 | 0.308 (1000) |
+  | seeded | 3e-4 | 1.85 | 1.01 | **1.430** | **+0.241** | 4.087 | 0.227 (700) |
+  | seeded-render | 3e-4 | 1.62 | 2.66 | 2.139 | -0.180 | 9.998 | 0.284 (900) |
+
+  Déjà View's dev mean is 3.480 (oracles 0.753 and 0.431). Per dev scene (Déjà View / seeded): ai_010_007 1.61 / 2.90, ai_006_007 1.84 / 1.43,
+  ai_044_001 7.00 / 7.93: the best arm wins the scene it trained on and loses the two it did not, as in X69. The seeded-render arm trades
+  completeness for accuracy (accuracy 1.62, completeness 2.66) and loses 37 cm of completeness on ai_044_001. Only `seeded` is below Déjà View on
+  the bedroom by more than the 0.1 cm band (0.41 cm), and it closes 0.24 of the 1.68 cm gap to its oracle.
+- **Gate:** no arm closes half its gap (best: seeded +0.241, split +0.013, the other four negative), so `e69a.sh` stops here, as designed.
+- **Predictions written before the run:** (1) "`split` passes narrowly, the others fall short": **wrong**, `split` closed 0.013 of its gap (X69i's
+  0.52 was a larger model, a one-cycle schedule and 2 400 steps), and `seeded` was the best arm, not `split`; (2) "if none passes the experiment
+  stops here and the finding is that no head overfits one scene under the ladder's rules": **right**, this is the case; (3) rung 4, rung 5 and the
+  class-source predictions were not tested.
+- **Diagnosis at this rung (the verdict table of `docs/experiments.md`):** the fixed train error falls from 0.78 to about 0.3 cells in 300 to 500
+  steps and then stalls, noisy by about 0.04, and does not reach "about 0" (the bar of rungs 3 and 4); the `seeded` arm starts at Déjà View's
+  own error (0.35 cells at step 0, the identity check of the plan: its untrained output is its input bit for bit) and stays near it. A loss
+  that falls and plateaus well above 0 with one scene is not a `zero_grad` or target bug (the arms differ, the seeded identity holds, the targets
+  render right in `e69a_data.jpg`): it is underfitting under the rung-0 limits, 0.8 M parameters, a constant learning rate, no decay, 1 200 steps.
+  X69's 1.42 M parameter model with a one-cycle schedule reached 1.05 to 1.33 cm on the bedroom, so capacity or schedule decides it, which the plan
+  assigned to rung 6.
+- **Spread and budget:** one seed per arm, one scene; the fixed error of a run fluctuates by about 0.04 cells between evaluations and the
+  Chamfer of the kept step is the minimum of 13 of them, so a gain below about 0.1 cm is not shown. GPU time: six jobs, 2.3 h of one RTX 5090 in
+  all (138 min of job time), four of them failures of the setup above and about 20 min of that the training of the six arms; about 61 h of queue
+  waiting in all (17.4, 8.4, 33.1 and 2.5 h for the first four jobs; the cluster was busy and a job array of the same user, `e81a`, held the GPUs for a day).
+- **Conclusion: not yet working, and not "fails".** Under the ladder's rung-0 rules no generator overfits the bedroom to half its gap from the
+  oracle, so no claim follows about generating against moving or dropping points, and nothing from rungs 4 and 5 can be said. What is missing
+  and is a different entry (rung 6): a longer schedule with a decaying rate and a larger model (X69's 1.42 M model fit the bedroom), and the
+  arms that did best on one scene (`seeded`, 1.430 against Déjà View's 1.837) are the candidates to climb with them. A tuned simple baseline
+  below the arms was not shown either: Déjà View kept 0.5 (1.732) and 0.75 (1.786) are within 0.1 cm of Déjà View on the bedroom and beat every
+  arm but `seeded` there.
