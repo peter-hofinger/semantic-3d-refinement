@@ -23,6 +23,8 @@ from src.refinement.keep_chamfer import (
     exact_chamfer,
     expected_chamfer,
     loss_backward,
+    mimic_backward,
+    mimic_loss,
     tail_distance,
 )
 
@@ -304,3 +306,35 @@ def test_extra_layers_widen_the_receptive_field_by_one_pixel_per_side_each() -> 
         radius = 1 + extra  # one 3 x 3 conv per layer, each adds one pixel
         assert reach.min() == 7 - radius
         assert reach.max() == 7 + radius
+
+
+def test_the_mimic_loss_is_minimal_at_its_target_and_chunks_keep_the_gradient() -> None:
+    target = torch.tensor([0.0, 0.1, 0.5, 0.9, 1.0], dtype=torch.float64)
+    x = torch.logit(target.clamp(0.01, 0.99)).requires_grad_()
+    mimic_loss(x, target.clamp(0.01, 0.99)).backward()
+    assert x.grad.abs().max() < 1e-12  # s = target is stationary
+    torch.manual_seed(0)
+    v, h, w = 5, 6, 7
+    pred, truth = clouds(v * h * w - 4, seed=6)
+    probes = Probes.build(pred, truth, r=4, miss="bound")
+    valid = torch.ones(v, h, w, dtype=torch.bool)
+    valid.view(-1)[[3, 40, 77, 120]] = False
+    scene = KeepScene(
+        "toy",
+        torch.randn(v, FEATURES, h, w).half(),
+        valid,
+        pred,
+        truth,
+        probes,
+        tensors(probes),
+        1.0,
+    )
+    goal = torch.rand(int(valid.sum()))
+    reference = KeepHead()
+    mimic_loss(reference.logits(scene.features.float())[valid], goal).backward()
+    for chunk in (1, 2, 5):
+        head = KeepHead()
+        head.load_state_dict(reference.state_dict())
+        mimic_backward(head, scene, goal, chunk, 1.0)
+        for p, q in zip(head.parameters(), reference.parameters(), strict=True):
+            assert torch.allclose(p.grad, q.grad, rtol=1e-4, atol=1e-7)

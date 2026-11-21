@@ -7638,3 +7638,40 @@ Interim entry: the check that the plan puts before any table.
   closes 57 % of the loss gap (E84i 44 %), beats uncut at q 0.9 and 0.7 (1.625, 1.780) but not at 0.5 (2.357), and its
   completeness at q 0.5 is 3.49 cm against 1.85 for the true-a ranking: the cut still removes regions, less so. Not tested:
   a larger or deeper head, other seeds (one seed each), the dev rung.
+
+## E84m, the expected-Chamfer loss against mimicking the greedy oracle, same head (bedroom ai_006_007, 21.11.2026)
+- **Oracle:** the reverse greedy of E57c (`greedy_fast`) with 1 % steps (99 rounds, 43 s), the finest step because E57c showed finer
+  steps lower the Chamfer (10 % -> 2.5 %: 2.048 -> 1.993 on dev). Its drop order becomes v = 1 - (kept share before the round that
+  drops the pixel): 0 for the first 1 %, 0.99 for the last 1 % which no round drops; {v >= 1 - q} is the oracle's mask at every
+  multiple of 1 % (`e84m_oracle_order.py`, asserted). In the loss's alignment its Chamfer is 1.506 / 1.232 / 1.042 / 0.899 / 0.860 at
+  q 0.9 / 0.7 / 0.5 / 0.3 / 0.2 and **0.855 at q 0.16** (the 10 %-step path of E84a had 0.950). Ties inside a round share one v.
+- **Best loss so far** (`e84m_sweep.py`, `results/e84m_sweep.txt`; best Chamfer over the top share of x, q chosen with the GT):
+  E84e 1.511 (q 0.65), E84h 1.525 (0.7), E84d 1.539 (0.7), E84k (ConfLoss, a) 1.698 (0.9), E84i 1.723, E84g 1.740, E84b 1.681, E84c 1.846.
+  The expected-Chamfer losses with the Poisson tail are best and within 0.03 cm of each other, which one seed cannot separate; E84e is
+  the best by 0.014 and E84h has Déjà View's init. Both are compared, each with its own init.
+- **Mimic:** the same head (Déjà View's confidence branch), s = sigmoid(x) onto v by cross-entropy (soft targets; minimal at s = v, and the
+  gradient does not vanish at the saturated start s = 0.96 as an L2 would), Adam 1e-3 constant, 1000 steps, random init
+  (`e84m_mimic_random.yaml`, against E84e) and Déjà View's init (`e84m_mimic_dv.yaml`, against E84h). Nothing else changes.
+- **Hypothesis:** mimicry reaches a lower best Chamfer than the explicit loss with the same head and init, because its target is the
+  oracle's order, carries the cross-view completeness term and has no soft-state basin (E84d-h): best Chamfer below 1.511 (random)
+  and 1.525 (DV init). Refuted if either is above. **My expectation, before the run:** 1.35-1.55, so a small win, short of the rung 3 bar
+  1.41 in at least one of the two, because the head still sees 3 x 3 features and E84l showed that capacity is what binds.
+- **Result** (1000 steps each, 0.06 s/step after the load, seed 0; `results/e84m_sweep.txt`; best Chamfer over the top share q of x,
+  q chosen with the GT; the x >= 0 cloud in the last column; uncut 1.846, the oracle 0.855 at q 0.16):
+
+  | head and init | loss | best q | best Chamfer (A / C) | x >= 0 |
+  |---|---|---|---|---|
+  | random | expected Chamfer, tail (E84e) | 0.65 | **1.511** (1.637 / 1.385) | 2.256 |
+  | random | mimic the oracle (E84m) | 0.8 | 1.638 (1.862 / 1.414) | 3.064 |
+  | Déjà View's | expected Chamfer, tail (E84h) | 0.7 | **1.525** (1.736 / 1.313) | 3.729 |
+  | Déjà View's | mimic the oracle (E84m) | 0.9 | 1.727 (2.115 / 1.339) | 4.461 |
+
+- **Reading:** the hypothesis is refuted for both inits: mimicking the ideal order is worse than the explicit loss with the same head
+  (+0.127 and +0.202 cm) and my expectation (1.35-1.55) missed. Rank agreement with the oracle does not explain it: Spearman(x, v) 0.594 and 0.543 for the mimic heads against 0.555 and 0.548 for
+  the expected-Chamfer heads, which never saw v, and the top-50 % IoU with the oracle's mask is 0.577 / 0.558 against 0.586 / 0.574. The cross-entropy is
+  0.632 against a floor of 0.4999 (the mean entropy of v), so the head does not fit the order: it is capacity-bound as E84l showed,
+  and a head that can only match the order partly spends its capacity on the wrong pixels for the Chamfer (the same agreement
+  costs 1.64 where the Chamfer loss's costs 1.51). Which pixels the head gets wrong, spatially, was not looked at. Neither reaches the rung 3
+  bar 1.41, and the x >= 0 cut is far worse than uncut for all four. One seed per cell: the gaps of 0.13 and 0.20 exceed the
+  0.014-0.03 spread among the explicit runs (E84d, e, h) but a second seed was not run. Limits: the best q is GT-chosen, the head
+  is not scaled (as asked), the cross-entropy is one choice of mimic loss (an L2 or a rank loss were not tried).

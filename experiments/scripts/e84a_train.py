@@ -2,7 +2,8 @@
 
 One head (`src.refinement.keep_chamfer`, a copy of Déjà View's confidence branch) is the
 only trainable part, one loss, whole scenes per step (see the module's docstring for how
-the whole-scene sums are backpropagated). `loss: confidence` (E84i) replaces the expected Chamfer by
+the whole-scene sums are backpropagated). `loss: mimic` (E84m) regresses s onto the soft keep value in the scene's `target` file
+(`e84m_oracle_order.py`, cross-entropy). `loss: confidence` (E84i) replaces the expected Chamfer by
 Déjà View's ConfLoss on the head's x, with the point's distance to the nearest GT point as its error.
 Rung 3 of docs/experiments.md is the bedroom
 alone, rung 4 the dev scenes: the config's `scenes`. A step is every scene once, their
@@ -32,6 +33,7 @@ from src.refinement.keep_chamfer import (
     confidence_backward,
     exact_chamfer,
     loss_backward,
+    mimic_backward,
     probabilities,
 )
 
@@ -97,6 +99,13 @@ def main() -> None:
     t0 = sync()
     scenes = [KeepScene.load(name, raw, "cuda") for name in raw["scenes"]]
     load_s = sync() - t0
+    targets = {
+        s.name: torch.from_numpy(
+            np.load(Path(raw["root"]) / s.name / raw["target"])
+        ).cuda()
+        for s in scenes
+        if raw.get("loss") == "mimic"
+    }
     if raw.get("init") == "deja_view":
         steps = int(raw["backbone"].removeprefix("dejaview_k"))
         head = KeepHead.from_deja_view(DejaViewBackbone(steps=steps).output_block())
@@ -117,7 +126,14 @@ def main() -> None:
             head.temperature = temperature(raw.get("temperature"), step)
             t0 = sync()
             optimizer.zero_grad()
-            if raw.get("loss") == "confidence":
+            if raw.get("loss") == "mimic":
+                record = [
+                    mimic_backward(
+                        head, s, targets[s.name], raw["chunk"], 1 / len(scenes)
+                    )
+                    for s in scenes
+                ]
+            elif raw.get("loss") == "confidence":
                 record = [
                     confidence_backward(
                         head,

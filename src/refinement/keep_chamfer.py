@@ -41,6 +41,7 @@ released weights, so the head's ranking is Déjà View's until the loss moves it
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -381,6 +382,46 @@ def confidence_loss(
     return loss.mean()
 
 
+def mimic_loss(x: Tensor, target: Tensor) -> Tensor:
+    """Return the mean cross-entropy of s = sigmoid(x) against a soft target in [0, 1].
+
+    Minimal at s = target, so the head's ranking is learned toward the target's (E84m).
+    """
+    assert x.shape == target.shape and x.ndim == 1, (x.shape, target.shape)
+    assert target.min() >= 0 and target.max() <= 1
+    return nn.functional.binary_cross_entropy_with_logits(x, target)
+
+
+def logit_backward(
+    head: KeepHead,
+    scene: KeepScene,
+    chunk: int,
+    weight: float,
+    loss_of_x: Callable[[Tensor], Tensor],
+) -> tuple[float, Tensor]:
+    """Backpropagate `weight` x loss_of_x(x of the valid pixels) into the head.
+
+    The loss is a function of the head's x over the whole scene; its gradient is cached
+    and pushed through the head per chunk of views, as `loss_backward` does. Returns the
+    loss and x.
+    """
+    with torch.no_grad():
+        x_map = torch.cat(
+            [
+                head.logits(scene.features[i : i + chunk].float())
+                for i in range(0, len(scene.features), chunk)
+            ]
+        )
+    x = x_map[scene.valid].clone().requires_grad_()
+    loss = loss_of_x(x)
+    (weight * loss).backward()
+    grad = torch.zeros_like(x_map)
+    grad[scene.valid] = x.grad
+    for i in range(0, len(grad), chunk):
+        head.logits(scene.features[i : i + chunk].float()).backward(grad[i : i + chunk])
+    return loss.item(), x.detach()
+
+
 def confidence_backward(  # noqa: PLR0913, PLR0917 - head, scene, chunk, weight, the loss's constants
     head: KeepHead,
     scene: KeepScene,
@@ -395,23 +436,26 @@ def confidence_backward(  # noqa: PLR0913, PLR0917 - head, scene, chunk, weight,
     The error is the point's distance to the nearest GT point (the accuracy term's a_i)
     over the scene scale. Returns the loss and the mean c and s as floats.
     """
-    with torch.no_grad():
-        x_map = torch.cat(
-            [
-                head.logits(scene.features[i : i + chunk].float())
-                for i in range(0, len(scene.features), chunk)
-            ]
-        )
-    x = x_map[scene.valid].clone().requires_grad_()
     a = scene.tensors[0] / (CM * scene.scale)
-    loss = confidence_loss(x, a, alpha, gamma, quantile)
-    (weight * loss).backward()
-    grad = torch.zeros_like(x_map)
-    grad[scene.valid] = x.grad
-    for i in range(0, len(grad), chunk):
-        head.logits(scene.features[i : i + chunk].float()).backward(grad[i : i + chunk])
+    loss, x = logit_backward(
+        head,
+        scene,
+        chunk,
+        weight,
+        lambda x: confidence_loss(x, a, alpha, gamma, quantile),
+    )
     return {
-        "loss": loss.item(),
+        "loss": loss,
         "mean_c": (1 + torch.exp(x)).mean().item(),
         "mean_s": torch.sigmoid(x).mean().item(),
     }
+
+
+def mimic_backward(
+    head: KeepHead, scene: KeepScene, target: Tensor, chunk: int, weight: float
+) -> dict[str, float]:
+    """Backpropagate `weight` x `mimic_loss` against the valid pixels' target (N,)."""
+    loss, x = logit_backward(
+        head, scene, chunk, weight, lambda x: mimic_loss(x, target)
+    )
+    return {"loss": loss, "mean_s": torch.sigmoid(x).mean().item()}
