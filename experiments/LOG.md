@@ -7243,3 +7243,37 @@ Interim entry: the check that the plan puts before any table.
 - **Command** (per size and arm; job `/home/student/mircea/jobs_e52f_scaling.sh`):
   `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set steps=500 eval_every=100 align=exact select=val probe_every=10 "models={lora_pool: [false, true, true]}" "segments=[<arm>]" lr_pool=<lr> lr_lora=1e-4 held_out=0 "train_scenes=[<first n>]" --out runs/e52f_n<n>_<arm>`
   (at 120 without `held_out` and `train_scenes`).
+
+## E52f: GT instances gain nothing over grid tiles at any number of train scenes from 3 to 120; the data half of #81's hypothesis is refuted for adapters inside Déjà View (issues #52, #81, 21.11.2026)
+- **Setting, commit, machine:** the plan above at e4f7943 (clean; the plan commit only adds LOG
+  text), 3080, bf16, seed 0, one subset per size; 8 runs, 20.11 13:47-16:32 (~20 min each). Job
+  `/home/student/mircea/jobs_e52f_scaling.sh`, runs `runs/e52f_n<n>_<arm>`.
+- **Kept val ratio to Déjà View's 3D error** (11 val scenes; state of least val over evals at
+  100-500 steps) and gap = grid - GT (> 0 favours GT):
+
+  | train scenes | GT (step) | grid (step) | gap | gap, scene quartiles | GT better on |
+  |---|---|---|---|---|---|
+  | 3 | 0.9678 (200) | 0.9674 (100) | -0.0003 | -0.022 .. +0.017 | 7 / 11 |
+  | 10 | 0.9746 (200) | 0.9716 (400) | -0.0030 | -0.017 .. +0.029 | 6 / 11 |
+  | 30 | 0.9986 (100) | 0.9965 (100) | -0.0021 | -0.005 .. +0.003 | 4 / 11 |
+  | 120 | 0.9577 (400) | 0.9558 (400) | -0.0019 | -0.012 .. +0.005 | 5 / 11 |
+
+- **Reading:** the gap is inside the rerun spread (+-0.007) at every size, and slightly negative at
+  every size; the plan's refutation bar is met. The hypothesis needed above +0.014 at 3 or 10 scenes.
+  So for LoRA + pooling inside Déjà View on Hypersim, few training scenes do not make GT instances
+  useful: the data half of #81's hypothesis is refuted in this model. Its model half (a small
+  refiner) is #81's own test on the 3D refiner.
+- **Other observations, not part of the test:**
+  - Both arms move together at every size (same draws per step): at 3 and 10 scenes they overfit
+    after step 200-400 (val rises above 1.0 by step 500 at 3 scenes), which val selection catches.
+  - The 30-scene subset is the worst size for both arms (kept 0.997-0.999, val above 1.0 from step
+    200), worse than 3 or 10 scenes. One subset and one seed per size cannot say whether this is the
+    draw or the size; it does not change the gap, which both arms share.
+  - At 120 scenes GT's held-out ratio jumps to 1.048 at step 500 (grid 0.972) while its val stays at
+    0.964; a single-eval excursion of the kind E52a/b saw (val up to 0.014 between evals).
+  - Each arm used its own sweep lr (gt 3e-6, grid 1e-5); the sweep did not separate them.
+- **Limits:** one seed and one subset per size; val ratio, not dev Chamfer; Déjà View only (the
+  model-size axis is #81's). A positive would have needed repeats; a gap inside the spread at all
+  four sizes with GT ahead on at most 7 of 11 scenes does not.
+- **Figure, raw:** `uv run python experiments/scripts/e52f_figures.py` -> `figures/e52f_scaling.jpg`
+  (val curves, kept val per size, gap per size with the rerun band), `results/e52f_scaling.yaml`.
