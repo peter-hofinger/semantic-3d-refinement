@@ -40,6 +40,7 @@ from src.refinement.generator import (
     render_depth,
     render_terms,
     render_views,
+    run_model,
     split_arm,
     spread,
     train,
@@ -598,3 +599,16 @@ def test_a_crop_with_nothing_to_score_is_drawn_again_and_given_up_after_twenty()
     nowhere = pts.points + 100.0  # a ground truth no crop can contain
     with pytest.raises(EmptyCrop):
         draw_crop(model, grid, on_device(pts, nowhere), cfg, rng)
+
+
+def test_a_resumed_model_keeps_the_curve_of_its_training(tmp_path: Path) -> None:
+    cfg = config(steps=10, eval_every=5, fixed_scenes=1)
+    scene = plane_scene()
+    args = (cfg, "t-lattice-s0", ([scene], [scene]), torch.device("cpu"), tmp_path)
+    run_model(*args)
+    first = yaml.safe_load((tmp_path / "t-lattice-s0.yaml").read_text())
+    run_model(*args)  # the model is saved: it is loaded, not trained
+    again = yaml.safe_load((tmp_path / "t-lattice-s0.yaml").read_text())
+    assert [e["step"] for e in first["curve"]] == [0, 5, 10]
+    assert again["curve"] == first["curve"]
+    assert again["seconds"] == first["seconds"]

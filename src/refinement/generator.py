@@ -1328,12 +1328,16 @@ def run_model(
     device: torch.device,
     out: Path,
 ) -> None:
-    """Train the model `name` (or load it from `out`), write its cloud per scene."""
+    """Train the model `name`, or load it and its curve from `out`; write its clouds."""
     saved = out / f"{name}.pt"
     record: dict = {"config": dataclasses.asdict(cfg) | {"root": str(cfg.root)}}
     if saved.exists():
         model = build(cfg).to(device)
         model.load_state_dict(torch.load(saved, map_location=device))
+        old = out / f"{name}.yaml"
+        if old.exists():
+            kept = yaml.safe_load(old.read_text())
+            record |= {k: kept[k] for k in ("seconds", "curve") if k in kept}
     else:
         t0 = time.perf_counter()
         seed = int(name.rsplit("-s", 1)[1])
