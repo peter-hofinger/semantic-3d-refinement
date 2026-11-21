@@ -7675,3 +7675,73 @@ Interim entry: the check that the plan puts before any table.
   bar 1.41, and the x >= 0 cut is far worse than uncut for all four. One seed per cell: the gaps of 0.13 and 0.20 exceed the
   0.014-0.03 spread among the explicit runs (E84d, e, h) but a second seed was not run. Limits: the best q is GT-chosen, the head
   is not scaled (as asked), the cross-entropy is one choice of mimic loss (an L2 or a rank loss were not tried).
+
+## E84n, does the mimic overfit, and does the expected-Chamfer loss work without a head? (Niessner's ladder, bedroom, 21.11.2026)
+- **Why this entry:** E84m compared two runs that had not passed rung 3 (the head did not fit its target: cross-entropy 0.632 against its
+  floor 0.4999, excess 0.132 from 0.204 at the start), and I wrote "capacity-bound" without testing it. Rung 1 first
+  (`e84n_target_figure.py` -> `figures/e84n_mimic_target.jpg`, looked at): v and the head's output both follow the scene (alignment is right);
+  v is speckled over flat walls (view 18's wall, view 12's wall and ceiling) where the head is smooth; rank(x) - v has a large-scale level
+  error there (head lower than v on view 12's wall, higher on floors and the bed) plus edge errors.
+- **First-principles hypothesis (written before the runs):** where the surface is seen redundantly the oracle's choice of which copy to
+  keep is a symmetry-breaking pick by tiny differences, so v is not a function of the local features; the best a pixel-wise head can
+  output there is E[v | features], a regional mean. If so (1) the head overfits a few pixels to the floor but not the scene, (2) the head's
+  remaining excess over the floor, KL(v || s) = BCE - H(v), is about that of v replaced by its own k x k local mean (k about 5-15), i.e. it is
+  the target's high-frequency content and not a bug or a missing capacity, and (3) the optimal policy there is a thinning (keep some
+  copies at random), which a threshold on a smooth output cannot do and a Bernoulli keep can (E84d: Bernoulli 1.467, s >= 0.5 cut 3.243).
+- **Numbers:** (1) excess <= 0.01 on 1 000 random pixels after 2000 steps (the ladder's "about 0"); refuted, i.e. a bug in the loss or
+  optimiser, if it stalls above 0.02. 100 000 pixels, one view and the scene: excess above 0.05 (not expected to reach 0). (2) the
+  scene excess lies within 30 % of KL(v || local mean) for some k in 3 ... 31.
+- **Free-logit expected Chamfer** (`e84n_free_chamfer.py`): per-pixel x, no head, Poisson-tail loss of E84d, Adam 0.1, from s = 0.5; the head-free
+  rung 3 of the loss itself (E84j did it for the confidence loss). Hypothesis: the loss works, it falls below the head's 1.485 and the best
+  top-share Chamfer reaches the rung 3 bar 1.41. Refuted if the loss stalls above 1.485 or the best Chamfer is above 1.41.
+- **Results of the ladder diagnostics (`results/e84n_ladder.txt`):** (a) free-logit expected Chamfer, no head: the loss falls 1.917 -> 0.879, 99 %
+  of the pixels decide (s outside 0.05-0.95), mean s 0.20, and the best top share (q 0.2) is **0.864** (A 0.508 / C 1.223), Bernoulli draw 0.875,
+  against the greedy oracle's 0.855-0.860: the loss works, from s = 0.5, and the minimum it finds is oracle-quality; E84a-l's failures were the
+  head and its path, not the loss (my E84h reading "the loss with this head" was half wrong). (b) the mimic head's excess KL(v || s):
+  1 000 px 0.077 after 2000 steps, 0.057 / 0.062 after 6000 at lr 1e-3 / 1e-2; 100 000 px 0.123; view 18 0.069; the scene 0.125. So hypothesis (1) is
+  refuted: the head cannot reproduce 1 000 targets (Spearman 0.86-0.89), and the stall is not the rate. (c) hypothesis (2) refuted too: the KL of v to its own
+  k x k local mean is 0.017 / 0.029 / 0.043 / 0.061 for k = 3 / 7 / 15 / 31, far below the head's 0.125, so v is mostly locally smooth and the head's miss is not the speckle;
+  it is a large-scale level error (the figure). Feature statistics: channel std 0.11-4.6, effective rank 26 of 66 (95 % of the variance).
+- **E84o (the user's request): a shallow ResNet in place of the 3 x 3 head.** KeepResNet: stem + 2 residual blocks (4 convs) at full resolution, 64 channels, dilations
+  2 and 4, 190k parameters, 27 x 27 field, no normalization (ladder rung 0). The same frozen 66 channels, random init, constant Adam 1e-3, 2000 steps.
+  Two runs: the expected-Chamfer loss of E84e (`e84o_resnet_chamfer.yaml`) and the mimic loss (`e84o_resnet_mimic.yaml`).
+  **Hypothesis (the user's):** the head's structure, not the loss, is the bottleneck: the ResNet with the expected-Chamfer loss passes rung 3, best top-share
+  Chamfer <= 1.41 (E84e's head 1.511), and with the mimic loss its excess KL falls below the 3 x 3 head's 0.125 (<= 0.08). Refuted if the ResNet's best
+  Chamfer is above 1.41 under the expected-Chamfer loss. **My expectation:** 1.15-1.40 for the expected-Chamfer ResNet, mimic excess 0.06-0.09 and
+  best mimic Chamfer 1.3-1.5: better than the 3 x 3 head, short of the free-logit 0.864, because the 66 cached channels are all the input.
+- **Finding that changed the plan (written before the runs below):** with every input channel standardized (`standardize: true`, a fixed affine map) the same 3 x 3
+  head overfits 1 000 pixels: excess 0.0208 / 0.0108 / 0.0033 after 1000 / 2000 / 6000 steps, Spearman 0.956 -> 0.994 (raw: 0.057, Spearman 0.86). So the head can produce
+  arbitrary outputs and the raw-input stall was the optimisation's conditioning (channel std 0.11-4.6, means to 5, 26 effective dimensions), not the head's structure. The user's suspicion that the head
+  is "fundamentally incompetent" is therefore not what this shows; it also means E84a-m trained on raw inputs and are suspect on that count.
+- **E84p:** E84e's and E84m's random-init 3 x 3 head runs with the inputs standardized, nothing else changed (`e84p_std_chamfer.yaml`, `e84p_std_mimic.yaml`).
+  **Hypothesis:** the conditioning, not the structure, was the bottleneck: the mimic excess falls below 0.08 (raw 0.125 at 2000 steps, 0.132 at 1000) and the
+  expected-Chamfer best top-share Chamfer reaches <= 1.41 (raw 1.511). Refuted if either stays above. **My expectation:** a gain but not the bar: excess
+  0.07-0.10 and best Chamfer 1.35-1.50, since the 3 x 3 field still cannot see a regional level. The ResNet runs of E84o now also use standardized inputs.
+- **Results of E84p and E84o** (`results/e84m_sweep.txt`, `results/e84n_ladder.txt`, figure `figures/e84n_heads_vs_oracle.jpg`, looked at; best Chamfer over the top share q,
+  q chosen with the GT; the x >= 0 cloud in the last column; uncut 1.846, greedy oracle 0.855 at q 0.16, free-logit expected Chamfer 0.864):
+
+  | head | input | loss | steps | best Chamfer (q) | x >= 0 cloud | rank agreement Spearman(x, v) |
+  |---|---|---|---|---|---|---|
+  | 3 x 3 (19k params) | raw | expected Chamfer (E84e) | 1000 | 1.511 (0.65) | 2.256 | 0.555 |
+  | 3 x 3 | standardized | expected Chamfer (E84p) | 1000 | **1.343** (0.60) | 1.487 | 0.605 |
+  | 3 x 3 | raw | mimic (E84m) | 1000 | 1.638 (0.80) | 3.064 | 0.594 |
+  | 3 x 3 | standardized | mimic (E84p) | 1000 | 1.544 (0.75) | 2.036 | - |
+  | dilated ResNet (190k) | standardized | expected Chamfer (E84o) | 2000 | **1.075** (0.35) | **1.317** | 0.730 |
+  | dilated ResNet | standardized | mimic (E84o) | 2000 | 1.372 (0.65) | 1.409 | 0.918 |
+
+  Mimic cross-entropy (floor 0.4999): 3 x 3 raw 0.632, 3 x 3 standardized 0.605 (excess 0.105), ResNet 0.537 (excess 0.037).
+- **Reading:** (1) **The loss works.** Without a head the expected-Chamfer loss reaches oracle quality (0.864) from s = 0.5; with a shallow ResNet on the same frozen
+  channels it reaches 1.075 (-42 % against uncut), its natural cut s >= 0.5 (31 % kept) gives 1.317, the rung 3 bar (<= 1.41) is passed with no q chosen. (2) **The earlier
+  failures were the head, in two parts.** Input conditioning: standardizing the 66 channels lets the 3 x 3 head overfit 1 000 pixels (excess 0.003, raw 0.06) and moves the
+  scene runs by 0.17 (expected Chamfer, 1.511 -> 1.343) and 0.09 (mimic) cm. Structure: a 27 x 27 field and 190k parameters move them a further 0.27 and 0.17 cm
+  (1.343 -> 1.075, 1.544 -> 1.372). The user's call that the head was the bottleneck holds; "fundamentally incompetent" overstates it, since the 3 x 3 head could fit arbitrary pixels once
+  conditioned. My E84m reading "capacity-bound" was untested and half wrong: conditioning came first. (3) **The ResNet fits the oracle's order almost exactly** (mimic excess 0.037, Spearman 0.918,
+  rank - v grey in the figure) and still loses to the explicit loss (1.372 against 1.075) and to the oracle itself (0.855): a near-perfect copy of a pattern that is only optimal as a whole
+  breaks it, a small rank error drops or keeps both of two complementary copies. This is my reading, not tested. The expected-Chamfer ResNet finds a different pattern (Spearman 0.73 with v;
+  in the figure it keeps whole regions of one view where the oracle thins), which scores better because the loss sees the consequence of its own outputs. (4) E84a-m trained on raw inputs: their numbers
+  are what a raw-input head does, no longer evidence about the loss; the E84h/g runs, which start from Déjà View's weights, were not rerun standardized.
+- **Against what was written before:** E84n (1): excess <= 0.01 at 1 000 px: refuted raw (0.077), met standardized (0.0033). (2) within 30 % of a local mean's KL: refuted (0.125 against 0.017-0.061). Free logits: held (0.864, loss 0.879 below 1.485).
+  E84p: expected Chamfer <= 1.41 held (1.343, expected 1.35-1.50), mimic excess <= 0.08 refuted (0.105, expected 0.07-0.10). E84o: the user's hypothesis held on both (1.075 <= 1.41; excess 0.037 <= 0.08), my expectations were
+  too low (1.15-1.40 and 0.06-0.09).
+- **Limits:** bedroom, rung 3 (the training scene, the oracle's GT), one seed per cell; steps differ between cells (1000 for 3 x 3, 2000 for ResNet); the ResNet on raw inputs was not run, so conditioning and structure are separated
+  only by the 3 x 3 pair and not by a 2 x 2 grid; best q is GT-chosen except the x >= 0 column; dev rung and generalization (rung 4-5) not run.

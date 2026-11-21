@@ -16,6 +16,7 @@ from src.refinement.keep_chamfer import (
     FEATURES,
     HIDDEN,
     KeepHead,
+    KeepResNet,
     KeepScene,
     Probes,
     confidence_backward,
@@ -25,6 +26,7 @@ from src.refinement.keep_chamfer import (
     loss_backward,
     mimic_backward,
     mimic_loss,
+    standardize,
     tail_distance,
 )
 
@@ -338,3 +340,41 @@ def test_the_mimic_loss_is_minimal_at_its_target_and_chunks_keep_the_gradient() 
         mimic_backward(head, scene, goal, chunk, 1.0)
         for p, q in zip(head.parameters(), reference.parameters(), strict=True):
             assert torch.allclose(p.grad, q.grad, rtol=1e-4, atol=1e-7)
+
+
+def test_the_resnet_head_has_a_27_pixel_field_under_a_million_parameters() -> None:
+    torch.manual_seed(0)
+    net = KeepResNet()
+    assert sum(p.numel() for p in net.parameters()) < 1_000_000
+    x = torch.randn(1, FEATURES, 41, 41, requires_grad=True)
+    net.logits(x)[0, 20, 20].backward()
+    reach = (x.grad.abs().sum(dim=(0, 1)) > 0).nonzero()
+    assert reach.min() == 20 - 13  # 1 + 2 * (2 + 4) = 13 pixels each side
+    assert reach.max() == 20 + 13
+    s = net(x.detach())
+    assert s.shape == (1, 41, 41)
+    assert ((s > 0) & (s < 1)).all()
+
+
+def test_standardize_gives_every_channel_zero_mean_and_unit_variance_over_scenes() -> (
+    None
+):
+    torch.manual_seed(0)
+    spread = torch.linspace(0.1, 4, FEATURES)[:, None, None]
+    scenes = []
+    for shift in (0.0, 3.0):
+        feats = (torch.randn(3, FEATURES, 5, 6) * spread + shift).half()
+        pred, truth = clouds(3 * 5 * 6, seed=1)
+        probes = Probes.build(pred, truth, r=4, miss="bound")
+        valid = torch.ones(3, 5, 6, dtype=torch.bool)
+        scenes.append(
+            KeepScene("toy", feats, valid, pred, truth, probes, tensors(probes), 1.0)
+        )
+    standardize(scenes)
+    both = torch.cat(
+        [s.features.double().permute(1, 0, 2, 3).reshape(FEATURES, -1) for s in scenes],
+        1,
+    )
+    zeros = torch.zeros(FEATURES, dtype=torch.float64)
+    assert torch.allclose(both.mean(1), zeros, atol=2e-3)
+    assert torch.allclose(both.std(1, unbiased=False), zeros + 1, atol=2e-3)

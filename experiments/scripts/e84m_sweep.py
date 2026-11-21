@@ -9,6 +9,7 @@ training scene: an upper bound for a cut, not a method's choice. Run folders are
 """
 
 import argparse
+import copy
 from pathlib import Path
 
 import numpy as np
@@ -16,12 +17,19 @@ import torch
 import yaml
 
 from experiments.scripts.e84m_oracle_order import CFG, SCENE
-from src.refinement.keep_chamfer import KeepHead, KeepScene, exact_chamfer
+from src.refinement.keep_chamfer import (
+    KeepHead,
+    KeepNet,
+    KeepResNet,
+    KeepScene,
+    exact_chamfer,
+    standardize,
+)
 
 SHARES = [round(0.05 * k, 2) for k in range(1, 21)]
 
 
-def logits(head: KeepHead, scene: KeepScene, chunk: int = 4) -> np.ndarray:
+def logits(head: KeepNet, scene: KeepScene, chunk: int = 4) -> np.ndarray:
     """Return the head's x on the scene's valid pixels (N,)."""
     with torch.no_grad():
         x = torch.cat(
@@ -31,6 +39,18 @@ def logits(head: KeepHead, scene: KeepScene, chunk: int = 4) -> np.ndarray:
             ]
         )
     return x[scene.valid].double().cpu().numpy()
+
+
+def load_net(run: Path) -> tuple[KeepNet, dict]:
+    """Return the run's trained network on the GPU and its config."""
+    config = yaml.safe_load((run / "run.yaml").read_text())["config"]
+    if "resnet" in config:
+        net = KeepResNet(**config["resnet"])
+    else:
+        net = KeepHead(**config.get("head", {}))
+    net = net.cuda()
+    net.load_state_dict(torch.load(run / "head.pt"))
+    return net, config
 
 
 def sweep(x: np.ndarray, scene: KeepScene) -> dict[float, dict[str, float]]:
@@ -50,7 +70,7 @@ def main() -> None:
     parser.add_argument("runs", type=Path, nargs="+")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    scene = KeepScene.load(SCENE, CFG, "cuda")
+    raw_scene = KeepScene.load(SCENE, CFG, "cuda")
     lines = [
         (
             "bedroom ai_006_007, exact Chamfer cm, fixed alignment; uncut 1.846; best over "
@@ -60,15 +80,16 @@ def main() -> None:
         "run | steps | best q | best Chamfer (A / C) | x >= 0: kept, Chamfer",
     ]
     for run in args.runs:
-        head = KeepHead().cuda()
-        head.load_state_dict(torch.load(run / "head.pt"))
-        steps = yaml.safe_load((run / "run.yaml").read_text())["config"]["steps"]
-        x = logits(head, scene)
+        net, config = load_net(run)
+        scene = copy.copy(raw_scene)
+        if config.get("standardize"):
+            standardize([scene])
+        x = logits(net, scene)
         scores = sweep(x, scene)
         q = min(scores, key=lambda k: scores[k]["chamfer_cm"])
         cut = exact_chamfer(x >= 0, scene.probes, scene.pred, scene.truth)
         lines.append(
-            f"{run.name} | {steps} | {q} | {scores[q]['chamfer_cm']:.3f} "
+            f"{run.name} | {config['steps']} | {q} | {scores[q]['chamfer_cm']:.3f} "
             f"({scores[q]['accuracy_cm']:.3f} / {scores[q]['completeness_cm']:.3f}) | "
             f"{cut['kept']:.2f}, {cut['chamfer_cm']:.3f}"
         )

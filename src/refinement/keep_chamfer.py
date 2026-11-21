@@ -41,7 +41,7 @@ released weights, so the head's ranking is Déjà View's until the loss moves it
 """
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,18 +64,42 @@ CM = 100.0
 DEPTH_TOLERANCE = 1e-2  # median relative depth change of the re-run backbone, bf16
 
 
-class KeepHead(nn.Module):
-    """Keep probability per pixel from Déjà View's depth-decoder features."""
+class KeepNet(nn.Module):
+    """A keep logit per pixel from the decoder features; a subclass sets `net`."""
+
+    def __init__(self) -> None:
+        """Set `temperature`, which scales the logit (E84e)."""
+        super().__init__()
+        self.temperature = 1.0
+
+    def logits(self, x: Tensor) -> Tensor:
+        """Return the raw output x (B, H, W) of features (B, 66, H, W); c = 1 + e^x."""
+        assert x.ndim == 4 and x.shape[1] == FEATURES, x.shape  # noqa: PLR2004
+        return self.net(x)[:, 0]
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Probabilities (B, H, W) in (0, 1) of float features (B, 66, H, W).
+
+        s = sigmoid(logit / temperature), a gain on the logit: the cut at s = 0.5 is the
+        logit's sign at any temperature and the loss as a function of s is unchanged.
+        """
+        assert self.temperature > 0, self.temperature
+        s = torch.sigmoid(self.logits(x) / self.temperature)
+        assert torch.isfinite(s).all()
+        return s
+
+
+class KeepHead(KeepNet):
+    """Déjà View's confidence block: 3 x 3 convolution, ReLU, 1 x 1 convolution."""
 
     def __init__(self, hidden: int = HIDDEN, extra: int = 0) -> None:
-        """Build the convolutions of `net`; `temperature` scales the logit (E84e).
+        """Build the convolutions of `net`.
 
         The defaults are Déjà View's block; `extra` more 3 x 3 convolutions with ReLU of
         `hidden` channels widen the receptive field and the capacity (E84l).
         """
         super().__init__()
         assert hidden >= 1 and extra >= 0, (hidden, extra)
-        self.temperature = 1.0
         layers: list[nn.Module] = [
             nn.Conv2d(FEATURES, hidden, 3, padding=1, padding_mode="replicate"),
             nn.ReLU(inplace=True),
@@ -103,21 +127,48 @@ class KeepHead(nn.Module):
             head.net[2].bias.copy_(block[2].bias[-1:])
         return head
 
-    def logits(self, x: Tensor) -> Tensor:
-        """Return the raw output x (B, H, W) of features (B, 66, H, W); c = 1 + e^x."""
-        assert x.ndim == 4 and x.shape[1] == FEATURES, x.shape  # noqa: PLR2004
-        return self.net(x)[:, 0]
+
+class ResidualBlock(nn.Module):
+    """x + conv(relu(conv(x))) with 3 x 3 convolutions of one dilation, then ReLU."""
+
+    def __init__(self, width: int, dilation: int) -> None:
+        """Build the two convolutions."""
+        super().__init__()
+        self.first, self.second = (
+            nn.Conv2d(
+                width,
+                width,
+                3,
+                padding=dilation,
+                dilation=dilation,
+                padding_mode="replicate",
+            )
+            for _ in range(2)
+        )
 
     def forward(self, x: Tensor) -> Tensor:
-        """Probabilities (B, H, W) in (0, 1) of float features (B, 66, H, W).
+        """Return the block's output, the shape of x."""
+        return torch.relu(x + self.second(torch.relu(self.first(x))))
 
-        s = sigmoid(logit / temperature), a gain on the logit: the cut at s = 0.5 is the
-        logit's sign at any temperature and the loss as a function of s is unchanged.
-        """
-        assert self.temperature > 0, self.temperature
-        s = torch.sigmoid(self.logits(x) / self.temperature)
-        assert torch.isfinite(s).all()
-        return s
+
+class KeepResNet(KeepNet):
+    """A shallow ResNet on the same features (E84o): stem, residual blocks, 1 x 1 conv.
+
+    A 3 x 3 stem and two blocks of two 3 x 3 convolutions, dilations (2, 4): 5
+    convolutions, about 190k parameters, a 27 x 27 receptive field at full resolution,
+    no normalization or pooling (the ladder's rung 0).
+    """
+
+    def __init__(self, width: int = 64, dilations: Sequence[int] = (2, 4)) -> None:
+        """Build `net`."""
+        super().__init__()
+        assert width >= 1 and len(dilations) >= 1, (width, dilations)
+        self.net = nn.Sequential(
+            nn.Conv2d(FEATURES, width, 3, padding=1, padding_mode="replicate"),
+            nn.ReLU(inplace=True),
+            *[ResidualBlock(width, d) for d in dilations],
+            nn.Conv2d(width, 1, 1),
+        )
 
 
 @dataclass(frozen=True)
@@ -304,6 +355,33 @@ class KeepScene:
         )
 
 
+def standardize(scenes: list[KeepScene]) -> None:
+    """Give each of the 66 feature channels zero mean and unit variance over `scenes`.
+
+    A fixed affine map of the input, not a learned normalization: the channels of
+    Déjà View's decoder differ in scale and offset by over 40 x (std 0.11-4.6), which
+    stalls a head trained on them raw (E84n: 1 000 pixels do not overfit raw, do
+    standardized).
+    """
+    assert scenes, "no scenes"
+    count = sum(len(s.features) * s.features[0, 0].numel() for s in scenes)
+    total = torch.zeros(FEATURES, dtype=torch.float64, device=scenes[0].features.device)
+    for s in scenes:
+        for view in s.features:
+            total += view.double().sum((1, 2))
+    mean = (total / count)[:, None, None]
+    square = torch.zeros_like(total)
+    for s in scenes:
+        for view in s.features:
+            square += ((view.double() - mean) ** 2).sum((1, 2))
+    std = (square / count).sqrt().clamp_min(1e-6)[:, None, None]
+    for s in scenes:
+        out = torch.empty_like(s.features)
+        for i, view in enumerate(s.features):
+            out[i] = ((view.double() - mean) / std).half()
+        s.features = out
+
+
 def capture_features(steps: int, views: Views, geometry: Geometry) -> np.ndarray:
     """Re-run the backbone once and keep what its depth decoder's output_block reads.
 
@@ -328,7 +406,7 @@ def capture_features(steps: int, views: Views, geometry: Geometry) -> np.ndarray
     return out
 
 
-def probabilities(head: KeepHead, features: Tensor, chunk: int) -> Tensor:
+def probabilities(head: KeepNet, features: Tensor, chunk: int) -> Tensor:
     """Keep probabilities (V, H, W) of all views, `chunk` views at a time, with grad."""
     return torch.cat(
         [head(features[i : i + chunk].float()) for i in range(0, len(features), chunk)]
@@ -336,7 +414,7 @@ def probabilities(head: KeepHead, features: Tensor, chunk: int) -> Tensor:
 
 
 def loss_backward(  # noqa: PLR0913 - head, scene, the config's eps, chunk, weight, tail
-    head: KeepHead,
+    head: KeepNet,
     scene: KeepScene,
     eps: float,
     chunk: int,
@@ -393,7 +471,7 @@ def mimic_loss(x: Tensor, target: Tensor) -> Tensor:
 
 
 def logit_backward(
-    head: KeepHead,
+    head: KeepNet,
     scene: KeepScene,
     chunk: int,
     weight: float,
@@ -423,7 +501,7 @@ def logit_backward(
 
 
 def confidence_backward(  # noqa: PLR0913, PLR0917 - head, scene, chunk, weight, the loss's constants
-    head: KeepHead,
+    head: KeepNet,
     scene: KeepScene,
     chunk: int,
     weight: float,
@@ -452,7 +530,7 @@ def confidence_backward(  # noqa: PLR0913, PLR0917 - head, scene, chunk, weight,
 
 
 def mimic_backward(
-    head: KeepHead, scene: KeepScene, target: Tensor, chunk: int, weight: float
+    head: KeepNet, scene: KeepScene, target: Tensor, chunk: int, weight: float
 ) -> dict[str, float]:
     """Backpropagate `weight` x `mimic_loss` against the valid pixels' target (N,)."""
     loss, x = logit_backward(

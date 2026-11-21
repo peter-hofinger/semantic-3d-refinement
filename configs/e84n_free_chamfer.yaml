@@ -1,0 +1,14 @@
+# E84n (issue #84): the expected-Chamfer loss on free per-pixel logits, no head: the head-free rung 3 of the loss.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scene: ai_006_007_cam_00
+r: 8
+miss: bound
+tail: true        # the Poisson-tail charge of E84d
+eps: 1.0e-6
+init: 0.0         # x = 0, s = 0.5 everywhere
+steps: 1500
+lr: 0.1           # Adam on each pixel's x, constant
+eval_every: 100
+seed: 0

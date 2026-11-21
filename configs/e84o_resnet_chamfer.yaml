@@ -1,0 +1,25 @@
+# E84o rung 3, inputs standardized (E84n) (issue #84): the loss of E84e (expected Chamfer, Poisson tail, logit gain 1 -> 0.1 over 500 steps) on a shallow dilated ResNet
+# (KeepResNet: stem + 2 residual blocks, 64 channels, dilations 2 and 4, about 190k parameters, 27 x 27 field, no normalization) on the same
+# frozen 66 Déjà View channels, random init, constant Adam: is the head's structure, not the loss, what stopped E84a-l?
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+resnet: {width: 64, dilations: [2, 4]}
+r: 8
+miss: bound
+tail: true
+temperature:
+  start: 1.0
+  end: 0.1
+  steps: 500
+eps: 1.0e-6
+steps: 2000
+lr: 1.0e-3        # Adam, constant, no weight decay
+chunk: 2
+threshold: 0.5
+shares: [0.9, 0.7, 0.5, 0.3, 0.2]
+eval_every: 100
+seed: 0
+snapshots: [0, 2000]
+standardize: true

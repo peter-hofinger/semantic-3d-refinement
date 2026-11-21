@@ -9,7 +9,8 @@ Rung 3 of docs/experiments.md is the bedroom
 alone, rung 4 the dev scenes: the config's `scenes`. A step is every scene once, their
 losses averaged. Every `eval_every` steps the exact Chamfer of the thresholded cloud is
 logged next to the loss, per scene, so a falling loss with a rising exact completeness
-shows. `head: {hidden, extra}` sizes a head that is not Déjà View's copy (E84l), `lr_end` decays the rate
+shows. `head: {hidden, extra}` sizes a head that is not Déjà View's copy (E84l), `standardize: true` standardizes the 66 input channels (E84n), `resnet: {width, dilations}`
+replaces it by a shallow ResNet (E84o), `lr_end` decays the rate
 by a cosine to it (E84k). Writes `runs/<cfg>-<time>/{run.yaml, head.pt, probabilities_<scene>[_step<k>].npy, tb/}`,
 the snapshots at the config's `snapshots` steps (before that step's update).
 
@@ -29,17 +30,20 @@ from src.analysis.scene_eval import git_hash
 from src.backbone.dejaview import DejaViewBackbone
 from src.refinement.keep_chamfer import (
     KeepHead,
+    KeepNet,
+    KeepResNet,
     KeepScene,
     confidence_backward,
     exact_chamfer,
     loss_backward,
     mimic_backward,
     probabilities,
+    standardize,
 )
 
 
 def evaluate(
-    head: KeepHead,
+    head: KeepNet,
     scene: KeepScene,
     chunk: int,
     threshold: float,
@@ -98,6 +102,8 @@ def main() -> None:
 
     t0 = sync()
     scenes = [KeepScene.load(name, raw, "cuda") for name in raw["scenes"]]
+    if raw.get("standardize"):
+        standardize(scenes)
     load_s = sync() - t0
     targets = {
         s.name: torch.from_numpy(
@@ -109,6 +115,8 @@ def main() -> None:
     if raw.get("init") == "deja_view":
         steps = int(raw["backbone"].removeprefix("dejaview_k"))
         head = KeepHead.from_deja_view(DejaViewBackbone(steps=steps).output_block())
+    elif "resnet" in raw:
+        head = KeepResNet(**raw["resnet"])
     else:
         head = KeepHead(**raw.get("head", {}))
     head = head.cuda()
