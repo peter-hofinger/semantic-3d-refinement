@@ -7277,3 +7277,51 @@ Interim entry: the check that the plan puts before any table.
   four sizes with GT ahead on at most 7 of 11 scenes does not.
 - **Figure, raw:** `uv run python experiments/scripts/e52f_figures.py` -> `figures/e52f_scaling.jpg`
   (val curves, kept val per size, gap per size with the rerun band), `results/e52f_scaling.yaml`.
+
+## E52b, main arms, rung 5: segment pooling on top of LoRA gains nothing; GT instances tie grid tiles and neither beats LoRA alone (issue #52, 22.11.2026)
+- **Setting:** the plan entry above, rung 5, at e4f7943 (clean; later commits on the branch only add
+  LOG text, figures and figure scripts), 3080, bf16, lr_lora 1e-4, lr_pool from the sweep (GT 3e-6,
+  grid 1e-5), 3000 steps, seeds 0-2 per arm, state kept on val, dev scored on 20 views. One arm and
+  seed per run, 21.11 16:02 - 22.11 04:02 (~7080 s training per run, 2.36 s per step), peak 2.22 GB,
+  0 segments dropped. Job `/home/student/mircea/jobs_e52b_main.sh`, runs `runs/e52b_main_<arm>_s<s>`.
+  One CUDA allocator OOM warning per run during dev scoring, as in the control; every score was
+  written. Control = the E52b control's three seeds (same script, same 3080).
+- **Dev Chamfer (cm, seed mean per arm; Déjà View the same run in all nine):**
+
+  | | living room | bedroom | lobby | mean | seed range | kept steps |
+  |---|---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | | |
+  | LoRA alone (control) | 1.522 | 1.647 | 6.295 | **3.155** | 0.081 | 2500 / 1500 / 3000 |
+  | LoRA + pool, GT instances | 1.604 | 1.688 | 6.443 | 3.245 | 0.101 | 2500 / 2500 / 750 |
+  | LoRA + pool, grid tiles | 1.578 | 1.644 | 6.450 | 3.224 | 0.171 | 2250 / 2500 / 3000 |
+  | GT - grid | +0.025 | +0.044 | -0.007 | +0.021 | | |
+  | GT - LoRA alone | +0.081 | +0.041 | +0.149 | +0.090 | | |
+  | grid - LoRA alone | +0.056 | -0.003 | +0.156 | +0.069 | | |
+
+  Per seed (dev mean, cm): GT 3.195 / 3.244 / 3.296, grid 3.282 / 3.280 / 3.111, LoRA alone
+  3.154 / 3.195 / 3.115. With the same seed (same draws), GT is ahead on seeds 0 and 1 and grid on
+  seed 2; the sign of GT - grid follows the seed.
+- **Reading (the plan's rule):** refuted. GT would have needed to beat Déjà View, LoRA alone and
+  grid by more than 0.080 cm each, on 2 of 3 scenes. It beats Déjà View (-0.255 cm), but is within
+  the margin of grid (+0.021 cm, on the wrong side) and behind LoRA alone on all three scenes
+  (+0.090 cm mean). The prediction (GT ties grid, as E52a's fourth run without LoRA) holds. Grid
+  is within the margin of LoRA alone (+0.069 cm), so the pooling adapter adds no capacity either.
+  Both pooling arms sit 0.07-0.09 cm behind LoRA alone, at the edge of the seed ranges
+  (0.08-0.17 cm); with three seeds that is a trend, not a measured harm.
+- **Other observations:**
+  - The val curves of the three arms interleave at every eval (figure): no arm stays below the
+    others during training, and seeds of one arm differ as much as the arms do.
+  - The kept step is a noisy choice: GT seed 2 keeps step 750 (val 0.9588) and scores the worst
+    GT dev mean (3.296); val moves by up to 0.014 between evals, as before.
+  - Grid's seed range (0.171 cm) is twice the control's; the margin taken from the control is the
+    smaller of the measured ranges.
+- **Conclusion, for #52:** its done condition (LoRA with vs without segment inputs, at the same
+  training) is met with a negative: on Hypersim dev, feeding GT instances into a pooling adapter
+  inside Déjà View gives no gain over grid tiles or over plain LoRA fine-tuning, with 3 seeds per
+  arm and both arms swept alike. Together with E52a (pooling alone), E52c/E52e (instances in the
+  loss) and E52f (3-120 train scenes), segment inputs have not helped any trained adapter inside
+  Déjà View; scoped to these adapters, Hypersim and this budget. Not tested: gating the pooling
+  branch (presentation feedback, 19.11), the planned follow-up; val not scored on Chamfer.
+- **Figure, raw:** `uv run python experiments/scripts/e52b_main_figures.py` ->
+  `figures/e52b_main.jpg` (dev Chamfer ratio per scene with seeds, val curves of all nine runs),
+  `results/e52b_main.yaml`.
