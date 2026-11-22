@@ -7023,3 +7023,49 @@ Interim entry: the check that the plan puts before any table.
   costs 0.05 to 0.15 of exact recall and less than 0.05 within one voxel, and raises precision. Refuted if exact recall is 0.98 or more, or if the
   misses are far from any Déjà View voxel (a median distance over 3 cells), which would make them holes a decoder must fill.
 - **Commands:** `uv run python experiments/scripts/e69b_voxel_coverage.py runs/e69b experiments/figures/e69b_coverage.jpg dev val`.
+
+## E69b, result: Déjà View covers 69% of the occupied voxels exactly and 90% within one voxel (7 cm); only a third of its voxels hold ground truth; the 50% confidence cut keeps 31% (issue #69, 22.11.2026)
+- **Setting:** the plan above, unchanged: 14 dev and val scenes (3 + 11), 20 views at 504 px, Déjà View K = 16, all pixels, aligned by the
+  evaluation's Umeyama; GT = the GT points of the same pixels; one grid over the union box of both clouds. Cells along the longest side: 96, 192 (E69a's) and
+  384, a median of 14.3, 7.2 and 3.6 cm (192 cells: 4.7 to 19.8 cm over scenes). Test and stress untouched, nothing tuned. Commit b44c9da plus the
+  script (RTX 5090 node, CPU work, about 4 min for all scenes); `experiments/scripts/e69b_voxel_coverage.py`, numbers in
+  `experiments/results/e69b_coverage.json`, figure `experiments/figures/e69b_coverage.jpg` (looked at).
+- **Result, 192 cells, mean over the 14 scenes ± the standard error of the per-scene values (per-scene values in the JSON):**
+
+  | Déjà View points kept | recall, exact | recall, within 1 voxel | precision, exact | precision, within 1 voxel | missed GT voxels further than 3 voxels from any Déjà View voxel |
+  |---|---|---|---|---|---|
+  | all (before any threshold) | **0.688 ± 0.041** | **0.895 ± 0.027** | 0.340 ± 0.033 | 0.648 ± 0.042 | 0.18 ± 0.05 |
+  | top 75% by confidence | 0.498 ± 0.043 | 0.684 ± 0.042 | 0.583 ± 0.032 | 0.936 ± 0.018 | 0.48 ± 0.05 |
+  | top 50% (the official demo's default) | 0.313 ± 0.032 | 0.453 ± 0.033 | 0.683 ± 0.031 | 0.985 ± 0.006 | 0.70 ± 0.03 |
+
+  The grid changes the numbers, not the picture: exact recall unthresholded 0.788 / 0.688 / 0.549 at 96 / 192 / 384 cells (14.3 / 7.2 / 3.6 cm), within
+  one voxel 0.922 / 0.895 / 0.834, exact precision 0.407 / 0.340 / 0.261. Per scene (192 cells, unthresholded) exact recall runs from 0.39
+  (ai_004_003) to 0.91 (ai_010_007), within one voxel from 0.65 to 0.99; the median distance of a missed voxel to the nearest Déjà View voxel is 1 voxel
+  on 12 scenes, 3 on ai_031_004 and 101 on ai_004_003, where about half of the occupied voxels have no Déjà View point anywhere near (the scene whose
+  share at 1 cell in E69a's reach table is 32%).
+- **Answer:** no, not in every voxel: unthresholded, 69% of the GT-occupied voxels hold a Déjà View point and 90% have one within a voxel
+  (7 cm). The misses are mostly displaced by about one voxel (median 1 voxel on 12 of 14 scenes; 18% of the misses lie further than 3 voxels),
+  not holes. The opposite side is worse: only 34% of the voxels Déjà View occupies hold GT (65% within one voxel), so about a third of its voxels
+  are floaters and displaced surface. The confidence cut trades the two: at the top 50% precision within one voxel is 0.99 but recall falls to 0.31
+  (0.45 within one voxel), and 70% of the missed voxels are then further than 3 voxels from any kept point: holes in walls and floor, as #27 measures.
+- **Predictions written before the run:** (1) "no, exact recall below 0.98": **right**, 0.688; (2) "exact recall about 0.8, 0.5 to 0.95 over scenes":
+  **partly wrong**, the mean is 0.69 and the range 0.39 to 0.91; (3) "within one voxel 0.95 or more on most scenes": **wrong**, 4 of 14 scenes, the mean
+  0.895; (4) "the misses are displaced, a median distance of at most 3 cells": **right** on 13 of 14 scenes, wrong on ai_004_003; (5) "exact
+  precision 0.5 to 0.7": **wrong**, 0.34 (0.19 to 0.57); (6) "the top 50% costs 0.05 to 0.15 exact recall and under 0.05 within one voxel, and raises
+  precision": **wrong on the size** (it costs 0.38 and 0.44) and right on the precision (0.34 to 0.68 exact, 0.65 to 0.985 within one voxel). The
+  refuting condition "misses far from any Déjà View voxel" holds for the thresholded clouds (median 10 voxels at the top 50%), not for the
+  unthresholded one.
+- **Reading for the two-step generator (occupancy voxels, then a decoder):** (a) step 1 has real evidence to start from, since 90% of the
+  occupied voxels have a Déjà View point within a voxel, but it must remove two thirds of what Déjà View occupies, and the confidence alone cannot:
+  the cut that fixes precision removes most of the recall, so the occupancy has to be learned from the counts, confidences and view agreement of the
+  voxel and its neighbours; (b) step 2 has to move points by one voxel or more, since a third of the covered voxels are covered one voxel away, so an
+  occupancy classifier that keeps or drops Déjà View's own points is the filter, whose ceiling is known: keeping the best 0.75 of the pixels by their
+  distance to the GT gives a dev Chamfer of 2.577 against 3.500 (X69n) and E45's real filters 3.66 or worse; the rest of the gain has to come from
+  placement; (c) the nearest thing already run is E69a's `gated` arm (a coarse occupancy gate, SG-NN's idea) and X69j: it tied the lattice head on
+  the bedroom and fails E69a's rung 3 (-0.07 of its gap) under the ladder's limits, so a two-step model with a Gaussian decoder is not tested here and
+  is a candidate for the rung-6 entry that E69a names (a larger model, a longer schedule), with these recall and precision numbers as the
+  occupancy step's baseline: a learned occupancy has to beat "occupied if Déjà View has a point" (precision 0.34, recall 0.69) and "if the top 50%"
+  (0.68, 0.31) at the same voxel size.
+- **Spread and budget:** the standard errors above are over 14 scenes (3 dev, 11 val); one cut of the grid origin (the union box), so a voxel
+  boundary can split a surface in two: the within-one-voxel columns are the less sensitive. Not measured: the semantic classes, and the GT of
+  parts of a scene no view sees (the GT here is what the 20 views see).
