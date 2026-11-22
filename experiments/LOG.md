@@ -8384,3 +8384,33 @@ Interim entry: the check that the plan puts before any table.
   `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora_pool_gate: [false, true, true, true]}" "segments=[<arm>]" lr_pool=<lr> lr_lora=1e-4 lr_gate=<lr> align=exact select=val probe_every=10 seed=<s> --out runs/e87a_main_<arm>_s<s>`.
 - **Cost** (2.3 s per step on the 3080): smoke + rungs 3/4 ~40 min; sweep 6 x 500 steps ~2 h; rung 5 2 arms x
   3 seeds x ~2 h ~12 h. Ask before rungs 3/4, before the sweep and before rung 5.
+
+## E87a, rungs 3 and 4: both gated arms pass and lie on E52b's ungated arms and LoRA alone; the gate's parameters move steadily from zero (issue #87, 22.11.2026)
+- **Setting:** the plan entry above, at cf85402 (clean), 3080, bf16, lr_pool 3e-6, lr_lora 1e-4, lr_gate 1e-4,
+  seed 0, both arms per run, `view_subset=[8, 8]`; same seed as E52b's rungs, so the same scene and view draws.
+  Smoke (4 views, 4 steps, `runs/e87a_smoke`, not of record): step-1 ratio 0.99996 in both arms, the gate's
+  gradient exactly 0 at step 1 (B_k = 0) and 4-10e-4 from step 2, as the test predicts; the first try did not
+  start (`uv` not on the job's PATH). Rung 3 22:31-22:43 (352 s per arm, `runs/e87a_rung3`), rung 4
+  22:43-23:01 (527 s per arm, `runs/e87a_rung4`); peak 2.22 GB, 1.76 s per step at 8 views, 0 segments dropped.
+- **Result** (training ratio to Déjà View's error; E52b's rows from its rung entry, same draws):
+
+  | | rung 3 last 50 (prev. 50) | rung 4 living room | bedroom | lobby | gate norm, rung 4 end |
+  |---|---|---|---|---|---|
+  | LoRA alone (control) | 0.843 (0.891) | 0.775 | 0.910 | 0.706 | |
+  | LoRA + pool, GT (E52b) | 0.841 (0.886) | 0.769 | 0.912 | 0.706 | |
+  | LoRA + pool, grid (E52b) | 0.841 (0.886) | 0.770 | 0.908 | 0.704 | |
+  | LoRA + gated pool, GT | 0.842 (0.888) | 0.771 | 0.913 | 0.708 | 0.70 |
+  | LoRA + gated pool, grid | 0.839 (0.886) | 0.771 | 0.908 | 0.703 | 1.02 |
+
+  Both gated arms pass: rung 3 below 0.90 and falling from the previous 50 steps; rung 4 below 0.95 on every
+  scene. Every gated ratio is within 0.002 of the same arm ungated and within 0.006 of LoRA alone, the size of
+  the bf16 rerun noise (0.003, E52a).
+- **Reading:** rungs are diagnostics, no score is reported. The gate trains (its parameters' norm grows about
+  linearly over the 300 steps, from 0) but changes nothing measurable while overfitting; as in E52b, the pooling
+  branch, gated or not, adds nothing on top of LoRA here. The gate moves faster with grid tiles (norm 1.02) than
+  with GT instances (0.70); that is the norm of (w_k, b_k), not where the gate opens, which is read on rung 5's
+  kept states. As predicted by the plan's low prior; it does not decide the main arms. Next: the lr_gate sweep
+  (2 arms x 3 lrs x 500 steps, ~2 h), asked first.
+- **Commands:** rungs as in the plan (3080 job `/home/student/mircea/jobs_e87a_rungs.sh`); figure and raw:
+  `uv run python experiments/scripts/e87a_rungs_figures.py` -> `figures/e87a_rungs.jpg` (rung 3 curves, rung 4
+  per-scene ratios, gate norm), `results/e87a_rungs.yaml`.
