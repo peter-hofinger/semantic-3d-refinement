@@ -6991,6 +6991,11 @@ Interim entry: the check that the plan puts before any table.
   Chamfer of the kept step is the minimum of 13 of them, so a gain below about 0.1 cm is not shown. GPU time: six jobs, 2.3 h of one RTX 5090 in
   all (138 min of job time), four of them failures of the setup above and about 20 min of that the training of the six arms; about 61 h of queue
   waiting in all (17.4, 8.4, 33.1 and 2.5 h for the first four jobs; the cluster was busy and a job array of the same user, `e81a`, held the GPUs for a day).
+- **Figures (looked at):** `e69a_story.jpg` (share of the gap each arm closes against the gate; the best arm's Chamfer relative to Déjà View on the
+  trained and the two unseen dev scenes, with the oracle as ceiling), `e69a_rung3.jpg` (the bedroom's Chamfer per variant and the learning curves),
+  `e69a_rung3_bedroom_rgb.jpg` (the bedroom, views 18, 0, 12, 6: ground truth, Déjà View, `seeded`, `lattice`, `oracle-seeded`). In the renders Déjà
+  View's and `seeded`'s fused clouds carry the same floaters and speckle, `seeded` slightly cleaner; `lattice` has holes and blobs; only the oracle
+  is clean, so the headroom is large and none of the arms has taken it yet.
 - **Conclusion: not yet working, and not "fails".** Under the ladder's rung-0 rules no generator overfits the bedroom to half its gap from the
   oracle, so no claim follows about generating against moving or dropping points, and nothing from rungs 4 and 5 can be said. What is missing
   and is a different entry (rung 6): a longer schedule with a decaying rate and a larger model (X69's 1.42 M model fit the bedroom), and the
