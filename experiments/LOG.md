@@ -7408,3 +7408,23 @@ Interim entry: the check that the plan puts before any table.
   density, is the baseline any semantic filter has to beat (#84). Its dev number at E27a's q is set by one cliff,
   so q = 0.5 is not a safe setting for it; how to cut without a cliff (per scene or per region) is open and not
   part of this experiment. The rule compared at equal q (equal pixel count), not at equal completeness as E45 did.
+
+## Plan: E86b = E86a's four id arms at equal completeness instead of equal q (issue #86, 22.11.2026)
+- **Goal:** E86a compared the arms at equal q (equal pixel count). There SAM 3's ids lost to none on val (Chamfer
+  +0.055 cm), but they also kept a little more completeness (4.621 against 4.706 cm), and on dev the comparison was
+  set by one cliff (the lobby). E45 compared filters at equal completeness, where they differ by accuracy alone. Does
+  E86a's reading hold there?
+- **Setting:** `experiments/scripts/e86b_equal_completeness.py` on E86a's run `e86a-20261122-113632`, dev and val,
+  no refinement. Per scene and arm (none, SAM 3, GT, permuted per view with seed 0, exactly E86a's ids), Déjà View's
+  pixels are ranked by instance voxel density, scored on the grid q = 1, 0.95, ..., 0.2 and solved by bisection to a
+  target completeness (`e45_filters.sweep`, to 0.0005 cm). Two targets per scene, read from the run: SAM 3's
+  completeness at q 0.5 (the filter as E27a uses it) and none's. Runs on the 3080 (CPU scoring, 6 workers).
+- **Checks:** every arm's q 1 and q 0.5 reproduce the run's Déjà View and `Déjà View, kept 0.5, <arm>` rows within
+  0.001 cm (asserted). A scene where an arm's curve does not bracket the target (a cliff) is reported as unmatched
+  and left out of that mean.
+- **Rule (val decides; floor 0.033 cm accuracy, E40):** at both targets, SAM 3 - none accuracy < -0.033 cm mean and
+  better on at least 7 of 11 val scenes overturns E86a (a semantic gain at equal completeness); within ±0.033 cm,
+  or on fewer than 7 scenes, E86a's conclusion stands (no semantic gain survives in the filter). GT and permuted
+  are read the same way.
+- **Prediction:** a tie; the median curves of E86a's figure lie on top of each other on val.
+- **Budget:** ~20-30 min on the 3080's CPU, timed on one dev scene first.
