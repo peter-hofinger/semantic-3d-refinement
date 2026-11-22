@@ -7356,3 +7356,55 @@ Interim entry: the check that the plan puts before any table.
 - **Prediction:** a tie on val (|SAM 3 - none| within the floor): E45's gap was one scene's, and the curves
   coincide except at high completeness. Then plain voxel density is the baseline any semantic filter must beat.
 - **Budget:** ~20 min on the 3080 (E27a took 8 min for 6 variants, 3 of them refined; here 22 variants, 5 refined).
+
+## E86a: ablate the semantics in the instance voxel density filter -> on val SAM 3's ids lose to none, GT gains within noise, per-view permuted ids lose badly (issue #86, 22.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned.
+- **Commits:** 8a46c8b (plan, `keep_segments`, `segment_ids`, tests, config), this commit (`e86a_figures.py`, results,
+  figure, README).
+- **Commands** (RTX 3080, clean tree at 8a46c8b): `scene_eval --cfg experiments/configs/e86a.yaml --splits dev val`
+  (`e86a-20261122-113632`, 33 min, beyond the 20 estimated); `e86a_figures.py runs/e86a-20261122-113632` ->
+  `results/e86a_figures.txt`, `figures/e86a_density.jpg`.
+- **Checks:** the SAM 3 rows reproduce E27a to the third decimal (Déjà View kept 0.5: dev 3.298, val 3.817; tangent
+  4e-2 kept 0.5: dev 3.209, val 3.669 cm Chamfer), and so do Déjà View and tangent 4e-2 unfiltered.
+- **Results at q 0.5, cm, mean / median over the split's scenes** (accuracy | completeness | Chamfer; all rows in
+  `results/e86a_figures.txt`):
+
+  | cut's ids | dev, Déjà View | val, Déjà View | val, E_t 4e-2 refined |
+  |---|---|---|---|
+  | none (plain voxel density) | 2.980 / 1.854 \| 7.224 / 2.784 \| 5.102 / 2.004 | **2.819** / 2.451 \| 4.706 / 3.271 \| 3.762 / 2.962 | 2.782 / 2.413 \| 4.433 / 3.042 \| 3.607 / 2.876 |
+  | SAM 3 (E27a's filter) | 2.998 / 1.897 \| **3.597** / 2.223 \| **3.298** / **1.727** | 3.013 / 2.466 \| 4.621 / 3.357 \| 3.817 / 2.948 | 2.971 / 2.424 \| 4.367 / 3.045 \| 3.669 / 2.889 |
+  | GT | **2.750** / 1.856 \| 7.156 / 2.796 \| 4.953 / 2.009 | 2.776 / **2.447** \| 4.629 / 3.276 \| **3.702** / **2.916** | **2.735** / **2.407** \| 4.363 / 3.046 \| **3.549** / **2.837** |
+  | permuted per view | 3.840 / 2.100 \| 2.822 / 1.414 \| 3.331 / 1.757 | 4.309 / 3.267 \| **4.312** / **2.714** \| 4.310 / 3.759 | 4.248 / 3.195 \| **3.940** / **2.722** \| 4.094 / 3.699 |
+
+  Each arm minus none at the same cut, val (11 scenes), mean | median of the differences | scenes on which the arm
+  is better (accuracy / completeness / Chamfer):
+
+  | arm | Déjà View, q 0.5 | E_t 4e-2 refined, q 0.5 |
+  |---|---|---|
+  | SAM 3 | +0.194 / -0.084 / **+0.055** \| +0.080 / -0.013 / +0.045 \| 1 / 7 / **3 of 11** | +0.189 / -0.066 / +0.062 \| +0.073 / -0.011 / +0.044 \| 1 / 6 / 2 of 11 |
+  | GT | -0.043 / -0.076 / -0.060 \| +0.017 / -0.016 / -0.004 \| 4 / 7 / 6 of 11 | -0.047 / -0.070 / -0.059 \| +0.015 / -0.014 / -0.001 \| 4 / 7 / 7 of 11 |
+  | permuted | +1.490 / -0.394 / +0.548 \| +0.816 / -0.195 / +0.272 \| 0 / 10 / 1 of 11 | +1.467 / -0.493 / +0.487 \| +0.782 / -0.331 / +0.265 \| 0 / 10 / 1 of 11 |
+
+  Over the q sweep (no refinement, val), SAM 3 has the lower Chamfer than none on 6 / 3 / 0 / 0 of 11 scenes at
+  q 0.3 / 0.5 / 0.7 / 0.9; GT on 7 / 6 / 3 / 4.
+- **Reading (the plan's rule):** refuted, beyond the prediction. On val SAM 3's ids do not beat the same filter
+  without them: Chamfer +0.055 cm (median +0.045), better on 3 of 11 scenes, accuracy worse on 10 of 11. That is past
+  the floor on the wrong side; the filter is better as plain voxel density, on Déjà View's output and after E27a's
+  refinement alike. GT ids gain -0.060 cm mean but -0.004 median, on 6 of 11 scenes: within the noise on the
+  median and the scene count, so better masks have at most a small headroom here. Ids permuted per view are far
+  worse (+0.548 cm, accuracy worse on all 11): a pixel then counts only its own view's points, so the count stops
+  measuring what the filter rests on, the agreement between views. SAM 3's ids sit between none and permuted,
+  as if each place SAM 3's linking splits one surface across views were a small permutation.
+- **Why dev said the opposite:** dev's -1.804 cm mean for SAM 3 is the lobby (`ai_044_001`): at q 0.5 the plain cut
+  drops a whole region there (completeness 17.33 against SAM 3's 7.08 cm); at q 0.7 the two tie (5.27 / 5.21). The
+  cut ranks every pixel of a scene by one quantile, and where a scene's curve has such a cliff, a slight shift in
+  the ranking moves the cut across it (val's `ai_009_009` at q 0.3: 67.17 against 40.44 cm). E45's instance gain
+  was the same lobby, and E27a's q = 0.5 was chosen on dev with SAM 3's ids, right past the plain cut's cliff. The
+  median curves (figure, top) put none, SAM 3 and GT on one curve on val.
+- **Figure** (`figures/e86a_density.jpg`): top, median accuracy against median completeness over q per arm, dev and
+  val; bottom, each scene's Chamfer of the arm minus none at q 0.5, without and with the refinement (symlog).
+- **Conclusion, for #86:** no semantic gain survives in the instance voxel density filter on val: its working part
+  is the cross-view voxel count, and SAM 3's ids make it slightly worse. The semantics-free filter, plain voxel
+  density, is the baseline any semantic filter has to beat (#84). Its dev number at E27a's q is set by one cliff,
+  so q = 0.5 is not a safe setting for it; how to cut without a cliff (per scene or per region) is open and not
+  part of this experiment. The rule compared at equal q (equal pixel count), not at equal completeness as E45 did.
