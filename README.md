@@ -20,6 +20,7 @@ Noise floor 0.036 cm (E40).
 | Does joint refinement (Gauss-Newton on inverse depth) beat the raw prediction? | Déjà View: dev 3.50, val 5.10 | No: dev 3.93, val 5.64. Accuracy improves (4.68 → 4.20 on dev), completeness loses more (2.32 → 3.66). On ETH3D it is worse on 13 of 13 scenes | [Evaluation](#evaluation-hypersim), E26a |
 | Does it beat simply dropping Déjà View's least dense points, at equal completeness? | Voxel-density filter | No: dev accuracy 3.09 cm for the filter, 4.20 for the refiner. Val was not run | E45 |
 | Do the segments explain what small gain there is? | The same refiner with no segments | No: ids permuted at random beat SAM 3 beyond noise, and ground-truth ids gain less than SAM 3's. Chamfer against no segments, dev: SAM 3 -0.069, ground truth -0.021, permuted -0.249 (val: -0.119, -0.043, -0.346) | E8a, E26a |
+| Does the best filter's semantic part help? | The same cut, every pixel one instance (plain voxel density): val 3.76 | No: SAM 3's instances 3.82 (better on 3 of 11 scenes), ground truth 3.70 (6 of 11, median within noise), ids permuted per view 4.31 | E86a |
 | Does a learned refiner do better? | Déjà View | Per-view U-Net: val Chamfer 5.06 against 5.10, the size of the noise floor, masks or not. Fused voxel grid with a 3D U-Net: no model beats Déjà View on val | E11a, E41b |
 
 In the current energy the segments only switch off part of the cross-view term (E8a-E8c);
@@ -324,6 +325,11 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   Averaging each voxel's points into one (voxel fusion) does not help either; the best of seven voxel
   variants counts only the points of the pixel's own SAM 3 instance (3.00 cm, dev; chosen on dev, gain over
   voxel density beyond noise only in the lobby).
+  The instance part does not survive val (E86a): at q 0.5 the same cut with every pixel in one
+  instance, plain voxel density, is 0.055 cm better in Chamfer than SAM 3's ids (3 of 11 scenes
+  favour SAM 3), ground-truth ids are within noise of it (median -0.004 cm), and ids permuted per
+  view are 0.548 cm worse: the filter works through the cross-view count, not the semantics.
+  Compared at equal completeness instead (E86b), SAM 3's ids still lose (+0.058 cm accuracy, 2 of 11).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.37 in
   the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes
