@@ -7002,3 +7002,24 @@ Interim entry: the check that the plan puts before any table.
   arms that did best on one scene (`seeded`, 1.430 against Déjà View's 1.837) are the candidates to climb with them. A tuned simple baseline
   below the arms was not shown either: Déjà View kept 0.5 (1.732) and 0.75 (1.786) are within 0.1 cm of Déjà View on the bedroom and beat every
   arm but `seeded` there.
+
+## Plan: E69b = does Déjà View put a point in every voxel that the ground truth occupies, before any confidence threshold? (issue #69, from the 19.11.2026 feedback in #13, 22.11.2026)
+- **Goal:** the feedback asks whether Déjà View's unthresholded points cover every voxel the ground truth occupies. It decides what a two-step
+  generator (step 1: which voxels are occupied, step 2: a decoder places surface points or Gaussians in them) can start from: step 1 can only
+  recover occupancy that Déjà View evidences, and a decoder has to fill the rest. E69a's reach table measured points near points; this counts voxels.
+- **Setting:** the 14 dev and val scenes of `configs/hypersim.yaml` (three dev, eleven val; test and stress untouched; nothing is tuned, so val is
+  only read), 20 views at 504 px, Déjà View K = 16, all pixels as points, in Déjà View's frame after the evaluation's Umeyama alignment of the pixels.
+  The ground truth is the GT points of the same pixels (the benchmark's), so a GT voxel is one a view sees. Voxel grids over the union box of the
+  two clouds at 96, 192 (E69a's grid) and 384 cells along the longest side, the cell also given in cm. Déjà View's points are kept by confidence:
+  all, the top 75%, the top 50% (the official demo's default). Per scene, in each grid and keep:
+  - **recall** = share of the GT-occupied voxels that hold at least one Déjà View point; the same with a point within one voxel on every axis;
+  - **precision** = share of the Déjà View-occupied voxels that hold a GT point; the same within one voxel;
+  - for the missed GT voxels: the distance in cells to the nearest Déjà View voxel (is the evidence displaced or absent);
+  - mean over scenes with the standard error of the per-scene values (dev and val separately).
+- **Rule and predictions, written before the run:** "Yes" needs a mean recall of 0.98 or more at 192 cells before thresholding. I expect **no**:
+  exact recall about 0.8 at 192 cells (0.5 to 0.95 over scenes, higher in coarser grids), recall within one voxel 0.95 or more on most scenes (E69a's
+  reach table: 88 to 98% of the GT points have an input point within 1 cell on every dev scene), so the misses are displaced points and not holes;
+  precision lower than recall (Déjà View's flying points occupy voxels with no surface), about 0.5 to 0.7 exact; keeping the top 50% by confidence
+  costs 0.05 to 0.15 of exact recall and less than 0.05 within one voxel, and raises precision. Refuted if exact recall is 0.98 or more, or if the
+  misses are far from any Déjà View voxel (a median distance over 3 cells), which would make them holes a decoder must fill.
+- **Commands:** `uv run python experiments/scripts/e69b_voxel_coverage.py runs/e69b experiments/figures/e69b_coverage.jpg dev val`.
