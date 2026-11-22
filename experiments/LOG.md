@@ -7104,3 +7104,224 @@ Interim entry: the check that the plan puts before any table.
   E52c and E52e, so they left src once both were answered; the E52a/E52b training script and
   config are back to their state on main. To rerun E52c's rungs, probe and solver check or E52e,
   check out 33bca5f.
+
+## Plan: E52b, main arms = the control's LoRA plus the pooling adapter, fed GT instances or grid tiles: do segment inputs gain over plain fine-tuning when trained jointly with it (issue #52, 19.11.2026)
+- **Goal:** E52b's plan named two parts: the control (LoRA, no segments) and the main arms (LoRA +
+  segment pooling, GT vs grid). Only the control ran. It set the bar at dev Chamfer 3.155 cm (mean of
+  seeds 0-2, range 0.080 cm; Déjà View 3.500). E52a's pooling adapter alone gained the same with GT
+  instances as with grid tiles (3.330 / 3.326 cm), and E52c/E52e found segments in the loss not yet
+  working. The main arms are #52's done condition: LoRA with segment inputs against the same LoRA
+  without them, at the same training.
+- **Model:** the control's LoRA (rank 16 on `qkv` and `proj` of both attentions of the shared loop
+  block, U zero) plus E52a's pooling adapter between loop steps, x += B_k A (m_s - x): m_s is the
+  mean token of the token's segment over all views, A (768 -> 16) random, B_k zero per step. Both
+  start at zero, so step 0 is Déjà View bit for bit (test `test_zero_adapter_is_dejaview_bit_for_bit`).
+  Gradients reach both and no frozen weight (`test_gradients_reach_only_the_adapter`, pool and LoRA
+  together). ~0.35 M parameters. No code change: the script's model flags are (bias, pool, lora) ->
+  (false, true, true).
+- **Arms:** lora_pool-gt (GT instances per 14 px patch) and lora_pool-grid (3 x 3 even tiles per
+  view: the same parameters with no semantics). LoRA alone is the E52b control (3 seeds, already run,
+  same 3080).
+- **Hypothesis and the numbers that would refute it:** lora_pool-gt beats Déjà View, the control
+  and lora_pool-grid on dev mean Chamfer (mean over seeds 0-2 per arm), each by more than the
+  control's seed range 0.080 cm, and on 2 of 3 scenes. (E52b's first rule said 0.05 cm; the seed
+  range measured since, E52c's entry, is larger, so it replaces it.) gt within 0.080 cm of grid
+  refutes "segment inputs add to LoRA". grid within 0.080 cm of the control means the pooling adapter
+  adds no capacity on top of LoRA. **Prediction:** gt ends within the margin of grid, as without
+  LoRA (E52a, fourth run). A gain would need LoRA to make the segment means usable, which nothing
+  so far shows.
+- **Training:** as the control (120 train scenes, 16 held out, val every 250 steps, 3000 steps,
+  8-12 views per step, ratio to Déjà View's error, `align=exact`, bf16, state kept on val, probe
+  every 10 steps). lr_lora 1e-4 (control's sweep), lr_pool from the sweep below.
+- **Ladder** (`docs/experiments.md`; 3080):
+  - Rungs 0-2: the tests above. Smoke on the 3080 (bedroom, 4 views, 4 steps, not of record) checks
+    the joint model runs end to end.
+  - Rung 3, overfit the bedroom `ai_006_007` (8 views, 200 steps), both arms. **Pass:** last-50
+    training ratio below 0.90 and no rise over the last 100 steps (control 0.843; pool alone
+    0.834 / 0.820).
+  - Rung 4, dev (3 scenes, 300 steps). **Pass:** last-100 ratio below 0.95 on each scene.
+  - Sweep lr_pool in {1e-6, 3e-6, 1e-5} at lr_lora 1e-4, both arms alike (500 steps, `--splits`
+    none, least val ratio at step 500; pool alone used 3e-6). The control's lr was swept the same way.
+    Each arm takes its own best lr.
+  - Rung 5, 3000 steps, seeds 0, 1, 2 per arm, dev scored. Only rung 5's scores are reported.
+- **Reading:** dev Chamfer (cm) per scene and mean, seed mean and range per arm, against Déjà View
+  3.500, the control 3.155 and the other arm; val and held-out curves; stability by the probe's rule.
+  Rerun noise on one GPU (val up to 0.007 between bf16 reruns) is below the margin. If gt and grid
+  tie with rungs 3/4 passed and both arms swept alike, the verdict is "segment inputs give LoRA no
+  gain here", stated for this adapter, with the budget and spread logged.
+- **Not in this experiment:** gating (presentation feedback, 19.11), a learned scalar
+  tanh(α_k) or per-token gate sigmoid(w · x) on the pooling branch, which lets the model learn where
+  to trust a segment. One change at a time: it follows only once the ungated arms are read. Init
+  note for it: a gate at 0 together with B_k = 0 never trains (each gradient is proportional to the
+  other), so one of the two starts nonzero.
+- **Commands** (3080): rung 3
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=3e-6 lr_lora=1e-4 "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact --out runs/e52b_rung3`;
+  rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300`; sweep as the control's with
+  this model, `lr_pool=<lr>`, `steps=500`, `--out runs/e52b_pool_sweep_<lr>`; rung 5
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=<lr> lr_lora=1e-4 align=exact select=val probe_every=10 seed=<s> --out runs/e52b_main_s<s>`.
+- **Cost** (2.3 s per step on the 3080): rungs 3/4 ~30 min; sweep 6 x 500 steps ~2 h; rung 5 two arms
+  x 3 seeds x ~2 h ~12 h plus dev scoring. Ask before the sweep and before rung 5.
+
+## E52b, main arms, rungs 3 and 4: LoRA + pooling passes both with GT instances and with grid tiles, and neither arm differs from LoRA alone by more than 0.006 in any rung ratio (issue #52, 19.11.2026)
+- **Setting:** the plan entry above, at e4f7943 (clean), 3080, lr_pool 3e-6, lr_lora 1e-4, seed 0,
+  both arms in one run. Smoke (4 views, 4 steps, `runs/e52b_smoke`, not of record): end to end,
+  2.22 GB peak, step-1 ratio 0.99996 in both arms (zero adapter = Déjà View on the same draw),
+  gradients reach B_k, A, U and D (A and D 0 at step 1 as B_k and U are 0, nonzero after), no
+  segment dropped. Rung 3 17:09-17:21 (349 s per arm, `runs/e52b_rung3`); rung 4's first try was
+  stopped from outside after 7 min (tmux session gone, no error or exit line in the log, shared
+  account; partial run kept as `runs/e52b_rung4_killed` on the 3080), rerun 17:29-17:47 (525 s per
+  arm, `runs/e52b_rung4`). Peak 2.22 GB, 1.75 s per step at 8 views, 0 segments dropped.
+- **Result** (training ratio to Déjà View's error; control = E52b's rungs at lr_lora 1e-4, same
+  seed, so the same scene and view draws in all three):
+
+  | | rung 3 last 50 (prev. 50) | rung 4 living room | bedroom | lobby |
+  |---|---|---|---|---|
+  | LoRA alone (control) | 0.843 (0.891) | 0.775 | 0.910 | 0.706 |
+  | LoRA + pool, GT instances | 0.841 (0.886) | 0.769 | 0.912 | 0.706 |
+  | LoRA + pool, grid tiles | 0.841 (0.886) | 0.770 | 0.908 | 0.704 |
+
+  Both arms pass: rung 3 below 0.90 and falling from the previous 50 steps; rung 4 below 0.95 on
+  every scene. The last 20-step window of rung 3 rises (0.80 -> 0.87) in all three models together,
+  the control included; with the same draws that is a harder draw, not divergence.
+- **Reading:** rungs are diagnostics, no score is reported. While overfitting, the pooling adapter
+  adds nothing on top of LoRA, with GT instances or grid tiles: the three curves lie on each other
+  (figure). This matches the plan's prediction, but it does not decide the main arms: rung 5 measures
+  generalisation on dev, where E52a's pooling alone gained over Déjà View. Next: the lr_pool sweep
+  (both arms, 6 x 500 steps, ~2 h).
+- **Commands:** rungs as in the plan with `view_subset=[8,8]` (3080 job
+  `/home/student/mircea/jobs_e52b_rungs.sh`, rung 4 alone in `jobs_e52b_rung4.sh`); figure and raw:
+  `uv run python experiments/scripts/e52b_rungs_figures.py` -> `figures/e52b_rungs.jpg`,
+  `results/e52b_rungs.yaml`.
+
+## E52b, main arms, lr_pool sweep: every lr and both arms end within the rerun noise of each other and of LoRA alone; by the rule GT takes 3e-6, grid 1e-5 (issue #52, 20.11.2026)
+- **Setting:** the plan's sweep at e4f7943 (clean), 3080, bf16, lr_lora 1e-4, 500 steps, `--splits`
+  none, both arms per run, seed 0; 19.11 23:45 - 20.11 01:47 (~19.5 min per arm). Runs
+  `runs/e52b_pool_sweep_<lr>`; job `/home/student/mircea/jobs_e52b_pool_sweep.sh`.
+- **Ratio to Déjà View's error at step 250 / 500** (held-out 16 train scenes, val 11 scenes):
+
+  | lr_pool | gt held-out | gt val | grid held-out | grid val |
+  |---|---|---|---|---|
+  | 1e-6 | 0.9818 / 0.9754 | 0.9658 / 0.9638 | 0.9787 / 0.9743 | 0.9745 / 0.9640 |
+  | 3e-6 | 0.9795 / 0.9762 | 0.9675 / **0.9568** | 0.9792 / 0.9748 | 0.9707 / 0.9636 |
+  | 1e-5 | 0.9801 / 0.9781 | 0.9700 / 0.9583 | 0.9768 / 0.9719 | 0.9682 / **0.9597** |
+
+- **Reading:** the rule (least val ratio at 500) picks 3e-6 for gt and 1e-5 for grid. Every gap is
+  0.0015-0.007, inside the rerun spread at step 500 (0.007, E52b control), so the sweep separates
+  neither the lrs nor the arms. LoRA alone at its chosen lr: val 0.9627 at step 500 (control sweep).
+
+## Plan: E52f, data-scaling curve: does the GT-over-grid gain appear when the adapters train on few scenes (issues #52, #81, 20.11.2026)
+- **Question (presentation feedback, 19.11, issue #13):** a semantic advantage should be largest when
+  the model or the data is small and vanish as either grows, because a foundation model learns
+  semantics implicitly. Every E52 test so far trained on 120 scenes, where that hypothesis predicts a
+  tie, so a tie there does not refute it. Here the data axis is varied; the model axis is not.
+- **Relation to #81:** #81 tests the same hypothesis on the 3D refiner (`volume.py`, classes none /
+  SAM 3 / GT, 9-133 rooms, two widths, 3 seeds). E52f adds the large-model end: adapters inside
+  frozen Déjà View. #81 predicts a gap at few rooms for the small refiner; for DV, the largest
+  model, it predicts the smallest gap. Both report the gap as with minus without semantics on val
+  (here grid stands for without, and the val ratio for Chamfer: the training script scores val by
+  the ratio only), so the two curves can share one plot against the number of train scenes.
+- **Arms:** E52b's main arms, lora_pool-gt (lr_pool 3e-6) and lora_pool-grid (lr_pool 1e-5), each
+  with its sweep lr, lr_lora 1e-4. One change against the sweep: the number of train scenes.
+- **Train sizes:** 3, 10, 30 and 120 scenes, nested: the first n of a seeded permutation
+  (`numpy.random.default_rng(0).permutation(120)`) of the 120 train scenes, so a larger set contains
+  every smaller one and no family of scene ids is favoured (the sorted list is grouped by id). 120 =
+  the default split with its 16 held-out scenes; the smaller sizes `held_out=0` and named
+  `train_scenes`. Lists in the job script.
+- **Training:** as the sweep, 500 steps at every size (same compute, not the same epochs), val (11
+  scenes) every 100 steps, state kept on val, probe every 10 steps, seed 0. At 3 scenes 500 steps
+  overfit; val selection picks the state before.
+- **Hypothesis and the numbers that would refute it:** gap = grid's kept val ratio - gt's. The
+  hypothesis predicts a gap that grows as the train set shrinks: above 0.014 (the largest move of val
+  between two evals, E52a/b) at 3 or 10 scenes, and larger than at 120. Gap within +-0.007 (rerun
+  spread) at every size refutes it for this model on Hypersim. **Prediction:** within the spread at
+  every size, as rungs 3 and 4 (1 and 3 scenes) tied on the training scenes; but rungs measure fit,
+  not generalisation, which is what this run measures.
+- **Scope:** one seed and one subset per size; a gap above the bar at small n is a first positive, to
+  be repeated with two more subset draws before it counts. Not dev-scored (val only): a choice of
+  direction, not a reported result.
+- **Cost:** 8 runs x ~20 min = ~2.7 h on the 3080.
+- **Command** (per size and arm; job `/home/student/mircea/jobs_e52f_scaling.sh`):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set steps=500 eval_every=100 align=exact select=val probe_every=10 "models={lora_pool: [false, true, true]}" "segments=[<arm>]" lr_pool=<lr> lr_lora=1e-4 held_out=0 "train_scenes=[<first n>]" --out runs/e52f_n<n>_<arm>`
+  (at 120 without `held_out` and `train_scenes`).
+
+## E52f: GT instances gain nothing over grid tiles at any number of train scenes from 3 to 120; the data half of #81's hypothesis is refuted for adapters inside Déjà View (issues #52, #81, 21.11.2026)
+- **Setting, commit, machine:** the plan above at e4f7943 (clean; the plan commit only adds LOG
+  text), 3080, bf16, seed 0, one subset per size; 8 runs, 20.11 13:47-16:32 (~20 min each). Job
+  `/home/student/mircea/jobs_e52f_scaling.sh`, runs `runs/e52f_n<n>_<arm>`.
+- **Kept val ratio to Déjà View's 3D error** (11 val scenes; state of least val over evals at
+  100-500 steps) and gap = grid - GT (> 0 favours GT):
+
+  | train scenes | GT (step) | grid (step) | gap | gap, scene quartiles | GT better on |
+  |---|---|---|---|---|---|
+  | 3 | 0.9678 (200) | 0.9674 (100) | -0.0003 | -0.022 .. +0.017 | 7 / 11 |
+  | 10 | 0.9746 (200) | 0.9716 (400) | -0.0030 | -0.017 .. +0.029 | 6 / 11 |
+  | 30 | 0.9986 (100) | 0.9965 (100) | -0.0021 | -0.005 .. +0.003 | 4 / 11 |
+  | 120 | 0.9577 (400) | 0.9558 (400) | -0.0019 | -0.012 .. +0.005 | 5 / 11 |
+
+- **Reading:** the gap is inside the rerun spread (+-0.007) at every size, and slightly negative at
+  every size; the plan's refutation bar is met. The hypothesis needed above +0.014 at 3 or 10 scenes.
+  So for LoRA + pooling inside Déjà View on Hypersim, few training scenes do not make GT instances
+  useful: the data half of #81's hypothesis is refuted in this model. Its model half (a small
+  refiner) is #81's own test on the 3D refiner.
+- **Other observations, not part of the test:**
+  - Both arms move together at every size (same draws per step): at 3 and 10 scenes they overfit
+    after step 200-400 (val rises above 1.0 by step 500 at 3 scenes), which val selection catches.
+  - The 30-scene subset is the worst size for both arms (kept 0.997-0.999, val above 1.0 from step
+    200), worse than 3 or 10 scenes. One subset and one seed per size cannot say whether this is the
+    draw or the size; it does not change the gap, which both arms share.
+  - At 120 scenes GT's held-out ratio jumps to 1.048 at step 500 (grid 0.972) while its val stays at
+    0.964; a single-eval excursion of the kind E52a/b saw (val up to 0.014 between evals).
+  - Each arm used its own sweep lr (gt 3e-6, grid 1e-5); the sweep did not separate them.
+- **Limits:** one seed and one subset per size; val ratio, not dev Chamfer; Déjà View only (the
+  model-size axis is #81's). A positive would have needed repeats; a gap inside the spread at all
+  four sizes with GT ahead on at most 7 of 11 scenes does not.
+- **Figure, raw:** `uv run python experiments/scripts/e52f_figures.py` -> `figures/e52f_scaling.jpg`
+  (val curves, kept val per size, gap per size with the rerun band), `results/e52f_scaling.yaml`.
+
+## E52b, main arms, rung 5: segment pooling on top of LoRA gains nothing; GT instances tie grid tiles and neither beats LoRA alone (issue #52, 22.11.2026)
+- **Setting:** the plan entry above, rung 5, at e4f7943 (clean; later commits on the branch only add
+  LOG text, figures and figure scripts), 3080, bf16, lr_lora 1e-4, lr_pool from the sweep (GT 3e-6,
+  grid 1e-5), 3000 steps, seeds 0-2 per arm, state kept on val, dev scored on 20 views. One arm and
+  seed per run, 21.11 16:02 - 22.11 04:02 (~7080 s training per run, 2.36 s per step), peak 2.22 GB,
+  0 segments dropped. Job `/home/student/mircea/jobs_e52b_main.sh`, runs `runs/e52b_main_<arm>_s<s>`.
+  One CUDA allocator OOM warning per run during dev scoring, as in the control; every score was
+  written. Control = the E52b control's three seeds (same script, same 3080).
+- **Dev Chamfer (cm, seed mean per arm; Déjà View the same run in all nine):**
+
+  | | living room | bedroom | lobby | mean | seed range | kept steps |
+  |---|---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | | |
+  | LoRA alone (control) | 1.522 | 1.647 | 6.295 | **3.155** | 0.081 | 2500 / 1500 / 3000 |
+  | LoRA + pool, GT instances | 1.604 | 1.688 | 6.443 | 3.245 | 0.101 | 2500 / 2500 / 750 |
+  | LoRA + pool, grid tiles | 1.578 | 1.644 | 6.450 | 3.224 | 0.171 | 2250 / 2500 / 3000 |
+  | GT - grid | +0.025 | +0.044 | -0.007 | +0.021 | | |
+  | GT - LoRA alone | +0.081 | +0.041 | +0.149 | +0.090 | | |
+  | grid - LoRA alone | +0.056 | -0.003 | +0.156 | +0.069 | | |
+
+  Per seed (dev mean, cm): GT 3.195 / 3.244 / 3.296, grid 3.282 / 3.280 / 3.111, LoRA alone
+  3.154 / 3.195 / 3.115. With the same seed (same draws), GT is ahead on seeds 0 and 1 and grid on
+  seed 2; the sign of GT - grid follows the seed.
+- **Reading (the plan's rule):** refuted. GT would have needed to beat Déjà View, LoRA alone and
+  grid by more than 0.080 cm each, on 2 of 3 scenes. It beats Déjà View (-0.255 cm), but is within
+  the margin of grid (+0.021 cm, on the wrong side) and behind LoRA alone on all three scenes
+  (+0.090 cm mean). The prediction (GT ties grid, as E52a's fourth run without LoRA) holds. Grid
+  is within the margin of LoRA alone (+0.069 cm), so the pooling adapter adds no capacity either.
+  Both pooling arms sit 0.07-0.09 cm behind LoRA alone, at the edge of the seed ranges
+  (0.08-0.17 cm); with three seeds that is a trend, not a measured harm.
+- **Other observations:**
+  - The val curves of the three arms interleave at every eval (figure): no arm stays below the
+    others during training, and seeds of one arm differ as much as the arms do.
+  - The kept step is a noisy choice: GT seed 2 keeps step 750 (val 0.9588) and scores the worst
+    GT dev mean (3.296); val moves by up to 0.014 between evals, as before.
+  - Grid's seed range (0.171 cm) is twice the control's; the margin taken from the control is the
+    smaller of the measured ranges.
+- **Conclusion, for #52:** its done condition (LoRA with vs without segment inputs, at the same
+  training) is met with a negative: on Hypersim dev, feeding GT instances into a pooling adapter
+  inside Déjà View gives no gain over grid tiles or over plain LoRA fine-tuning, with 3 seeds per
+  arm and both arms swept alike. Together with E52a (pooling alone), E52c/E52e (instances in the
+  loss) and E52f (3-120 train scenes), segment inputs have not helped any trained adapter inside
+  Déjà View; scoped to these adapters, Hypersim and this budget. Not tested: gating the pooling
+  branch (presentation feedback, 19.11), the planned follow-up; val not scored on Chamfer.
+- **Figure, raw:** `uv run python experiments/scripts/e52b_main_figures.py` ->
+  `figures/e52b_main.jpg` (dev Chamfer ratio per scene with seeds, val curves of all nine runs),
+  `results/e52b_main.yaml`.
