@@ -60,3 +60,6 @@ train_scenes: null                   # named scenes instead of train_splits (lad
 # E52b (LoRA on the shared loop block's attention qkv and proj, frame and global)
 lora_rank: 16                        # ~0.15 M parameters, near pooling's ~0.2 M
 lr_lora: 1.0e-4                      # unused unless a model's lora flag is set
+# E87a (per-token gate on pooling, issue #87): a model's fourth flag, e.g.
+# "models={lora_pool_gate: [false, true, true, true]}"
+lr_gate: 1.0e-4                      # w_k, b_k; swept in E87a, unused without the flag

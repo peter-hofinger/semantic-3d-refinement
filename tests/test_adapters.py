@@ -20,6 +20,7 @@ from src.backbone.adapters import (
     plain_forward,
     segment_codes,
     segment_offsets,
+    token_gate,
 )
 from src.segmentation.base import NO_INSTANCE
 
@@ -115,6 +116,52 @@ def test_zero_adapter_is_dejaview_bit_for_bit(net: torch.nn.Module) -> None:
     torch.testing.assert_close(biased["depth"], ref["depth"])
     lora = SegmentAdapter(bias=False, pool=False, lora=4)
     torch.testing.assert_close(forward(net, images, lora, codes)["depth"], ref["depth"])
+    gate = SegmentAdapter(bias=False, pool=True, gate=True)
+    torch.testing.assert_close(forward(net, images, gate, codes)["depth"], ref["depth"])
+
+
+def test_token_gate_is_the_written_out_sigmoid() -> None:
+    x = torch.tensor([[[1.0, 2.0], [0.0, -1.0], [3.0, 0.5]]])
+    w, b = torch.tensor([0.5, -1.0]), torch.tensor(0.25)
+    logits = [0.5 * 1.0 - 2.0 + 0.25, 1.0 + 0.25, 1.5 - 0.5 + 0.25]
+    expected = 1 / (1 + torch.exp(-torch.tensor(logits)))
+    torch.testing.assert_close(token_gate(x, w, b), expected.reshape(1, 3, 1))
+    assert torch.equal(token_gate(x, 0 * w, 0 * b), torch.full((1, 3, 1), 0.5))
+
+
+def test_open_gate_is_pooling_and_closed_gate_is_dejaview(
+    net: torch.nn.Module,
+) -> None:
+    images, codes = inputs(9)
+    torch.manual_seed(10)
+    plain = SegmentAdapter(bias=False, pool=True)
+    gated = SegmentAdapter(bias=False, pool=True, gate=True)
+    with torch.no_grad():
+        plain.up.normal_(0, 0.01)
+        gated.down.weight.copy_(plain.down.weight)
+        gated.up.copy_(plain.up)
+        ref = net.forward_inference(images)["depth"]
+        pooled = forward(net, images, plain, codes)["depth"]
+        assert not torch.allclose(pooled, ref)
+        gated.gate_b.fill_(30.0)  # sigmoid(30) = 1 - 1e-13
+        torch.testing.assert_close(forward(net, images, gated, codes)["depth"], pooled)
+        gated.gate_b.fill_(-30.0)
+        torch.testing.assert_close(forward(net, images, gated, codes)["depth"], ref)
+
+
+def test_gate_trains_once_b_k_moves(net: torch.nn.Module) -> None:
+    images, codes = inputs(11)
+    adapter = SegmentAdapter(bias=False, pool=True, gate=True)
+    forward(net, images, adapter, codes)["depth"].square().mean().backward()
+    assert adapter.up.grad.abs().sum() > 0
+    assert not adapter.gate_w.grad.any()
+    assert not adapter.gate_b.grad.any()
+    adapter.zero_grad()
+    with torch.no_grad():
+        adapter.up.normal_(0, 0.01)
+    forward(net, images, adapter, codes)["depth"].square().mean().backward()
+    assert adapter.gate_w.grad.abs().sum() > 0
+    assert adapter.gate_b.grad.abs().sum() > 0
 
 
 def test_lora_is_the_merged_weight(net: torch.nn.Module) -> None:

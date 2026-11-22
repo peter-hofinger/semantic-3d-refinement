@@ -17,6 +17,14 @@ a grid, decides per loop step k and head h how segments act:
   the block is shared. With no segments it is plain fine-tuning (E52b's control). Its
   scale (the paper's alpha / r) is 1: with Adam, tuning it is about the same as
   tuning the learning rate (Hu et al. 2022, Sec. 4.1).
+- gate (E87a, issue #87): the pooling step becomes
+  x_i += g_i B_k A (m_s(i) - x_i), g_i = sigmoid(w_k · x_i + b_k), so each token
+  decides from its own state how much of its segment's mean it takes, as Flamingo's
+  gated cross-attention (Alayrac et al. 2022) lets a frozen model's layers take new
+  input only where it helps, but per token. w_k = 0, b_k = 0 at the start: g = 1/2
+  everywhere, never 0, so B_k (zero, as above) still gets a gradient; w_k and b_k get
+  one once B_k has moved (a gate at 0 together with B_k = 0 would never train, each
+  gradient being proportional to the other).
 
 With every parameter zero and no grad, `forward` is Déjà View's inference bit for bit.
 With grad, each loop step is checkpointed (Chen et al. 2016) with its step index as an
@@ -164,16 +172,21 @@ class SegmentAdapter(nn.Module):
         dim: int = 768,
         rank: int = 16,
         lora: int = 0,
+        gate: bool = False,
     ) -> None:
         """Bias: (steps, 2, heads) zeros; pool: A random (LoRA's init), B_k zeros.
 
         lora > 0: D (lora x dim) as nn.Linear's init (LoRA's), U zeros, per target.
+        gate (needs pool): w (steps, dim) and b (steps,) zeros.
         """
         super().__init__()
         assert bias or pool or lora > 0
+        assert pool or not gate
         self.beta = nn.Parameter(torch.zeros(steps, 2, heads)) if bias else None
         self.down = nn.Linear(dim, rank, bias=False) if pool else None
         self.up = nn.Parameter(torch.zeros(steps, rank, dim)) if pool else None
+        self.gate_w = nn.Parameter(torch.zeros(steps, dim)) if gate else None
+        self.gate_b = nn.Parameter(torch.zeros(steps)) if gate else None
         self.lora_down = self.lora_up = None
         if lora > 0:
             names = [f"{a}_{t}" for a in ATTENTIONS for t in LORA_TARGETS]
@@ -249,6 +262,15 @@ def attend(
     return attn.proj_drop(attn.proj(out.transpose(1, 2).reshape(-1, n, c)))
 
 
+def token_gate(x: Tensor, w: Tensor, b: Tensor) -> Tensor:
+    """(B, N, C) tokens, (C,) w, () b -> (B, N, 1) gates sigmoid(w · x_i + b)."""
+    assert x.shape[-1] == w.shape[0], (x.shape, w.shape)
+    assert b.ndim == 0, b.shape
+    g = torch.sigmoid(x.float() @ w.float() + b.float())[..., None]
+    assert torch.isfinite(g).all()
+    return g
+
+
 def low_rank(linear: nn.Linear, down: Tensor, up: Tensor, x: Tensor) -> Tensor:
     """W x + b + U D x: the frozen linear plus its LoRA."""
     return F.linear(x, linear.weight, linear.bias) + F.linear(F.linear(x, down), up)
@@ -275,6 +297,9 @@ def run(loop: Loop, k: int, *args: Any) -> Tensor:  # noqa: ANN401 (dvlt block a
     joint = loop.codes[1]
     flat = x.reshape(1, joint.shape[1], -1)
     delta = down(segment_offsets(flat, joint)) @ up[k]
+    w, b = adapter.gate_w, adapter.gate_b
+    if w is not None and b is not None:
+        delta = token_gate(flat, w[k], b[k]) * delta
     return (flat + delta.to(flat.dtype)).reshape(x.shape)
 
 
