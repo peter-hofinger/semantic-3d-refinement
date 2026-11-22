@@ -1,0 +1,107 @@
+# E86a (experiments/LOG.md, issue #86): which part of the instance voxel density filter
+# carries its gain. The cut's instance ids (`keep_segments`, src/analysis/scene_eval.py) are
+# none (all pixels one instance: plain voxel density), SAM 3's linked masks (E27a's filter),
+# GT instances (upper bound) or SAM 3's ids permuted per view (seed 0: grouping within a view
+# kept, cross-view identity scrambled). Each on Deja View's output and with E27a's recipe
+# (E_t 4e-2, E_n off, then the cut), at E27a's q = 0.5; without refinement also q 0.3, 0.7,
+# 0.9 for the curve. Protocol as E27a (experiments/configs/e27a.yaml). Dev, then val.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+aggregated: [dev, val, test]
+per_scene: [dev, val, stress]
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+refine: configs/refine.yaml
+variants:
+  - name: Déjà View
+    refiner: none
+  - name: tangent 4e-2
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+  - name: Déjà View, kept 0.5, none
+    refiner: none
+    keep: 0.5
+    keep_segments: none
+  - name: Déjà View, kept 0.5, SAM 3
+    refiner: none
+    keep: 0.5
+    keep_segments: sam3
+  - name: Déjà View, kept 0.5, GT
+    refiner: none
+    keep: 0.5
+    keep_segments: gt
+  - name: Déjà View, kept 0.5, permuted
+    refiner: none
+    keep: 0.5
+    keep_segments: permuted
+  - name: tangent 4e-2, kept 0.5, none
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+    keep_segments: none
+  - name: tangent 4e-2, kept 0.5, SAM 3
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+    keep_segments: sam3
+  - name: tangent 4e-2, kept 0.5, GT
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+    keep_segments: gt
+  - name: tangent 4e-2, kept 0.5, permuted
+    refiner: joint
+    refine: {lambda_n: 0.0, lambda_t: 4.0e-2}
+    keep: 0.5
+    keep_segments: permuted
+  - name: Déjà View, kept 0.3, none
+    refiner: none
+    keep: 0.3
+    keep_segments: none
+  - name: Déjà View, kept 0.3, SAM 3
+    refiner: none
+    keep: 0.3
+    keep_segments: sam3
+  - name: Déjà View, kept 0.3, GT
+    refiner: none
+    keep: 0.3
+    keep_segments: gt
+  - name: Déjà View, kept 0.3, permuted
+    refiner: none
+    keep: 0.3
+    keep_segments: permuted
+  - name: Déjà View, kept 0.7, none
+    refiner: none
+    keep: 0.7
+    keep_segments: none
+  - name: Déjà View, kept 0.7, SAM 3
+    refiner: none
+    keep: 0.7
+    keep_segments: sam3
+  - name: Déjà View, kept 0.7, GT
+    refiner: none
+    keep: 0.7
+    keep_segments: gt
+  - name: Déjà View, kept 0.7, permuted
+    refiner: none
+    keep: 0.7
+    keep_segments: permuted
+  - name: Déjà View, kept 0.9, none
+    refiner: none
+    keep: 0.9
+    keep_segments: none
+  - name: Déjà View, kept 0.9, SAM 3
+    refiner: none
+    keep: 0.9
+    keep_segments: sam3
+  - name: Déjà View, kept 0.9, GT
+    refiner: none
+    keep: 0.9
+    keep_segments: gt
+  - name: Déjà View, kept 0.9, permuted
+    refiner: none
+    keep: 0.9
+    keep_segments: permuted

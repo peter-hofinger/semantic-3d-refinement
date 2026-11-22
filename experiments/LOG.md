@@ -7325,3 +7325,34 @@ Interim entry: the check that the plan puts before any table.
 - **Figure, raw:** `uv run python experiments/scripts/e52b_main_figures.py` ->
   `figures/e52b_main.jpg` (dev Chamfer ratio per scene with seeds, val curves of all nine runs),
   `results/e52b_main.yaml`.
+
+## Plan: E86a = ablate the semantics in the instance voxel density filter: none, SAM 3, GT, permuted ids (issue #86, 22.11.2026)
+- **Goal:** the instance voxel density filter (E45, third arm) and E27a's flag-refine-filter built on it are our
+  best working methods on Déjà View's output (dev Chamfer 3.500 -> 3.298 and 3.209 cm), and the only working ones
+  with an unmeasured semantic part. E45 measured it once, dev only, against plain voxel density at the refiner's
+  completeness: -0.045 cm Chamfer, beyond the floor only on the lobby (-0.241; living room and bedroom tie), and the
+  variant was the best of seven on those same three scenes, which flatters it. E8a found per-view permuted ids beat
+  SAM 3's in the refiner, so a permuted control is needed. Does the semantic part beat the same filter without it
+  on val, and if so, is it the cross-view identity or the boundaries within a view?
+- **Setting:** `experiments/configs/e86a.yaml`, one `scene_eval` run, dev (3) then val (11), RTX 3080; protocol
+  as E27a. Code: `keep_segments` picks the cut's instance ids as `segments` picks the refiner's
+  (`segment_ids`, `keep_ids`); until now the cut always took SAM 3's, whatever the variant. Arms for the ids:
+  **none** (every pixel one instance: plain voxel density), **SAM 3** (linked masks, E27a's filter), **GT**
+  (Hypersim's instances, no-mesh and unlabeled pixels as none; upper bound), **permuted** (SAM 3's ids permuted per
+  view, seed 0: each view's grouping and boundaries kept, cross-view identity scrambled). Each on Déjà View's output
+  and with E27a's recipe (E_t 4e-2, E_n off, refine every pixel, then cut), at E27a's q = 0.5; without refinement
+  also q = 0.3, 0.7, 0.9 for a curve per arm. Every arm keeps the same number of pixels at a q, so accuracy is
+  compared at equal pixel count; completeness is reported next to it.
+- **Checks:** `Déjà View, kept 0.5, SAM 3` and `tangent 4e-2, kept 0.5, SAM 3` reproduce E27a's (dev Chamfer
+  3.298 / 3.209, val 3.817 / 3.669 cm); Déjà View and tangent 4e-2 reproduce E27a's rows. Tests: `none` makes
+  instance voxel density equal plain voxel density, `gt` maps no-mesh pixels to none, `permuted` keeps each view's
+  grouping (tests/test_segment_ids.py).
+- **Rule (val decides, Déjà View kept 0.5; floor 0.033 / 0.036 cm accuracy / Chamfer, E40/E45):** SAM 3 - none
+  < -0.036 cm mean Chamfer on val and better on at least 7 of 11 val scenes means the semantic part carries a gain;
+  |SAM 3 - none| <= 0.036 cm refutes it: the filter works as plain voxel density, and the write-up says so. If it
+  holds, permuted ~ none says the cross-view identity carries it, permuted ~ SAM 3 says the boundaries within a view
+  do. GT - SAM 3 is the headroom of better masks. The E27a recipe rows say whether the reading changes after
+  refinement.
+- **Prediction:** a tie on val (|SAM 3 - none| within the floor): E45's gap was one scene's, and the curves
+  coincide except at high completeness. Then plain voxel density is the baseline any semantic filter must beat.
+- **Budget:** ~20 min on the 3080 (E27a took 8 min for 6 variants, 3 of them refined; here 22 variants, 5 refined).

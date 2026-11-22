@@ -19,7 +19,8 @@ A variant's `keep: q` cuts its output to the top fraction q of the pixels by ins
 voxel density (`filters.instance_voxel_density`, E45's best filter), flagged on the
 backbone's cloud: flag, refine every pixel, then drop the flagged (E27a). The dropped
 pixels have no point, so they count for completeness only; the label scores are per
-pixel and stay as they are. With `keep_by: <name>` the pixels are ranked instead by the
+pixel and stay as they are. `keep_segments` picks the cut's instances as `segments`
+picks the refiner's (`none`: plain voxel density, E86a). With `keep_by: <name>` the pixels are ranked instead by the
 score `<name>_<views>.npz` holds in the scene's folder (key `keep`, higher keeps), such
 as the 3D refiner's keep logit (issue #57), at the same fraction; `keep_with: density`
 ranks by both scores (`filters.both`), and `keep_per: instance` cuts each instance to q.
@@ -295,35 +296,58 @@ def shift_per_view(
     return out
 
 
-def variant_segments(inputs: SceneInputs, variant: dict) -> torch.Tensor | None:
-    """Return the refiner's segments: (V, H, W) int64 ids, -1 for none; None for off.
+def segment_ids(
+    kind: str, sam3: np.ndarray, gt: np.ndarray, variant: dict
+) -> np.ndarray | None:
+    """Return (V, H, W) int32 instance ids of the given kind, NO_INSTANCE for none.
 
-    `segments` is `sam3` (the linked masks, default), `gt` (Hypersim's instances, the
-    unlabeled and no-mesh pixels as none), `none`, or the linked masks corrupted:
-    `permuted` (`permute_per_view`) or `shifted` by `shift_px` (`shift_per_view`), drawn
-    with the variant's `seed`.
+    `kind` is `sam3` (the linked masks), `gt` (Hypersim's instances, the unlabeled and
+    no-mesh pixels as none), `none` (None), or the linked masks corrupted: `permuted`
+    (`permute_per_view`) or `shifted` by the variant's `shift_px` (`shift_per_view`),
+    drawn with the variant's `seed`.
     """
-    kind = variant.get("segments", "sam3")
+    assert sam3.shape == gt.shape and sam3.dtype == np.int32, (sam3.shape, gt.shape)
     rng = np.random.default_rng(variant.get("seed", 0))
-    sam3 = inputs.labels.instance_ids
     match kind:
         case "none":
             return None
         case "sam3":
-            ids = sam3
+            return sam3
         case "gt":
-            ids = np.where(
-                inputs.gt.instance_ids < 0, NO_INSTANCE, inputs.gt.instance_ids
-            )
+            return np.where(gt < 0, NO_INSTANCE, gt).astype(np.int32)
         case "permuted":
-            ids = permute_per_view(sam3, rng)
+            return permute_per_view(sam3, rng)
         case "shifted":
-            ids = shift_per_view(sam3, variant["shift_px"], rng)
+            return shift_per_view(sam3, variant["shift_px"], rng)
         case _:
             msg = f"unknown segments: {kind}"
             raise ValueError(msg)
+
+
+def variant_segments(inputs: SceneInputs, variant: dict) -> torch.Tensor | None:
+    """Return the refiner's segments (`segment_ids` of `segments`, default sam3) as int64."""
+    ids = segment_ids(
+        variant.get("segments", "sam3"),
+        inputs.labels.instance_ids,
+        inputs.gt.instance_ids,
+        variant,
+    )
+    if ids is None:
+        return None
     assert ids.shape == inputs.scene.depth.shape, (ids.shape, inputs.scene.depth.shape)
     return torch.from_numpy(ids.astype(np.int64))
+
+
+def keep_ids(inputs: SceneInputs, variant: dict) -> np.ndarray:
+    """Return the cut's instance ids: `segment_ids` of `keep_segments` (default sam3).
+
+    `none` puts every pixel in one instance, which makes instance voxel density plain
+    voxel density (the semantic ablation of the filter, E86a).
+    """
+    sam3 = inputs.labels.instance_ids
+    kind = variant.get("keep_segments", "sam3")
+    ids = segment_ids(kind, sam3, inputs.gt.instance_ids, variant)
+    return np.full_like(sam3, NO_INSTANCE) if ids is None else ids
 
 
 def refine_variant(
@@ -360,7 +384,7 @@ def refine_variant(
     log_record["disagreement_pct"] = disagreement_pct(depth, scene, matches)
     points = points_from_rays(depth.double(), scene.rays.double()).cpu().numpy()
     if "keep" in variant:
-        ids = inputs.labels.instance_ids
+        ids = keep_ids(inputs, variant)
         if keep_score is None or variant.get("keep_with") == "density":
             start = points_from_rays(scene.depth.double(), scene.rays.double())
             density = instance_voxel_density(
