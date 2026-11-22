@@ -7428,3 +7428,41 @@ Interim entry: the check that the plan puts before any table.
   are read the same way.
 - **Prediction:** a tie; the median curves of E86a's figure lie on top of each other on val.
 - **Budget:** ~20-30 min on the 3080's CPU, timed on one dev scene first.
+
+## E86b: E86a's id arms at equal completeness -> unchanged: SAM 3's ids lose to none on val; GT gains on 3 scenes only (issue #86, 22.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned.
+- **Commits:** dae5b05 (plan, `e86b_equal_completeness.py`), this commit (results, figure; the figure's noise band
+  moved behind the dots and redrawn from the run's JSON, no rescoring).
+- **Command** (RTX 3080's CPU, 32 min): `e86b_equal_completeness.py runs/e86a-20261122-113632 --splits dev val` ->
+  `results/e86b_equal_completeness.txt`, `figures/e86b_equal_completeness.jpg`, `runs/.../e86b_{dev,val}.json`. The
+  stamp reads dae5b05-dirty only because the redirected output file existed when the script started.
+- **Checks:** every arm's q 1 and q 0.5 reproduce E86a's run within 0.001 cm (asserted, dev and val). Every arm
+  reached both targets on all 14 scenes; the match is within 0.008 cm of the target except where a cliff leaves a
+  one-pixel bracket: the lobby (SAM 3 at none's target, +0.234 cm), `ai_004_003` (SAM 3 +0.056, GT +0.031),
+  `ai_009_009` (up to 0.015).
+- **Results, accuracy cm at equal completeness, arm minus none:** mean | median | scenes better, at SAM 3's / at
+  none's completeness at q 0.5 (per scene in the results file):
+
+  | arm | dev (3) | val (11) |
+  |---|---|---|
+  | SAM 3 | -0.076 / -0.051 \| -0.008 / -0.011 \| 3 / 3 of 3 | **+0.058 / +0.040 \| +0.053 / +0.069 \| 2 / 2 of 11** |
+  | GT | -0.247 / -0.317 \| -0.019 / -0.017 \| 3 / 2 of 3 | -0.122 / -0.135 \| -0.010 / -0.014 \| 6 / 6 of 11 |
+  | permuted | +0.187 / +0.048 \| +0.090 / +0.038 \| 0 / 0 of 3 | +0.566 / +0.487 \| +0.537 / +0.489 \| 2 / 2 of 11 |
+
+- **Reading (the plan's rule):** E86a's conclusion stands. At equal completeness SAM 3's ids are still worse than
+  none on val, by more than the floor (+0.058 / +0.040 cm mean, medians +0.053 / +0.069), better on 2 of 11 scenes at
+  both targets. The prediction (a tie) was again too kind to SAM 3.
+- **Dev without the cliff:** matched to SAM 3's completeness, the lobby's plain cut is 0.211 cm less accurate (6.078
+  against 5.867), so dev's -1.804 cm Chamfer at equal q shrinks to -0.076 cm accuracy, carried by the lobby; the
+  living room and bedroom tie (-0.008, -0.008).
+- **GT:** -0.122 / -0.135 cm mean but a median within the floor and 6 of 11 scenes, so it fails the rule. Its gain is
+  three scenes, the same at both targets: `ai_044_003` (-0.605 / -0.604), `ai_009_009` (-0.491 / -0.611), `ai_004_003`
+  (-0.208 / -0.235); on the other eight it ties none. SAM 3's ids gain nothing on those three (+0.053 to +0.133). So
+  better instances have a headroom confined to a few scenes, which SAM 3's linked masks do not reach.
+- **Permuted:** worse by ~0.5 cm, as at equal q; its two better scenes (`ai_004_003`, `ai_007_001`) are cut at q 0.28
+  to 0.34, far from the others' 0.5, i.e. on the far side of a cliff.
+- **Figure** (`figures/e86b_equal_completeness.jpg`): per split, each scene's accuracy of the arm minus none at both
+  targets (symlog, linear within ±0.5 cm).
+- **Conclusion, for #86:** at equal q (E86a) and at equal completeness (E86b), no semantic gain survives in the
+  instance voxel density filter on val: plain voxel density is the filter, SAM 3's ids cost ~0.05 cm. Open: what
+  GT's instances get right on three scenes (likely objects that SAM 3 misses or merges), not pursued here.

@@ -329,6 +329,7 @@ issue #7 (18, 0, 12, 6), `debug/` everything else. Déjà View → Refined:
   instance, plain voxel density, is 0.055 cm better in Chamfer than SAM 3's ids (3 of 11 scenes
   favour SAM 3), ground-truth ids are within noise of it (median -0.004 cm), and ids permuted per
   view are 0.548 cm worse: the filter works through the cross-view count, not the semantics.
+  Compared at equal completeness instead (E86b), SAM 3's ids still lose (+0.058 cm accuracy, 2 of 11).
 - **Stress** (tilt-shift cameras, no aggregate) shows the same pattern: Chamfer 2.17 → 2.37 in
   the kitchen, 15.29 → 15.93 in the conference room, 3.99 → 4.34 in the restaurant.
 - **Labels** are the linked SAM 3 masks and do not move with refinement. mIoU counts classes

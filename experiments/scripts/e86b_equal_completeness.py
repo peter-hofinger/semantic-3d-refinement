@@ -134,6 +134,7 @@ def figure(results: dict) -> None:
             -FLOOR["accuracy_cm"],
             FLOOR["accuracy_cm"],
             color="0.85",
+            zorder=0,
             label=f"floor ±{FLOOR['accuracy_cm']} cm",
         )
         ax.axhline(0, color="k", lw=0.6)
