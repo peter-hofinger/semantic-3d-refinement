@@ -7745,3 +7745,36 @@ Interim entry: the check that the plan puts before any table.
   too low (1.15-1.40 and 0.06-0.09).
 - **Limits:** bedroom, rung 3 (the training scene, the oracle's GT), one seed per cell; steps differ between cells (1000 for 3 x 3, 2000 for ResNet); the ResNet on raw inputs was not run, so conditioning and structure are separated
   only by the 3 x 3 pair and not by a 2 x 2 grid; best q is GT-chosen except the x >= 0 column; dev rung and generalization (rung 4-5) not run.
+
+### E84q: rung 4, the ResNet head on the 3 dev scenes (issue #84)
+
+- **Setting** (`configs/e84q_dev_resnet.yaml`): E84o's run (expected Chamfer with the Poisson tail, logit gain 1 -> 0.1 over 500 steps, KeepResNet 190k, standardized inputs with the
+  statistics of the 3 training scenes, constant Adam 1e-3, seed 0) on `ai_010_007` (living room), `ai_006_007` (bedroom), `ai_044_001` (hotel lobby), a step is every scene once.
+  **700 steps, not 2000:** three scenes cost about 2.4 s/step and 700 keeps the job under the 30 min that need asking; the bedroom's solo run was at 1.407 after 600 steps and 1.317 after 2000, so the
+  number is budget-limited and I will say so.
+- **Baselines (exact Chamfer cm, uncut, same alignment):** living room 1.601 (A 2.194, C 1.007), bedroom 1.846 (A 2.520, C 1.172), lobby 7.053 (A 9.312, C 4.795).
+- **Hypothesis:** the one head overfits all three scenes (rung 4: the outputs differ per input and the loss falls with the bedroom's): the natural cut s >= 0.5 beats uncut by >= 20 % on **every** scene
+  and the bedroom stays within 0.15 cm of its solo run at 700 steps (<= 1.55 at the cut). **Refuted** if any scene's s >= 0.5 cut is not at least 20 % under its uncut Chamfer, or the bedroom is worse than 1.55.
+  **My expectation:** living room 1.1-1.3, bedroom 1.35-1.50, lobby 4-5.5 (its errors are large and much of it is removable by dropping far, grazing points); the best GT-chosen share is 0.2-0.3 cm better than the cut.
+  Uncut DV and DV's confidence at the same kept share are computed after the run, in one sweep (as E84m).
+- **Results** (`runs/e84q_dev_resnet-20261122-094729`, `results/e84q_dev_sweep.txt`, figure `figures/e84q_dev_maps.jpg`, looked at; the 3 training scenes, exact Chamfer cm (A / C), fixed alignment; 700 steps,
+  2.4 s/step median, 4.4 GB peak, scenes load in 7 s; the head cut is x >= 0, "same share" is Déjà View's confidence cut to the head's kept share, "best q" is GT-chosen):
+
+  | scene | uncut | head x >= 0 (kept) | DV confidence, same share | head, best q | DV confidence, best q |
+  |---|---|---|---|---|---|
+  | living room ai_010_007 | 1.601 (2.194 / 1.007) | **1.266** (0.55) -21 % | 7.314 | **1.075** (0.6) -33 % | 1.601 (q 1.0) |
+  | bedroom ai_006_007 | 1.846 (2.520 / 1.172) | 1.742 (0.43) -6 % | 8.166 | **1.287** (0.5) -30 % | 1.793 (q 0.95) |
+  | lobby ai_044_001 | 7.053 (9.312 / 4.795) | **5.335** (0.36) -24 % | 85.734 | **4.138** (0.4) -41 % | 7.053 (q 1.0) |
+
+  The mean loss fell 3.695 -> 2.128 and was still falling (2.160 at step 600). At the cut the head's accuracy is far better (0.93 / 1.06 / 2.45 against 2.19 / 2.52 / 9.31 cm) and its completeness worse
+  (1.60 / 2.42 / 8.22 against 1.01 / 1.17 / 4.80): it drops whole regions (the figure: far walls and windows, the upper wall of the bedroom view, edges), not single points.
+  Déjà View's confidence at the same kept share is 4-12 x worse than uncut, and its best share is "keep everything" on two scenes and 0.95 on the bedroom.
+- **Against what was written before:** **Refuted.** The cut beats uncut by >= 20 % on the living room (-21 %) and the lobby (-24 %) but not on the bedroom (-6 %), and the bedroom at the cut is 1.742,
+  above 1.55 (its solo run: 1.407 at step 600, 1.317 at 2000). My expectations: living room 1.1-1.3 held (1.266), lobby 4-5.5 held (5.335), bedroom 1.35-1.50 missed (1.742); best q 0.2-0.3 cm better than the cut
+  missed on all three (0.19 / 0.46 / 1.20 cm).
+- **Reading:** rung 4 is **not yet passed**: the loss still falls, and the bedroom is worse than when trained alone (best q 1.287 against 1.075), so the shared head has not fitted three scenes at 700 steps. What it shows:
+  one head's outputs differ per input and track the true error map (figure), every scene is improved at the best share (-30 to -41 %), and the cut, the one number no GT chooses, wins -21 %, -6 %, -24 %. What is missing before
+  "approach fails" or "rung 4 passed" can be written: a run to convergence (2000+ steps, about 80 min, needs asking), a per-scene floor (the greedy oracle on the living room and the lobby; here only the bedroom's, 0.855, is known),
+  more than one seed.
+- **Limits:** training scenes, not a score (rung 4); 700 steps against the bedroom's 2000, so the budget confounds the comparison with E84o; one seed; the cut is x >= 0 with the temperature annealed to 0.1, so it is not a tuned threshold,
+  but the best-q column is GT-chosen.

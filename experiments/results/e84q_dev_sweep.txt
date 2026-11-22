@@ -1,0 +1,19 @@
+e84q_dev_resnet-20261122-094729: exact Chamfer cm (A / C), fixed alignment, training scenes; q = kept share, GT-chosen where 'best'; shares 0.05...1.0
+ai_010_007_cam_00
+  uncut: 1.601 (2.194 / 1.007)
+  head x >= 0 (kept 0.55): 1.266 (0.930 / 1.602)
+  Déjà View confidence, same share 0.55: 7.314 (1.306 / 13.323)
+  head, best q 0.6: 1.075 (1.037 / 1.113)
+  Déjà View confidence, best q 1.0: 1.601 (2.194 / 1.007)
+ai_006_007_cam_00
+  uncut: 1.846 (2.520 / 1.172)
+  head x >= 0 (kept 0.43): 1.742 (1.059 / 2.424)
+  Déjà View confidence, same share 0.43: 8.166 (1.640 / 14.693)
+  head, best q 0.5: 1.287 (1.204 / 1.370)
+  Déjà View confidence, best q 0.95: 1.793 (2.239 / 1.348)
+ai_044_001_cam_00
+  uncut: 7.053 (9.312 / 4.795)
+  head x >= 0 (kept 0.36): 5.335 (2.452 / 8.218)
+  Déjà View confidence, same share 0.36: 85.734 (6.449 / 165.018)
+  head, best q 0.4: 4.138 (2.802 / 5.475)
+  Déjà View confidence, best q 1.0: 7.053 (9.312 / 4.795)
