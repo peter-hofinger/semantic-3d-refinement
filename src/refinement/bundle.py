@@ -556,7 +556,11 @@ def matches_path(cfg: BundleConfig, name: str) -> Path:
 
 
 def compute_matches(cfg: BundleConfig, names: list[str], device: torch.device) -> None:
-    """Cache RAFT matches and same-object flags of every scene; existing caches stay."""
+    """Cache RAFT matches and same-object flags of every scene; existing caches stay.
+
+    A scene whose rays fit no pinhole (as `volume.py` skips them) gets no cache and is
+    left out of training; every prediction scene must have one.
+    """
     from torchvision.models.optical_flow import Raft_Large_Weights, raft_large  # noqa: PLC0415  only this stage needs it
 
     model = raft_large(weights=Raft_Large_Weights.DEFAULT).to(device).eval()
@@ -568,7 +572,11 @@ def compute_matches(cfg: BundleConfig, names: list[str], device: torch.device) -
         folder = cfg.root / name
         views = Views.load(folder / f"{cfg.views}.npz")
         geometry = Geometry.load(folder / f"{cfg.backbone}_{cfg.views}.npz")
-        scene = scene_from_geometry(geometry).to(device)
+        try:
+            scene = scene_from_geometry(geometry).to(device)
+        except AssertionError as err:  # fit_pinhole: Deja View's rays are no pinhole
+            print(f"{name}: skipped, pinhole fit failed ({err})", flush=True)  # noqa: T201
+            continue
         pairs = window_pairs(len(scene.center), cfg.window).to(device)
         images = torch.from_numpy(views.images).to(device)
         target, fb = raft_matches(images, pairs, cfg.stride, model)
@@ -764,8 +772,16 @@ def main() -> None:
         return
     out = args.out or Path("runs") / f"bundle-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True, exist_ok=True)
-    data = [load_scene(cfg, n, device, truth=True) for n in cfg.train]
-    record = {"config": yaml.safe_load(args.config.read_text()), "git": git_hash()}
+    skipped = [n for n in cfg.train if not matches_path(cfg, n).exists()]
+    data = [
+        load_scene(cfg, n, device, truth=True) for n in cfg.train if n not in skipped
+    ]
+    record = {
+        "config": yaml.safe_load(args.config.read_text()),
+        "git": git_hash(),
+        "skipped": skipped,
+    }
+    print(f"{len(data)} train scenes, skipped (no matches): {skipped}", flush=True)  # noqa: T201
     for base, semantics in cfg.models.items():
         for seed in cfg.seeds:
             name = f"{base}-s{seed}"
