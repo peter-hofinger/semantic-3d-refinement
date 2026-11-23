@@ -7778,3 +7778,100 @@ Interim entry: the check that the plan puts before any table.
   more than one seed.
 - **Limits:** training scenes, not a score (rung 4); 700 steps against the bedroom's 2000, so the budget confounds the comparison with E84o; one seed; the cut is x >= 0 with the temperature annealed to 0.1, so it is not a tuned threshold,
   but the best-q column is GT-chosen.
+
+### E84r: rung 3 as the ladder says, one view (issue #84; the user's objection to E84o's and E84q's "overfit")
+
+- **What was wrong.** Rung 3 is "train on the bedroom only; one fixed, recorded view if a sample is a view". E84a-p and E84q trained on all 20 views of the bedroom (3.8 M pixels, 1 step = 0.8 s,
+  rung 2's bar is 1 s): the head is shared across 20 different images, so a fall of the loss can come from a rule that holds across views, not from memorizing a sample, and "overfit" was not shown. The
+  only single-sample evidence so far is E84n's 1 000 pixels (mimic loss, not the expected Chamfer) and the free logits (no head). E84o's "rung 3 passed" and E84q's "rung 4" are therefore not ladder results.
+- **Setting.** `KeepScene.view(i)`: view 18 alone, its own pixels, its own GT points (the pixels' GT), probes rebuilt (R = 8, bound, tail), the alignment the scene's. Uncut: 2.328 cm. Free logits
+  (`e84r_free_view18.yaml`, 1500 steps, no head): loss **1.536** (A 0.878 / C 2.195), best top share 0.35 at 1.518, Bernoulli draw 1.532: the loss's optimum for this one sample (-34 % against uncut), the target.
+  Heads: ResNet standardized, 3 x 3 standardized, 3 x 3 raw (E84a-h's setting), each 2000 steps, constant Adam 1e-3, gain 1 -> 0.1 over 500 steps, standardization with the view's own statistics.
+- **Hypothesis (the ladder's pass):** each head overfits the view: the loss reaches within 5 % of the free-logit optimum (<= 1.613) and the output matches the target (Spearman of its logit with the
+  free logit >= 0.9). **Refuted** if the ResNet or the standardized 3 x 3 head stays above 1.613 at step 2000: then the failure is at this rung (loss, targets or optimizer), not the approach.
+  **My expectation:** ResNet 1.54-1.58, standardized 3 x 3 1.55-1.65, raw 3 x 3 1.65-1.9 (the raw channels' conditioning, E84n). Timing (rung 2): about 0.1 s/step, a run under 5 minutes.
+- **Results, 2000 steps** (`runs/e84r_view18_*`, exact Chamfer cm, view 18 alone; free-logit optimum: loss 1.536, uncut 2.328):
+
+  | head | final loss (A / C) | s mean, undecided (0.05 < s < 0.95) | cut s >= 0.5 (kept) |
+  |---|---|---|---|
+  | ResNet, standardized | 1.762 (1.277 / 2.247) | 0.64, 0.34 | 2.900 (0.59) |
+  | 3 x 3, standardized | 1.804 (1.383 / 2.225) | 0.74, 0.23 | 2.399 (0.72) |
+  | 3 x 3, raw | 2.050 (1.953 / 2.147) | 0.93, 0.02 | 2.048 (0.93) |
+
+  Timing: 0.04 s/step (ResNet), 0.02 s/step (3 x 3), a run in 1.5 minutes, rung 2 passed.
+- **Against the hypothesis: refuted.** The ResNet's loss 1.762 and the standardized 3 x 3's 1.804 are above 1.613 (15 % and 17 % above the optimum), the raw head's 2.050 is 33 % above and its s sits near 1 (93 % kept, the
+  cut 2.048 is nearly the uncut 2.328 minus 12 %). The expectation was ResNet 1.54-1.58, 3 x 3 standardized 1.55-1.65, raw 1.65-1.9: missed on all three, in the same order. The ResNet's loss does not settle (1.77 at step 800, 1.83 at 1200-1600,
+  1.76 at 2000), and the cuts are worse than uncut for the two standardized heads (2.900 and 2.399 against 2.328), because a third of s is undecided: the loss, which uses s, is good where the cut is not.
+  **So no head has passed the ladder's rung 3 on one sample.** E84o's "rung 3 passed" (1.075 over 20 views) and E84q do not show an overfit; they are fits of a shared head to 20 images and 60 images, and I withdraw the label.
+  The failure is at this rung: the free logits reach 1.536, so the loss and targets are right (as E84j-n found); what is left is the head or the optimizer.
+- **Next, at this rung, one change at a time** (both on the single view, minutes each; written before the runs): (a) the learning rate: ResNet standardized at 1e-4, 6000 steps (`e84r_view18_resnet_lr1e-4.yaml`); (b) whether the head can produce
+  the target at all: the ResNet fits s* of the free-logit optimum with the mimic cross-entropy (`e84r_view18_resnet_mimic.yaml`, the target saved by `e84n_free_chamfer.py`). **Hypotheses:** (a) the oscillation is the rate: the final loss <= 1.613 at 1e-4;
+  refuted if it stays above. (b) the head can produce s*: the cut of the head's s lands within 5 % of the free optimum's exact Chamfer (the top-share 0.35 value 1.518, so <= 1.60) and the mimic cross-entropy
+  is within 0.05 of s*'s mean binary entropy. **My expectation:** (a) 1.60-1.70, i.e. refuted or marginal; (b) held, cut 1.55-1.8: a 27 x 27 field and 190k parameters on 190 000 pixels is plenty, the free-logit optimum is nearly binary.
+
+### E84 ladder (issue #84): rungs 3, 4, 5 redone on single views, train and val logged every step (the user's instruction, 23.11.2026)
+
+- **Why redone.** E84a-q broke three rules of `docs/experiments.md`: rung 2 (a step of 0.8-2.4 s, the bar is 1 s, ideally < 0.5 s), rung 3 (the "single sample" was 20 views and a whole-scene loss: a head shared across 20 images can fall by a
+  rule that holds across views, which is not memorizing a sample), and the val batch was never logged next to the train batch. The diagnostics of E84r (a): the 1e-4 run collapsed to "keep everything" (loss 2.328) at step 2000,
+  (b): the mimic of the free optimum stayed at cross-entropy 0.269 against its floor 0.0115, both with the logit gain 1 -> 10 of E84e still on: I suspect the gain (a x10 change of the sigmoid's slope in mid-training), untested. The ladder drops it.
+- **Setting.** A sample is one view: Déjà View's 66 cached channels in, s per pixel out, its loss the expected Chamfer (cm) of that view's kept cloud against that view's GT points (R = 8 probes, Poisson tail; the alignment the scene's).
+  `experiments/scripts/e84_ladder.py`: a step is one train batch (forward, backward, Adam) plus one random val batch (forward), both logged every step to TensorBoard; every 100 steps the loss and the exact Chamfer of the cut s >= 0.5 of
+  fixed eval subsets. Network: KeepResNet (5 convolutions, 190k parameters), inputs standardized with the training views' statistics (fixed affine map), constant Adam 1e-3, no gain, no schedule, seed 0.
+  Reference per sample: the optimum (free per-pixel logits, Adam lr 0.1, 400 steps) and the trivial baseline (keep everything). Val: 4 views (0, 6, 12, 18) of each of the 11 val scenes.
+- **Rung 3 (one view, `configs/e84_rung3.yaml`).** Pass: the train loss reaches within 5 % of the sample's optimum (E84r's free logits at 1500 steps: 1.536, so <= 1.613) in 2000 steps, under 500 ms per step; val loss is not expected to fall.
+  **Refuted** if the train loss stays above 1.613 or a step takes over 500 ms. **My expectation:** 1.54-1.65: the gain was the problem, a shallow ResNet reaches the optimum of one view. If it does not, the next change is the learning rate, then the width, one at a time.
+- **Rung 3, first run** (`runs/e84_rung3-20261123-092432`, 2000 steps, 44 ms/step incl. the val batch: the speed bar holds): train loss 2.434 -> 1.857 (100) -> 1.766 (1000) -> **1.751** (2000), the optimum 1.541 (free logits, 400 steps) and the uncut 2.328; the eval cut s >= 0.5
+  scores 2.48 cm exact (uncut 2.33). It jitters (1.838 at step 1200). Val loss over 44 views of the 11 val scenes: 6.7 at step 0, 37.0 at step 2000, far above its uncut baseline (~7): the net is confidently wrong where it was never trained. **Refuted: 1.751 > 1.613**, 14 % above the optimum.
+  The gain (E84r's suspicion) is not the cause: the plateau of 1.76-1.78 is the same without it. My expectation (1.54-1.65) missed. Rung 3 is not passed.
+- **Diagnostics at rung 3, one change each, 6000 steps** (`e84_rung3_6k`: baseline, `e84_rung3_lr3e-4`, `e84_rung3_w128`: width 128, 760k parameters, under the ladder's 1M). The sample asks for a pixel-level pattern (which flying and
+  grazing pixels to drop) from 190k parameters for 190k pixels, so I suspect capacity or the optimizer's noise, not the loss (free logits reach 1.541). **Hypotheses:** (a) lr 3e-4 reaches <= 1.613 where the baseline does not (refuted otherwise); (b) width 128 does
+  (refuted otherwise); (c) the baseline at 6000 steps is still above 1.613. **My expectation:** (c) 1.70-1.75, (a) 1.66-1.74, (b) 1.60-1.70: the width, if anything.
+- **Results of the three diagnostics** (`runs/e84_rung3_{6k,lr3e-4,w128}-*`, 6000 steps, train loss of the batch = the one view; optimum 1.541, uncut 2.328; 44 / 44 / 83 ms per step, 6-10 min wall each with startup and the 100-step evals):
+  baseline lr 1e-3: best 1.690, then **collapsed to s = 1 everywhere (2.328) late in the run**, the same dead-sigmoid collapse as E84r's 1e-4 run; lr 3e-4: 1.714 (last 200 steps' mean 1.716); width 128: best 1.778, last 200 steps' mean 1.868, noisy.
+  (a) refuted (1.714 > 1.613), (b) refuted (1.778), (c) held (1.690 > 1.613, then the collapse). My expectations (c) 1.70-1.75 held; (a) 1.66-1.74 held; (b) 1.60-1.70 missed (worse, not better).
+  **Rung 3 is still not passed.** Neither the rate nor the width moves the plateau, which sits 10-15 % above the optimum, and the baseline can fall to a dead state.
+- **Next at rung 3 (one change, written before the run):** can this network produce the optimum's output at all? Train it with a cross-entropy against s* of the same sample (the free-logit optimum), same net, same rate, no gain (`objective: mimic`). The target is near-binary (entropy floor 0.0115).
+  **Hypothesis:** the network fits it: cross-entropy <= 0.05 within 2000 steps, and the expected Chamfer of its output then lies within 5 % of the optimum (<= 1.62). If it fits and the expected-Chamfer loss does not, the loss's landscape is the bottleneck, not the net;
+  if it does not fit, the net or the optimizer is. **My expectation:** it does not fit (CE 0.10-0.25): the 27 x 27 field cannot tell two neighbouring, equally good pixels apart, and s* breaks that tie arbitrarily.
+- **Result of the mimic test** (`runs/e84_rung3_mimic-*`, 2000 steps, 31 ms/step): the net does not fit s*: cross-entropy 0.282 (floor 0.0115), the expected Chamfer of its output 1.80. **Refuted (<= 0.05)**; my expectation 0.10-0.25 was slightly optimistic. The mimic fit is therefore
+  not a test of the loss: the net cannot produce this output.
+- **Why: s* is a pixel-level pattern** (no training, `scratchpad/sstar_structure.py` on the saved s* of view 18): 51 % of the pixels have a 4-neighbour on the other side of 0.5, and a perfect 3 x 3 local mean of s* reaches cross-entropy only 0.315 (7 x 7: 0.39, 31 x 31: 0.49), worse than the net's 0.282.
+  The free optimum breaks ties between neighbouring near-duplicate points (keep one of two) pixel by pixel; a function of local features that cannot tell the two apart must give both the same s, and pays for it in the expected completeness
+  (both dropped with probability (1 - s)^2). So "the loss reaches the free-logit optimum" is a bar no smooth network can meet, whatever its depth: **the ladder's rung 3 bar must be the optimum of the function class**, not the free optimum.
+  **Test (written before the run):** free logits that are constant on k x k blocks (k = 2, 4, 8: the optimum of any function that cannot separate pixels within a block) against k = 1 (1.541). **Hypothesis:** the net's plateau (1.69-1.76) is at the k = 2 or k = 4 optimum, not at k = 1.
+  Refuted if the k = 2 optimum is below 1.62 and the net still stays at 1.69+. **My expectation:** k = 2: 1.60-1.68, k = 4: 1.68-1.80, k = 8: 1.85-2.05.
+- **Result of the block test** (`scratchpad/block_optimum.py`, view 18, free logits constant on k x k cells, 600 steps): k = 1: **1.538**, k = 2: **1.665**, k = 4: **1.783**, k = 8: 1.888, k = 16: 1.966 (uncut 2.328). My expectations (1.60-1.68, 1.68-1.80, 1.85-2.05) held.
+  The net's plateau (best 1.690, lr 3e-4 1.714, mimic-trained 1.80) lies between the 2 x 2 and the 4 x 4 optimum: **the hypothesis held**. A net with a 27 x 27 field and no position input is limited by what neighbouring pixels' features can separate, and the pairs the optimum keeps one of are
+  not separable. This changes what rung 3 can ask: not the free optimum (1.541), unreachable by construction, but the 2 x 2 optimum. **This bar was chosen after the failure** (the strict bar, within 5 % of 1.541, failed in four runs and stays failed); it is derived from the loss alone, not from the net.
+- **Rung 3, official rerun** (`configs/e84_rung3.yaml` now lr 3e-4, 3000 steps, the reference holds the k = 1, 2, 4 optima): **pass** if the train loss is <= 1.05 x the k = 2 optimum (<= 1.748) and below the k = 4 optimum (1.783), under 500 ms per step; the val loss is not expected to fall.
+  Refuted if the loss stays above 1.748. **My expectation:** 1.70-1.74.
+- **Rung 3 official result** (`runs/e84_rung3-20261123-095425`, lr 3e-4, 3000 steps, 44 ms/step incl. val batch, 3.5 min of steps): see the table in the report. Rung 4 (`configs/e84_rung4.yaml`: view 18 of each of the 3 dev scenes, batch 3, same net, rate and val) launched with the same bar per sample:
+  loss <= 1.05 x the sample's k = 2 optimum, mean over the three. **Refuted** if any sample's loss is above that bound; **my expectation:** within it for all three, since the three views are different inputs for a net with 190k parameters and the same pixel-level limit as rung 3.
+- **Rung 3 official result:** train loss last-100-step mean **1.742**, last 500 steps 1.723 +- 0.021 (the jitter of constant Adam), best 1.711, last step 1.750; the bar was <= 1.748: **at the bar, inside the jitter**. 44 ms per step with the val batch. Val loss 6.7 -> 20.9 (uncut ~7): nothing general is learned, as it should be.
+- **Rung 4 result** (`runs/e84_rung4-20261123-095747`, 3000 steps, 131 ms/step with a batch of 3 and the val batch): the train loss falls 6.05 -> 4.52 and is still falling slowly (4.55 at 2000). Per sample, loss against the k = 2 optimum (uncut):
+  living room 2.341 vs 2.241 (+4.4 %; uncut 3.073), bedroom 1.790 vs 1.666 (+7.4 %; uncut 2.328), lobby 9.438 vs 9.131 (+3.4 %; uncut 12.476); every sample gains 23-24 % against keeping everything. **Refuted** by the pre-registered per-sample bar (the bedroom is above +5 %); the mean is +4.1 %.
+  My expectation (all three within the bound) missed on the bedroom, which at rung 3 alone reached 1.74: three samples share the net. The same run at 6000 steps (`e84_rung4_6k`) is running to see whether the miss is the budget (hypothesis: the bedroom falls to <= 1.749; refuted if not).
+- **Correction (the user, 23.11.2026): no val on the overfit rungs.** I evaluated rungs 3 and 4 on the val set because the instruction said to log train and val in every experiment. On an overfit run the val loss is the one number that carries nothing (`docs/experiments.md`: it rises, nothing general is learned), it cost a third of the step time and a minute of loading
+  11 scenes, and it buried the train curve in the figure. From here rungs 3 and 4 log the train batch only (`val` absent from the config: no val samples are loaded, no val batch is drawn); the per-step val batch is kept for rung 5, where it is the result. The numbers above for rungs 3 and 4 come from runs that did also compute a val batch
+  (forward only, no gradient, so the training is the same up to the batch-draw random stream); their val columns are not reported.
+- **Rung 4 at 6000 steps** (`runs/e84_rung4_6k-20261123-101129`): mean train loss 4.60 (1000), 4.98 (2000), 4.71 (3000), 4.66 (4000), 4.64 (5000), **4.69 (6000)**; per sample against the k = 2 optimum: living room 2.691 (+20.1 %), bedroom 1.853 (+11.2 %), lobby 9.519 (+4.3 %).
+  **The hypothesis (the miss is the budget) is refuted: more steps are not better, the loss wanders around 4.6-4.9** and the 3000-step run's 4.52 was a favourable draw of the same jitter. The constant-rate Adam trajectory does not settle at 3e-4.
+  Diagnosis at this rung, one change (`e84_rung4_lr1e-4.yaml`, 3000 steps, no val): lr 1e-4. **Hypothesis:** the jitter is the rate: the final train loss is within 5 % of the k = 2 optimum on all three samples and the last 500 steps wander by under 1 %. Refuted otherwise.
+  **My expectation:** mean 4.40-4.55, stable; risk: the dead state (s = 1, loss = uncut) the 1e-4 run of E84r and the 6000-step rung 3 run fell into.
+- **Rung 4, lr 1e-4** (`runs/e84_rung4_lr1e-4-20261123-102617`, 3000 steps, 102 ms/step without val): mean loss 4.719 (last 500 steps 4.67 +- 0.09); per sample against the k = 2 optimum: living room 2.690 (+20.0 %), bedroom 1.844 (+10.7 %), lobby 9.622 (+5.4 %). **Refuted** (the bar is +5 % on every sample; expectation 4.40-4.55).
+  It lands where the 6000-step run at 3e-4 does (2.691 / 1.853 / 9.519): the band is robust to the rate and to the budget, and the 3000-step official run (2.341 / 1.790 / 9.438, mean 4.52) is the lucky end of it (the curves spike by 0.1-0.7 cm, Adam's constant-rate blow-ups, and recover to a different level).
+  **Rung 4 is not passed**, and the living room misses its 4 x 4 optimum (2.338) in the repeats.
+- **The loss is the exact Chamfer, and what it optimizes is not what a threshold deploys** (`scratchpad/draw_vs_loss.py`, the official rung 3 and 4 nets, 5 Bernoulli(s) draws per sample, exact Chamfer in the loss's alignment):
+
+  | sample | loss | exact Chamfer of Bernoulli draws | keep everything | cut s >= 0.5 (kept) |
+  |---|---|---|---|---|
+  | bedroom view 18 (rung 3) | 1.750 | 1.730 +- 0.001 | 2.328 | **3.025** (0.57) |
+  | living room (rung 4) | 2.341 | 2.337 | 3.073 | **3.443** (0.69) |
+  | bedroom (rung 4) | 1.790 | 1.779 | 2.328 | **2.427** (0.71) |
+  | lobby (rung 4) | 9.438 | 9.226 | 12.476 | 11.262 (0.47) |
+
+  The loss equals the exact Chamfer of random keeps within 2.3 % (the tail charge's model), so the loss is right. A random keep with the net's s is 23-25 % better than keeping everything; **the deterministic cut s >= 0.5 is worse than keeping everything on 3 of 4 samples**, because s is
+  not binary (mean s 0.5-0.7): the optimum is a dither a smooth net cannot copy, and a threshold turns its middle values into "keep both" or "drop both" of two near-duplicate points.
+  E84q's whole-scene loss over 20 views gave a cut 21 % and 24 % better than uncut on two dev scenes; there a pixel's near-duplicates are in other views. My reading, not tested: complementary keeping across views is what a threshold can realize and a single view's loss cannot ask for.
+- **Gate.** The instruction: rung 5 only if the loss went towards the theoretical optimum on rungs 3 and 4. Rung 3 is at its bar (inside the jitter), rung 4 is not (+4 % to +20 % per sample depending on the run, bar +5 %). By the pre-registered bar the gate is not passed and **rung 5 was not run**.
+  Prepared and smoke-tested (30 steps, a code check, not a result): 20 train scenes (every second of `hypersim.yaml`'s 40, 396 views, Déjà View cached; `configs/e84_hypersim_train20.yaml`, `configs/e84_rung5_n{5,20,100,400}.yaml`), a step of batch 4 plus the val batch takes 200 ms.
