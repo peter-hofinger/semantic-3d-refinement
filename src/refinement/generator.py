@@ -145,6 +145,10 @@ class GeneratorConfig:
     render_views: int = 20  # views the render loss draws per step, at random
     clip: float = 0.0  # largest gradient norm, 0: none
     cosine: bool = False  # decay the rate to zero over the steps (rung 6 of the ladder)
+    max_parameters: int = MAX_PARAMETERS  # raised only by a pre-registered escalation
+    fixed_vertex: bool = (
+        False  # `ovoxel`: every vertex at its child's centre, step 1 alone
+    )
     dino: int = 0  # DINOv2 feature channels in the grid (the PCA's), 0: none
     dino_cache: str = "dinov2b"  # name of the DINOv2 cache and its PCA
 
@@ -576,20 +580,30 @@ def child_corner(split: int) -> Tensor:
 
 
 def decode_children(
-    head: nn.Conv3d, feats: Tensor, candidates: Tensor, corner: Tensor
+    head: nn.Conv3d,
+    feats: Tensor,
+    candidates: Tensor,
+    corner: Tensor,
+    *,
+    free_vertex: bool = True,
 ) -> Outputs:
     """Vertices (M, K, 3) and logits (M, K) of the candidate voxels' children.
 
     feats (C, Z, Y, X); candidates (Z, Y, X) bool; corner (K, 3): `child_corner`. The
     head gives 4 numbers per child: v and the logit; the vertex is child_min +
     sigmoid(v) / split cells, so it never leaves its child. A head at zero puts every
-    vertex at its child's centre.
+    vertex at its child's centre; without `free_vertex` it stays there (step 1 alone).
     """
     k = len(corner)
     split = round(k ** (1 / 3))
     out = head(feats[None])[0][:, candidates].view(k, 4, -1).permute(2, 0, 1)
     voxel = torch.nonzero(candidates).flip(1).float()  # x y z
-    pos = voxel[:, None] + corner + torch.sigmoid(out[..., :3]) / split
+    placed = (
+        torch.sigmoid(out[..., :3])
+        if free_vertex
+        else torch.full_like(out[..., :3], 0.5)
+    )
+    pos = voxel[:, None] + corner + placed / split
     return Outputs(pos, out[..., 3])
 
 
@@ -606,11 +620,18 @@ class OVoxelGenerator(UNet3d):
     seeded = False
 
     def __init__(
-        self, grid_channels: int, widths: list[int], split: int, *, semantics: bool
+        self,
+        grid_channels: int,
+        widths: list[int],
+        split: int,
+        *,
+        semantics: bool,
+        free_vertex: bool = True,
     ) -> None:
-        """Start the head at zero."""
+        """Start the head at zero; without `free_vertex` every vertex stays centred."""
         super().__init__(grid_channels, widths)
         self.semantics = semantics
+        self.free_vertex = free_vertex
         self.head = nn.Conv3d(widths[0], split**3 * 4, 1)
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
@@ -622,7 +643,11 @@ class OVoxelGenerator(UNet3d):
     ) -> Outputs:
         """Return vertices (M, K, 3) in cells, x y z, and logits (M, K)."""
         return decode_children(
-            self.head, self.features(grid, amp=amp), candidates, self.corner
+            self.head,
+            self.features(grid, amp=amp),
+            candidates,
+            self.corner,
+            free_vertex=self.free_vertex,
         )
 
 
@@ -684,7 +709,13 @@ def build(cfg: GeneratorConfig, dims: tuple[int, int, int] | None = None) -> nn.
         assert dims is not None, "a latent generator needs its scene's grid"
         model = LatentGenerator(dims, cfg.split)
     elif cfg.kind == "ovoxel":
-        model = OVoxelGenerator(channels, cfg.widths, cfg.split, semantics=sem)
+        model = OVoxelGenerator(
+            channels,
+            cfg.widths,
+            cfg.split,
+            semantics=sem,
+            free_vertex=not cfg.fixed_vertex,
+        )
     else:
         model = KINDS[cfg.kind](
             channels,
@@ -694,7 +725,7 @@ def build(cfg: GeneratorConfig, dims: tuple[int, int, int] | None = None) -> nn.
             semantics=sem,
         )
     weights = sum(p.numel() for n, p in model.named_parameters() if n != "table")
-    assert weights < MAX_PARAMETERS, cfg.widths
+    assert weights < cfg.max_parameters, cfg.widths
     return model
 
 
@@ -1200,23 +1231,28 @@ class Children:
         return (self.pos - self.corner) * split
 
 
-def direct_terms(children: Children, split: int) -> dict[str, Tensor]:
+def direct_terms(
+    children: Children, split: int, *, vertex: bool = True
+) -> dict[str, Tensor]:
     """Return loss `direct`: cross-entropy of the logits, L1 of occupied vertices.
 
     Both over the scored voxels only; the L1 in child units, per coordinate. Zero
     exactly where every logit is right and every occupied child's vertex is its target.
+    Without `vertex` (the vertices are fixed at the centres) the cross-entropy alone.
     """
     live = children.scored
     occupied = children.occupied[live]
     if not occupied.any():
         raise EmptyCrop
-    placed = children.placed(split)[live][occupied]
-    return {
+    terms = {
         "occ": F.binary_cross_entropy_with_logits(
             children.logit[live], occupied.float()
-        ),
-        "vertex": (placed - children.vertex[live][occupied]).abs().mean(),
+        )
     }
+    if vertex:
+        placed = children.placed(split)[live][occupied]
+        terms["vertex"] = (placed - children.vertex[live][occupied]).abs().mean()
+    return terms
 
 
 def child_counts(children: Children, split: int) -> dict[str, float]:
@@ -1368,7 +1404,8 @@ def crop_losses(
     ground truth's points.
     """
     if cfg.loss == "direct":
-        return direct_terms(direct_crop(model, grid, scene, cfg, rng)[0], cfg.split)
+        children = direct_crop(model, grid, scene, cfg, rng)[0]
+        return direct_terms(children, cfg.split, vertex=not cfg.fixed_vertex)
     pts, gt, render = scene
     sub, lo, size = crop_window(pts, grid, cfg, rng)
     if model.seeded:

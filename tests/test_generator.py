@@ -802,3 +802,27 @@ def test_a_cosine_decay_takes_the_rate_from_one_to_zero_over_the_steps(
         cfg, ([scene], [scene]), torch.device("cpu"), seed=0, log_dir=tmp_path
     )
     assert isinstance(trained, Generator) and [e["step"] for e in log] == [0, 4]
+
+
+def test_fixed_vertices_sit_at_their_childs_centre_and_only_the_logits_train() -> None:
+    pts = plane()
+    grid = voxelize(pts, semantics=False)
+    candidates = candidate_mask(grid, 1)
+    cfg = config(kind="ovoxel", loss="direct", fixed_vertex=True)
+    model = build(cfg)
+    for p in model.head.parameters():
+        torch.nn.init.normal_(p, std=3.0)
+    out = model(grid, candidates)
+    voxel = torch.nonzero(candidates).flip(1).float()
+    assert torch.allclose(out.pos, voxel[:, None] + 0.5 + lattice(2))
+    scene = on_device(pts, pts.points)
+    terms = crop_losses(model, grid, scene, cfg, np.random.default_rng(0))
+    assert list(terms) == ["occ"]
+
+
+def test_the_parameter_limit_is_raised_only_by_the_config() -> None:
+    wide = config(kind="ovoxel", loss="direct", widths=[32, 64, 128])
+    with pytest.raises(AssertionError):
+        build(wide)
+    raised = dataclasses.replace(wide, max_parameters=2_000_000)
+    assert sum(p.numel() for p in build(raised).parameters()) > 10**6
