@@ -8509,3 +8509,46 @@ Interim entry: the check that the plan puts before any table.
   says it does not pay off in Chamfer.
 - **Command** (3080, minutes): `uv run python experiments/scripts/e87a_gate.py --collect`, then on the laptop
   `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg`, `results/e87a_gate.yaml`.
+
+## E87a, gate analysis: the gate stays open (g ~ 1 in loop steps 0-9) and closes only in the last steps, but the update it scales is 0.02-0.07% of the token per step; GT's gate is lower than grid's on walls in every seed, with no lever on the output (issue #87, 24.11.2026)
+- **Setting:** the plan entry above, at df44c9a (clean), 3080, bf16, 24.11 00:00 (~2 min for all). Six kept
+  states of rung 5 (`runs/e87a_main_<arm>_s<s>`), 3 dev scenes, 20 views, all 16 loop steps; 53 479 patch
+  tokens with a GT instance (18% on a GT depth edge), the same tokens in both arms (checked: all labelled in
+  the GT and the grid codes). Records `runs/e87a_gate/<arm>_s<s>_<scene>.npz`.
+- **Result** (gate g, mean over tokens; pull = |g δ| / |x| per loop step; seeds 0 / 1 / 2):
+
+  | | mean g | g, steps 0-9 | g, steps 12-15 | g edge - interior | share g > 0.9 | pull per step | pull summed over 16 steps |
+  |---|---|---|---|---|---|---|---|
+  | GT instances | 0.891 / 0.883 / 0.836 | 0.98 / 1.00 / 0.99 | 0.63 / 0.55 / 0.38 | +0.035 / +0.006 / +0.013 | 0.53 / 0.37 / 0.20 | 2.4e-4 / 2.4e-4 / 1.6e-4 | 0.38% / 0.39% / 0.25% |
+  | grid tiles | 0.867 / 0.899 / 0.917 | 0.98 / 0.97 / 0.98 | 0.64 / 0.72 / 0.75 | +0.038 / +0.025 / +0.012 | 0.47 / 0.65 / 0.71 | 5.9e-4 / 6.0e-4 / 5.3e-4 | 0.94% / 0.96% / 0.85% |
+
+  No token has a mean gate below 0.1 in any run. By GT class (12 largest, figure top right), GT minus grid,
+  seed means: wall -0.065 (GT 0.84-0.89, grid 0.92-0.96), ceiling -0.089, door -0.076, floor +0.063; the
+  other 8 classes within ±0.045 with overlapping seeds.
+- **Reading (the plan's rule):** the prediction is refuted on both counts, but neither carries weight.
+  (1) The gate does not close: it stays at ~1 through loop steps 0-9 and falls to 0.4-0.75 only in the last
+  four, alike in both arms; at depth edges it is 0.01-0.04 higher than inside, in all six runs. (2) On wall
+  tokens GT's gate is below grid's in all three seeds by more than either arm's seed range (0.065 against
+  0.052 / 0.037); ceiling and door separate the same way but within the range. With 12 classes and 3
+  seeds per arm, about one class would separate by chance (1 in 10 per class); three large structural classes
+  on the same side is more than that, but untested beyond these runs. What matters more: the update the
+  gate scales is tiny. Per loop step it moves a token by 0.02% (GT) to 0.06% (grid) of its norm, and at most
+  ~1% summed over the 16 steps, so where the gate opens has almost no lever on Déjà View's output. The
+  pooling branch stays nearly inert at the learning rates the sweeps chose (lr_pool 3e-6 / 1e-5), which is
+  consistent with rung 5: gated = ungated = GT = grid within noise.
+- **Other observations:**
+  - The bedroom map (figure, view 18) shows the GT gate following the instances (bed higher, walls lower);
+    the grid gate shows a weaker version of the same layout. g is a function of the token's own state, which
+    differs by surface in both arms, so a map that follows objects does not by itself show the segments are
+    used.
+  - Grid's pull is 2-3x GT's in every step. Two plausible causes, not separated here: grid's lr_pool is
+    3x GT's, and a tile's mean mixes surfaces, so it may lie further from its tokens than an instance's.
+- **Conclusion, for #87 (with rung 5):** a per-token gate does not let segment inputs help LoRA inside Déjà
+  View. Trained, it stays open and closes only late in the loop, alike for GT instances and grid tiles, and
+  it scales a pooling update too small to matter. Why the pooling arms sit ~0.09 cm behind LoRA alone
+  (E52b, E87a) is not explained by this; with an update of ~1% it may be a difference in training, not in
+  the pooling. Open, not pursued unless asked: training with a larger lr_pool than E52b's sweep covered (up to
+  1e-5) to give the branch a lever; the scalar tanh(alpha_k) gate.
+- **Figure, raw:** `uv run python experiments/scripts/e87a_gate.py --collect` (3080), then
+  `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg` (gate and pull per loop step,
+  gate by class and at depth edges, bedroom view 18 maps), `results/e87a_gate.yaml`.
