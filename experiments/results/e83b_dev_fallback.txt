@@ -1,0 +1,26 @@
+## dev (3 scenes), mean over scenes
+| variant | pq | pq_th | pq_st | sq | rq | ap | miou | GT segments |
+|---|---|---|---|---|---|---|---|---|
+| per-view | 0.122 | 0.005 | 0.924 | 0.190 | 0.134 | 0.001 | 0.321 | 175 |
+| linked | 0.298 | 0.176 | 0.920 | 0.436 | 0.335 | 0.254 | 0.444 | 175 |
+| class oracle, prompted | 0.383 | 0.219 | 0.938 | 0.779 | 0.428 | 0.233 | 0.818 | 175 |
+| class oracle | 0.383 | 0.219 | 0.938 | 0.779 | 0.428 | 0.233 | 0.818 | 175 |
+| link oracle | 0.386 | 0.270 | 0.928 | 0.469 | 0.432 | 0.319 | 0.474 | 175 |
+| group oracle | 0.463 | 0.354 | 0.938 | 0.522 | 0.510 | 0.376 | 0.517 | 175 |
+| merged 0.3 | 0.341 | 0.227 | 0.920 | 0.446 | 0.385 | 0.298 | 0.444 | 175 |
+| merged 0.3, absorbed 0.5:0.1 | 0.389 | 0.270 | 0.922 | 0.494 | 0.440 | 0.266 | 0.436 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things | 0.399 | 0.285 | 0.920 | 0.488 | 0.450 | 0.293 | 0.466 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 2:20:4 | 0.392 | 0.276 | 0.920 | 0.487 | 0.441 | 0.293 | 0.448 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 1:5:1 | 0.388 | 0.272 | 0.920 | 0.488 | 0.436 | 0.293 | 0.448 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 1:20:1 | 0.389 | 0.273 | 0.920 | 0.488 | 0.437 | 0.293 | 0.449 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 2:20:1 | 0.390 | 0.274 | 0.920 | 0.488 | 0.438 | 0.293 | 0.450 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 1:20:2 | 0.390 | 0.274 | 0.920 | 0.487 | 0.438 | 0.293 | 0.446 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 2:20:2 | 0.391 | 0.275 | 0.920 | 0.487 | 0.439 | 0.293 | 0.448 | 175 |
+| merged 0.3, absorbed 0.5:0.1 into things, claimed 2:100:2 | 0.394 | 0.279 | 0.920 | 0.487 | 0.443 | 0.293 | 0.448 | 175 |
+| boundary 2 | 0.417 | 0.302 | 0.974 | 0.496 | 0.437 | 0.429 | 0.509 | 131 |
+| boundary 5 | 0.525 | 0.418 | 0.988 | 0.598 | 0.539 | 0.517 | 0.573 | 104 |
+| all | 0.890 | 0.861 | 0.987 | 0.927 | 0.909 | 0.815 | 0.924 | 131 |
+
+GT segments 175, unmatched 94: not prompted 0, class 16, merged 29, split across views 19, split within views 3, missed 27
+unmatched predictions 935: class 16, fragment 803, merger 0, spurious 116
+
