@@ -8442,3 +8442,56 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** sweep as in the plan; figure and raw:
   `uv run python experiments/scripts/e87a_sweep_figures.py` -> `figures/e87a_sweep.jpg` (val ratio per eval and
   probe per arm and lr), `results/e87a_sweep.yaml`.
+
+## E87a, rung 5: a per-token gate on the pooling changes nothing; gated GT instances tie gated grid tiles and the ungated arms, and none beats LoRA alone (issue #87, 23.11.2026)
+- **Setting:** the plan entry above, rung 5, at cf85402 (clean; later commits on the branch only add LOG
+  text, figures and figure scripts), 3080, bf16, lr_lora 1e-4, lr_pool at E52b's choice (GT 3e-6, grid
+  1e-5), lr_gate 1e-3 from the sweep, 3000 steps, seeds 0-2 per arm, state kept on val, dev scored on 20
+  views. One arm and seed per run, 23.11 10:57 - 23:28 (7150-7680 s training per run), peak 2.22 GB. GT
+  dropped 5 and 3 segments to the code cap over 3000 steps (seeds 1, 2), grid none. One CUDA allocator OOM
+  warning per run during dev scoring, as before; every score was written. Peter's `e69c_oracle` job shared
+  the GPU from ~16:10 (step time +7%). Job `/home/student/mircea/jobs_e87a_rung5.sh`, runs
+  `runs/e87a_main_<arm>_s<s>`. LoRA alone and the ungated arms are E52b's runs (same script, same 3080).
+- **Dev Chamfer (cm, seed mean per arm; Déjà View the same run in all fifteen):**
+
+  | | living room | bedroom | lobby | mean | seed range | kept steps |
+  |---|---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | | |
+  | LoRA alone (control) | 1.522 | 1.647 | 6.295 | **3.155** | 0.081 | 2500 / 1500 / 3000 |
+  | LoRA + pool, GT (E52b) | 1.604 | 1.688 | 6.443 | 3.245 | 0.101 | 2500 / 2500 / 750 |
+  | LoRA + pool, grid (E52b) | 1.578 | 1.644 | 6.450 | 3.224 | 0.171 | 2250 / 2500 / 3000 |
+  | LoRA + gated pool, GT | 1.635 | 1.732 | 6.405 | 3.257 | 0.059 | 2500 / 2500 / 1250 |
+  | LoRA + gated pool, grid | 1.591 | 1.662 | 6.485 | 3.246 | 0.140 | 2250 / 2500 / 2000 |
+  | gated GT - gated grid | +0.043 | +0.070 | -0.080 | +0.011 | | |
+  | gated GT - LoRA alone | +0.112 | +0.084 | +0.111 | +0.102 | | |
+  | gated grid - LoRA alone | +0.069 | +0.015 | +0.191 | +0.091 | | |
+  | gated - ungated, GT / grid | +0.031 / +0.013 | +0.044 / +0.018 | -0.038 / +0.035 | +0.012 / +0.022 | | |
+
+  Per seed (dev mean, cm): gated GT 3.228 / 3.256 / 3.288, gated grid 3.276 / 3.301 / 3.161. With the same
+  seed, GT is ahead on seeds 0 and 1 and grid on seed 2, as in E52b's ungated arms.
+- **Reading (the plan's rule):** refuted. Gated GT would have needed to beat Déjà View, LoRA alone and gated
+  grid by more than 0.080 cm each, on 2 of 3 scenes. It beats Déjà View (-0.243 cm) but is within the margin
+  of gated grid (+0.011 cm, on the wrong side; ahead only on the lobby, by exactly the margin) and behind
+  LoRA alone on all three scenes (+0.102 cm mean). The plan's prediction (a tie with grid and with LoRA
+  alone's neighbourhood) holds. The gate moves each arm by at most 0.022 cm mean from its ungated run, well
+  inside every seed range, so it neither helps nor harms.
+- **Other observations:**
+  - The gate's parameters keep moving: their norm grows steadily over all 3000 steps (to 7.6-9.0; 5.2-7.7
+    at the kept steps) without levelling off, at the same rate with GT instances and grid tiles. The norm
+    does not say whether g_i opens or closes, or where; whether the plan's predicted "gate that learns to
+    close" happened is the gate analysis on the kept states, not done here.
+  - In the living room all three gated GT seeds are worse than Déjà View (seed mean 1.635 vs 1.601 cm); the
+    ungated GT arm sits at Déjà View there (1.604). Both GT arms are the worst arm on that scene; one scene,
+    within GT's spread across scenes, noted, not read.
+  - Val curves of the six gated runs interleave at every eval, and seeds of one arm differ as much as the
+    arms do (figure, middle); as in E52b, the kept step is a noisy choice (val moves up to 0.02 between
+    evals).
+- **Conclusion, for #87:** a per-token gate g_i = sigmoid(w_k · x_i + b_k) on E52b's pooling branch does not
+  let GT instances act: on Hypersim dev, with 3 seeds per arm and both arms swept alike, gated GT ties gated
+  grid and both ungated arms, and no pooling arm beats plain LoRA. Scoped to this adapter, Hypersim and this
+  budget. With E52a, E52b, E52c/E52e and E52f, segment inputs have not helped any trained adapter inside
+  Déjà View. Not done: the gate analysis (mean and spread of g_i by class and near depth edges on the kept
+  states), the scalar tanh(alpha_k) gate of the issue (only if the user asks).
+- **Figure, raw:** `uv run python experiments/scripts/e87a_main_figures.py` -> `figures/e87a_main.jpg` (dev
+  Chamfer ratio per scene with seeds for all five arms, val curves and gate norm of the six gated runs),
+  `results/e87a_main.yaml`.
