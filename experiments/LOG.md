@@ -8495,3 +8495,17 @@ Interim entry: the check that the plan puts before any table.
 - **Figure, raw:** `uv run python experiments/scripts/e87a_main_figures.py` -> `figures/e87a_main.jpg` (dev
   Chamfer ratio per scene with seeds for all five arms, val curves and gate norm of the six gated runs),
   `results/e87a_main.yaml`.
+
+## Plan: E87a, gate analysis: where does rung 5's gate open, by class and at depth edges? (issue #87, 24.11.2026)
+- **Goal:** the plan's last reading. Rung 5 found the gate changes nothing measurable in dev Chamfer; this
+  reads g_i = sigmoid(w_k · x_i + b_k) itself on the six kept states, on the 3 dev scenes at 20 views, every
+  loop step, for the patch tokens that carry a GT instance (18 229 in the bedroom; the same tokens in both
+  arms): its mean and spread, per loop step, per GT class, on patches with vs without a GT depth edge
+  (`src/analysis/edges.py`, τ 5%), and the pull a token takes, |g_i δ_i| / |x_i|.
+- **Prediction (the plan's prior):** the gate learns to close (mean g below its start, 1/2) and does not
+  differ between GT instances and grid tiles, by class or at edges, by more than the spread over seeds.
+  **Refuted if** GT's gate differs from grid's on any shown class or at edges by more than the larger
+  arm's seed range, the same way in all three seeds; that would say where instances are taken, though rung 5
+  says it does not pay off in Chamfer.
+- **Command** (3080, minutes): `uv run python experiments/scripts/e87a_gate.py --collect`, then on the laptop
+  `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg`, `results/e87a_gate.yaml`.
