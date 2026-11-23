@@ -15,14 +15,14 @@ window: 2          # each view is matched to the views up to 2 steps along the p
 iterations: 8
 robust: 2.0        # Cauchy scale, pixels
 sigma: 1.0         # forward-backward error scale of the training-free weights, pixels
-prior: 10.0        # lambda of the inverse-depth prior, for the learned models
+prior: 1000.0      # lambda of the inverse-depth prior, for the learned models
 damping: 1.0e-4
-pose_prior: 1.0    # alpha of the pose prior
+pose_prior: 1.0e+5 # alpha of the pose prior: weaker ones let poorly matched views drift (E82a smoke)
 free:              # training-free solvers: name -> prior
-  e82a-free-p1: 1.0
-  e82a-free-p10: 10.0
-  e82a-free-p100: 100.0
-  e82a-free-p1000: 1000.0
+  e82a-free-p1e2: 100.0
+  e82a-free-p1e3: 1000.0
+  e82a-free-p1e4: 10000.0
+  e82a-free-p1e6: 1000000.0   # depth held: poses only
 models:            # learned weights: name -> semantics
   e82a-learned-none: none
   e82a-learned-sam3: sam3

@@ -8625,3 +8625,24 @@ Interim entry: the check that the plan puts before any table.
 - **Conclusion:** semantics inside Déjà View, learned next to LoRA, do not help on val either (scoped: this
   adapter, Hypersim, 120 train scenes, 3000 steps). LoRA's val gain is real by the rule but concentrated; report
   it with the per-scene picture. Test not touched.
+
+## Plan: E82a = dense bundle adjustment of Deja View's output, training-free and learned (issue #82, 23.11.2026)
+- **Why:** the 19 Nov feedback suggested deep bundle adjustment. Deja View fits its cameras and depths per forward
+  pass, not jointly against pixel matches.
+- **Setting:** `src/refinement/bundle.py` (`bundle-refine`): RAFT matches (torchvision raft_large) of each view with
+  the views up to 2 steps along the path, at a 47 x 63 grid per view; Levenberg-Marquardt on all poses and the grid's
+  inverse depth (Schur complement), Cauchy loss at 2 px, inverse-depth prior lambda, pose prior 1e5, view 0 fixed, 8
+  steps; the refined depth is Deja View's times the upsampled grid ratio, written as a backbone and scored by
+  `scene_eval`. Training-free: weights from RAFT's forward-backward error, lambda 1e2, 1e3, 1e4, 1e6 (depth held,
+  poses only). Learned: an MLP on per-match features, with or without the SAM 3 same-object flag, trained through the
+  unrolled solver on the 145 fitting scenes against GT points (8 held out), lambda 1e3, 2 seeds.
+- **Smoke findings on dev before queueing** (Mac, 3 scenes): without step control the first step moved cameras 2.4 m;
+  pairs chosen by predicted overlap left views RAFT cannot match (one drifted 132 m); a Huber loss let consistent but
+  wrong matches steer the cameras; fixed (LM with energy check, path-neighbour pairs, Cauchy loss, pose prior).
+  Remaining: started from the GT (depth, intrinsics, poses), fitting RAFT's matches moves the cameras 1-4 cm, as far
+  as Deja View's own pose error, and triangulation at these baselines is about 6 cm precise vs Deja View's ~2 cm depth.
+- **Prediction / refuted if:** the training-free arms do not beat Deja View on dev (expected from the smoke); the
+  learned arm is refuted if its val Chamfer is not below Deja View's 5.102 by more than the seed spread, and the
+  semantic flag if sam3 does not beat none by more than the seed spread.
+- **Compute:** 3d-cluster: matches for all 167 scenes (1 GPU), then the training-free arms and the 4 learned models
+  (one GPU each), each scored with `scene_eval --splits dev val`.

@@ -12,14 +12,15 @@ pixels p (stride s) of every view. A match takes p in view i to q in view j:
 
     X = c_i + R_i K_i^-1 p / rho,    r = pi(K_j R_j^T (X - c_j)) - q,
 
-    E = 1/2 sum_matches w h(r) + 1/2 lambda sum_p ((rho - rho_0) / rho_0)^2,
+    E = 1/2 sum_matches w h(r) + 1/2 lambda sum_p ((rho - rho_0) / rho_0)^2 + E_pose,
 
-h the Cauchy loss (iteratively reweighted; consistent but wrong RAFT matches, tens
-of pixels off, steered the cameras under a Huber loss), rho_0 the backbone's inverse depth (the
-prior fixes the scale that matches alone leave free), view 0's pose fixed (the
-gauge). Each step solves the normal equations with the depths eliminated (Schur
-complement), so the reduced system has only 6V unknowns. The refined depth is the
-backbone's full-resolution depth times the grid's ratio rho_0 / rho, upsampled.
+h the Cauchy loss (iteratively reweighted; consistent but wrong RAFT matches, tens of
+pixels off, steered the cameras under a Huber loss), rho_0 the backbone's inverse depth
+(the prior fixes the scale that matches alone leave free), view 0's pose fixed (the
+gauge), E_pose a pull of each pose to the backbone's (`pose_pull`). Each step solves the
+normal equations with the depths eliminated (Schur complement), so the reduced system
+has only 6V unknowns. The refined depth is the backbone's full-resolution depth times
+the grid's ratio rho_0 / rho, upsampled.
 
 Weights w: training-free, exp(-(e / sigma)^2) of RAFT's forward-backward error e;
 learned, a small MLP on per-match features (that error, both confidences, the colour
@@ -678,24 +679,29 @@ def train_model(
     seed: int,
     device: torch.device,
 ) -> tuple[MatchWeights, list[dict]]:
-    """Train the weights through the unrolled solver; keep the least held-out error."""
+    """Train the weights through the unrolled solver; keep the least held-out error.
+
+    A sample on which the solver keeps no step returns the start state, which does not
+    depend on the weights; it is skipped and counted (`idle` in the history).
+    """
     torch.manual_seed(seed)
     model = MatchWeights(cfg.hidden, semantics=semantics != "none").to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     fit, held = data[: len(data) - cfg.held_out], data[len(data) - cfg.held_out :]
     rng = np.random.default_rng(seed)
     best, best_state, history = np.inf, None, []
-    t0 = time.perf_counter()
+    t0, idle = time.perf_counter(), 0
     for step in range(cfg.steps + 1):
         if step % max(1, cfg.steps // 20) == 0:
             with torch.no_grad():
                 err = float(
                     np.mean([held_error(model, d.to(device), cfg) for d in held])
                 )
+            seconds = time.perf_counter() - t0
             history.append(
-                {"step": step, "held_out": err, "seconds": time.perf_counter() - t0}
+                {"step": step, "held_out": err, "seconds": seconds, "idle": idle}
             )
-            print(f"step {step}: held-out {err:.5f}", flush=True)  # noqa: T201
+            print(f"step {step}: held-out {err:.5f}, idle {idle}", flush=True)  # noqa: T201
             if err < best:
                 best, best_state = (
                     err,
@@ -712,6 +718,9 @@ def train_model(
             ),
             d.gt_points,
         )
+        if not loss.requires_grad:  # the solver kept no step: the weights had no effect
+            idle += 1
+            continue
         opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
