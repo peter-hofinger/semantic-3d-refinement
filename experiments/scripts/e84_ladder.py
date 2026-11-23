@@ -34,24 +34,36 @@ from src.refinement.keep_chamfer import (
 )
 
 
-def sample_loss(logit: torch.Tensor, sample: KeepScene, cfg: dict) -> torch.Tensor:
+def gain_at(step: int, cfg: dict) -> float:
+    """Return the logit gain of `objective: anneal` at a step: geometric from gain[0] to gain[1]."""
+    low, high = cfg["gain"]
+    return low * (high / low) ** (step / cfg["steps"])
+
+
+def sample_loss(
+    logit: torch.Tensor, sample: KeepScene, cfg: dict, gain: float = 1.0
+) -> torch.Tensor:
     """Return the expected Chamfer (cm) of the sample's s = sigmoid(logit) (1, H, W).
 
     With `objective: cut` the forward s is the deployed cut (1 where logit >= 0, else 0)
     and the gradient is the sigmoid's (straight-through): the loss is then the Chamfer
-    of the cloud a threshold delivers, not of random keeps.
+    of the cloud a threshold delivers, not of random keeps. With `objective: anneal` s =
+    sigmoid(gain * logit): the random-keep loss at gain 1, the cut as the gain grows; the
+    cut (logit >= 0) does not depend on the gain.
     """
-    s = torch.sigmoid(logit)[sample.valid]
+    s = torch.sigmoid(gain * logit)[sample.valid]
     if cfg.get("objective") == "cut":
         s = (s >= 0.5).float() + (s - s.detach())
     return expected_chamfer(s, *sample.tensors, cfg["eps"], tail=cfg["tail"])[0]
 
 
-def batch_loss(net: KeepResNet, batch: list[KeepScene], cfg: dict) -> torch.Tensor:
+def batch_loss(
+    net: KeepResNet, batch: list[KeepScene], cfg: dict, gain: float = 1.0
+) -> torch.Tensor:
     """Return the mean sample loss of a batch, one forward pass over its views."""
     batch = [s.to("cuda") for s in batch]
     x = net.logits(torch.cat([s.features for s in batch]).float())
-    losses = [sample_loss(x[i : i + 1], s, cfg) for i, s in enumerate(batch)]
+    losses = [sample_loss(x[i : i + 1], s, cfg, gain) for i, s in enumerate(batch)]
     return torch.stack(losses).mean()
 
 
@@ -168,9 +180,11 @@ def main() -> None:
     eval_train, eval_val = (s[:: max(1, len(s) // cfg["n_eval"])] for s in (train, val))
     net = KeepResNet(**cfg["resnet"]).cuda()
     optimizer = torch.optim.Adam(net.parameters(), lr=cfg["lr"])
+    anneal = cfg.get("objective") == "anneal"
+    ref_cfg = cfg | {"objective": "cut"} if anneal else cfg  # the references are cuts
     reference = {
-        s.name: {"uncut": uncut(s, cfg)}
-        | {f"optimum_block{k}": free_fit(s, cfg, k)[0] for k in cfg["blocks"]}
+        s.name: {"uncut": uncut(s, ref_cfg)}
+        | {f"optimum_block{k}": free_fit(s, ref_cfg, k)[0] for k in cfg["blocks"]}
         for s in eval_train
     }
     val_uncut = float(np.mean([uncut(s, cfg) for s in eval_val])) if val else None
@@ -186,25 +200,27 @@ def main() -> None:
         for step in range(cfg["steps"] + 1):
             torch.cuda.synchronize()
             t0 = time.perf_counter()
+            gain = gain_at(step, cfg) if anneal else 1.0
             batch = draw(train, cfg["batch"], rng)
             optimizer.zero_grad()
             if cfg.get("objective") == "mimic":
                 loss = mimic_batch(net, batch, targets)
             else:
-                loss = batch_loss(net, batch, cfg)
+                loss = batch_loss(net, batch, cfg, gain)
             loss.backward()
             optimizer.step()
             if val:
                 with torch.no_grad():
-                    val_loss = batch_loss(net, draw(val, cfg["batch"], rng), cfg)
+                    val_loss = batch_loss(net, draw(val, cfg["batch"], rng), cfg, gain)
                 writer.add_scalar("loss/val", val_loss.item(), step)
             torch.cuda.synchronize()
             seconds.append(time.perf_counter() - t0)
             writer.add_scalar("loss/train", loss.item(), step)
+            writer.add_scalar("gain", gain, step)
             if step % cfg["eval_every"] == 0:
                 with torch.no_grad():
                     losses = {
-                        k: [batch_loss(net, [s], cfg).item() for s in group]
+                        k: [batch_loss(net, [s], cfg, gain).item() for s in group]
                         for k, group in groups
                     }
                 row = {f"{k}_loss": float(np.mean(v)) for k, v in losses.items()}

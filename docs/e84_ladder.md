@@ -107,6 +107,15 @@ Rung 4 (one view of each dev scene, one net; mean of the last five evals; bar +5
 **Rung 4 is not passed**: the mean is 5.67 against 5.96 for keeping everything (-4.8 %), and the lobby does not improve at all. The net beats the confidence on two of three views and ties on the third, but these are training views.
 Neither objective passes rung 4, so rung 5 stays unrun. One seed, one run per rung.
 
+### A temperature that anneals the loss from random keeps to the cut (E84 annealed cut)
+
+s = sigmoid(gain x logit), gain 1 to 64 over the run: the random-keep loss at the start, nearly the cut at the end. The cut (logit >= 0) does not depend on the gain. Rung 3, same net and view:
+
+![](../experiments/figures/e84_anneal_curves.jpg)
+
+(Blue: the soft loss the net minimises, which is *not* the cut's Chamfer; orange: the exact Chamfer of the net's own cut every 100 steps, cut off above 2.45.)
+The soft loss falls to the random-keep level (1.75) while the cut stays at 2.07 to 3.6 and ends at **2.265** (kept 87 %): worse than the straight-through 2.011 and well above the bar 1.947. **Refuted.** The reason is measured: 12 % of the final logits lie within 0.05 of zero (median |x| 1.06): when the gain grows the net keeps an intermediate s by shrinking those logits by 1/gain, so the soft loss never becomes the cut loss (2.142 soft, 2.265 cut at the last step). The gain changes the logits' scale, not the decision the loss asks for. Rung 4 was not run.
+
 ## Rung 5: not run
 
 The gate was "loss towards the theoretical optimum on rungs 3 and 4". Rung 4 missed its pre-registered bar. Prepared, smoke-tested for 30 steps (a code check, not a result): 20 train scenes (396 views, Déjà View cached),
@@ -122,4 +131,4 @@ sets of 5, 20, 100 and 400 views, the val batch logged at every step (200 ms per
 
 ## Next
 
-Neither objective gets one net onto the three samples' optima. Untested, one change each: a temperature that anneals the cut's s from soft to hard (a smoother path to the same cut), more seeds on rung 4 to separate the objective from the jitter, a wider first stage. Rung 5 waits for rung 4.
+Two objectives for the cut, straight-through (rung 3: 2.011, rung 4: -4.8 %) and an annealed gain (rung 3: 2.265), and none reaches the bar. Untested, one change each: more seeds on rung 4 to separate the objective from the jitter, a wider first stage, a net that sees the pixel position (the optimum's speckle is position-like). Rung 5 waits for rung 4.

@@ -1,6 +1,6 @@
 """E84 ladder report figures (issue #84): loss curves of rungs 3-5 and what the net outputs against the optimum.
 
-`<name>_curves.jpg`: one column per rung, train and val loss of every step (val smoothed over 50 steps, raw faint),
+`<name>_curves.jpg`: one column per rung, train loss of every step (blue) and the exact Chamfer of the net's cut at the evals (orange), val loss (val smoothed over 50 steps, raw faint),
 the sample's uncut loss and its free-logit optima (cells of 1, 2, 4 pixels) as lines.
 `<name>_maps.jpg`: view 18 of the bedroom, the rung 3 net's keep probability against the optimum's (no network), full and zoomed.
 
@@ -103,6 +103,9 @@ def curves(runs: dict[str, list[Path]], out: Path, name: str) -> None:
             top.plot(scalar(extra, "loss/train"), color="tab:gray", lw=0.6, alpha=0.8)
         train = scalar(run, "loss/train")
         top.plot(train, color="tab:blue", lw=1.0)
+        hist = yaml.safe_load((run / "run.yaml").read_text())["history"]
+        cut = [(h["step"], h["train_cut"]) for h in hist if "train_cut" in h]
+        top.plot(*zip(*cut, strict=True), "o-", color="tab:orange", ms=3, lw=0.8)
         ref = reference(run)
         for key, style, label in [
             ("uncut", ":", "keep everything"),

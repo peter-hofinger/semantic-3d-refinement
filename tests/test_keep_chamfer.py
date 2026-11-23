@@ -431,3 +431,26 @@ def test_the_cut_objective_is_the_cut_chamfer_with_the_sigmoids_gradient() -> No
     sigmoid_slope = (torch.sigmoid(x) * (1 - torch.sigmoid(x))).detach().flatten()
     want = s.grad * sigmoid_slope
     assert torch.allclose(x.grad.flatten(), want, rtol=1e-4, atol=1e-8)
+
+
+def test_the_annealed_loss_runs_from_random_keeps_to_the_cut() -> None:
+    pred, truth = clouds(60)
+    probes = Probes.build(pred, truth, r=4)
+    a, index, dist = tensors(probes)
+    scene = KeepScene(
+        "toy",
+        torch.zeros(1, 66, 6, 10),
+        torch.ones(1, 6, 10, dtype=torch.bool),
+        pred,
+        truth,
+        probes,
+        (a, index, dist),
+        1.0,
+    )
+    cfg = {"eps": 1e-9, "tail": False, "objective": "anneal"}
+    x = torch.randn(1, 6, 10) + 0.5
+    x[x.abs() < 0.2] = 1.0  # no logit near the threshold
+    random_keep = expected_chamfer(torch.sigmoid(x).flatten(), a, index, dist, 1e-9)[0]
+    assert sample_loss(x, scene, cfg, 1.0).item() == pytest.approx(random_keep.item())
+    cut = exact_chamfer((x >= 0).flatten().numpy(), probes, pred, truth)["chamfer_cm"]
+    assert sample_loss(x, scene, cfg, 1e4).item() == pytest.approx(cut, rel=1e-4)
