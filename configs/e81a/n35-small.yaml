@@ -1,0 +1,77 @@
+# E81a (issue #81): E41b's 3D refiner trained on the first 35 of the 145 fitting scenes
+# (train + train_extra, E41b's order) plus the same 8 held-out scenes; U-Net small [16, 32, 64], head 64;
+# no classes vs GT classes, seeds 0-2. Everything else as configs/e41b_volume.yaml.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+split: configs/hypersim.yaml
+held_out: 8
+predict_splits:
+- dev
+- val
+models:
+  e81a-n35-small-none: none
+  e81a-n35-small-gt: gt
+resolution: 128
+widths:
+- 16
+- 32
+- 64
+head: 64
+steps: 20000
+batch_points: 200000
+kept_points: 400000
+view_subset:
+- 8
+- 20
+amp: true
+lr: 0.001
+seeds:
+- 0
+- 1
+- 2
+train_scenes:
+- ai_001_001_cam_00
+- ai_001_005_cam_00
+- ai_001_009_cam_00
+- ai_002_004_cam_00
+- ai_002_008_cam_00
+- ai_003_001_cam_00
+- ai_003_006_cam_00
+- ai_004_002_cam_00
+- ai_004_008_cam_00
+- ai_005_006_cam_00
+- ai_006_001_cam_00
+- ai_006_006_cam_00
+- ai_007_002_cam_00
+- ai_008_002_cam_00
+- ai_008_010_cam_00
+- ai_009_003_cam_00
+- ai_009_008_cam_00
+- ai_010_006_cam_00
+- ai_011_004_cam_01
+- ai_011_009_cam_00
+- ai_013_007_cam_00
+- ai_017_003_cam_00
+- ai_021_007_cam_00
+- ai_023_007_cam_00
+- ai_024_017_cam_00
+- ai_026_017_cam_00
+- ai_027_008_cam_00
+- ai_029_005_cam_00
+- ai_030_009_cam_00
+- ai_032_005_cam_00
+- ai_036_010_cam_00
+- ai_037_008_cam_00
+- ai_043_002_cam_00
+- ai_046_004_cam_00
+- ai_047_008_cam_00
+- ai_053_018_cam_00
+- ai_053_019_cam_00
+- ai_054_003_cam_00
+- ai_054_004_cam_00
+- ai_054_010_cam_00
+- ai_055_002_cam_00
+- ai_055_004_cam_00
+- ai_055_008_cam_00
