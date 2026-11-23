@@ -12,6 +12,7 @@ from dvlt.model_components.head_activations import activate_head
 from dvlt.model_components.loss import DepthLoss
 from scipy.integrate import quad
 
+from experiments.scripts.e84_ladder import sample_loss
 from src.refinement.keep_chamfer import (
     FEATURES,
     HIDDEN,
@@ -399,3 +400,34 @@ def test_a_view_is_a_sample_of_its_own_pixels_with_its_own_probes() -> None:
     exact = exact_chamfer(kept, single.probes, single.pred, single.truth)
     assert np.isclose(exact["accuracy_cm"], acc, rtol=1e-5)
     assert np.isclose(exact["completeness_cm"], comp, rtol=1e-5)
+
+
+def test_the_cut_objective_is_the_cut_chamfer_with_the_sigmoids_gradient() -> None:
+    pred, truth = clouds(60)
+    probes = Probes.build(pred, truth, r=4)
+    a, index, dist = tensors(probes)
+    scene = KeepScene(
+        "toy",
+        torch.zeros(1, 66, 6, 10),
+        torch.ones(1, 6, 10, dtype=torch.bool),
+        pred,
+        truth,
+        probes,
+        (a, index, dist),
+        1.0,
+    )
+    cfg = {"eps": 1e-9, "tail": False, "objective": "cut"}
+    x = torch.randn(1, 6, 10, dtype=torch.float64)
+    x[0, 0, :3] = 5.0  # three kept for sure, so no GT point misses its probes below
+    x = x.float().requires_grad_()
+    loss = sample_loss(x, scene, cfg)
+    kept = (x.detach() >= 0).flatten().numpy()
+    assert loss.item() == pytest.approx(
+        exact_chamfer(kept, probes, pred, truth)["chamfer_cm"], rel=1e-4
+    )
+    loss.backward()
+    s = torch.from_numpy(kept).float().requires_grad_()
+    expected_chamfer(s, a, index, dist, 1e-9)[0].backward()
+    sigmoid_slope = (torch.sigmoid(x) * (1 - torch.sigmoid(x))).detach().flatten()
+    want = s.grad * sigmoid_slope
+    assert torch.allclose(x.grad.flatten(), want, rtol=1e-4, atol=1e-8)

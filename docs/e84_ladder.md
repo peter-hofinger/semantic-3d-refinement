@@ -2,7 +2,7 @@
 
 Issue #84. Setting and rungs: [`experiments.md`](experiments.md). Every number below is in `experiments/LOG.md` with its run folder and what was expected before it was run.
 
-**Verdict.** Rung 3 holds only against a bar I had to change after it failed; rung 4 fails; rung 5 was not run because the gate was not passed. What the data does show is narrower and more useful than a pass:
+**Verdict.** Rung 3 holds only against a bar I had to change after it failed; rung 4 fails with the random-keep loss and with the deployable cut loss; rung 5 was not run because the gate was not passed. What the data does show is narrower and more useful than a pass:
 the loss is exact, a network reaches the optimum its inputs allow, and that optimum is a cloud no threshold can deliver.
 
 ## What was trained
@@ -76,6 +76,37 @@ The loss is the exact Chamfer of a random keep to within 2.3 %; a random keep wi
 The middle values of s that a network can express become "keep both" or "drop both" of two near-duplicate points under a threshold. The earlier whole-scene loss (E84q, 20 views jointly) gave a cut 21 % and 24 % better than uncut on two dev scenes,
 where near-duplicates sit in different views; that a single view's loss cannot ask for complementary keeping across views is my reading and is untested.
 
+## Train on the cut that is deployed (E84 cut)
+
+The loss above is exact for random keeps, but a threshold on its s is worse than keeping everything. So the same net, rate and steps (`configs/e84_cut_rung{3,4}.yaml`) with a straight-through loss: the forward s is the cut itself (1 where the logit is >= 0), the gradient is the sigmoid's. The loss is now the exact Chamfer of the cloud a threshold delivers (checked against `exact_chamfer` in `tests/test_keep_chamfer.py`).
+
+![](../experiments/figures/e84_cut_curves.jpg)
+
+Rung 3, bedroom view 18 (exact Chamfer in cm; the reference is the same loss with free logits, constant on k x k cells; the share kept is in brackets):
+
+| keep everything | optimum k = 1 | k = 2 | k = 4 | network's cut | Déjà View confidence, 92 % kept |
+|---|---|---|---|---|---|
+| 2.328 | 1.726 (61 %) | 1.854 (75 %) | 2.021 (89 %) | **2.011** (92 %) | 2.218 |
+
+The net's cut is 13.6 % below keeping everything and 9 % below ranking by Déjà View's own confidence at the same share, so the deployable gain exists. It is 8.5 % above the 2 x 2 optimum (the pre-registered bar was +5 %): **rung 3 is not passed** with this objective, the net sits at the 4 x 4 optimum. The curve spikes whenever a few logits cross zero together (the cut is discontinuous, the gradient biased).
+The maps show what it learned: it drops the outlines of objects and keeps 92 % of the pixels, where the optimum drops 39 % including a speckle on smooth walls that no feature-driven net can see.
+
+![](../experiments/figures/e84_cut_maps.jpg)
+
+(Maps: colour is s; the teal areas are logits just above zero, i.e. kept. Left: the free-logit optimum of the cut loss, whose speckle is what the 80 x 80 zoom shows; the net is uniformly kept there.)
+
+Rung 4 (one view of each dev scene, one net; mean of the last five evals; bar +5 % over the k = 2 optimum):
+
+| | living room | bedroom | lobby |
+|---|---|---|---|
+| keep everything | 3.073 | 2.328 | 12.476 |
+| optimum k = 2 | 2.411 | 1.854 | 10.898 |
+| network's cut | 2.83 (+17 %) | 2.15 (+16 %) | 12.45 (+14 %) |
+| Déjà View confidence, 92 % kept | 2.813 | 2.218 | 14.209 |
+
+**Rung 4 is not passed**: the mean is 5.67 against 5.96 for keeping everything (-4.8 %), and the lobby does not improve at all. The net beats the confidence on two of three views and ties on the third, but these are training views.
+Neither objective passes rung 4, so rung 5 stays unrun. One seed, one run per rung.
+
 ## Rung 5: not run
 
 The gate was "loss towards the theoretical optimum on rungs 3 and 4". Rung 4 missed its pre-registered bar. Prepared, smoke-tested for 30 steps (a code check, not a result): 20 train scenes (396 views, Déjà View cached),
@@ -87,9 +118,8 @@ sets of 5, 20, 100 and 400 views, the val batch logged at every step (200 ms per
 - *"One seed, one view."* Yes. Rung 3 is one view of one scene; rung 4 the same view index of three scenes. The spread of constant-rate Adam is visible in the curves (+-0.02 cm, spikes of 0.1-0.7), the run-to-run spread on rung 4 is 4-20 % per sample.
 - *"The sample is a view with its own GT."* The alignment is the whole scene's; a view's loss has no other view to cover a dropped point, so its optimum differs from the scene's. This is exactly the finding of the last section, not a hidden assumption.
 - *"The val set never appears."* By design on rungs 3 and 4 (it carries nothing there and cost a third of the step time); rung 5 would log it per step.
-- *"Which number is the result?"* None yet. The deployable quantity, the cloud after a deterministic cut, has not beaten keeping everything on a single view.
+- *"Which number is the result?"* The one deployable quantity so far: on one view the cut-trained net's cloud is 13.6 % below keeping everything and 9 % below Déjà View's confidence at the same share (2.011 against 2.328 and 2.218), on a training view, one seed. Nothing is shown on unseen views.
 
 ## Next
 
-The question this leaves is the objective, not the network. Two options, neither run: train on the cut that will be deployed (a threshold or a rank) instead of random keeps, or keep the scene as the sample and bring its step under the ladder's budget
-(the 20-view step costs 0.8 s; lower-resolution inputs might halve it, untested).
+Neither objective gets one net onto the three samples' optima. Untested, one change each: a temperature that anneals the cut's s from soft to hard (a smoother path to the same cut), more seeds on rung 4 to separate the objective from the jitter, a wider first stage. Rung 5 waits for rung 4.

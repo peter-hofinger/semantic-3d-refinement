@@ -35,8 +35,15 @@ from src.refinement.keep_chamfer import (
 
 
 def sample_loss(logit: torch.Tensor, sample: KeepScene, cfg: dict) -> torch.Tensor:
-    """Return the expected Chamfer (cm) of the sample's s = sigmoid(logit) (1, H, W)."""
+    """Return the expected Chamfer (cm) of the sample's s = sigmoid(logit) (1, H, W).
+
+    With `objective: cut` the forward s is the deployed cut (1 where logit >= 0, else 0)
+    and the gradient is the sigmoid's (straight-through): the loss is then the Chamfer
+    of the cloud a threshold delivers, not of random keeps.
+    """
     s = torch.sigmoid(logit)[sample.valid]
+    if cfg.get("objective") == "cut":
+        s = (s >= 0.5).float() + (s - s.detach())
     return expected_chamfer(s, *sample.tensors, cfg["eps"], tail=cfg["tail"])[0]
 
 
@@ -81,12 +88,16 @@ def free_fit(
     def expand() -> torch.Tensor:
         return torch.nn.functional.interpolate(z, scale_factor=block)[:, 0, :h, :w]
 
+    best, x_best = float("inf"), expand().detach()
     for _ in range(cfg["free_steps"]):
         optimizer.zero_grad()
-        sample_loss(expand(), sample, cfg).backward()
+        x = expand()
+        loss = sample_loss(x, sample, cfg)
+        if loss.item() < best:  # the cut objective is not monotone under Adam
+            best, x_best = loss.item(), x.detach()
+        loss.backward()
         optimizer.step()
-    x = expand().detach()
-    return sample_loss(x, sample, cfg).item(), torch.sigmoid(x)[sample.valid]
+    return best, torch.sigmoid(x_best)[sample.valid]
 
 
 def uncut(sample: KeepScene, cfg: dict) -> float:

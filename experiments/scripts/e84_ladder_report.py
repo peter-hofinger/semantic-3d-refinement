@@ -1,10 +1,10 @@
 """E84 ladder report figures (issue #84): loss curves of rungs 3-5 and what the net outputs against the optimum.
 
-`curves.jpg`: one column per rung, train and val loss of every step (val smoothed over 50 steps, raw faint),
+`<name>_curves.jpg`: one column per rung, train and val loss of every step (val smoothed over 50 steps, raw faint),
 the sample's uncut loss and its free-logit optima (cells of 1, 2, 4 pixels) as lines.
-`maps.jpg`: view 18 of the bedroom, the rung 3 net's keep probability against the optimum's (no network), full and zoomed.
+`<name>_maps.jpg`: view 18 of the bedroom, the rung 3 net's keep probability against the optimum's (no network), full and zoomed.
 
-`uv run python experiments/scripts/e84_ladder_report.py --rung3 runs/... --rung4 runs/... --rung5 runs/... --out experiments/figures/`
+`uv run python experiments/scripts/e84_ladder_report.py --rung3 runs/... --rung4 runs/... --rung5 runs/... --out experiments/figures/ [--name e84_cut]`
 """
 
 import argparse
@@ -45,7 +45,7 @@ def reference(run: Path) -> dict[str, float]:
     }
 
 
-def maps(run: Path, out: Path) -> None:
+def maps(run: Path, out: Path, name: str) -> None:
     """Write the rung 3 net's s against the optimum's on view 18, full and a zoom."""
     cfg = yaml.safe_load((run / "run.yaml").read_text())["config"]
     sample = KeepScene.views("ai_006_007_cam_00", cfg, [18], "cuda")[0]
@@ -72,7 +72,7 @@ def maps(run: Path, out: Path) -> None:
         a.set_title(title, fontsize=9)
         a.axis("off")
     fig.colorbar(im, ax=ax, fraction=0.012, label="keep probability s")
-    fig.savefig(out / "e84_ladder_maps.jpg", dpi=80, pil_kwargs={"quality": 90})
+    fig.savefig(out / f"{name}_maps.jpg", dpi=80, pil_kwargs={"quality": 90})
 
 
 def val_uncut(run: Path) -> float:
@@ -87,7 +87,7 @@ def val_uncut(run: Path) -> float:
     )
 
 
-def curves(runs: dict[str, list[Path]], out: Path) -> None:
+def curves(runs: dict[str, list[Path]], out: Path, name: str) -> None:
     """Write the loss curves, one column per rung: train against the optima, val below if logged.
 
     The first run of a column is the rung's official run, the others are thin repeats.
@@ -133,7 +133,7 @@ def curves(runs: dict[str, list[Path]], out: Path) -> None:
     if rows == 2:
         ax[1, 0].set_ylabel("val loss (cm, log)")
     fig.tight_layout()
-    fig.savefig(out / "e84_ladder_curves.jpg", dpi=80, pil_kwargs={"quality": 90})
+    fig.savefig(out / f"{name}_curves.jpg", dpi=80, pil_kwargs={"quality": 90})
 
 
 def main() -> None:
@@ -142,6 +142,7 @@ def main() -> None:
     for rung in ("rung3", "rung4", "rung5"):
         parser.add_argument(f"--{rung}", type=Path, nargs="*")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--name", default="e84_ladder", help="figure file prefix")
     args = parser.parse_args()
     runs = {
         name: paths
@@ -155,9 +156,9 @@ def main() -> None:
         ]
         if paths
     }
-    curves(runs, args.out)
+    curves(runs, args.out, args.name)
     if args.rung3:
-        maps(args.rung3[0], args.out)
+        maps(args.rung3[0], args.out, args.name)
 
 
 if __name__ == "__main__":
