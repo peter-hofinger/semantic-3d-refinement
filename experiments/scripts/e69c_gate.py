@@ -339,7 +339,7 @@ def main() -> None:
     command, *rest = sys.argv[1:]
     rung = rest[0] if rest else ""
     if command == "config":
-        print(" ".join(SCORED[kind_of(rung)]), write_config(rung))
+        print(write_config(rung), *SCORED[kind_of(rung)])
         return
     if command == "profile":
         sys.exit(0 if check_profile() else 1)

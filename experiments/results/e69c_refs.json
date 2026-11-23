@@ -1,0 +1,408 @@
+{
+ "ai_010_007_cam_00": {
+  "2": {
+   "precision": 0.4446163979715168,
+   "recall": 0.8461307543771399,
+   "vertex_err": 0.1776202707755259,
+   "candidate_children": 2621136.0,
+   "occupied_children": 246508.0,
+   "gt_children": 259198.0,
+   "dv_added": 0.10971865803003311
+  },
+  "3": {
+   "precision": 0.37021094513987435,
+   "recall": 0.738762309745597,
+   "vertex_err": 0.20820772890506783,
+   "candidate_children": 8846334.0,
+   "occupied_children": 529357.0,
+   "gt_children": 553279.0,
+   "dv_added": 0.07998964190483093
+  },
+  "4": {
+   "precision": 0.31520614061976404,
+   "recall": 0.6027507492058362,
+   "vertex_err": 0.22639029422287277,
+   "candidate_children": 20969088.0,
+   "occupied_children": 878597.0,
+   "gt_children": 912079.0,
+   "dv_added": 0.05726668983697891
+  }
+ },
+ "ai_006_007_cam_00": {
+  "2": {
+   "precision": 0.30565077450989087,
+   "recall": 0.6260483598548551,
+   "vertex_err": 0.20770735565112425,
+   "candidate_children": 3412720.0,
+   "occupied_children": 275311.0,
+   "gt_children": 283642.0,
+   "dv_added": 0.12479947507381439
+  },
+  "3": {
+   "precision": 0.22168298336364967,
+   "recall": 0.4615394095608327,
+   "vertex_err": 0.21428941366892965,
+   "candidate_children": 11517930.0,
+   "occupied_children": 567984.0,
+   "gt_children": 583617.0,
+   "dv_added": 0.08405374735593796
+  },
+  "4": {
+   "precision": 0.16651840903348158,
+   "recall": 0.33545153906529657,
+   "vertex_err": 0.22057550427344813,
+   "candidate_children": 27301760.0,
+   "occupied_children": 913509.0,
+   "gt_children": 936068.0,
+   "dv_added": 0.05812537297606468
+  }
+ },
+ "ai_044_001_cam_00": {
+  "2": {
+   "precision": 0.3256171742978687,
+   "recall": 0.6615325713783602,
+   "vertex_err": 0.1675738679989372,
+   "candidate_children": 1739680.0,
+   "occupied_children": 159327.0,
+   "gt_children": 168385.0,
+   "dv_added": 0.13812926411628723
+  },
+  "3": {
+   "precision": 0.2565616390114557,
+   "recall": 0.5501233354160683,
+   "vertex_err": 0.18399459241568625,
+   "candidate_children": 5871420.0,
+   "occupied_children": 337697.0,
+   "gt_children": 354112.0,
+   "dv_added": 0.09727989882230759
+  },
+  "4": {
+   "precision": 0.21972678356140496,
+   "recall": 0.4523862129916041,
+   "vertex_err": 0.20784480035489394,
+   "candidate_children": 13917440.0,
+   "occupied_children": 579328.0,
+   "gt_children": 603070.0,
+   "dv_added": 0.0697755441069603
+  }
+ },
+ "ai_003_010_cam_00": {
+  "2": {
+   "precision": 0.4016523198041547,
+   "recall": 0.7423674146431369,
+   "vertex_err": 0.2066567218049732,
+   "candidate_children": 2096296.0,
+   "occupied_children": 217030.0,
+   "gt_children": 231598.0,
+   "dv_added": 0.1277184784412384
+  },
+  "3": {
+   "precision": 0.3069710013204603,
+   "recall": 0.5996850886107048,
+   "vertex_err": 0.22453868366294802,
+   "candidate_children": 7074999.0,
+   "occupied_children": 447745.0,
+   "gt_children": 469778.0,
+   "dv_added": 0.09146910905838013
+  },
+  "4": {
+   "precision": 0.2351362913896027,
+   "recall": 0.45876755244832557,
+   "vertex_err": 0.2302903619364019,
+   "candidate_children": 16770368.0,
+   "occupied_children": 723617.0,
+   "gt_children": 750205.0,
+   "dv_added": 0.06729436665773392
+  }
+ },
+ "ai_004_003_cam_00": {
+  "2": {
+   "precision": 0.037461060180299315,
+   "recall": 0.0880229931761416,
+   "vertex_err": 0.19090718315168245,
+   "candidate_children": 2932904.0,
+   "occupied_children": 167354.0,
+   "gt_children": 239174.0,
+   "dv_added": 0.13686391711235046
+  },
+  "3": {
+   "precision": 0.015969057320471915,
+   "recall": 0.03842120941316652,
+   "vertex_err": 0.19028845199086486,
+   "candidate_children": 9898551.0,
+   "occupied_children": 335700.0,
+   "gt_children": 454400.0,
+   "dv_added": 0.08311213552951813
+  },
+  "4": {
+   "precision": 0.009332491319653986,
+   "recall": 0.02255324994495765,
+   "vertex_err": 0.19479889391535835,
+   "candidate_children": 23463232.0,
+   "occupied_children": 531409.0,
+   "gt_children": 694098.0,
+   "dv_added": 0.05547914654016495
+  }
+ },
+ "ai_004_004_cam_00": {
+  "2": {
+   "precision": 0.16105161770315868,
+   "recall": 0.47390584397462215,
+   "vertex_err": 0.19158775820242327,
+   "candidate_children": 7167184.0,
+   "occupied_children": 322486.0,
+   "gt_children": 343340.0,
+   "dv_added": 0.11631046235561371
+  },
+  "3": {
+   "precision": 0.1250584355250687,
+   "recall": 0.32960779704814624,
+   "vertex_err": 0.20640141552455296,
+   "candidate_children": 24189246.0,
+   "occupied_children": 650913.0,
+   "gt_children": 681258.0,
+   "dv_added": 0.06376917660236359
+  },
+  "4": {
+   "precision": 0.10238157788159524,
+   "recall": 0.23753742377283335,
+   "vertex_err": 0.21953807223612615,
+   "candidate_children": 57337472.0,
+   "occupied_children": 1005711.0,
+   "gt_children": 1040857.0,
+   "dv_added": 0.0371810682117939
+  }
+ },
+ "ai_004_010_cam_00": {
+  "2": {
+   "precision": 0.2619768102232495,
+   "recall": 0.8181886796521627,
+   "vertex_err": 0.18323680357505476,
+   "candidate_children": 2999240.0,
+   "occupied_children": 185489.0,
+   "gt_children": 191347.0,
+   "dv_added": 0.15194734930992126
+  },
+  "3": {
+   "precision": 0.2235513361168228,
+   "recall": 0.695089207819975,
+   "vertex_err": 0.2083785139712476,
+   "candidate_children": 10122435.0,
+   "occupied_children": 383991.0,
+   "gt_children": 394741.0,
+   "dv_added": 0.0951935425400734
+  },
+  "4": {
+   "precision": 0.1969675843876009,
+   "recall": 0.5688245491474553,
+   "vertex_err": 0.22015414707258488,
+   "candidate_children": 23993920.0,
+   "occupied_children": 618384.0,
+   "gt_children": 633964.0,
+   "dv_added": 0.06134982407093048
+  }
+ },
+ "ai_005_005_cam_00": {
+  "2": {
+   "precision": 0.13922600105355068,
+   "recall": 0.4157376003585542,
+   "vertex_err": 0.19151865171541482,
+   "candidate_children": 3679488.0,
+   "occupied_children": 232043.0,
+   "gt_children": 263313.0,
+   "dv_added": 0.17300522327423096
+  },
+  "3": {
+   "precision": 0.10266340595820364,
+   "recall": 0.28323747876240263,
+   "vertex_err": 0.19914308892973415,
+   "candidate_children": 12418272.0,
+   "occupied_children": 489109.0,
+   "gt_children": 543216.0,
+   "dv_added": 0.10150469094514847
+  },
+  "4": {
+   "precision": 0.08114161170343127,
+   "recall": 0.1986700481560316,
+   "vertex_err": 0.2070685770571985,
+   "candidate_children": 29435904.0,
+   "occupied_children": 794916.0,
+   "gt_children": 868438.0,
+   "dv_added": 0.062441106885671616
+  }
+ },
+ "ai_007_001_cam_00": {
+  "2": {
+   "precision": 0.19981073929241164,
+   "recall": 0.4120850292546426,
+   "vertex_err": 0.18077297658701136,
+   "candidate_children": 3099232.0,
+   "occupied_children": 251584.0,
+   "gt_children": 257369.0,
+   "dv_added": 0.14579997956752777
+  },
+  "3": {
+   "precision": 0.13827229552018847,
+   "recall": 0.285135424908127,
+   "vertex_err": 0.1967143184820678,
+   "candidate_children": 10459908.0,
+   "occupied_children": 540964.0,
+   "gt_children": 551990.0,
+   "dv_added": 0.09691455215215683
+  },
+  "4": {
+   "precision": 0.10932747500457439,
+   "recall": 0.20775903919623445,
+   "vertex_err": 0.20941989580405623,
+   "candidate_children": 24793856.0,
+   "occupied_children": 900163.0,
+   "gt_children": 916823.0,
+   "dv_added": 0.06376561522483826
+  }
+ },
+ "ai_009_007_cam_00": {
+  "2": {
+   "precision": 0.1550951580803928,
+   "recall": 0.4646645869315874,
+   "vertex_err": 0.19217518504509812,
+   "candidate_children": 5073032.0,
+   "occupied_children": 224067.0,
+   "gt_children": 299477.0,
+   "dv_added": 0.11697094142436981
+  },
+  "3": {
+   "precision": 0.13127878353866668,
+   "recall": 0.3650579232200237,
+   "vertex_err": 0.20264519121004565,
+   "candidate_children": 17121483.0,
+   "occupied_children": 473040.0,
+   "gt_children": 597471.0,
+   "dv_added": 0.06863915175199509
+  },
+  "4": {
+   "precision": 0.11297546095213869,
+   "recall": 0.29005687515748657,
+   "vertex_err": 0.21038169018037892,
+   "candidate_children": 40584256.0,
+   "occupied_children": 777844.0,
+   "gt_children": 946849.0,
+   "dv_added": 0.044501449912786484
+  }
+ },
+ "ai_009_009_cam_00": {
+  "2": {
+   "precision": 0.11545779908520984,
+   "recall": 0.38539237306510554,
+   "vertex_err": 0.16753541081637077,
+   "candidate_children": 5759544.0,
+   "occupied_children": 189093.0,
+   "gt_children": 244389.0,
+   "dv_added": 0.10022671520709991
+  },
+  "3": {
+   "precision": 0.0929857902536832,
+   "recall": 0.26410020872691436,
+   "vertex_err": 0.19745734262329043,
+   "candidate_children": 19438461.0,
+   "occupied_children": 403877.0,
+   "gt_children": 511289.0,
+   "dv_added": 0.05466029793024063
+  },
+  "4": {
+   "precision": 0.0779844470965822,
+   "recall": 0.189737109412789,
+   "vertex_err": 0.21032344432721453,
+   "candidate_children": 46076352.0,
+   "occupied_children": 661568.0,
+   "gt_children": 826935.0,
+   "dv_added": 0.03267832472920418
+  }
+ },
+ "ai_031_004_cam_00": {
+  "2": {
+   "precision": 0.18272132779152328,
+   "recall": 0.46318426523106443,
+   "vertex_err": 0.18989006079396384,
+   "candidate_children": 6394056.0,
+   "occupied_children": 281415.0,
+   "gt_children": 376228.0,
+   "dv_added": 0.0953790694475174
+  },
+  "3": {
+   "precision": 0.145884553942222,
+   "recall": 0.3215562178049505,
+   "vertex_err": 0.20522825699828065,
+   "candidate_children": 21579939.0,
+   "occupied_children": 585882.0,
+   "gt_children": 738502.0,
+   "dv_added": 0.05253853648900986
+  },
+  "4": {
+   "precision": 0.12131379068943747,
+   "recall": 0.2403306090044505,
+   "vertex_err": 0.212633425498591,
+   "candidate_children": 51152448.0,
+   "occupied_children": 910683.0,
+   "gt_children": 1107195.0,
+   "dv_added": 0.031552594155073166
+  }
+ },
+ "ai_044_003_cam_01": {
+  "2": {
+   "precision": 0.3122597690641459,
+   "recall": 0.6695102770752013,
+   "vertex_err": 0.1979703246576834,
+   "candidate_children": 3822856.0,
+   "occupied_children": 296923.0,
+   "gt_children": 317890.0,
+   "dv_added": 0.12417536228895187
+  },
+  "3": {
+   "precision": 0.2447945944954626,
+   "recall": 0.5088905501747941,
+   "vertex_err": 0.21772734568689106,
+   "candidate_children": 12902139.0,
+   "occupied_children": 603281.0,
+   "gt_children": 636288.0,
+   "dv_added": 0.0770091861486435
+  },
+  "4": {
+   "precision": 0.19739314040548026,
+   "recall": 0.37316799634316816,
+   "vertex_err": 0.22300154316886447,
+   "candidate_children": 30582848.0,
+   "occupied_children": 940705.0,
+   "gt_children": 982442.0,
+   "dv_added": 0.04815252125263214
+  }
+ },
+ "ai_050_002_cam_00": {
+  "2": {
+   "precision": 0.31333901668570946,
+   "recall": 0.6441619640467741,
+   "vertex_err": 0.1817887181361142,
+   "candidate_children": 1958480.0,
+   "occupied_children": 137512.0,
+   "gt_children": 155696.0,
+   "dv_added": 0.10660099238157272
+  },
+  "3": {
+   "precision": 0.27987324897371874,
+   "recall": 0.5471553712341376,
+   "vertex_err": 0.19411898757669047,
+   "candidate_children": 6609870.0,
+   "occupied_children": 290073.0,
+   "gt_children": 322569.0,
+   "dv_added": 0.06461932510137558
+  },
+  "4": {
+   "precision": 0.2373811936016052,
+   "recall": 0.46532904433518735,
+   "vertex_err": 0.19627270013232778,
+   "candidate_children": 15667840.0,
+   "occupied_children": 464755.0,
+   "gt_children": 509153.0,
+   "dv_added": 0.04569973796606064
+  }
+ }
+}

@@ -10,6 +10,8 @@ For every scene of the named splits, in Deja View's frame and scored by `cloud_e
 - `density`: Deja View's pixels kept by the plain voxel density filter (E86a: every pixel in
   one instance) at q in `QUANTILES`, as clouds `e69c-density-q<q>`, so that `cloud_eval`
   scores them unchanged;
+- `fine <split>`: the same map at the `FINE_ADDED` shares of added children, an extra the
+  plan's grid does not have (its first step from 0 to 0.1 already ruins the Chamfer);
 - `damage <split>`: the oracle damaged in a known way, scored by the surface half of
   `cloud_eval.cloud_scores` (the same two nearest-neighbour distances, `surface_scores`):
   a share r of its occupied children dropped, a share f of the empty candidate children
@@ -21,6 +23,7 @@ For every scene of the named splits, in Deja View's frame and scored by `cloud_e
 uv run python -m experiments.scripts.e69c_oracle refs configs/e69c.yaml dev val
 uv run python -m experiments.scripts.e69c_oracle density configs/e69c.yaml dev val
 uv run python -m experiments.scripts.e69c_oracle damage configs/e69c.yaml 2 dev val
+uv run python -m experiments.scripts.e69c_oracle fine configs/e69c.yaml 2 dev val
 """
 
 import dataclasses
@@ -56,6 +59,7 @@ from src.refinement.volume import voxelize
 
 DROPPED = (0.0, 0.1, 0.2, 0.3, 0.5)
 ADDED = (0.0, 0.1, 0.2, 0.3, 0.5)
+FINE_ADDED = (0.01, 0.02, 0.05)  # between the plan's 0 and 0.1, where the map turns
 SIGMAS = (0.0, 0.1, 0.2, 0.3)
 CPU = torch.device("cpu")
 
@@ -171,8 +175,10 @@ def density(cfg: GeneratorConfig, name: str) -> None:
     print(f"{name}: density clouds at {QUANTILES}", flush=True)
 
 
-def damage(cfg: GeneratorConfig, name: str, split: int, out: Path) -> None:
-    """Score the damaged oracle of one scene over the whole grid; write `<name>.json`."""
+def damage(
+    cfg: GeneratorConfig, name: str, split: int, out: Path, added: tuple[float, ...]
+) -> None:
+    """Score the damaged oracle of one scene over the grid `added`; write `<name>.json`."""
     target = out / f"{name}.json"
     if target.exists():
         return
@@ -193,7 +199,7 @@ def damage(cfg: GeneratorConfig, name: str, split: int, out: Path) -> None:
     drawn = [torch.from_numpy(rng.random(occupied.shape)) for _ in range(2)]
     noise = torch.from_numpy(rng.normal(size=(*occupied.shape, 3))).float()
     rows = []
-    for r, f, sigma in itertools.product(DROPPED, ADDED, SIGMAS):
+    for r, f, sigma in itertools.product(DROPPED, added, SIGMAS):
         t0 = time.perf_counter()
         kept = (occupied & (drawn[0] >= r)) | (~occupied & (drawn[1] < f))
         placed = torch.where(occupied[..., None], vertex, 0.5) + sigma * noise
@@ -224,7 +230,7 @@ def main() -> None:
     """Run `refs`, `density` or `damage` on the named splits; see the module docstring."""
     command, config, *rest = sys.argv[1:]
     cfg = load_rung(Path(config), "overfit1").cfg
-    split = int(rest.pop(0)) if command == "damage" else 0
+    split = int(rest.pop(0)) if command in ("damage", "fine") else 0
     scenes = load_config(Path("configs/hypersim.yaml")).scenes(rest)
     names = [f"{s}_{c}" for s, c in scenes.items()]
     RUNS.mkdir(parents=True, exist_ok=True)
@@ -240,11 +246,11 @@ def main() -> None:
         for n in names:
             density(cfg, n)
     else:
-        assert command == "damage", command
-        folder = RUNS / f"damage_s{split}"
+        assert command in ("damage", "fine"), command
+        folder = RUNS / f"damage_s{split}{'_fine' if command == 'fine' else ''}"
         folder.mkdir(exist_ok=True)
         for n in names:
-            damage(cfg, n, split, folder)
+            damage(cfg, n, split, folder, FINE_ADDED if command == "fine" else ADDED)
 
 
 if __name__ == "__main__":

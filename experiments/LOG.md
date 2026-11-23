@@ -7201,3 +7201,105 @@ Interim entry: the check that the plan puts before any table.
   that no view sees.
 - **Commands (written with the code):** `experiments/scripts/e69c.sh` (all rungs in order). One rung: `uv run generate-cloud --config configs/e69c.yaml
   --rung <rung>`, then `experiments/scripts/e69c_gate.py`. Features: `uv run python -m src.backbone.dinov2 configs/e69c.yaml` (writes the cache).
+
+## E69c, result: rung 0's gate closes, Déjà View snapped to one vertex per child (`dv-ovoxel`) is 0.93 cm worse than Déjà View on dev at the chosen split 4; no later rung ran, "not yet working" (issue #69, 23.11.2026)
+- **Setting:** the plan above, rung 0 only, run on the RTX 3080 box (CPU work: the grid, the targets, the scoring; the GPU was held by jobs of another
+  user for the whole session, 85 to 98% utilisation, 5.5 to 7.2 GB, and was not touched). Dev (3) and val (11), 20 views at 504 px, Déjà View K = 16 from
+  the existing cache, `cloud_eval` unchanged. Test and stress untouched, nothing was tuned on val. Commits: `b621c1b` (DINOv2 feature cache and its
+  voxelization), `568300f` (the `ovoxel` and `latent` generators and the `direct` loss), `581bcfc` (cosine decay, `--set`), `4c2c118` (fixed-vertex
+  and parameter-limit options), `d68c565` (config, rung-0 scripts, gates, `e69c.sh`) and the commit that carries this entry, its scripts, figures
+  and `experiments/results/e69c_*`. Every commit passes ruff and pytest. **Decision:** the gate below closed, I asked, and the answer was to stop here
+  and report with the gate as written; rungs 1 to 5 were not run, and the plan's gates, rungs, splits and `cloud_eval` are unchanged.
+- **Commands:** `uv run python -m experiments.scripts.e69c_oracle refs configs/e69c.yaml dev val`, `... density ...`, then
+  `uv run python -m experiments.scripts.e69c_gate config rung0`, `uv run python -m src.analysis.cloud_eval --cfg runs/e69c/rung0_eval.yaml --splits dev val`,
+  `uv run python -m experiments.scripts.e69c_gate gate rung0`, `... e69c_oracle damage configs/e69c.yaml 4 dev val` and `... fine ...`, then
+  `e69c_damage`, `e69c_story` (figures) and `e69a_renders.py` (bedroom). The train scenes were downloaded and prepared with
+  `hypersim-download` and `hypersim-prepare --splits train` (CPU and network, 31 min for 40 scenes); Déjà View and SAM 3 on them, the DINOv2 cache and its PCA
+  were not run (GPU busy, and the ladder stopped).
+- **What had to be fixed, none of it a change to the experiment:** (1) a crop's rim was cut at the grid's own border too, so a voxel within 8 cells
+  of the grid's boundary was never scored in any crop (crops are clipped to the grid); found by the toy-scene test, where a free latent per voxel
+  stayed at its random start there and the child precision was 0.4; the rim is now cut only where the crop has neighbours (`568300f`).
+  (2) `e69c_gate.py config` printed the splits before the path, so `read -r splits config` in `e69c.sh` broke for two splits (E69a's
+  `e69a.sh` has the same order; its rungs with one split did not show it); the path comes first now. (3) On the 3 dev scenes `beats` (twice the
+  standard error) cannot be met even by the oracle (gains of 1.2, 0.5 and 4.6 cm: mean 2.1, standard error 1.2), so the damage map uses rung 4's dev
+  rule on dev (mean gain above the band and at least 2 scenes above it) and `beats` on val.
+- **Deviations and additions, for the record:** (a) `oracle-ovoxel` is restricted to the candidate voxels, as the plan's "exactly what zero loss produces"
+  needs; the GT-occupied children outside the candidates (reach 1) are 4.4 / 3.9 / 3.3% of those on dev and 13.7 / 11.6 / 10.2% on val at split 2 / 3 / 4,
+  so the unrestricted oracle is a little better still. (b) The damage map is run at the chosen split (4) only, and I added `f` in {0.01, 0.02, 0.05}
+  (`FINE_ADDED`, a separate pass) to the plan's {0, ..., 0.5}: the plan's first step, 0 to 0.1, already crosses Déjà View's level, so the plan's grid does
+  not show where. (c) "Rerun Déjà View on this GPU": I rescored the cached Déjà View output of this 3080 with `cloud_eval` (bedroom 1.846, dev 3.501, the
+  plan's 3080 numbers); the network was not rerun, the GPU being busy. (d) The ladder stopped at rung 0 by your decision.
+- **Rung 0, `cloud_eval`, Chamfer in cm, mean over the scenes of the split (accuracy / completeness / Chamfer); dev = ai_010_007, ai_006_007, ai_044_001,
+  val = 11 scenes; `density q` is the plain voxel density filter (E86a: every pixel in one instance, a cloud `e69c-density-q`), `s<k>` the split:**
+
+  | output | dev acc | dev comp | dev Chamfer | val acc | val comp | val Chamfer | points (dev mean) |
+  |---|---|---|---|---|---|---|---|
+  | Déjà View (bedroom 1.846) | 4.68 | 2.32 | **3.501** | 10.13 | 4.14 | **7.134** | 3810 k |
+  | density q0.5 | 3.53 | 7.42 | 5.474 | 5.68 | 5.46 | 5.566 | 1905 k |
+  | density q0.7 (tuned on dev) | 4.06 | 2.72 | **3.390** | 8.07 | 4.42 | 6.247 | 2667 k |
+  | density q0.9 | 4.51 | 2.39 | 3.453 | 9.59 | 4.20 | 6.900 | 3429 k |
+  | oracle-ovoxel-s2 (bedroom 0.605) | 0.60 | 2.25 | 1.425 | 0.43 | 3.74 | 2.084 | 227 k |
+  | dv-ovoxel-s2 (bedroom 2.914) | 8.54 | 3.58 | 6.063 | 17.78 | 5.19 | 11.482 | 452 k |
+  | oracle-ovoxel-s3 (bedroom 0.439) | 0.50 | 1.64 | 1.070 | 0.33 | 3.32 | 1.821 | 478 k |
+  | dv-ovoxel-s3 (bedroom 2.445) | 6.91 | 3.02 | 4.963 | 15.68 | 4.87 | 10.273 | 988 k |
+  | oracle-ovoxel-s4 (bedroom 0.333) | 0.37 | 1.31 | 0.840 | 0.24 | 3.09 | 1.667 | 790 k |
+  | dv-ovoxel-s4 (bedroom 2.235) | 6.09 | 2.77 | 4.432 | 14.10 | 4.73 | 9.418 | 1571 k |
+
+  The val numbers of `cloud_eval` are not `scene_eval`'s: Déjà View's pixels score 7.134 here (accuracy 10.13) and 5.102 with the per-pixel scorer
+  (`per_pixel`, accuracy 6.06, completeness 4.14 in both), E86a's 5.10; on dev the two agree (3.501 / 3.500). `cloud_eval` scores every output point
+  against the GT surface, also pixels where the GT has none, so val's pixel baselines are penalised there and a GT-derived cloud is not; E86a's val 3.76 for
+  the density filter is the per-pixel scorer's, here q0.5 is 5.566. Read val's differences to the oracle with that in mind; dev has no such gap.
+- **The split and the gate** (`e69c_gate.py`; dev oracle / Déjà View per scene, ai_006_007, ai_010_007, ai_044_001): split 2 0.33 / **0.70** / 0.36 (the
+  oracle is over half on ai_010_007, where Déjà View is already 1.61 cm), split 3 0.24 / **0.55** / 0.27, split 4 0.18 / 0.45 / 0.21. So the rule picks
+  **split 4** (768 cells along the longest side, a median 1.8 cm child; 26 candidate children per occupied one on dev). The oracle clause holds
+  there, val's ratios are 0.04 to 0.63. The second clause, `dv-ovoxel` within the 0.1 cm band of Déjà View on the dev mean, **fails**: +0.93 cm at
+  split 4 (+1.46 at 3, +2.56 at 2); bedroom +0.39 cm at split 4; val +2.28. **Gate: not passed** (`rung0.pass` is empty, exit status 1).
+- **Predictions written before the run:** (1) "`oracle-ovoxel` at split 2: 0.3 to 0.7 cm on the bedroom, under 1.5 cm dev mean": **right** (0.605, 1.425);
+  "so split 2 is chosen": **wrong**, the rule gives 4 (above). (2) "`dv-ovoxel` within the band of Déjà View": **wrong**, +0.93 cm on dev. (3) "child
+  precision about 0.26 and recall about 0.55 (E69b's 384-cell row)": **right**, 0.24 and 0.551 at split 2 over the 14 scenes (dev 0.36 / 0.71, val 0.21 /
+  0.51; candidates only, `e69c_refs.json`). (4) "the map shows that recall can fall by 0.2 if precision rises above 0.6": **wrong** as the map is specified:
+  with added children drawn uniformly from the empty candidates a variant beats Déjà View only above a precision of about 0.8 on dev (0.68 on val),
+  whatever the recall (0.5 to 1) and the vertex noise (0 to 0.3 child sizes); precision 0.67 at full recall is 5.20 cm. (5) The refuting
+  condition (no split up to 4 brings the oracle under half on dev): **not met**.
+- **Damage map** (`experiments/figures/e69c_damage.jpg`, `experiments/results/e69c_damage.txt`, `e69c_damage_s4.json`; split 4, mean over the split's scenes, one
+  seed with common random numbers across variants): at recall 1 and no vertex noise, adding a share f of the empty candidate children gives dev
+  precision 0.80 / 0.67 / 0.45 / 0.29 and Chamfer 3.41 / 5.20 / 8.21 / 10.40 cm at f = 0.01 / 0.02 / 0.05 / 0.1 (f = 0: 0.84), against Déjà View's 3.501;
+  val 6.37 / 8.96 / 12.44 / 14.51 (precision 0.71 / 0.56 / 0.34 / 0.21) against 7.134. A tenth of the children dropped costs 0.04 cm, half of them 0.30 cm,
+  vertex noise of 0.3 child sizes 0.42 cm (f = 0, dev). So on this map the Chamfer is set by precision alone, and `dv-ovoxel` sits at precision 0.234 /
+  recall 0.464 on dev (0.135 / 0.296 on val), vertex error 0.218 child sizes per axis (a Gaussian sigma of 0.27). The added children are drawn from
+  all empty candidates, most of which lie around Déjà View's floaters far from the GT (an added child is about 27 cm from the GT on average, from the
+  accuracy at f = 0.01 and 0.1), so this
+  map is harsher than Déjà View's own false positives, which E69b found within a voxel of the GT for 65%; it fixes the precision a model needs under that
+  error model, not under Déjà View's.
+- **Diagnosis at this rung** (no model was trained, so the verdict table's targets, loss, `zero_grad`, mode and data rows reduce to the targets and data): not a
+  bug. The children, targets and clouds check out by construction and by test (the loss is zero at the oracle at split 2, 3 and 4, the oracle children score
+  precision and recall 1, `children_cloud` puts each vertex at its target in Déjà View's frame), the oracle's scorer numbers are low everywhere, and the
+  cost of `dv-ovoxel` is located: on the bedroom, weighting each child's vertex by the number of Déjà View points in it gives an accuracy of 2.50 / 2.51 /
+  2.52 cm at split 2 / 3 / 4 against the pixels' 2.52 cm, so placing one vertex per child loses nothing; unweighted, as `cloud_eval` averages over output
+  points, it is 4.14 / 3.44 / 3.12 cm. Children holding 1 or 2 Déjà View points (floaters and edges) are 38 / 62 / 79% of the children but 8 / 26 / 49% of the
+  points, and their vertices are 6.53 / 4.18 / 3.42 cm from the GT against 2.64 / 2.26 / 2.02 cm for children with three or more, so every one of them
+  casts a full vote. The clause's premise, "the representation costs nothing by itself", is false for a per-output-point score; it holds only once
+  step 1 has removed the sparse children, which is what the trained model has to do. This is the same effect as E45's voxel mean at 192 cells (4.445 cm on
+  the bedroom, E69a), which `dv-ovoxel-s2` (384 cells, 2.914) repeats finer.
+- **Spread and budget:** rung 0 has no training and no seed; the damage map's random draws use one fixed seed and common random numbers, so its
+  differences between neighbouring variants are exact and its absolute levels carry that one draw. Dev has three scenes (no usable standard error). GPU time:
+  0 h (the GPU was never free). CPU time: references 7 min for the 14 scenes (all three splits) and 6 min for the density clouds, `cloud_eval` on the 10
+  variants 8 min (16 cores), the damage map 100 variants x 14 scenes about 2 h and the finer pass 60 variants x 14 scenes 32 min (both alongside other work),
+  the train-scene download and preparation 31 min (network and CPU); waiting for the GPU: the whole session (about 5 h), its holder a job of another user that
+  I did not touch. Not run: rungs 1 to 5, the DINOv2 cache on the 54 scenes (a CPU check of the real DINOv2-B on one scene took 13 s for 20 views, 32
+  components of a PCA fitted on that scene alone hold 67% of the variance; not a result), `e69c_data.py` (written, never run: it needs the PCA of the train
+  split), the learning-rate, speed and overfit rungs on real scenes (their code is tested on toy scenes only: `latent` and `ovoxel` fit a plane).
+- **Figures (looked at):** `e69c_damage.jpg` (mean Chamfer over child recall and precision per vertex noise, dev above, val below, Déjà View's level as a red
+  line, `dv-ovoxel` as a star; the contour is interpolated between the grid's points; no trained model exists to place), `e69c_story.jpg` (the oracle's share of
+  Déjà View per dev scene and split against the gate of 0.5, and `dv-ovoxel` minus Déjà View against the band: the only rung that ran), `e69c_bedroom_rgb.jpg`
+  (the bedroom, views 18, 0, 12, 6: GT, Déjà View, the density filter at q 0.7, `dv-ovoxel` s4, `oracle-ovoxel` s4; `dv-ovoxel` keeps the floaters and the
+  speckle of Déjà View, the density filter removes some, only the oracle is clean). The learning curves and the best arm's renders do not exist.
+- **Conclusion: not yet working, and not "fails".** The representation passes its oracle clause from split 4 (oracle 0.18 to 0.45 of Déjà View on dev), the
+  O-Voxel targets and loss are implemented and tested, and `dv-ovoxel` fails the clause that asked Déjà View to cost nothing in it, for a reason that
+  concerns the clause, not the targets: a child counts once however few points it holds. No arm was trained, so nothing follows about whether a learned
+  generator can reach the oracle or beat Déjà View or the tuned density filter (dev 3.390, val 6.247 here). What is missing and is a decision of the plan's,
+  not mine: whether the clause is replaced (for instance by comparing `dv-ovoxel` after dropping children with fewer than `k` points, or on point-weighted
+  accuracy) or kept informational, whether the split is 4 as the rule says (64 children per voxel, a U-Net head of 256 outputs, 27 M candidate children on
+  the bedroom) or the plan's expected 2 with its weaker oracle on ai_010_007, and whether the added-children damage map should follow Déjà View's near-surface
+  errors. After that: the GPU (free of other jobs), Déjà View, SAM 3 and the DINOv2 cache and PCA on the 40 train scenes (`experiments/scripts/e69a_prepare.sh`,
+  `python -m src.backbone.dinov2 configs/e69c.yaml`), then `experiments/scripts/e69c.sh` resumes at rung 1.

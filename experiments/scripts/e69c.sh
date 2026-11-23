@@ -21,7 +21,7 @@ train() {  # train <rung> <arm>...: one process per arm; EXTRA adds flags (the e
   done
 }
 score() {  # score <rung>: cloud_eval on the rung's clouds
-  read -r splits config < <($gate config "$1")
+  read -r config splits < <($gate config "$1")
   uv run python -m src.analysis.cloud_eval --cfg "$config" --splits $splits
 }
 passed() { tr '\n' ' ' < "runs/e69c/$1.pass"; }
