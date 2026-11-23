@@ -30,6 +30,20 @@ loss of feed-forward splatting, VolSplat, Wang et al. 2025), no point matched to
 another. The ground truth is mapped into Deja View's frame by the evaluation's Umeyama
 fit (`volume.gt_in_frame`), so the model is trained for the frame it is scored in.
 
+E69c (kinds `ovoxel` and `latent`, loss `direct`): TRELLIS.2's O-Voxel (Xiang et al.
+2025, arXiv 2512.14692) puts one vertex in every active voxel, and its upsampler decides
+which of a voxel's 8 children are active. Here every candidate voxel has `split`^3
+children, each with a logit and a vertex `child_min + child_size * sigmoid(v)`, so a
+vertex never leaves its child. Every child has a fixed target (`child_targets`):
+occupied if a ground-truth point lies in it, and then its vertex is the mean of those
+points. The loss is the cross-entropy of the logits plus the L1 of the vertices (child
+units, occupied children only), zero exactly at `oracle-ovoxel`; no output is matched to
+another. Kind `latent` is the auto-decoder of DeepSDF (Park et al. 2019): a free 32-d
+latent per voxel of one scene's grid replaces the U-Net, read by the same head, to show
+that the head can carry the targets before an encoder is asked to produce its input.
+`dino` adds DINOv2 features to the grid (`volume.voxelize_features`, Pixal3D, Li et al.
+2026).
+
 Protocol of the ladder in `docs/experiments.md`: one model per arm (`arms` of the
 config) under under 1 M parameters, Adam at a constant learning rate, no weight decay,
 no augmentation (every grid is built from all views); TensorBoard events under the run
@@ -59,6 +73,7 @@ from torch.nn import functional as F  # noqa: N812
 from torch.utils.tensorboard import SummaryWriter
 
 from src.analysis.scene_eval import git_hash
+from src.backbone.dinov2 import Pca, load_patches, pca_path
 from src.device import best_device
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
@@ -84,6 +99,8 @@ REACH_SUBDIV = 4  # sub-voxels per cell of the grid that reachability reads
 IMPLICIT_CHUNK = 200_000  # points per pass of the implicit generator's head
 SPLIT_CHUNK = 50_000  # voxels per pass of the splitting generator's heads
 MAX_PARAMETERS = 1_000_000  # rung 0 of the ladder: the simplest model
+LOSSES = ("chamfer", "render", "direct")
+LATENT = 32  # channels of the free latent per voxel (kind `latent`)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -119,11 +136,15 @@ class GeneratorConfig:
     kind: str = "lattice"  # which generator: see `KINDS`
     semantics: str = "none"  # classes the grid sees: none, sam3 or gt
     copies: int = 2  # points per seed of a seeded generator
-    loss: str = "chamfer"  # "chamfer": reachable points to the GT points; "render"
+    loss: str = (
+        "chamfer"  # "chamfer": reachable points to the GT points; "render"; "direct"
+    )
     stride: int = 4  # the render loss draws the views at 1/stride of their size
     tau: float = 0.25  # softness of the render loss's depth test, cells
     render_views: int = 20  # views the render loss draws per step, at random
     clip: float = 0.0  # largest gradient norm, 0: none
+    dino: int = 0  # DINOv2 feature channels in the grid (the PCA's), 0: none
+    dino_cache: str = "dinov2b"  # name of the DINOv2 cache and its PCA
 
 
 @dataclasses.dataclass(frozen=True)
@@ -141,6 +162,7 @@ def load_rung(path: Path, rung: str) -> Rung:
     raw = yaml.safe_load(path.read_text())
     arms, rungs = raw.pop("arms"), raw.pop("rungs")
     raw.pop("anchors", None)
+    raw.pop("dinov2", None)  # the cache's own settings, read by `backbone/dinov2.py`
     assert rung in rungs, f"{rung} is not a rung of {path}: {list(rungs)}"
     raw |= rungs[rung]
     run, sizes = raw.pop("run"), raw.pop("sizes", [0])
@@ -153,7 +175,7 @@ def load_rung(path: Path, rung: str) -> Rung:
     raw["root"] = Path(raw["root"])
     cfg = GeneratorConfig(**raw)
     assert 2 * cfg.margin < cfg.crop and cfg.crop % 8 == 0, cfg
-    assert cfg.select in ("train", "val") and cfg.loss in ("chamfer", "render"), cfg
+    assert cfg.select in ("train", "val") and cfg.loss in LOSSES, cfg
     return Rung(cfg, arms, run, sizes)
 
 
@@ -175,7 +197,7 @@ def for_arm(
     cfg = dataclasses.replace(rung.cfg, semantics=sem, **rung.arms[base])
     if lrs and base in lrs:
         cfg = dataclasses.replace(cfg, lr=lrs[base])
-    assert cfg.kind in KINDS and cfg.loss in ("chamfer", "render"), cfg
+    assert cfg.kind in KINDS and cfg.loss in LOSSES, cfg
     return cfg
 
 
@@ -546,7 +568,100 @@ class SeededGenerator(UNet3d):
         return Outputs(torch.stack(pos, 1), torch.stack(logit, 1))
 
 
+def child_corner(split: int) -> Tensor:
+    """Offsets (split^3, 3) of each child's minimum corner from its voxel's, cells."""
+    return lattice(split) + 0.5 - 0.5 / split
+
+
+def decode_children(
+    head: nn.Conv3d, feats: Tensor, candidates: Tensor, corner: Tensor
+) -> Outputs:
+    """Vertices (M, K, 3) and logits (M, K) of the candidate voxels' children.
+
+    feats (C, Z, Y, X); candidates (Z, Y, X) bool; corner (K, 3): `child_corner`. The
+    head gives 4 numbers per child: v and the logit; the vertex is child_min +
+    sigmoid(v) / split cells, so it never leaves its child. A head at zero puts every
+    vertex at its child's centre.
+    """
+    k = len(corner)
+    split = round(k ** (1 / 3))
+    out = head(feats[None])[0][:, candidates].view(k, 4, -1).permute(2, 0, 1)
+    voxel = torch.nonzero(candidates).flip(1).float()  # x y z
+    pos = voxel[:, None] + corner + torch.sigmoid(out[..., :3]) / split
+    return Outputs(pos, out[..., 3])
+
+
+class OVoxelGenerator(UNet3d):
+    """U-Net features, then per candidate voxel `split`^3 children, each with a vertex.
+
+    The two steps of TRELLIS.2's O-Voxel (Xiang et al. 2025): which children are active,
+    and where the dual vertex of each lies in its child. Both heads are one 1 x 1
+    convolution on the U-Net's full-size features, started at zero (logit 0, vertex at
+    the child's centre). The output is the vertex of every child with a positive logit.
+    """
+
+    distance = False
+    seeded = False
+
+    def __init__(
+        self, grid_channels: int, widths: list[int], split: int, *, semantics: bool
+    ) -> None:
+        """Start the head at zero."""
+        super().__init__(grid_channels, widths)
+        self.semantics = semantics
+        self.head = nn.Conv3d(widths[0], split**3 * 4, 1)
+        nn.init.zeros_(self.head.weight)
+        nn.init.zeros_(self.head.bias)
+        self.register_buffer("base", lattice(split))
+        self.register_buffer("corner", child_corner(split))
+
+    def forward(
+        self, grid: Tensor, candidates: Tensor, *, amp: bool = False
+    ) -> Outputs:
+        """Return vertices (M, K, 3) in cells, x y z, and logits (M, K)."""
+        return decode_children(
+            self.head, self.features(grid, amp=amp), candidates, self.corner
+        )
+
+
+class LatentGenerator(nn.Module):
+    """The auto-decoder of rung 3a: a free latent per voxel of one scene, the same head.
+
+    As DeepSDF (Park et al. 2019) fits one code per shape, here `table` (LATENT, Z, Y,
+    X) holds one code per voxel of one scene's grid and replaces the U-Net, so the head
+    is the only network. It has no input, only the memory of one scene; it shows whether
+    the head and the targets can reach the oracle before an encoder is asked to produce
+    the latent. The grid it reads is the data grid with the table appended
+    (`scene_grid`): the data channels give the candidates, the last LATENT channels the
+    codes.
+    """
+
+    distance = False
+    seeded = False
+
+    def __init__(self, dims: tuple[int, int, int], split: int) -> None:
+        """Make a table over a grid of `dims` (x y z) cells; the head starts at zero."""
+        super().__init__()
+        self.semantics = False
+        nx, ny, nz = dims
+        self.table = nn.Parameter(0.1 * torch.randn(LATENT, nz, ny, nx))
+        self.head = nn.Conv3d(LATENT, split**3 * 4, 1)
+        nn.init.zeros_(self.head.weight)
+        nn.init.zeros_(self.head.bias)
+        self.register_buffer("base", lattice(split))
+        self.register_buffer("corner", child_corner(split))
+
+    def forward(
+        self, grid: Tensor, candidates: Tensor, *, amp: bool = False
+    ) -> Outputs:
+        """Vertices and logits as `OVoxelGenerator`; the codes are the last channels."""
+        assert not amp, "the latent head runs in float32"
+        return decode_children(self.head, grid[-LATENT:], candidates, self.corner)
+
+
 KINDS = {
+    "ovoxel": OVoxelGenerator,
+    "latent": LatentGenerator,
     "lattice": Generator,
     "gated": GatedGenerator,
     "implicit": ImplicitGenerator,
@@ -555,16 +670,29 @@ KINDS = {
 }  # the generator of a config
 
 
-def build(cfg: GeneratorConfig) -> UNet3d:
-    """Return the untrained generator of the config's `kind`, under 1 M parameters."""
-    model = KINDS[cfg.kind](
-        grid_channels(semantics=cfg.semantics != "none"),
-        cfg.widths,
-        cfg.copies if cfg.kind == "seeded" else cfg.split,
-        cfg.offset,
-        semantics=cfg.semantics != "none",
-    )
-    assert sum(p.numel() for p in model.parameters()) < MAX_PARAMETERS, cfg.widths
+def build(cfg: GeneratorConfig, dims: tuple[int, int, int] | None = None) -> nn.Module:
+    """Return the untrained generator of the config's `kind`, under 1 M parameters.
+
+    dims (x y z cells): the grid of the one scene a `latent` generator is a table for.
+    The table is memory, not a model: the limit counts the head only.
+    """
+    sem = cfg.semantics != "none"
+    channels = grid_channels(semantics=sem, features=cfg.dino)
+    if cfg.kind == "latent":
+        assert dims is not None, "a latent generator needs its scene's grid"
+        model = LatentGenerator(dims, cfg.split)
+    elif cfg.kind == "ovoxel":
+        model = OVoxelGenerator(channels, cfg.widths, cfg.split, semantics=sem)
+    else:
+        model = KINDS[cfg.kind](
+            channels,
+            cfg.widths,
+            cfg.copies if cfg.kind == "seeded" else cfg.split,
+            cfg.offset,
+            semantics=sem,
+        )
+    weights = sum(p.numel() for n, p in model.named_parameters() if n != "table")
+    assert weights < MAX_PARAMETERS, cfg.widths
     return model
 
 
@@ -913,6 +1041,13 @@ def load_scene(
     pts, rays, depth, scale = scene_points(
         geometry, views.images, ids, classes, cfg.resolution
     )
+    if cfg.dino:
+        pca = Pca.load(pca_path(cfg.root, cfg.dino_cache, cfg.dino))
+        patches = load_patches(cfg.root, scene, cfg.dino_cache, cfg.views, pca)
+        assert patches.shape[0] * np.prod(views.images.shape[1:3]) == len(pts.points)
+        pts = dataclasses.replace(
+            pts, patches=patches, image=tuple(views.images.shape[1:3])
+        )
     in_dv, has = gt_in_frame(rays, depth, views, gt)
     return (
         pts,
@@ -1008,8 +1143,213 @@ def level_losses(
 OnDevice = tuple[ScenePoints, Tensor, tuple[RenderViews, list[int]] | None]
 
 
+def voxel_key(voxel: Tensor, dims: tuple[int, int, int]) -> Tensor:
+    """Flat z-major key (n,) of voxels (n, 3) x y z in a grid of `dims` cells."""
+    nx, ny, _ = dims
+    return (voxel[:, 2] * ny + voxel[:, 1]) * nx + voxel[:, 0]
+
+
+def child_targets(
+    voxel: Tensor, points: Tensor, split: int, dims: tuple[int, int, int]
+) -> tuple[Tensor, Tensor]:
+    """Return the voxels' fixed child targets: occupied (M, K) bool, vertex (M, K, 3).
+
+    voxel (M, 3) long, x y z, unique and in z-major order (as `torch.nonzero(mask)`
+    gives them) in a grid of `dims` cells; points (n, 3) in cells of the same frame. A
+    child is occupied if a point lies in it, and its vertex target is the mean of those
+    points in child units (0 to 1 from its minimum corner; 0 where empty). The children
+    are in `lattice` order. A point outside every listed voxel is ignored.
+    """
+    k = split**3
+    assert voxel.shape[1:] == (3,) and points.shape[1:] == (3,)
+    fine = torch.floor(points * split).long()
+    inside = (fine >= 0).all(1) & (
+        fine < torch.tensor(dims, device=fine.device) * split
+    ).all(1)
+    fine, frac = fine[inside], points[inside] * split - fine[inside]
+    keys, wanted = voxel_key(voxel, dims), voxel_key(fine // split, dims)
+    assert (keys[1:] > keys[:-1]).all(), "voxels must be unique and z-major"
+    row = torch.searchsorted(keys, wanted).clamp(max=len(keys) - 1)
+    held = keys[row] == wanted
+    sub = fine[held] % split
+    flat = row[held] * k + (sub[:, 0] * split + sub[:, 1]) * split + sub[:, 2]
+    count = torch.zeros(len(keys) * k, device=fine.device)
+    count.index_add_(0, flat, torch.ones(len(flat), device=fine.device))
+    total = torch.zeros(len(keys) * k, 3, device=fine.device)
+    total.index_add_(0, flat, frac[held])
+    vertex = total / count.clamp(min=1)[:, None]
+    assert vertex.min() >= 0 and vertex.max() < 1
+    return (count > 0).view(len(keys), k), vertex.view(len(keys), k, 3)
+
+
+@dataclasses.dataclass(frozen=True)
+class Children:
+    """The children of a crop's or scene's candidate voxels: output and target."""
+
+    logit: Tensor  # (M, K) keep the child if positive
+    pos: Tensor  # (M, K, 3) vertices, cells, x y z
+    corner: Tensor  # (M, K, 3) each child's minimum corner, cells
+    occupied: Tensor  # (M, K) bool target
+    vertex: Tensor  # (M, K, 3) target vertex, child units; 0 where empty
+    scored: Tensor  # (M,) bool: the voxel counts (not in the crop's rim)
+
+    def placed(self, split: int) -> Tensor:
+        """Return the vertices in child units (M, K, 3): 0 to 1 inside their child."""
+        return (self.pos - self.corner) * split
+
+
+def direct_terms(children: Children, split: int) -> dict[str, Tensor]:
+    """Return loss `direct`: cross-entropy of the logits, L1 of occupied vertices.
+
+    Both over the scored voxels only; the L1 in child units, per coordinate. Zero
+    exactly where every logit is right and every occupied child's vertex is its target.
+    """
+    live = children.scored
+    occupied = children.occupied[live]
+    if not occupied.any():
+        raise EmptyCrop
+    placed = children.placed(split)[live][occupied]
+    return {
+        "occ": F.binary_cross_entropy_with_logits(
+            children.logit[live], occupied.float()
+        ),
+        "vertex": (placed - children.vertex[live][occupied]).abs().mean(),
+    }
+
+
+def child_counts(children: Children, split: int) -> dict[str, float]:
+    """Return counts over the scored voxels: kept, occupied, hits, vertex error.
+
+    Counts, not rates, so that crops and scenes can be pooled before dividing.
+    """
+    live = children.scored
+    kept, occupied = children.logit[live] > 0, children.occupied[live]
+    error = (
+        children.placed(split)[live][occupied] - children.vertex[live][occupied]
+    ).abs()
+    return {
+        "kept": float(kept.sum()),
+        "occupied": float(occupied.sum()),
+        "hit": float((kept & occupied).sum()),
+        "vertex_sum": float(error.sum()),
+        "vertex_n": float(error.numel()),
+    }
+
+
+def child_scores(counts: dict[str, float]) -> dict[str, float]:
+    """Return child precision, recall and the mean vertex error (child units)."""
+    return {
+        "precision": counts["hit"] / max(counts["kept"], 1.0),
+        "recall": counts["hit"] / max(counts["occupied"], 1.0),
+        "vertex_err": counts["vertex_sum"] / max(counts["vertex_n"], 1.0),
+    }
+
+
+def output_chamfer(
+    children: Children, truth: tuple[Tensor, Tensor]
+) -> tuple[Tensor, Tensor]:
+    """Accuracy and completeness (cells) of the kept vertices against the crop's GT.
+
+    truth = (targets (m, 3), complete (q, 3)) as in `cloud_loss`: accuracy over the kept
+    vertices of the scored voxels, completeness of `complete` against all kept vertices
+    of the crop. Infinite where nothing is kept (the untrained generator keeps nothing).
+    """
+    targets, complete = truth
+    kept = children.logit > 0
+    every = children.pos[kept]
+    inner = children.pos[kept & children.scored[:, None]]
+    if not len(inner):
+        return torch.tensor(float("inf")), torch.tensor(float("inf"))
+    acc = (inner - targets[nearest(inner, targets)]).norm(dim=1).mean()
+    comp = (complete - every[nearest(complete, every)]).norm(dim=1).mean()
+    return acc, comp
+
+
+def crop_window(
+    pts: ScenePoints, grid: Tensor, cfg: GeneratorConfig, rng: np.random.Generator
+) -> tuple[Tensor, np.ndarray, np.ndarray]:
+    """Return a random crop centred on a random point, with its corner and size."""
+    centre = pts.points[int(rng.integers(len(pts.points)))]
+    local = ((centre - pts.lo) / pts.cell).floor().long().cpu().numpy()
+    size = np.minimum(cfg.crop, pts.dims)  # x y z
+    lo = np.clip(local - size // 2, 0, np.array(pts.dims) - size)
+    zyx = (2, 1, 0)
+    window = (slice(None), *(slice(int(lo[a]), int(lo[a] + size[a])) for a in zyx))
+    return grid[window], lo, size
+
+
+def direct_crop(
+    model: nn.Module,
+    grid: Tensor,
+    scene: OnDevice,
+    cfg: GeneratorConfig,
+    rng: np.random.Generator,
+) -> tuple[Children, tuple[Tensor, Tensor]]:
+    """Return a random crop's children with their targets, and its GT for the Chamfer.
+
+    The GT points are in the crop's cells: those in the crop (at most `gt_cap`, the
+    accuracy's targets) and those in its interior (at most `comp_cap`, the
+    completeness'). The rim only gives context, so it is cut only where the crop has
+    neighbours: at the grid's own border every voxel counts, or the border's voxels
+    would never be scored (and a latent per voxel would stay at its initial value).
+    """
+    pts, gt, _ = scene
+    sub, lo, size = crop_window(pts, grid, cfg, rng)
+    candidates = candidate_mask(sub, cfg.reach)
+    if not candidates.any():
+        raise EmptyCrop
+    out = model(sub, candidates, amp=cfg.amp)
+    device = out.pos.device
+    extent = torch.from_numpy(size).float().to(device)
+    cells = (gt - pts.lo) / pts.cell - torch.from_numpy(lo).float().to(device)
+    in_crop = ((cells >= 0) & (cells < extent)).all(1)
+    edge = (
+        torch.from_numpy(lo > 0).to(device),
+        torch.from_numpy(lo + size < pts.dims).to(device),
+    )
+    start = torch.where(edge[0], float(cfg.margin), 0.0)
+    stop = torch.where(edge[1], extent - cfg.margin, extent)
+    inner = ((cells >= start) & (cells < stop)).all(1)
+    if not (in_crop.any() and inner.any()):
+        raise EmptyCrop
+    voxel = torch.nonzero(candidates).flip(1)
+    occupied, vertex = child_targets(
+        voxel, cells[in_crop], cfg.split, tuple(int(v) for v in size)
+    )
+    scored = ((voxel >= start) & (voxel < stop)).all(1)
+    children = Children(
+        out.logit,
+        out.pos,
+        voxel.float()[:, None] + model.corner,
+        occupied,
+        vertex,
+        scored,
+    )
+    truth = (cells[in_crop], cells[inner])
+    return children, tuple(
+        t[subsample(len(t), cap, rng, device)]
+        for t, cap in zip(truth, (cfg.gt_cap, cfg.comp_cap), strict=True)
+    )
+
+
+def draw_direct(
+    model: nn.Module,
+    grid: Tensor,
+    scene: OnDevice,
+    cfg: GeneratorConfig,
+    rng: np.random.Generator,
+) -> tuple[Children, tuple[Tensor, Tensor]]:
+    """Return `direct_crop` of the first of `CROP_TRIES` crops that has anything."""
+    for _ in range(CROP_TRIES):
+        try:
+            return direct_crop(model, grid, scene, cfg, rng)
+        except EmptyCrop:
+            continue
+    raise EmptyCrop
+
+
 def crop_losses(
-    model: UNet3d,
+    model: nn.Module,
     grid: Tensor,
     scene: OnDevice,
     cfg: GeneratorConfig,
@@ -1025,14 +1365,10 @@ def crop_losses(
     points drawn into the given views (`render_terms`), not the distances to the
     ground truth's points.
     """
+    if cfg.loss == "direct":
+        return direct_terms(direct_crop(model, grid, scene, cfg, rng)[0], cfg.split)
     pts, gt, render = scene
-    centre = pts.points[int(rng.integers(len(pts.points)))]
-    local = ((centre - pts.lo) / pts.cell).floor().long().cpu().numpy()
-    size = np.minimum(cfg.crop, pts.dims)  # x y z
-    lo = np.clip(local - size // 2, 0, np.array(pts.dims) - size)
-    zyx = (2, 1, 0)
-    window = (slice(None), *(slice(int(lo[a]), int(lo[a] + size[a])) for a in zyx))
-    sub = grid[window]
+    sub, lo, size = crop_window(pts, grid, cfg, rng)
     if model.seeded:
         origin = torch.from_numpy(lo).float().to(grid.device)
         near = (pts.points - pts.lo) / pts.cell - origin
@@ -1108,7 +1444,7 @@ def to_device(scene: TrainScene, device: torch.device) -> OnDevice:
 
 
 def draw_crop(
-    model: UNet3d,
+    model: nn.Module,
     grid: Tensor,
     scene: OnDevice,
     cfg: GeneratorConfig,
@@ -1123,8 +1459,17 @@ def draw_crop(
     raise EmptyCrop
 
 
+def scene_grid(model: nn.Module, pts: ScenePoints) -> Tensor:
+    """Return the grid a model reads: the voxelized pixels, a latent table appended."""
+    grid = voxelize(pts, semantics=model.semantics)
+    if isinstance(model, LatentGenerator):
+        assert grid.shape[1:] == model.table.shape[1:], "a latent table is one scene's"
+        grid = torch.cat([grid, model.table])
+    return grid
+
+
 def step_loss(
-    model: UNet3d,
+    model: nn.Module,
     scene: TrainScene,
     cfg: GeneratorConfig,
     rng: np.random.Generator,
@@ -1132,18 +1477,57 @@ def step_loss(
 ) -> dict[str, Tensor]:
     """Return the terms of one random crop; the grid is built from all views."""
     on = to_device(scene, device)
-    grid = voxelize(on[0], semantics=model.semantics)
-    return draw_crop(model, grid, on, cfg, rng)
+    return draw_crop(model, scene_grid(model, on[0]), on, cfg, rng)
+
+
+def direct_fixed_error(
+    model: nn.Module,
+    scenes: list[TrainScene],
+    cfg: GeneratorConfig,
+    device: torch.device,
+) -> dict[str, float]:
+    """Return the fixed error of a `direct` model: output Chamfer, child scores.
+
+    Accuracy and completeness (cells) of the vertices with a positive logit, as the
+    model's output would be scored, averaged over the crops (infinite where a crop keeps
+    nothing); child precision and recall and the vertex error (child units), pooled.
+    """
+    model.eval()
+    rng = np.random.default_rng(0)
+    acc = comp = 0.0
+    counts: dict[str, float] = {}
+    crops = len(scenes) * cfg.fixed_crops
+    with torch.no_grad():
+        for scene in scenes:
+            on = to_device(dataclasses.replace(scene, render=None), device)
+            grid = scene_grid(model, on[0])
+            for _ in range(cfg.fixed_crops):
+                children, truth = draw_direct(model, grid, on, cfg, rng)
+                a, c = output_chamfer(children, truth)
+                acc, comp = acc + float(a) / crops, comp + float(c) / crops
+                for key, value in child_counts(children, cfg.split).items():
+                    counts[key] = counts.get(key, 0.0) + value
+    return {
+        "acc_cells": acc,
+        "comp_cells": comp,
+        "chamfer_cells": (acc + comp) / 2,
+    } | child_scores(counts)
 
 
 def fixed_error(
-    model: UNet3d, scenes: list[TrainScene], cfg: GeneratorConfig, device: torch.device
+    model: nn.Module,
+    scenes: list[TrainScene],
+    cfg: GeneratorConfig,
+    device: torch.device,
 ) -> dict[str, float]:
     """Mean accuracy and completeness (cells) on `fixed_crops` fixed crops per scene.
 
-    Always the distances to the ground truth, whatever loss the model trains on: the
-    same crops at every call, so the numbers of two steps and of two runs compare.
+    The distances to the ground truth, whatever loss the model trains on (the points of
+    a `direct` model are the kept vertices, with child scores beside): the same crops at
+    every call, so the numbers of two steps and of two runs compare.
     """
+    if cfg.loss == "direct":
+        return direct_fixed_error(model, scenes, cfg, device)
     cfg = dataclasses.replace(cfg, loss="chamfer")
     model.eval()
     rng = np.random.default_rng(0)
@@ -1151,7 +1535,7 @@ def fixed_error(
     with torch.no_grad():
         for scene in scenes:
             on = to_device(dataclasses.replace(scene, render=None), device)
-            grid = voxelize(on[0], semantics=model.semantics)
+            grid = scene_grid(model, on[0])
             for _ in range(cfg.fixed_crops):
                 terms = draw_crop(model, grid, on, cfg, rng)
                 acc += float(terms["acc"]) / (len(scenes) * cfg.fixed_crops)
@@ -1166,7 +1550,7 @@ def train(
     *,
     seed: int,
     log_dir: Path,
-) -> tuple[UNet3d, list[dict]]:
+) -> tuple[nn.Module, list[dict]]:
     """Fit one generator on the first list of scenes; keep the step of least error.
 
     Every step logs the train loss and the loss of a random crop of a random scene of
@@ -1179,7 +1563,7 @@ def train(
     rng = np.random.default_rng(seed)
     fit, val = scenes
     watched = {"train": fit, "val": val}
-    model = build(cfg).to(device)
+    model = build(cfg, fit[0].pts.dims).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     writer = SummaryWriter(str(log_dir))
     log: list[dict] = []
@@ -1242,7 +1626,7 @@ def profile(
     """
     torch.manual_seed(0)
     rng = np.random.default_rng(0)
-    model = build(cfg).to(device)
+    model = build(cfg, scene.pts.dims).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     stages: dict[str, list[float]] = {
         k: [] for k in ("to_device", "grid", "forward_loss", "backward", "val")
@@ -1266,7 +1650,7 @@ def profile(
     for _ in range(steps):
         model.train()
         on = timed("to_device", to_device, scene, device)
-        grid = timed("grid", voxelize, on[0], semantics=model.semantics)
+        grid = timed("grid", scene_grid, model, on[0])
         terms = timed("forward_loss", crop_losses, model, grid, on, cfg, rng)
         timed("backward", update, sum(terms.values()))
         model.eval()
@@ -1282,7 +1666,7 @@ def profile(
 
 
 def scored_points(
-    model: UNet3d, pts: ScenePoints, device: torch.device, cfg: GeneratorConfig
+    model: nn.Module, pts: ScenePoints, device: torch.device, cfg: GeneratorConfig
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Return every candidate point (n, 3), its logit (n,) and lattice position (n, 3).
 
@@ -1293,7 +1677,7 @@ def scored_points(
     model.eval()
     with torch.no_grad():
         on = expand(compact(pts), torch.arange(len(pts.points)), device)
-        grid = voxelize(on, semantics=model.semantics)
+        grid = scene_grid(model, on)
         if model.seeded:
             seeds = Seeds((on.points - on.lo) / on.cell, on.color, on.log_conf)
             out = model(grid, seeds, amp=cfg.amp)
@@ -1307,8 +1691,31 @@ def scored_points(
     return points, out.logit.reshape(-1).cpu(), home.cpu()
 
 
+def scene_children(
+    model: nn.Module,
+    pts: ScenePoints,
+    gt: Tensor,
+    cfg: GeneratorConfig,
+    device: torch.device,
+) -> Children:
+    """Return a scene's candidate children with targets; gt (n, 3): its GT points."""
+    model.eval()
+    with torch.no_grad():
+        on = expand(compact(pts), torch.arange(len(pts.points)), device)
+        grid = scene_grid(model, on)
+        candidates = candidate_mask(grid, cfg.reach)
+        out = model(grid, candidates, amp=cfg.amp)
+        voxel = torch.nonzero(candidates).flip(1)
+        occupied, vertex = child_targets(
+            voxel, (gt.to(device) - on.lo) / on.cell, cfg.split, on.dims
+        )
+    scored = torch.ones(len(voxel), dtype=torch.bool, device=device)
+    corner = voxel.float()[:, None] + model.corner
+    return Children(out.logit, out.pos, corner, occupied, vertex, scored)
+
+
 def generate(
-    model: UNet3d,
+    model: nn.Module,
     pts: ScenePoints,
     scale: float,
     device: torch.device,
@@ -1332,7 +1739,7 @@ def run_model(
     saved = out / f"{name}.pt"
     record: dict = {"config": dataclasses.asdict(cfg) | {"root": str(cfg.root)}}
     if saved.exists():
-        model = build(cfg).to(device)
+        model = build(cfg, scenes[0][0].pts.dims).to(device)
         model.load_state_dict(torch.load(saved, map_location=device))
         old = out / f"{name}.yaml"
         if old.exists():
@@ -1345,11 +1752,15 @@ def run_model(
         record |= {"seconds": time.perf_counter() - t0, "curve": log}
         torch.save(model.state_dict(), saved)
     record["generate_s"] = {}
+    record["children"] = {}
     for scene in cfg.predict:
-        pts, _, _, scale = load_scene(cfg, scene, cfg.semantics)
+        pts, gt, has, scale = load_scene(cfg, scene, cfg.semantics)
         t0 = time.perf_counter()
         cloud = generate(model, pts, scale, device, cfg)
         record["generate_s"][scene] = time.perf_counter() - t0
+        if cfg.loss == "direct":
+            children = scene_children(model, pts, gt[has], cfg, device)
+            record["children"][scene] = child_scores(child_counts(children, cfg.split))
         np.savez_compressed(
             cfg.root / scene / f"{name}_{cfg.views}_cloud.npz", points=cloud
         )
@@ -1383,7 +1794,7 @@ def main() -> None:
     loaded: dict[tuple, list[TrainScene]] = {}
 
     def scenes_of(cfg: GeneratorConfig, names: list[str]) -> list[TrainScene]:
-        key = (cfg.semantics, cfg.loss == "render", tuple(names))
+        key = (cfg.semantics, cfg.dino, cfg.loss == "render", tuple(names))
         if key not in loaded:
             loaded[key] = load_scenes(cfg, names)
         return loaded[key]

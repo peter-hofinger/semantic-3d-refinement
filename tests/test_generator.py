@@ -12,18 +12,25 @@ from src.loaders.ground_truth import GroundTruth
 from src.loaders.views import Views
 from src.refinement.generator import (
     KINDS,
+    Children,
     EmptyCrop,
     Generator,
     GeneratorConfig,
     ImplicitGenerator,
+    OVoxelGenerator,
     RenderViews,
     SeededGenerator,
     Seeds,
     TrainScene,
     build,
     candidate_mask,
+    child_corner,
+    child_counts,
+    child_scores,
+    child_targets,
     cloud_loss,
     crop_losses,
+    direct_terms,
     distance_loss,
     draw_crop,
     fixed_error,
@@ -41,6 +48,8 @@ from src.refinement.generator import (
     render_terms,
     render_views,
     run_model,
+    scene_children,
+    scene_grid,
     split_arm,
     spread,
     train,
@@ -323,7 +332,9 @@ def test_every_generator_stays_under_a_million_parameters_at_the_chosen_widths()
 ):
     wide = config(widths=[64, 128, 256])
     for kind in KINDS:
-        assert sum(p.numel() for p in build(config(kind=kind)).parameters()) < 10**6
+        assert (
+            sum(p.numel() for p in build(config(kind=kind), DIMS).parameters()) < 10**6
+        )
     with pytest.raises(AssertionError):
         build(wide)
 
@@ -612,3 +623,166 @@ def test_a_resumed_model_keeps_the_curve_of_its_training(tmp_path: Path) -> None
     assert [e["step"] for e in first["curve"]] == [0, 5, 10]
     assert again["curve"] == first["curve"]
     assert again["seconds"] == first["seconds"]
+
+
+def plane_children(split: int = 2) -> tuple[Children, torch.Tensor]:
+    """The plane's candidate children at the oracle: logits and vertices on target."""
+    pts = plane()
+    grid = voxelize(pts, semantics=False)
+    voxel = torch.nonzero(candidate_mask(grid, 1)).flip(1)
+    occupied, vertex = child_targets(voxel, pts.points / pts.cell, split, DIMS)
+    corner = voxel.float()[:, None] + child_corner(split)
+    children = Children(
+        torch.where(occupied, 30.0, -30.0),
+        corner + vertex / split,
+        corner,
+        occupied,
+        vertex,
+        torch.ones(len(voxel), dtype=torch.bool),
+    )
+    return children, voxel
+
+
+def test_the_child_targets_are_the_occupancy_and_the_mean_of_the_points_in_each() -> (
+    None
+):
+    voxel = torch.tensor([[0, 0, 0], [1, 0, 0]])
+    points = torch.tensor(
+        [[0.1, 0.1, 0.1], [0.3, 0.1, 0.1], [1.75, 0.75, 0.75], [5.0, 0.5, 0.5]]
+    )
+    occupied, vertex = child_targets(voxel, points, 2, (2, 1, 1))
+    assert occupied.sum() == 2  # the last point lies in no listed voxel
+    assert occupied[0, 0] and occupied[1, 7]  # lattice order: (ix * 2 + iy) * 2 + iz
+    assert vertex[0, 0].tolist() == pytest.approx([0.4, 0.2, 0.2])
+    assert vertex[1, 7].tolist() == pytest.approx([0.5, 0.5, 0.5])
+    assert vertex[~occupied].abs().sum() == 0
+
+
+@pytest.mark.parametrize("split", [2, 3, 4])
+def test_the_direct_loss_is_zero_at_the_oracle_and_positive_off_it(split: int) -> None:
+    children, _ = plane_children(split)
+    assert children.occupied.any()
+    terms = direct_terms(children, split)
+    assert float(terms["occ"]) < 1e-9
+    assert float(terms["vertex"]) == pytest.approx(0.0, abs=1e-5)
+    flipped = dataclasses.replace(children, logit=-children.logit)
+    assert float(direct_terms(flipped, split)["occ"]) > 10
+    moved = dataclasses.replace(children, pos=children.pos + 0.1)  # 0.1 cell
+    assert float(direct_terms(moved, split)["vertex"]) == pytest.approx(
+        0.1 * split, abs=1e-4
+    )
+
+
+def test_the_oracle_children_score_one_everywhere() -> None:
+    children, _ = plane_children()
+    scores = child_scores(child_counts(children, 2))
+    assert scores["precision"] == pytest.approx(1.0)
+    assert scores["recall"] == pytest.approx(1.0)
+    assert scores["vertex_err"] == pytest.approx(0.0, abs=1e-5)
+
+
+def test_child_scores_pool_counts_by_hand() -> None:
+    counts = {
+        "kept": 4.0,
+        "occupied": 5.0,
+        "hit": 3.0,
+        "vertex_sum": 1.5,
+        "vertex_n": 15.0,
+    }
+    assert child_scores(counts) == pytest.approx(
+        {"precision": 0.75, "recall": 0.6, "vertex_err": 0.1}
+    )
+    nothing = {
+        "kept": 0.0,
+        "occupied": 0.0,
+        "hit": 0.0,
+        "vertex_sum": 0.0,
+        "vertex_n": 0.0,
+    }
+    assert child_scores(nothing) == {"precision": 0.0, "recall": 0.0, "vertex_err": 0.0}
+
+
+def test_an_untrained_ovoxel_generator_keeps_nothing_and_centres_every_vertex() -> None:
+    pts = plane()
+    grid = voxelize(pts, semantics=False)
+    candidates = candidate_mask(grid, 1)
+    out = build(config(kind="ovoxel", loss="direct"))(grid, candidates)
+    voxel = torch.nonzero(candidates).flip(1).float()
+    assert (out.logit == 0).all()
+    centres = voxel[:, None] + 0.5 + lattice(2)
+    assert torch.allclose(out.pos.detach(), centres)
+
+
+def test_a_vertex_never_leaves_its_child() -> None:
+    torch.manual_seed(0)
+    pts = plane()
+    grid = voxelize(pts, semantics=False)
+    candidates = candidate_mask(grid, 1)
+    model = OVoxelGenerator(8, [8, 16], 3, semantics=False)
+    for p in model.head.parameters():
+        torch.nn.init.normal_(p, std=50.0)  # saturates the sigmoid
+    out = model(grid, candidates)
+    voxel = torch.nonzero(candidates).flip(1).float()
+    placed = ((out.pos - voxel[:, None] - child_corner(3)) * 3).detach()
+    assert placed.min() > -1e-5 and placed.max() < 1 + 1e-5  # float32 rounding
+
+
+def fit_plane(cfg: GeneratorConfig, steps: int) -> torch.nn.Module:
+    """Train a model of the config on the plane's direct loss and return it."""
+    pts = plane()
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    model = build(cfg, DIMS)
+    opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    for _ in range(steps):
+        grid = scene_grid(model, pts)
+        terms = crop_losses(model, grid, on_device(pts, pts.points), cfg, rng)
+        opt.zero_grad()
+        sum(terms.values()).backward()
+        opt.step()
+    return model
+
+
+def test_a_latent_generator_fits_the_targets_of_a_toy_scene() -> None:
+    cfg = config(kind="latent", loss="direct", amp=False, lr=3e-2)
+    model = fit_plane(cfg, 300)
+    pts = plane()
+    children = scene_children(model, pts, pts.points, cfg, torch.device("cpu"))
+    scores = child_scores(child_counts(children, 2))
+    assert scores["precision"] > 0.95 and scores["recall"] > 0.95
+    assert scores["vertex_err"] < 0.05
+
+
+def test_an_ovoxel_generator_trained_on_a_plane_finds_and_places_its_children() -> None:
+    cfg = config(kind="ovoxel", loss="direct", lr=1e-2)
+    model = fit_plane(cfg, 150)
+    pts = plane()
+    children = scene_children(model, pts, pts.points, cfg, torch.device("cpu"))
+    scores = child_scores(child_counts(children, 2))
+    assert scores["precision"] > 0.9 and scores["recall"] > 0.9
+    assert scores["vertex_err"] < 0.1
+
+
+def test_the_fixed_error_of_a_direct_model_reports_its_output_and_its_children() -> (
+    None
+):
+    scene = plane_scene()
+    cfg = config(kind="ovoxel", loss="direct")
+    untrained = fixed_error(build(cfg), [scene], cfg, torch.device("cpu"))
+    assert untrained["chamfer_cells"] == float("inf")  # nothing is kept yet
+    assert untrained["precision"] == untrained["recall"] == 0.0
+    model = fit_plane(dataclasses.replace(cfg, lr=1e-2), 100)
+    trained = fixed_error(model, [scene], cfg, torch.device("cpu"))
+    assert trained["chamfer_cells"] < 1.0
+    assert trained["precision"] > 0.5 and trained["recall"] > 0.5
+    assert trained == fixed_error(model, [scene], cfg, torch.device("cpu"))
+
+
+def test_a_latent_table_is_memory_outside_the_parameter_limit() -> None:
+    model = build(config(kind="latent", loss="direct", amp=False), DIMS)
+    head = sum(p.numel() for n, p in model.named_parameters() if n != "table")
+    assert head < 10**6 < sum(p.numel() for p in model.parameters()) * 100
+    with pytest.raises(AssertionError):
+        build(config(kind="latent", loss="direct"))  # a table needs its scene's grid
+    with pytest.raises(AssertionError):
+        build(config(kind="ovoxel", loss="direct", widths=[64, 128, 256]))
