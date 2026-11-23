@@ -15,9 +15,9 @@ from pathlib import Path
 import numpy as np
 import torch
 import yaml
+from experiments.scripts.e84_dejaview_smoothed_optimum import masked_mean
 from scipy.stats import spearmanr
 
-from experiments.scripts.e84_dejaview_smoothed_optimum import masked_mean
 from src.refinement.keep_chamfer import (
     KeepHead,
     KeepScene,
