@@ -7505,3 +7505,48 @@ Interim entry: the check that the plan puts before any table.
   all four cells, beyond the seed spread at 35 small and 145 small. The plan's refutation criterion (no gap at 9
   scenes, small U-Net) is met, but only because nothing trains there. The hypothesis "semantics help when model or
   data is small" finds no support in this refiner; no model beats Deja View on val.
+## Plan: E83a = unlabelled regions in 3D as catch-all objects (issue #83, 19.11.2026)
+- **Why:** after E59c/E59d (val PQ 0.336), the largest missed share is the catch-all classes SAM 3 is never
+  prompted for: E59a's val split has 187 of 317 missed GT segments there, 142 of them otherprop. Generic prompt
+  words found parts, not objects (E59b).
+- **Setting:** `associate.claim_unclaimed` after merge 0.3 and absorb 0.5:0.1 into things: pixels with no mask
+  within `rim` pixels in their view, put into E59c's cubes, and each 26-connected set of at least `least` cubes
+  becomes one otherprop object with score 0 (ranked last for AP). Opt-in (`e59a_pq_loss.py --claim rim:least`),
+  labels only. `--regrouped-causes` splits the missed segments of the regrouped labels instead of the linked.
+- **Dev sweep:** rim 2 and 5 x least 20, 100, 500; the best on dev runs once on val. 3080 CPU.
+- **Prediction / refuted if:** dev PQ above merge + absorb (0.373) by more than 0.01; refuted if no setting gets
+  there.
+
+## E83a: claiming unlabelled regions -> dev PQ 0.373 -> 0.378 at best, under the +0.01 bar; regions too coarse (19.11.2026)
+- **Commit:** 64398fe, 3080 CPU. `experiments/results/e83a_dev_sweep.txt`.
+- **Dev PQ** (merge 0.3 + absorb 0.5:0.1 into things: 0.373): claimed rim:least 2:20 0.375, 2:100 0.377, 2:500 0.377,
+  5:20 0.376, 5:100 0.377, 5:500 0.378. Refuted by the plan's bar; val not run.
+- **Regrouped causes, dev:** of 175 GT segments 121 unmatched, 56 not prompted (catch-alls), 38 merged, 19 missed.
+- **Checks** (one-off, val): 147 of the 187 catch-all GT segments are mostly unlabelled (no mask), not under a
+  wrong class; the rest sit under shelves, chair, wall, lamp. The claimed regions do reach them (4 of 147 get
+  nothing at rim 2, 20 cubes) but are far larger: median IoU 0.08, 16 above 0.5. Neighbouring unlabelled
+  objects chain into one region through cubes of 4 pixel footprints.
+- **Next (E83b):** finer claim cubes (1 and 2 footprints), and claiming on top of the fallback catch-all prompts
+  (E59b) now that merge and absorb glue their parts.
+
+## Plan and result: E83b = fallback catch-all prompts with merge and absorb -> val PQ 0.336 -> 0.349, mIoU 0.381 -> 0.412 (issue #83, 23.11.2026)
+- Planned after E83a, before running (its "Next"): finer claim cubes (1 and 2 footprints), and claiming on top of
+  E59b's fallback catch-all prompts, whose part masks merge and absorb may now glue into whole objects.
+- **Setting:** commit dccc94f (`--claim rim:least:side`), 3080 CPU. Dev: NYU40 prompts with claims at rim 1-2, 5-100
+  cubes, side 1-2 footprints; fallback prompts (`sam3image-nyu40+fb-catchall-t0.3`) with merge 0.3, absorb 0.5:0.1
+  into things, with and without claims. The best on dev run once on val. `experiments/results/e83b_*.txt`.
+- **Dev PQ** (merge + absorb, NYU40 prompts: 0.373): finer claims 0.373-0.378; fallback prompts 0.399, with claims
+  on top 0.388-0.394. So the fallback prompts without claims are chosen.
+- **Results** (PQ / AP / mIoU):
+
+  | labels | dev | val |
+  |---|---|---|
+  | SAM 3 + linking (E59a) | 0.292 / 0.216 / 0.405 | 0.258 / 0.345 / 0.349 |
+  | merge + absorb (E59d) | 0.373 / 0.230 / 0.418 | 0.336 / 0.325 / 0.381 |
+  | fallback prompts + merge + absorb | 0.399 / 0.293 / 0.466 | 0.349 / 0.326 / 0.412 |
+  | perfect grouping, fallback prompts (oracle) | 0.463 / 0.376 / 0.517 | 0.474 / 0.420 / 0.497 |
+
+- **Conclusion:** with merge and absorb, the fallback catch-all prompts help (val PQ +0.013, mIoU +0.031, AP flat),
+  where alone they only added fragments (E59b). The dev gain (+0.026) halves on val. From SAM 3 + linking the val
+  PQ rises 0.258 -> 0.349 in total. Still open: in the cause split of the linked labels, 160 of 471 val GT
+  segments have no prediction at all (missed).
