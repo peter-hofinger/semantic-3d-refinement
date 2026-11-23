@@ -158,7 +158,7 @@ ignore = [
 "src/loaders/kitti360/*.py" = [
     "PT018",    # composite contract asserts
 ]
-"tests/test_{labeled,multiview,normals,segvggt,learned,volume,reproject,generator,cloud_eval,dinov2}.py" = [
+"tests/test_{labeled,multiview,normals,segvggt,learned,volume,reproject,generator,cloud_eval,dinov2,e69c}.py" = [
     "PT018",    # composite contract asserts
 ]
 
