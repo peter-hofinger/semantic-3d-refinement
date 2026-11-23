@@ -42,6 +42,7 @@ from src.refinement.generator import (
     occupancy_loss,
     pick_views,
     profile,
+    rate_factor,
     reach_distance,
     reachable_points,
     render_depth,
@@ -786,3 +787,18 @@ def test_a_latent_table_is_memory_outside_the_parameter_limit() -> None:
         build(config(kind="latent", loss="direct"))  # a table needs its scene's grid
     with pytest.raises(AssertionError):
         build(config(kind="ovoxel", loss="direct", widths=[64, 128, 256]))
+
+
+def test_a_cosine_decay_takes_the_rate_from_one_to_zero_over_the_steps(
+    tmp_path: Path,
+) -> None:
+    assert rate_factor(0, 10, cosine=True) == pytest.approx(1.0)
+    assert rate_factor(5, 10, cosine=True) == pytest.approx(0.5)
+    assert rate_factor(10, 10, cosine=True) == pytest.approx(0.0, abs=1e-12)
+    assert rate_factor(7, 10, cosine=False) == 1.0
+    scene = plane_scene()
+    cfg = config(steps=4, eval_every=4, cosine=True, lr=0.1)
+    trained, log = train(
+        cfg, ([scene], [scene]), torch.device("cpu"), seed=0, log_dir=tmp_path
+    )
+    assert isinstance(trained, Generator) and [e["step"] for e in log] == [0, 4]

@@ -60,6 +60,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import functools
+import math
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -143,6 +144,7 @@ class GeneratorConfig:
     tau: float = 0.25  # softness of the render loss's depth test, cells
     render_views: int = 20  # views the render loss draws per step, at random
     clip: float = 0.0  # largest gradient norm, 0: none
+    cosine: bool = False  # decay the rate to zero over the steps (rung 6 of the ladder)
     dino: int = 0  # DINOv2 feature channels in the grid (the PCA's), 0: none
     dino_cache: str = "dinov2b"  # name of the DINOv2 cache and its PCA
 
@@ -1543,6 +1545,12 @@ def fixed_error(
     return {"acc_cells": acc, "comp_cells": comp, "chamfer_cells": (acc + comp) / 2}
 
 
+def rate_factor(step: int, steps: int, *, cosine: bool) -> float:
+    """Share of the learning rate at a step: 1, or a half cosine from 1 to 0 (SGDR)."""
+    assert 0 <= step <= steps, (step, steps)
+    return 0.5 * (1 + math.cos(math.pi * step / steps)) if cosine else 1.0
+
+
 def train(
     cfg: GeneratorConfig,
     scenes: tuple[list[TrainScene], list[TrainScene]],
@@ -1565,6 +1573,9 @@ def train(
     watched = {"train": fit, "val": val}
     model = build(cfg, fit[0].pts.dims).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    decay = torch.optim.lr_scheduler.LambdaLR(
+        opt, functools.partial(rate_factor, steps=cfg.steps, cosine=cfg.cosine)
+    )
     writer = SummaryWriter(str(log_dir))
     log: list[dict] = []
     best, best_state = float("inf"), None
@@ -1600,6 +1611,7 @@ def train(
         if cfg.clip:
             nn.utils.clip_grad_norm_(model.parameters(), cfg.clip)
         opt.step()
+        decay.step()
         model.eval()
         with torch.no_grad():
             held = step_loss(model, val[rng.integers(len(val))], cfg, rng, device)
@@ -1774,7 +1786,7 @@ def main() -> None:
 
     `--out` resumes a run: a model already saved there is loaded instead of trained.
     `--profile` times the stages of a step of every arm on the first train scene
-    instead of training.
+    instead of training. `--set` overrides config fields of every arm (an escalation).
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -1784,8 +1796,17 @@ def main() -> None:
     parser.add_argument("--seeds", nargs="+", type=int, help="default: the config's")
     parser.add_argument("--out", type=Path, help="default: runs/<tag>/<rung>")
     parser.add_argument("--lr-file", type=Path, help="learning rate per arm (yaml)")
+    parser.add_argument(
+        "--set",
+        nargs="+",
+        default=[],
+        metavar="KEY=VALUE",
+        help="config fields to override for every arm, values in yaml (steps=4800)",
+    )
     parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
+    overrides = dict(item.split("=", 1) for item in args.set)
+    overrides = {k: yaml.safe_load(v) for k, v in overrides.items()}
     rung = load_rung(args.config, args.rung)
     device = best_device()
     out = args.out or Path("runs") / rung.cfg.tag / args.rung
@@ -1801,7 +1822,7 @@ def main() -> None:
 
     result: dict[str, dict] = {}
     for arm in args.arms or rung.run:
-        cfg = for_arm(rung, arm, lrs)
+        cfg = dataclasses.replace(for_arm(rung, arm, lrs), **overrides)
         if args.profile:
             result[arm] = profile(cfg, scenes_of(cfg, cfg.train[:1])[0], device)
             print(f"{arm}: {result[arm]}", flush=True)  # noqa: T201
