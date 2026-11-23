@@ -7480,3 +7480,28 @@ Interim entry: the check that the plan puts before any table.
 - **Refuted if:** at 9 scenes with the small U-Net the gap is within the seed spread.
 - **Compute:** the whole sweep on one machine, never mixed: queued on the 3d-cluster (one 5090 per model) and run
   on the 3080 meanwhile; the first machine to finish all 36 is the one reported.
+
+## E81a: semantic gain by data and model size -> GT classes never help; they hurt at 35 and 145 scenes, and at 9 the refiner learns nothing that transfers (issue #81, 23.11.2026)
+- **Commits:** 800fe22 (plan, configs), dfc3aaf (open3d imported only by the fused score: the cluster has no
+  libGL, so every task died at import; found by a smoke run of the job script before queueing). 3d-cluster,
+  one RTX 5090 per model, 20-26 min each; `experiments/results/e81a.txt`.
+- **Results** (val Chamfer, cm, mean of 3 seeds with range; Deja View 5.102; gap = none - GT, > 0 would mean the
+  classes help):
+
+  | scenes | width | no classes | GT classes | gap | seed spread | kept the untrained state (none / GT) |
+  |---|---|---|---|---|---|---|
+  | 9 | small | 5.10 | 5.10 | 0.00 | 0.00 | 3/3 / 3/3 |
+  | 9 | default | 5.19 (5.10-5.36) | 5.38 (5.10-5.92) | -0.19 | 0.82 | 2/3 / 2/3 |
+  | 35 | small | 5.17 (5.10-5.29) | 5.41 (5.33-5.45) | -0.24 | 0.19 | 2/3 / 0/3 |
+  | 35 | default | 5.29 (5.21-5.33) | 5.58 (5.47-5.79) | -0.30 | 0.32 | 0/3 / 0/3 |
+  | 145 | small | 5.27 (5.24-5.33) | 5.72 (5.59-5.87) | -0.45 | 0.27 | 0/3 / 0/3 |
+  | 145 | default | 5.18 (5.15-5.21) | 5.32 (5.24-5.44) | -0.14 | 0.20 | 0/2 / 0/3 |
+
+- One model has 2 seeds (145 default, no classes: seed 2 was killed at step 9000 and not rerun).
+- **Kept state:** a model whose held-out error never fell below the untrained one returns the identity (Deja View
+  exactly). At 9 scenes 10 of 12 models did: the refiner fits 9 scenes but nothing it learns carries to the
+  held-out ones, with or without classes. So the smallest size cannot show a semantic gain either way.
+- **Conclusion:** where the refiner learns at all (35 and 145 scenes), GT classes never help: the gap is negative in
+  all four cells, beyond the seed spread at 35 small and 145 small. The plan's refutation criterion (no gap at 9
+  scenes, small U-Net) is met, but only because nothing trains there. The hypothesis "semantics help when model or
+  data is small" finds no support in this refiner; no model beats Deja View on val.
