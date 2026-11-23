@@ -143,7 +143,7 @@ ignore = [
     "PLR0917",  # too-many-positional-arguments
 ]
 # design by contract: asserts state shapes, ranges and finiteness on entry and exit
-"src/{analysis/*,refinement/{multiview,normals,learned,volume,reproject,generator},evaluation/labeled,backbone/{segvggt,adapters,solv3r}}.py" = [
+"src/{analysis/*,refinement/{multiview,normals,learned,volume,reproject,generator},evaluation/labeled,backbone/{segvggt,adapters,solv3r,dinov2}}.py" = [
     "S101",     # contract asserts
     "PT018",    # composite contract asserts
 ]
@@ -158,7 +158,7 @@ ignore = [
 "src/loaders/kitti360/*.py" = [
     "PT018",    # composite contract asserts
 ]
-"tests/test_{labeled,multiview,normals,segvggt,learned,volume,reproject,generator,cloud_eval}.py" = [
+"tests/test_{labeled,multiview,normals,segvggt,learned,volume,reproject,generator,cloud_eval,dinov2}.py" = [
     "PT018",    # composite contract asserts
 ]
 

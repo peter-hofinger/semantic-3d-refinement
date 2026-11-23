@@ -150,6 +150,8 @@ class ScenePoints:
     lo: Tensor  # (3,) grid corner
     cell: float  # cell size in the normalized frame
     dims: tuple[int, int, int]  # cells along x, y, z
+    patches: Tensor | None = None  # (V, C, h, w) DINOv2 features per view, if any
+    image: tuple[int, int] = (0, 0)  # H, W of the views `patches` belong to
 
 
 def compact(pts: ScenePoints) -> ScenePoints:
@@ -287,12 +289,57 @@ def distance_target(
     return out
 
 
-def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
-    """Grid (C, Z, Y, X): log count, conf, colour, spread, class histogram."""
-    nx, ny, nz = pts.dims
+def cell_index(pts: ScenePoints) -> Tensor:
+    """Flat z-major index (N,) of each point's grid cell, clamped into the grid."""
+    nx, ny, _ = pts.dims
     idx3 = ((pts.points - pts.lo) / pts.cell).floor().long()
     idx3 = torch.stack([idx3[:, k].clamp(0, n - 1) for k, n in enumerate(pts.dims)], 1)
-    flat = (idx3[:, 2] * ny + idx3[:, 1]) * nx + idx3[:, 0]
+    return (idx3[:, 2] * ny + idx3[:, 1]) * nx + idx3[:, 0]
+
+
+def voxelize_features(
+    pts: ScenePoints, patches: Tensor, size: tuple[int, int]
+) -> Tensor:
+    """Grid (C, Z, Y, X) of the mean feature of the pixels in each cell (0 where none).
+
+    patches (V, C, h, w): a feature per patch of each view (`backbone/dinov2.py`);
+    pts holds the V * H * W pixels view-major, size = (H, W). Each pixel's feature is
+    the patch grid upsampled bilinearly to the pixel (patch centres at (i + .5) H / h);
+    a cell's feature is the mean over all its pixels, from every view (Pixal3D, 2026).
+    """
+    height, width = size
+    views, channels = patches.shape[:2]
+    assert len(pts.points) == views * height * width, (len(pts.points), patches.shape)
+    nx, ny, nz = pts.dims
+    flat = cell_index(pts)
+    sums = torch.zeros(nx * ny * nz, channels, device=pts.points.device)
+    for v in range(views):
+        up = (
+            F.interpolate(
+                patches[v : v + 1].to(pts.points.device).float(),
+                size=size,
+                mode="bilinear",
+                align_corners=False,
+            )[0]
+            .reshape(channels, -1)
+            .T
+        )
+        sums.index_add_(0, flat[v * height * width : (v + 1) * height * width], up)
+    count = torch.zeros(nx * ny * nz, device=sums.device).index_add_(
+        0, flat, torch.ones(len(flat), device=sums.device)
+    )
+    grid = (sums / count.clamp(min=1)[:, None]).T.reshape(channels, nz, ny, nx)
+    assert grid.isfinite().all()
+    return grid
+
+
+def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
+    """Grid (C, Z, Y, X): log count, conf, colour, spread, class histogram, features.
+
+    The feature channels (`voxelize_features`) are appended where the scene has patches.
+    """
+    nx, ny, nz = pts.dims
+    flat = cell_index(pts)
     cells = nx * ny * nz
     local = (pts.points - pts.lo) / pts.cell
     values = torch.cat([pts.log_conf[:, None], pts.color, local, local**2], 1)
@@ -309,6 +356,8 @@ def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
         )
         feats.append(hist.view(cells, CLASSES) / count.clamp(min=1)[:, None])
     grid = torch.cat(feats, 1).T.reshape(-1, nz, ny, nx)
+    if pts.patches is not None:
+        grid = torch.cat([grid, voxelize_features(pts, pts.patches, pts.image)])
     assert grid.isfinite().all()
     return grid
 
@@ -786,9 +835,9 @@ def outputs(cfg: VolumeConfig) -> int:
     return 1 if cfg.keep is None else 2
 
 
-def grid_channels(*, semantics: bool) -> int:
-    """Channels `voxelize` writes: count, conf, colour, spread (+ class histogram)."""
-    return 8 + (CLASSES if semantics else 0)
+def grid_channels(*, semantics: bool, features: int = 0) -> int:
+    """Channels `voxelize` writes: count, conf, colour, spread, classes, features."""
+    return 8 + (CLASSES if semantics else 0) + features
 
 
 def main() -> None:

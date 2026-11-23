@@ -1,0 +1,13 @@
+# E69c (issue #69): occupancy, then one vertex per occupied child voxel, on fixed per-voxel targets; with and without
+# back-projected DINOv2 features. One file; `generate-cloud --config configs/e69c.yaml --rung <rung>` runs one rung,
+# `experiments/scripts/e69c.sh` all of them in order.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+split_file: configs/hypersim.yaml
+tag: e69c
+
+# DINOv2-B/14 (Oquab et al. 2023, Apache-2.0): patch features of the 20 views at 504 px, cached as <name>_<views>.npz; a PCA to
+# `channels`, fitted on the train split only, is <root>/<name>_pca<channels>.npz (`python -m src.backbone.dinov2`)
+dinov2: {model: facebook/dinov2-base, name: dinov2b, channels: 32}
