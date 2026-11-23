@@ -7105,6 +7105,452 @@ Interim entry: the check that the plan puts before any table.
   config are back to their state on main. To rerun E52c's rungs, probe and solver check or E52e,
   check out 33bca5f.
 
+## Plan: E52b, main arms = the control's LoRA plus the pooling adapter, fed GT instances or grid tiles: do segment inputs gain over plain fine-tuning when trained jointly with it (issue #52, 19.11.2026)
+- **Goal:** E52b's plan named two parts: the control (LoRA, no segments) and the main arms (LoRA +
+  segment pooling, GT vs grid). Only the control ran. It set the bar at dev Chamfer 3.155 cm (mean of
+  seeds 0-2, range 0.080 cm; Déjà View 3.500). E52a's pooling adapter alone gained the same with GT
+  instances as with grid tiles (3.330 / 3.326 cm), and E52c/E52e found segments in the loss not yet
+  working. The main arms are #52's done condition: LoRA with segment inputs against the same LoRA
+  without them, at the same training.
+- **Model:** the control's LoRA (rank 16 on `qkv` and `proj` of both attentions of the shared loop
+  block, U zero) plus E52a's pooling adapter between loop steps, x += B_k A (m_s - x): m_s is the
+  mean token of the token's segment over all views, A (768 -> 16) random, B_k zero per step. Both
+  start at zero, so step 0 is Déjà View bit for bit (test `test_zero_adapter_is_dejaview_bit_for_bit`).
+  Gradients reach both and no frozen weight (`test_gradients_reach_only_the_adapter`, pool and LoRA
+  together). ~0.35 M parameters. No code change: the script's model flags are (bias, pool, lora) ->
+  (false, true, true).
+- **Arms:** lora_pool-gt (GT instances per 14 px patch) and lora_pool-grid (3 x 3 even tiles per
+  view: the same parameters with no semantics). LoRA alone is the E52b control (3 seeds, already run,
+  same 3080).
+- **Hypothesis and the numbers that would refute it:** lora_pool-gt beats Déjà View, the control
+  and lora_pool-grid on dev mean Chamfer (mean over seeds 0-2 per arm), each by more than the
+  control's seed range 0.080 cm, and on 2 of 3 scenes. (E52b's first rule said 0.05 cm; the seed
+  range measured since, E52c's entry, is larger, so it replaces it.) gt within 0.080 cm of grid
+  refutes "segment inputs add to LoRA". grid within 0.080 cm of the control means the pooling adapter
+  adds no capacity on top of LoRA. **Prediction:** gt ends within the margin of grid, as without
+  LoRA (E52a, fourth run). A gain would need LoRA to make the segment means usable, which nothing
+  so far shows.
+- **Training:** as the control (120 train scenes, 16 held out, val every 250 steps, 3000 steps,
+  8-12 views per step, ratio to Déjà View's error, `align=exact`, bf16, state kept on val, probe
+  every 10 steps). lr_lora 1e-4 (control's sweep), lr_pool from the sweep below.
+- **Ladder** (`docs/experiments.md`; 3080):
+  - Rungs 0-2: the tests above. Smoke on the 3080 (bedroom, 4 views, 4 steps, not of record) checks
+    the joint model runs end to end.
+  - Rung 3, overfit the bedroom `ai_006_007` (8 views, 200 steps), both arms. **Pass:** last-50
+    training ratio below 0.90 and no rise over the last 100 steps (control 0.843; pool alone
+    0.834 / 0.820).
+  - Rung 4, dev (3 scenes, 300 steps). **Pass:** last-100 ratio below 0.95 on each scene.
+  - Sweep lr_pool in {1e-6, 3e-6, 1e-5} at lr_lora 1e-4, both arms alike (500 steps, `--splits`
+    none, least val ratio at step 500; pool alone used 3e-6). The control's lr was swept the same way.
+    Each arm takes its own best lr.
+  - Rung 5, 3000 steps, seeds 0, 1, 2 per arm, dev scored. Only rung 5's scores are reported.
+- **Reading:** dev Chamfer (cm) per scene and mean, seed mean and range per arm, against Déjà View
+  3.500, the control 3.155 and the other arm; val and held-out curves; stability by the probe's rule.
+  Rerun noise on one GPU (val up to 0.007 between bf16 reruns) is below the margin. If gt and grid
+  tie with rungs 3/4 passed and both arms swept alike, the verdict is "segment inputs give LoRA no
+  gain here", stated for this adapter, with the budget and spread logged.
+- **Not in this experiment:** gating (presentation feedback, 19.11), a learned scalar
+  tanh(α_k) or per-token gate sigmoid(w · x) on the pooling branch, which lets the model learn where
+  to trust a segment. One change at a time: it follows only once the ungated arms are read. Init
+  note for it: a gate at 0 together with B_k = 0 never trains (each gradient is proportional to the
+  other), so one of the two starts nonzero.
+- **Commands** (3080): rung 3
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=3e-6 lr_lora=1e-4 "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact --out runs/e52b_rung3`;
+  rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300`; sweep as the control's with
+  this model, `lr_pool=<lr>`, `steps=500`, `--out runs/e52b_pool_sweep_<lr>`; rung 5
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora_pool: [false, true, true]}" "segments=[gt, grid]" lr_pool=<lr> lr_lora=1e-4 align=exact select=val probe_every=10 seed=<s> --out runs/e52b_main_s<s>`.
+- **Cost** (2.3 s per step on the 3080): rungs 3/4 ~30 min; sweep 6 x 500 steps ~2 h; rung 5 two arms
+  x 3 seeds x ~2 h ~12 h plus dev scoring. Ask before the sweep and before rung 5.
+
+## E52b, main arms, rungs 3 and 4: LoRA + pooling passes both with GT instances and with grid tiles, and neither arm differs from LoRA alone by more than 0.006 in any rung ratio (issue #52, 19.11.2026)
+- **Setting:** the plan entry above, at e4f7943 (clean), 3080, lr_pool 3e-6, lr_lora 1e-4, seed 0,
+  both arms in one run. Smoke (4 views, 4 steps, `runs/e52b_smoke`, not of record): end to end,
+  2.22 GB peak, step-1 ratio 0.99996 in both arms (zero adapter = Déjà View on the same draw),
+  gradients reach B_k, A, U and D (A and D 0 at step 1 as B_k and U are 0, nonzero after), no
+  segment dropped. Rung 3 17:09-17:21 (349 s per arm, `runs/e52b_rung3`); rung 4's first try was
+  stopped from outside after 7 min (tmux session gone, no error or exit line in the log, shared
+  account; partial run kept as `runs/e52b_rung4_killed` on the 3080), rerun 17:29-17:47 (525 s per
+  arm, `runs/e52b_rung4`). Peak 2.22 GB, 1.75 s per step at 8 views, 0 segments dropped.
+- **Result** (training ratio to Déjà View's error; control = E52b's rungs at lr_lora 1e-4, same
+  seed, so the same scene and view draws in all three):
+
+  | | rung 3 last 50 (prev. 50) | rung 4 living room | bedroom | lobby |
+  |---|---|---|---|---|
+  | LoRA alone (control) | 0.843 (0.891) | 0.775 | 0.910 | 0.706 |
+  | LoRA + pool, GT instances | 0.841 (0.886) | 0.769 | 0.912 | 0.706 |
+  | LoRA + pool, grid tiles | 0.841 (0.886) | 0.770 | 0.908 | 0.704 |
+
+  Both arms pass: rung 3 below 0.90 and falling from the previous 50 steps; rung 4 below 0.95 on
+  every scene. The last 20-step window of rung 3 rises (0.80 -> 0.87) in all three models together,
+  the control included; with the same draws that is a harder draw, not divergence.
+- **Reading:** rungs are diagnostics, no score is reported. While overfitting, the pooling adapter
+  adds nothing on top of LoRA, with GT instances or grid tiles: the three curves lie on each other
+  (figure). This matches the plan's prediction, but it does not decide the main arms: rung 5 measures
+  generalisation on dev, where E52a's pooling alone gained over Déjà View. Next: the lr_pool sweep
+  (both arms, 6 x 500 steps, ~2 h).
+- **Commands:** rungs as in the plan with `view_subset=[8,8]` (3080 job
+  `/home/student/mircea/jobs_e52b_rungs.sh`, rung 4 alone in `jobs_e52b_rung4.sh`); figure and raw:
+  `uv run python experiments/scripts/e52b_rungs_figures.py` -> `figures/e52b_rungs.jpg`,
+  `results/e52b_rungs.yaml`.
+
+## E52b, main arms, lr_pool sweep: every lr and both arms end within the rerun noise of each other and of LoRA alone; by the rule GT takes 3e-6, grid 1e-5 (issue #52, 20.11.2026)
+- **Setting:** the plan's sweep at e4f7943 (clean), 3080, bf16, lr_lora 1e-4, 500 steps, `--splits`
+  none, both arms per run, seed 0; 19.11 23:45 - 20.11 01:47 (~19.5 min per arm). Runs
+  `runs/e52b_pool_sweep_<lr>`; job `/home/student/mircea/jobs_e52b_pool_sweep.sh`.
+- **Ratio to Déjà View's error at step 250 / 500** (held-out 16 train scenes, val 11 scenes):
+
+  | lr_pool | gt held-out | gt val | grid held-out | grid val |
+  |---|---|---|---|---|
+  | 1e-6 | 0.9818 / 0.9754 | 0.9658 / 0.9638 | 0.9787 / 0.9743 | 0.9745 / 0.9640 |
+  | 3e-6 | 0.9795 / 0.9762 | 0.9675 / **0.9568** | 0.9792 / 0.9748 | 0.9707 / 0.9636 |
+  | 1e-5 | 0.9801 / 0.9781 | 0.9700 / 0.9583 | 0.9768 / 0.9719 | 0.9682 / **0.9597** |
+
+- **Reading:** the rule (least val ratio at 500) picks 3e-6 for gt and 1e-5 for grid. Every gap is
+  0.0015-0.007, inside the rerun spread at step 500 (0.007, E52b control), so the sweep separates
+  neither the lrs nor the arms. LoRA alone at its chosen lr: val 0.9627 at step 500 (control sweep).
+
+## Plan: E52f, data-scaling curve: does the GT-over-grid gain appear when the adapters train on few scenes (issues #52, #81, 20.11.2026)
+- **Question (presentation feedback, 19.11, issue #13):** a semantic advantage should be largest when
+  the model or the data is small and vanish as either grows, because a foundation model learns
+  semantics implicitly. Every E52 test so far trained on 120 scenes, where that hypothesis predicts a
+  tie, so a tie there does not refute it. Here the data axis is varied; the model axis is not.
+- **Relation to #81:** #81 tests the same hypothesis on the 3D refiner (`volume.py`, classes none /
+  SAM 3 / GT, 9-133 rooms, two widths, 3 seeds). E52f adds the large-model end: adapters inside
+  frozen Déjà View. #81 predicts a gap at few rooms for the small refiner; for DV, the largest
+  model, it predicts the smallest gap. Both report the gap as with minus without semantics on val
+  (here grid stands for without, and the val ratio for Chamfer: the training script scores val by
+  the ratio only), so the two curves can share one plot against the number of train scenes.
+- **Arms:** E52b's main arms, lora_pool-gt (lr_pool 3e-6) and lora_pool-grid (lr_pool 1e-5), each
+  with its sweep lr, lr_lora 1e-4. One change against the sweep: the number of train scenes.
+- **Train sizes:** 3, 10, 30 and 120 scenes, nested: the first n of a seeded permutation
+  (`numpy.random.default_rng(0).permutation(120)`) of the 120 train scenes, so a larger set contains
+  every smaller one and no family of scene ids is favoured (the sorted list is grouped by id). 120 =
+  the default split with its 16 held-out scenes; the smaller sizes `held_out=0` and named
+  `train_scenes`. Lists in the job script.
+- **Training:** as the sweep, 500 steps at every size (same compute, not the same epochs), val (11
+  scenes) every 100 steps, state kept on val, probe every 10 steps, seed 0. At 3 scenes 500 steps
+  overfit; val selection picks the state before.
+- **Hypothesis and the numbers that would refute it:** gap = grid's kept val ratio - gt's. The
+  hypothesis predicts a gap that grows as the train set shrinks: above 0.014 (the largest move of val
+  between two evals, E52a/b) at 3 or 10 scenes, and larger than at 120. Gap within +-0.007 (rerun
+  spread) at every size refutes it for this model on Hypersim. **Prediction:** within the spread at
+  every size, as rungs 3 and 4 (1 and 3 scenes) tied on the training scenes; but rungs measure fit,
+  not generalisation, which is what this run measures.
+- **Scope:** one seed and one subset per size; a gap above the bar at small n is a first positive, to
+  be repeated with two more subset draws before it counts. Not dev-scored (val only): a choice of
+  direction, not a reported result.
+- **Cost:** 8 runs x ~20 min = ~2.7 h on the 3080.
+- **Command** (per size and arm; job `/home/student/mircea/jobs_e52f_scaling.sh`):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set steps=500 eval_every=100 align=exact select=val probe_every=10 "models={lora_pool: [false, true, true]}" "segments=[<arm>]" lr_pool=<lr> lr_lora=1e-4 held_out=0 "train_scenes=[<first n>]" --out runs/e52f_n<n>_<arm>`
+  (at 120 without `held_out` and `train_scenes`).
+
+## E52f: GT instances gain nothing over grid tiles at any number of train scenes from 3 to 120; the data half of #81's hypothesis is refuted for adapters inside Déjà View (issues #52, #81, 21.11.2026)
+- **Setting, commit, machine:** the plan above at e4f7943 (clean; the plan commit only adds LOG
+  text), 3080, bf16, seed 0, one subset per size; 8 runs, 20.11 13:47-16:32 (~20 min each). Job
+  `/home/student/mircea/jobs_e52f_scaling.sh`, runs `runs/e52f_n<n>_<arm>`.
+- **Kept val ratio to Déjà View's 3D error** (11 val scenes; state of least val over evals at
+  100-500 steps) and gap = grid - GT (> 0 favours GT):
+
+  | train scenes | GT (step) | grid (step) | gap | gap, scene quartiles | GT better on |
+  |---|---|---|---|---|---|
+  | 3 | 0.9678 (200) | 0.9674 (100) | -0.0003 | -0.022 .. +0.017 | 7 / 11 |
+  | 10 | 0.9746 (200) | 0.9716 (400) | -0.0030 | -0.017 .. +0.029 | 6 / 11 |
+  | 30 | 0.9986 (100) | 0.9965 (100) | -0.0021 | -0.005 .. +0.003 | 4 / 11 |
+  | 120 | 0.9577 (400) | 0.9558 (400) | -0.0019 | -0.012 .. +0.005 | 5 / 11 |
+
+- **Reading:** the gap is inside the rerun spread (+-0.007) at every size, and slightly negative at
+  every size; the plan's refutation bar is met. The hypothesis needed above +0.014 at 3 or 10 scenes.
+  So for LoRA + pooling inside Déjà View on Hypersim, few training scenes do not make GT instances
+  useful: the data half of #81's hypothesis is refuted in this model. Its model half (a small
+  refiner) is #81's own test on the 3D refiner.
+- **Other observations, not part of the test:**
+  - Both arms move together at every size (same draws per step): at 3 and 10 scenes they overfit
+    after step 200-400 (val rises above 1.0 by step 500 at 3 scenes), which val selection catches.
+  - The 30-scene subset is the worst size for both arms (kept 0.997-0.999, val above 1.0 from step
+    200), worse than 3 or 10 scenes. One subset and one seed per size cannot say whether this is the
+    draw or the size; it does not change the gap, which both arms share.
+  - At 120 scenes GT's held-out ratio jumps to 1.048 at step 500 (grid 0.972) while its val stays at
+    0.964; a single-eval excursion of the kind E52a/b saw (val up to 0.014 between evals).
+  - Each arm used its own sweep lr (gt 3e-6, grid 1e-5); the sweep did not separate them.
+- **Limits:** one seed and one subset per size; val ratio, not dev Chamfer; Déjà View only (the
+  model-size axis is #81's). A positive would have needed repeats; a gap inside the spread at all
+  four sizes with GT ahead on at most 7 of 11 scenes does not.
+- **Figure, raw:** `uv run python experiments/scripts/e52f_figures.py` -> `figures/e52f_scaling.jpg`
+  (val curves, kept val per size, gap per size with the rerun band), `results/e52f_scaling.yaml`.
+
+## E52b, main arms, rung 5: segment pooling on top of LoRA gains nothing; GT instances tie grid tiles and neither beats LoRA alone (issue #52, 22.11.2026)
+- **Setting:** the plan entry above, rung 5, at e4f7943 (clean; later commits on the branch only add
+  LOG text, figures and figure scripts), 3080, bf16, lr_lora 1e-4, lr_pool from the sweep (GT 3e-6,
+  grid 1e-5), 3000 steps, seeds 0-2 per arm, state kept on val, dev scored on 20 views. One arm and
+  seed per run, 21.11 16:02 - 22.11 04:02 (~7080 s training per run, 2.36 s per step), peak 2.22 GB,
+  0 segments dropped. Job `/home/student/mircea/jobs_e52b_main.sh`, runs `runs/e52b_main_<arm>_s<s>`.
+  One CUDA allocator OOM warning per run during dev scoring, as in the control; every score was
+  written. Control = the E52b control's three seeds (same script, same 3080).
+- **Dev Chamfer (cm, seed mean per arm; Déjà View the same run in all nine):**
+
+  | | living room | bedroom | lobby | mean | seed range | kept steps |
+  |---|---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | | |
+  | LoRA alone (control) | 1.522 | 1.647 | 6.295 | **3.155** | 0.081 | 2500 / 1500 / 3000 |
+  | LoRA + pool, GT instances | 1.604 | 1.688 | 6.443 | 3.245 | 0.101 | 2500 / 2500 / 750 |
+  | LoRA + pool, grid tiles | 1.578 | 1.644 | 6.450 | 3.224 | 0.171 | 2250 / 2500 / 3000 |
+  | GT - grid | +0.025 | +0.044 | -0.007 | +0.021 | | |
+  | GT - LoRA alone | +0.081 | +0.041 | +0.149 | +0.090 | | |
+  | grid - LoRA alone | +0.056 | -0.003 | +0.156 | +0.069 | | |
+
+  Per seed (dev mean, cm): GT 3.195 / 3.244 / 3.296, grid 3.282 / 3.280 / 3.111, LoRA alone
+  3.154 / 3.195 / 3.115. With the same seed (same draws), GT is ahead on seeds 0 and 1 and grid on
+  seed 2; the sign of GT - grid follows the seed.
+- **Reading (the plan's rule):** refuted. GT would have needed to beat Déjà View, LoRA alone and
+  grid by more than 0.080 cm each, on 2 of 3 scenes. It beats Déjà View (-0.255 cm), but is within
+  the margin of grid (+0.021 cm, on the wrong side) and behind LoRA alone on all three scenes
+  (+0.090 cm mean). The prediction (GT ties grid, as E52a's fourth run without LoRA) holds. Grid
+  is within the margin of LoRA alone (+0.069 cm), so the pooling adapter adds no capacity either.
+  Both pooling arms sit 0.07-0.09 cm behind LoRA alone, at the edge of the seed ranges
+  (0.08-0.17 cm); with three seeds that is a trend, not a measured harm.
+- **Other observations:**
+  - The val curves of the three arms interleave at every eval (figure): no arm stays below the
+    others during training, and seeds of one arm differ as much as the arms do.
+  - The kept step is a noisy choice: GT seed 2 keeps step 750 (val 0.9588) and scores the worst
+    GT dev mean (3.296); val moves by up to 0.014 between evals, as before.
+  - Grid's seed range (0.171 cm) is twice the control's; the margin taken from the control is the
+    smaller of the measured ranges.
+- **Conclusion, for #52:** its done condition (LoRA with vs without segment inputs, at the same
+  training) is met with a negative: on Hypersim dev, feeding GT instances into a pooling adapter
+  inside Déjà View gives no gain over grid tiles or over plain LoRA fine-tuning, with 3 seeds per
+  arm and both arms swept alike. Together with E52a (pooling alone), E52c/E52e (instances in the
+  loss) and E52f (3-120 train scenes), segment inputs have not helped any trained adapter inside
+  Déjà View; scoped to these adapters, Hypersim and this budget. Not tested: gating the pooling
+  branch (presentation feedback, 19.11), the planned follow-up; val not scored on Chamfer.
+- **Figure, raw:** `uv run python experiments/scripts/e52b_main_figures.py` ->
+  `figures/e52b_main.jpg` (dev Chamfer ratio per scene with seeds, val curves of all nine runs),
+  `results/e52b_main.yaml`.
+
+## Plan: E86a = ablate the semantics in the instance voxel density filter: none, SAM 3, GT, permuted ids (issue #86, 22.11.2026)
+- **Goal:** the instance voxel density filter (E45, third arm) and E27a's flag-refine-filter built on it are our
+  best working methods on Déjà View's output (dev Chamfer 3.500 -> 3.298 and 3.209 cm), and the only working ones
+  with an unmeasured semantic part. E45 measured it once, dev only, against plain voxel density at the refiner's
+  completeness: -0.045 cm Chamfer, beyond the floor only on the lobby (-0.241; living room and bedroom tie), and the
+  variant was the best of seven on those same three scenes, which flatters it. E8a found per-view permuted ids beat
+  SAM 3's in the refiner, so a permuted control is needed. Does the semantic part beat the same filter without it
+  on val, and if so, is it the cross-view identity or the boundaries within a view?
+- **Setting:** `experiments/configs/e86a.yaml`, one `scene_eval` run, dev (3) then val (11), RTX 3080; protocol
+  as E27a. Code: `keep_segments` picks the cut's instance ids as `segments` picks the refiner's
+  (`segment_ids`, `keep_ids`); until now the cut always took SAM 3's, whatever the variant. Arms for the ids:
+  **none** (every pixel one instance: plain voxel density), **SAM 3** (linked masks, E27a's filter), **GT**
+  (Hypersim's instances, no-mesh and unlabeled pixels as none; upper bound), **permuted** (SAM 3's ids permuted per
+  view, seed 0: each view's grouping and boundaries kept, cross-view identity scrambled). Each on Déjà View's output
+  and with E27a's recipe (E_t 4e-2, E_n off, refine every pixel, then cut), at E27a's q = 0.5; without refinement
+  also q = 0.3, 0.7, 0.9 for a curve per arm. Every arm keeps the same number of pixels at a q, so accuracy is
+  compared at equal pixel count; completeness is reported next to it.
+- **Checks:** `Déjà View, kept 0.5, SAM 3` and `tangent 4e-2, kept 0.5, SAM 3` reproduce E27a's (dev Chamfer
+  3.298 / 3.209, val 3.817 / 3.669 cm); Déjà View and tangent 4e-2 reproduce E27a's rows. Tests: `none` makes
+  instance voxel density equal plain voxel density, `gt` maps no-mesh pixels to none, `permuted` keeps each view's
+  grouping (tests/test_segment_ids.py).
+- **Rule (val decides, Déjà View kept 0.5; floor 0.033 / 0.036 cm accuracy / Chamfer, E40/E45):** SAM 3 - none
+  < -0.036 cm mean Chamfer on val and better on at least 7 of 11 val scenes means the semantic part carries a gain;
+  |SAM 3 - none| <= 0.036 cm refutes it: the filter works as plain voxel density, and the write-up says so. If it
+  holds, permuted ~ none says the cross-view identity carries it, permuted ~ SAM 3 says the boundaries within a view
+  do. GT - SAM 3 is the headroom of better masks. The E27a recipe rows say whether the reading changes after
+  refinement.
+- **Prediction:** a tie on val (|SAM 3 - none| within the floor): E45's gap was one scene's, and the curves
+  coincide except at high completeness. Then plain voxel density is the baseline any semantic filter must beat.
+- **Budget:** ~20 min on the 3080 (E27a took 8 min for 6 variants, 3 of them refined; here 22 variants, 5 refined).
+
+## E86a: ablate the semantics in the instance voxel density filter -> on val SAM 3's ids lose to none, GT gains within noise, per-view permuted ids lose badly (issue #86, 22.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned.
+- **Commits:** 8a46c8b (plan, `keep_segments`, `segment_ids`, tests, config), this commit (`e86a_figures.py`, results,
+  figure, README).
+- **Commands** (RTX 3080, clean tree at 8a46c8b): `scene_eval --cfg experiments/configs/e86a.yaml --splits dev val`
+  (`e86a-20261122-113632`, 33 min, beyond the 20 estimated); `e86a_figures.py runs/e86a-20261122-113632` ->
+  `results/e86a_figures.txt`, `figures/e86a_density.jpg`.
+- **Checks:** the SAM 3 rows reproduce E27a to the third decimal (Déjà View kept 0.5: dev 3.298, val 3.817; tangent
+  4e-2 kept 0.5: dev 3.209, val 3.669 cm Chamfer), and so do Déjà View and tangent 4e-2 unfiltered.
+- **Results at q 0.5, cm, mean / median over the split's scenes** (accuracy | completeness | Chamfer; all rows in
+  `results/e86a_figures.txt`):
+
+  | cut's ids | dev, Déjà View | val, Déjà View | val, E_t 4e-2 refined |
+  |---|---|---|---|
+  | none (plain voxel density) | 2.980 / 1.854 \| 7.224 / 2.784 \| 5.102 / 2.004 | **2.819** / 2.451 \| 4.706 / 3.271 \| 3.762 / 2.962 | 2.782 / 2.413 \| 4.433 / 3.042 \| 3.607 / 2.876 |
+  | SAM 3 (E27a's filter) | 2.998 / 1.897 \| **3.597** / 2.223 \| **3.298** / **1.727** | 3.013 / 2.466 \| 4.621 / 3.357 \| 3.817 / 2.948 | 2.971 / 2.424 \| 4.367 / 3.045 \| 3.669 / 2.889 |
+  | GT | **2.750** / 1.856 \| 7.156 / 2.796 \| 4.953 / 2.009 | 2.776 / **2.447** \| 4.629 / 3.276 \| **3.702** / **2.916** | **2.735** / **2.407** \| 4.363 / 3.046 \| **3.549** / **2.837** |
+  | permuted per view | 3.840 / 2.100 \| 2.822 / 1.414 \| 3.331 / 1.757 | 4.309 / 3.267 \| **4.312** / **2.714** \| 4.310 / 3.759 | 4.248 / 3.195 \| **3.940** / **2.722** \| 4.094 / 3.699 |
+
+  Each arm minus none at the same cut, val (11 scenes), mean | median of the differences | scenes on which the arm
+  is better (accuracy / completeness / Chamfer):
+
+  | arm | Déjà View, q 0.5 | E_t 4e-2 refined, q 0.5 |
+  |---|---|---|
+  | SAM 3 | +0.194 / -0.084 / **+0.055** \| +0.080 / -0.013 / +0.045 \| 1 / 7 / **3 of 11** | +0.189 / -0.066 / +0.062 \| +0.073 / -0.011 / +0.044 \| 1 / 6 / 2 of 11 |
+  | GT | -0.043 / -0.076 / -0.060 \| +0.017 / -0.016 / -0.004 \| 4 / 7 / 6 of 11 | -0.047 / -0.070 / -0.059 \| +0.015 / -0.014 / -0.001 \| 4 / 7 / 7 of 11 |
+  | permuted | +1.490 / -0.394 / +0.548 \| +0.816 / -0.195 / +0.272 \| 0 / 10 / 1 of 11 | +1.467 / -0.493 / +0.487 \| +0.782 / -0.331 / +0.265 \| 0 / 10 / 1 of 11 |
+
+  Over the q sweep (no refinement, val), SAM 3 has the lower Chamfer than none on 6 / 3 / 0 / 0 of 11 scenes at
+  q 0.3 / 0.5 / 0.7 / 0.9; GT on 7 / 6 / 3 / 4.
+- **Reading (the plan's rule):** refuted, beyond the prediction. On val SAM 3's ids do not beat the same filter
+  without them: Chamfer +0.055 cm (median +0.045), better on 3 of 11 scenes, accuracy worse on 10 of 11. That is past
+  the floor on the wrong side; the filter is better as plain voxel density, on Déjà View's output and after E27a's
+  refinement alike. GT ids gain -0.060 cm mean but -0.004 median, on 6 of 11 scenes: within the noise on the
+  median and the scene count, so better masks have at most a small headroom here. Ids permuted per view are far
+  worse (+0.548 cm, accuracy worse on all 11): a pixel then counts only its own view's points, so the count stops
+  measuring what the filter rests on, the agreement between views. SAM 3's ids sit between none and permuted,
+  as if each place SAM 3's linking splits one surface across views were a small permutation.
+- **Why dev said the opposite:** dev's -1.804 cm mean for SAM 3 is the lobby (`ai_044_001`): at q 0.5 the plain cut
+  drops a whole region there (completeness 17.33 against SAM 3's 7.08 cm); at q 0.7 the two tie (5.27 / 5.21). The
+  cut ranks every pixel of a scene by one quantile, and where a scene's curve has such a cliff, a slight shift in
+  the ranking moves the cut across it (val's `ai_009_009` at q 0.3: 67.17 against 40.44 cm). E45's instance gain
+  was the same lobby, and E27a's q = 0.5 was chosen on dev with SAM 3's ids, right past the plain cut's cliff. The
+  median curves (figure, top) put none, SAM 3 and GT on one curve on val.
+- **Figure** (`figures/e86a_density.jpg`): top, median accuracy against median completeness over q per arm, dev and
+  val; bottom, each scene's Chamfer of the arm minus none at q 0.5, without and with the refinement (symlog).
+- **Conclusion, for #86:** no semantic gain survives in the instance voxel density filter on val: its working part
+  is the cross-view voxel count, and SAM 3's ids make it slightly worse. The semantics-free filter, plain voxel
+  density, is the baseline any semantic filter has to beat (#84). Its dev number at E27a's q is set by one cliff,
+  so q = 0.5 is not a safe setting for it; how to cut without a cliff (per scene or per region) is open and not
+  part of this experiment. The rule compared at equal q (equal pixel count), not at equal completeness as E45 did.
+
+## Plan: E86b = E86a's four id arms at equal completeness instead of equal q (issue #86, 22.11.2026)
+- **Goal:** E86a compared the arms at equal q (equal pixel count). There SAM 3's ids lost to none on val (Chamfer
+  +0.055 cm), but they also kept a little more completeness (4.621 against 4.706 cm), and on dev the comparison was
+  set by one cliff (the lobby). E45 compared filters at equal completeness, where they differ by accuracy alone. Does
+  E86a's reading hold there?
+- **Setting:** `experiments/scripts/e86b_equal_completeness.py` on E86a's run `e86a-20261122-113632`, dev and val,
+  no refinement. Per scene and arm (none, SAM 3, GT, permuted per view with seed 0, exactly E86a's ids), Déjà View's
+  pixels are ranked by instance voxel density, scored on the grid q = 1, 0.95, ..., 0.2 and solved by bisection to a
+  target completeness (`e45_filters.sweep`, to 0.0005 cm). Two targets per scene, read from the run: SAM 3's
+  completeness at q 0.5 (the filter as E27a uses it) and none's. Runs on the 3080 (CPU scoring, 6 workers).
+- **Checks:** every arm's q 1 and q 0.5 reproduce the run's Déjà View and `Déjà View, kept 0.5, <arm>` rows within
+  0.001 cm (asserted). A scene where an arm's curve does not bracket the target (a cliff) is reported as unmatched
+  and left out of that mean.
+- **Rule (val decides; floor 0.033 cm accuracy, E40):** at both targets, SAM 3 - none accuracy < -0.033 cm mean and
+  better on at least 7 of 11 val scenes overturns E86a (a semantic gain at equal completeness); within ±0.033 cm,
+  or on fewer than 7 scenes, E86a's conclusion stands (no semantic gain survives in the filter). GT and permuted
+  are read the same way.
+- **Prediction:** a tie; the median curves of E86a's figure lie on top of each other on val.
+- **Budget:** ~20-30 min on the 3080's CPU, timed on one dev scene first.
+
+## E86b: E86a's id arms at equal completeness -> unchanged: SAM 3's ids lose to none on val; GT gains on 3 scenes only (issue #86, 22.11.2026)
+- **Goal, setting, rule:** as in the plan above; run as planned.
+- **Commits:** dae5b05 (plan, `e86b_equal_completeness.py`), this commit (results, figure; the figure's noise band
+  moved behind the dots and redrawn from the run's JSON, no rescoring).
+- **Command** (RTX 3080's CPU, 32 min): `e86b_equal_completeness.py runs/e86a-20261122-113632 --splits dev val` ->
+  `results/e86b_equal_completeness.txt`, `figures/e86b_equal_completeness.jpg`, `runs/.../e86b_{dev,val}.json`. The
+  stamp reads dae5b05-dirty only because the redirected output file existed when the script started.
+- **Checks:** every arm's q 1 and q 0.5 reproduce E86a's run within 0.001 cm (asserted, dev and val). Every arm
+  reached both targets on all 14 scenes; the match is within 0.008 cm of the target except where a cliff leaves a
+  one-pixel bracket: the lobby (SAM 3 at none's target, +0.234 cm), `ai_004_003` (SAM 3 +0.056, GT +0.031),
+  `ai_009_009` (up to 0.015).
+- **Results, accuracy cm at equal completeness, arm minus none:** mean | median | scenes better, at SAM 3's / at
+  none's completeness at q 0.5 (per scene in the results file):
+
+  | arm | dev (3) | val (11) |
+  |---|---|---|
+  | SAM 3 | -0.076 / -0.051 \| -0.008 / -0.011 \| 3 / 3 of 3 | **+0.058 / +0.040 \| +0.053 / +0.069 \| 2 / 2 of 11** |
+  | GT | -0.247 / -0.317 \| -0.019 / -0.017 \| 3 / 2 of 3 | -0.122 / -0.135 \| -0.010 / -0.014 \| 6 / 6 of 11 |
+  | permuted | +0.187 / +0.048 \| +0.090 / +0.038 \| 0 / 0 of 3 | +0.566 / +0.487 \| +0.537 / +0.489 \| 2 / 2 of 11 |
+
+- **Reading (the plan's rule):** E86a's conclusion stands. At equal completeness SAM 3's ids are still worse than
+  none on val, by more than the floor (+0.058 / +0.040 cm mean, medians +0.053 / +0.069), better on 2 of 11 scenes at
+  both targets. The prediction (a tie) was again too kind to SAM 3.
+- **Dev without the cliff:** matched to SAM 3's completeness, the lobby's plain cut is 0.211 cm less accurate (6.078
+  against 5.867), so dev's -1.804 cm Chamfer at equal q shrinks to -0.076 cm accuracy, carried by the lobby; the
+  living room and bedroom tie (-0.008, -0.008).
+- **GT:** -0.122 / -0.135 cm mean but a median within the floor and 6 of 11 scenes, so it fails the rule. Its gain is
+  three scenes, the same at both targets: `ai_044_003` (-0.605 / -0.604), `ai_009_009` (-0.491 / -0.611), `ai_004_003`
+  (-0.208 / -0.235); on the other eight it ties none. SAM 3's ids gain nothing on those three (+0.053 to +0.133). So
+  better instances have a headroom confined to a few scenes, which SAM 3's linked masks do not reach.
+- **Permuted:** worse by ~0.5 cm, as at equal q; its two better scenes (`ai_004_003`, `ai_007_001`) are cut at q 0.28
+  to 0.34, far from the others' 0.5, i.e. on the far side of a cliff.
+- **Figure** (`figures/e86b_equal_completeness.jpg`): per split, each scene's accuracy of the arm minus none at both
+  targets (symlog, linear within ±0.5 cm).
+- **Conclusion, for #86:** at equal q (E86a) and at equal completeness (E86b), no semantic gain survives in the
+  instance voxel density filter on val: plain voxel density is the filter, SAM 3's ids cost ~0.05 cm. Open: what
+  GT's instances get right on three scenes (likely objects that SAM 3 misses or merges), not pursued here.
+## Plan: E81a = does the semantic gain shrink as data or model grows (issue #81, 19.11.2026)
+- **Hypothesis** (19 Nov feedback): classes help a small model or a small training set most, and the gain vanishes
+  as either grows, because a large model learns them implicitly. E41b, at full size only, found the classes within
+  seed noise.
+- **Setting:** E41b's 3D refiner (`volume.py`, 128-cell grid, 20k steps, 8-20 views per step, held-out selection on
+  the same 8 scenes), trained on the first 9, 35 and all 145 fitting scenes (train + train_extra in E41b's order),
+  U-Net small (16 / 32 / 64, head 64) and default (32 / 64 / 128, head 128), classes none vs GT (the best case:
+  SAM 3 is run only if GT shows a gap), seeds 0, 1, 2: 36 models, `configs/e81a/`.
+- **Measure:** per size and width, val Chamfer of none minus GT (mean of 3 seeds) against the seed spread (max - min
+  over seeds of each), and dev as a second look.
+- **Prediction:** the gap is largest at 9 scenes with the small U-Net and shrinks towards 0 at 145 scenes.
+- **Refuted if:** at 9 scenes with the small U-Net the gap is within the seed spread.
+- **Compute:** the whole sweep on one machine, never mixed: queued on the 3d-cluster (one 5090 per model) and run
+  on the 3080 meanwhile; the first machine to finish all 36 is the one reported.
+
+## E81a: semantic gain by data and model size -> GT classes never help; they hurt at 35 and 145 scenes, and at 9 the refiner learns nothing that transfers (issue #81, 23.11.2026)
+- **Commits:** 800fe22 (plan, configs), dfc3aaf (open3d imported only by the fused score: the cluster has no
+  libGL, so every task died at import; found by a smoke run of the job script before queueing). 3d-cluster,
+  one RTX 5090 per model, 20-26 min each; `experiments/results/e81a.txt`.
+- **Results** (val Chamfer, cm, mean of 3 seeds with range; Deja View 5.102; gap = none - GT, > 0 would mean the
+  classes help):
+
+  | scenes | width | no classes | GT classes | gap | seed spread | kept the untrained state (none / GT) |
+  |---|---|---|---|---|---|---|
+  | 9 | small | 5.10 | 5.10 | 0.00 | 0.00 | 3/3 / 3/3 |
+  | 9 | default | 5.19 (5.10-5.36) | 5.38 (5.10-5.92) | -0.19 | 0.82 | 2/3 / 2/3 |
+  | 35 | small | 5.17 (5.10-5.29) | 5.41 (5.33-5.45) | -0.24 | 0.19 | 2/3 / 0/3 |
+  | 35 | default | 5.29 (5.21-5.33) | 5.58 (5.47-5.79) | -0.30 | 0.32 | 0/3 / 0/3 |
+  | 145 | small | 5.27 (5.24-5.33) | 5.72 (5.59-5.87) | -0.45 | 0.27 | 0/3 / 0/3 |
+  | 145 | default | 5.18 (5.15-5.21) | 5.32 (5.24-5.44) | -0.14 | 0.20 | 0/2 / 0/3 |
+
+- One model has 2 seeds (145 default, no classes: seed 2 was killed at step 9000 and not rerun).
+- **Kept state:** a model whose held-out error never fell below the untrained one returns the identity (Deja View
+  exactly). At 9 scenes 10 of 12 models did: the refiner fits 9 scenes but nothing it learns carries to the
+  held-out ones, with or without classes. So the smallest size cannot show a semantic gain either way.
+- **Conclusion:** where the refiner learns at all (35 and 145 scenes), GT classes never help: the gap is negative in
+  all four cells, beyond the seed spread at 35 small and 145 small. The plan's refutation criterion (no gap at 9
+  scenes, small U-Net) is met, but only because nothing trains there. The hypothesis "semantics help when model or
+  data is small" finds no support in this refiner; no model beats Deja View on val.
+## Plan: E83a = unlabelled regions in 3D as catch-all objects (issue #83, 19.11.2026)
+- **Why:** after E59c/E59d (val PQ 0.336), the largest missed share is the catch-all classes SAM 3 is never
+  prompted for: E59a's val split has 187 of 317 missed GT segments there, 142 of them otherprop. Generic prompt
+  words found parts, not objects (E59b).
+- **Setting:** `associate.claim_unclaimed` after merge 0.3 and absorb 0.5:0.1 into things: pixels with no mask
+  within `rim` pixels in their view, put into E59c's cubes, and each 26-connected set of at least `least` cubes
+  becomes one otherprop object with score 0 (ranked last for AP). Opt-in (`e59a_pq_loss.py --claim rim:least`),
+  labels only. `--regrouped-causes` splits the missed segments of the regrouped labels instead of the linked.
+- **Dev sweep:** rim 2 and 5 x least 20, 100, 500; the best on dev runs once on val. 3080 CPU.
+- **Prediction / refuted if:** dev PQ above merge + absorb (0.373) by more than 0.01; refuted if no setting gets
+  there.
+
+## E83a: claiming unlabelled regions -> dev PQ 0.373 -> 0.378 at best, under the +0.01 bar; regions too coarse (19.11.2026)
+- **Commit:** 64398fe, 3080 CPU. `experiments/results/e83a_dev_sweep.txt`.
+- **Dev PQ** (merge 0.3 + absorb 0.5:0.1 into things: 0.373): claimed rim:least 2:20 0.375, 2:100 0.377, 2:500 0.377,
+  5:20 0.376, 5:100 0.377, 5:500 0.378. Refuted by the plan's bar; val not run.
+- **Regrouped causes, dev:** of 175 GT segments 121 unmatched, 56 not prompted (catch-alls), 38 merged, 19 missed.
+- **Checks** (one-off, val): 147 of the 187 catch-all GT segments are mostly unlabelled (no mask), not under a
+  wrong class; the rest sit under shelves, chair, wall, lamp. The claimed regions do reach them (4 of 147 get
+  nothing at rim 2, 20 cubes) but are far larger: median IoU 0.08, 16 above 0.5. Neighbouring unlabelled
+  objects chain into one region through cubes of 4 pixel footprints.
+- **Next (E83b):** finer claim cubes (1 and 2 footprints), and claiming on top of the fallback catch-all prompts
+  (E59b) now that merge and absorb glue their parts.
+
+## Plan and result: E83b = fallback catch-all prompts with merge and absorb -> val PQ 0.336 -> 0.349, mIoU 0.381 -> 0.412 (issue #83, 23.11.2026)
+- Planned after E83a, before running (its "Next"): finer claim cubes (1 and 2 footprints), and claiming on top of
+  E59b's fallback catch-all prompts, whose part masks merge and absorb may now glue into whole objects.
+- **Setting:** commit dccc94f (`--claim rim:least:side`), 3080 CPU. Dev: NYU40 prompts with claims at rim 1-2, 5-100
+  cubes, side 1-2 footprints; fallback prompts (`sam3image-nyu40+fb-catchall-t0.3`) with merge 0.3, absorb 0.5:0.1
+  into things, with and without claims. The best on dev run once on val. `experiments/results/e83b_*.txt`.
+- **Dev PQ** (merge + absorb, NYU40 prompts: 0.373): finer claims 0.373-0.378; fallback prompts 0.399, with claims
+  on top 0.388-0.394. So the fallback prompts without claims are chosen.
+- **Results** (PQ / AP / mIoU):
+
+  | labels | dev | val |
+  |---|---|---|
+  | SAM 3 + linking (E59a) | 0.292 / 0.216 / 0.405 | 0.258 / 0.345 / 0.349 |
+  | merge + absorb (E59d) | 0.373 / 0.230 / 0.418 | 0.336 / 0.325 / 0.381 |
+  | fallback prompts + merge + absorb | 0.399 / 0.293 / 0.466 | 0.349 / 0.326 / 0.412 |
+  | perfect grouping, fallback prompts (oracle) | 0.463 / 0.376 / 0.517 | 0.474 / 0.420 / 0.497 |
+
+- **Conclusion:** with merge and absorb, the fallback catch-all prompts help (val PQ +0.013, mIoU +0.031, AP flat),
+  where alone they only added fragments (E59b). The dev gain (+0.026) halves on val. From SAM 3 + linking the val
+  PQ rises 0.258 -> 0.349 in total. Still open: in the cause split of the linked labels, 160 of 471 val GT
+  segments have no prediction at all (missed).
+
 ## Plan: E84a, a keep head trained on the expected Chamfer of the kept cloud itself, not on the oracle's mask (issue #84, 20.11.2026)
 - **Why:** #84 asks for a model that predicts the greedy oracle's keep set. Imitating a mask hides the real
   objective, the minimal Chamfer of the kept cloud, and the greedy is only a heuristic (K = 5 / 20 rounds: 2.048 /

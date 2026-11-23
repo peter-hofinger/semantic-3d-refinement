@@ -10,7 +10,12 @@ from src.loaders import Views
 from src.pipeline import Pipeline
 from src.refinement import IdentityRefiner
 from src.segmentation import Segmentation
-from src.segmentation.associate import Associator, absorb_parts, merge_touching
+from src.segmentation.associate import (
+    Associator,
+    absorb_parts,
+    claim_unclaimed,
+    merge_touching,
+)
 from src.segmentation.base import ID_STRIDE, NO_INSTANCE, count_pairs
 from src.segmentation.linked import LinkedSegmenter
 from src.segmentation.sam3 import compact, resolve_overlaps
@@ -279,3 +284,24 @@ def test_a_small_part_of_another_class_is_absorbed_and_a_large_one_is_not() -> N
     assert len(np.unique(merged.instance_ids)) == 3
     kept = absorb_parts(merged, geometry, side, (0.5, 0.05), hosts={"chair"})
     assert len(np.unique(kept.instance_ids)) == 3
+
+
+def test_an_unlabelled_region_becomes_one_object_and_rims_stay_free() -> None:
+    h, w = 12, 40
+    k = np.array([[[20.0, 0, w / 2], [0, 20.0, h / 2], [0, 0, 1]]])
+    geometry = Geometry(np.full((1, h, w), 2.0), np.ones((1, h, w)), k, np.eye(4)[None])
+    ids = np.full((1, h, w), NO_INSTANCE, dtype=np.int32)
+    ids[0, :, :20] = 0  # a wall on the left half, unlabelled right half
+    ids[0, 5, 10] = NO_INSTANCE  # a one-pixel hole inside the wall
+    seg = Segmentation(ids, {0: "wall"}, {0: 0.9})
+    out = claim_unclaimed(seg, geometry, 2.0 / 20, (2, 3))
+    right = out.instance_ids[0, :, 23:]
+    assert len(np.unique(right)) == 1
+    assert out.classes[int(right[0, 0])] == "otherprop"
+    assert out.scores[int(right[0, 0])] == 0.0
+    assert (
+        out.instance_ids[0, :, 20:22] == NO_INSTANCE
+    ).all()  # the rim next to the wall
+    assert out.instance_ids[0, 5, 10] == NO_INSTANCE  # too small and inside a mask
+    assert (out.instance_ids[0, :, :20][ids[0, :, :20] == 0] == 0).all()
+    assert claim_unclaimed(seg, geometry, 2.0 / 20, (2, 10**6)).classes == seg.classes

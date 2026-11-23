@@ -61,7 +61,7 @@ from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.hypersim.config import load_config
 from src.loaders.views import Views
-from src.segmentation.associate import absorb_parts, merge_touching
+from src.segmentation.associate import absorb_parts, claim_unclaimed, merge_touching
 from src.segmentation.base import Segmentation, count_pairs
 from src.segmentation.linked import working_associator
 
@@ -77,6 +77,12 @@ MERGE_SIDE = 4  # cube side of merge_touching, in pixel footprints
 MERGES: list[float] = []  # contact shares, set by main
 ABSORBS: list[tuple[float, float]] = []  # (contact, size ratio), set by main
 UNPROMPTED = set(CATCH_ALL)  # emptied by main for a segmentation that prompts them
+CLAIMS: list[
+    tuple[int, int, int]
+] = []  # claim_unclaimed (E83a): rim px, least cubes, side
+REGROUPED_CAUSES = [
+    False
+]  # causes of the merged + absorbed labels instead of the linked
 MIN_VIEW_PIXELS, MIN_VIEW_SHARE = (
     20,
     0.01,
@@ -339,12 +345,24 @@ def run_scene(name: str) -> tuple[dict, dict]:
                 absorbed = absorb_parts(merged, geometry, side, (need, ratio), hosts)
                 label = f"merged {contact:g}, absorbed {need:g}:{ratio:g}{into}"
                 variants[label] = scores(truth, absorbed)
+    regrouped = linked
+    if MERGES and ABSORBS:
+        things = {c for c in EVALUATED if c not in BACKGROUND}
+        merged = merge_touching(linked, geometry, side, MERGES[0])
+        regrouped = absorb_parts(merged, geometry, side, ABSORBS[0], things)
+        base = f"merged {MERGES[0]:g}, absorbed {ABSORBS[0][0]:g}:{ABSORBS[0][1]:g} into things"
+        for rim, least, cube in CLAIMS:
+            cube_side = cube * side / MERGE_SIDE
+            claimed = claim_unclaimed(regrouped, geometry, cube_side, (rim, least))
+            variants[f"{base}, claimed {rim}:{least}:{cube}"] = scores(truth, claimed)
     for k in (2, 5):
         keep = ~band(gt_full, linked.instance_ids, k)[truth.pixels]
         variants[f"boundary {k}"] = scores(truth, linked, keep)
     keep = ~band(gt_full, best.instance_ids, 2)[truth.pixels]
     variants["all"] = scores(truth, best, keep)
-    fn, fp, status = causes(truth, linked, view_of)
+    fn, fp, status = causes(
+        truth, regrouped if REGROUPED_CAUSES[0] else linked, view_of
+    )
     out = {
         "scores": variants,
         "gt_segments": len(gt_class),
@@ -454,11 +472,19 @@ def main() -> None:
     parser.add_argument("--segmentation", default=SEGMENTATION[0])
     parser.add_argument("--merge", type=float, nargs="*", default=[])
     parser.add_argument("--absorb", nargs="*", default=[])
+    parser.add_argument(
+        "--claim", nargs="*", default=[], help="rim:least:side (footprints)"
+    )
+    parser.add_argument("--regrouped-causes", action="store_true")
     args = parser.parse_args()
     default = args.segmentation == SEGMENTATION[0]
     SEGMENTATION[0] = args.segmentation
     MERGES.extend(args.merge)
     ABSORBS.extend(tuple(map(float, a.split(":"))) for a in args.absorb)
+    CLAIMS.extend(
+        tuple(map(int, f"{c}:{MERGE_SIDE}".split(":")[:3])) for c in args.claim
+    )
+    REGROUPED_CAUSES[0] = args.regrouped_causes
     if "catchall" in args.segmentation:
         UNPROMPTED.clear()
     config = load_config(Path("configs/hypersim.yaml"))
@@ -480,6 +506,8 @@ def main() -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     tag = "_".join(args.splits) + ("" if default else f"_{args.segmentation}")
     tag += "_merge" if args.merge else ""
+    tag += "_claim" if args.claim else ""
+    tag += "_regrouped" if args.regrouped_causes else ""
     (RESULTS / f"e59a_{tag}.yaml").write_text(
         yaml.safe_dump({"git": git_hash(), "results": results}, sort_keys=False)
     )

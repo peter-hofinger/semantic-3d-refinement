@@ -1,0 +1,120 @@
+E81a (issue #81): E41b's 3D refiner by training scenes, U-Net width and classes; git dfc3aaf, 3d-cluster RTX 5090.
+Chamfer in cm; Deja View dev 3.500, val 5.102. gap = val without classes - val with GT classes (> 0: classes help);
+spread = the larger max - min over seeds of the two arms; kept = seeds whose held-out selection kept the untrained state.
+n145-default-none has 2 seeds (seed 2 was killed at step 9000 and not rerun).
+
+| scenes | width | val none | val GT | gap | spread | dev none | dev GT | kept (none / GT) |
+|---|---|---|---|---|---|---|---|---|
+| 9 | default | 5.19 (5.10-5.36) | 5.38 (5.10-5.92) | -0.19 | 0.82 | 3.60 | 3.81 | 2/3 / 2/3 |
+| 9 | small | 5.10 (5.10-5.10) | 5.10 (5.10-5.10) | +0.00 | 0.00 | 3.50 | 3.50 | 3/3 / 3/3 |
+| 35 | default | 5.29 (5.21-5.33) | 5.58 (5.47-5.79) | -0.30 | 0.32 | 3.53 | 3.71 | 0/3 / 0/3 |
+| 35 | small | 5.17 (5.10-5.29) | 5.41 (5.33-5.45) | -0.24 | 0.19 | 3.54 | 3.73 | 2/3 / 0/3 |
+| 145 | default | 5.18 (5.15-5.21) | 5.32 (5.24-5.44) | -0.14 | 0.20 | 3.46 | 3.45 | 0/2 / 0/3 |
+| 145 | small | 5.27 (5.24-5.33) | 5.72 (5.59-5.87) | -0.45 | 0.27 | 3.54 | 3.53 | 0/3 / 0/3 |
+
+Per model (scene_eval, dev and val):
+e81a-n9-default-gt-s0
+  dev | e81a-n9-default-gt-s0 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-default-gt-s0 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-default-gt-s1
+  dev | e81a-n9-default-gt-s1 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-default-gt-s1 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-default-gt-s2
+  dev | e81a-n9-default-gt-s2 | accuracy_cm 5.513 | completeness_cm 3.375 | chamfer_cm 4.444 | miou 0.360 | pq 0.292 | ap 0.217 | 0.0 s
+  val | e81a-n9-default-gt-s2 | accuracy_cm 6.979 | completeness_cm 4.863 | chamfer_cm 5.921 | miou 0.395 | pq 0.256 | ap 0.342 | 0.0 s
+e81a-n9-default-none-s0
+  dev | e81a-n9-default-none-s0 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-default-none-s0 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-default-none-s1
+  dev | e81a-n9-default-none-s1 | accuracy_cm 4.970 | completeness_cm 2.613 | chamfer_cm 3.791 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-default-none-s1 | accuracy_cm 6.316 | completeness_cm 4.395 | chamfer_cm 5.356 | miou 0.405 | pq 0.255 | ap 0.344 | 0.0 s
+e81a-n9-default-none-s2
+  dev | e81a-n9-default-none-s2 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-default-none-s2 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-small-gt-s0
+  dev | e81a-n9-small-gt-s0 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-small-gt-s0 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-small-gt-s1
+  dev | e81a-n9-small-gt-s1 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-small-gt-s1 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-small-gt-s2
+  dev | e81a-n9-small-gt-s2 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-small-gt-s2 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-small-none-s0
+  dev | e81a-n9-small-none-s0 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-small-none-s0 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-small-none-s1
+  dev | e81a-n9-small-none-s1 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-small-none-s1 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n9-small-none-s2
+  dev | e81a-n9-small-none-s2 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n9-small-none-s2 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n35-default-gt-s0
+  dev | e81a-n35-default-gt-s0 | accuracy_cm 4.573 | completeness_cm 2.471 | chamfer_cm 3.522 | miou 0.360 | pq 0.292 | ap 0.217 | 0.0 s
+  val | e81a-n35-default-gt-s0 | accuracy_cm 6.582 | completeness_cm 4.393 | chamfer_cm 5.488 | miou 0.394 | pq 0.256 | ap 0.331 | 0.0 s
+e81a-n35-default-gt-s1
+  dev | e81a-n35-default-gt-s1 | accuracy_cm 4.736 | completeness_cm 2.608 | chamfer_cm 3.672 | miou 0.360 | pq 0.291 | ap 0.214 | 0.0 s
+  val | e81a-n35-default-gt-s1 | accuracy_cm 6.517 | completeness_cm 4.421 | chamfer_cm 5.469 | miou 0.394 | pq 0.253 | ap 0.332 | 0.0 s
+e81a-n35-default-gt-s2
+  dev | e81a-n35-default-gt-s2 | accuracy_cm 5.023 | completeness_cm 2.872 | chamfer_cm 3.948 | miou 0.360 | pq 0.288 | ap 0.203 | 0.0 s
+  val | e81a-n35-default-gt-s2 | accuracy_cm 7.079 | completeness_cm 4.500 | chamfer_cm 5.789 | miou 0.406 | pq 0.254 | ap 0.338 | 0.0 s
+e81a-n35-default-none-s0
+  dev | e81a-n35-default-none-s0 | accuracy_cm 4.479 | completeness_cm 2.582 | chamfer_cm 3.531 | miou 0.360 | pq 0.292 | ap 0.217 | 0.0 s
+  val | e81a-n35-default-none-s0 | accuracy_cm 6.178 | completeness_cm 4.456 | chamfer_cm 5.317 | miou 0.397 | pq 0.258 | ap 0.346 | 0.0 s
+e81a-n35-default-none-s1
+  dev | e81a-n35-default-none-s1 | accuracy_cm 4.611 | completeness_cm 2.562 | chamfer_cm 3.586 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n35-default-none-s1 | accuracy_cm 6.247 | completeness_cm 4.419 | chamfer_cm 5.333 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n35-default-none-s2
+  dev | e81a-n35-default-none-s2 | accuracy_cm 4.519 | completeness_cm 2.415 | chamfer_cm 3.467 | miou 0.360 | pq 0.293 | ap 0.217 | 0.0 s
+  val | e81a-n35-default-none-s2 | accuracy_cm 6.101 | completeness_cm 4.314 | chamfer_cm 5.208 | miou 0.407 | pq 0.257 | ap 0.343 | 0.0 s
+e81a-n35-small-gt-s0
+  dev | e81a-n35-small-gt-s0 | accuracy_cm 4.394 | completeness_cm 2.414 | chamfer_cm 3.404 | miou 0.360 | pq 0.294 | ap 0.220 | 0.0 s
+  val | e81a-n35-small-gt-s0 | accuracy_cm 6.321 | completeness_cm 4.334 | chamfer_cm 5.327 | miou 0.394 | pq 0.257 | ap 0.346 | 0.0 s
+e81a-n35-small-gt-s1
+  dev | e81a-n35-small-gt-s1 | accuracy_cm 5.263 | completeness_cm 3.158 | chamfer_cm 4.210 | miou 0.360 | pq 0.293 | ap 0.219 | 0.0 s
+  val | e81a-n35-small-gt-s1 | accuracy_cm 6.343 | completeness_cm 4.541 | chamfer_cm 5.442 | miou 0.395 | pq 0.256 | ap 0.342 | 0.0 s
+e81a-n35-small-gt-s2
+  dev | e81a-n35-small-gt-s2 | accuracy_cm 4.640 | completeness_cm 2.536 | chamfer_cm 3.588 | miou 0.360 | pq 0.291 | ap 0.215 | 0.0 s
+  val | e81a-n35-small-gt-s2 | accuracy_cm 6.376 | completeness_cm 4.515 | chamfer_cm 5.446 | miou 0.405 | pq 0.263 | ap 0.347 | 0.0 s
+e81a-n35-small-none-s0
+  dev | e81a-n35-small-none-s0 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n35-small-none-s0 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n35-small-none-s1
+  dev | e81a-n35-small-none-s1 | accuracy_cm 4.675 | completeness_cm 2.324 | chamfer_cm 3.500 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n35-small-none-s1 | accuracy_cm 6.061 | completeness_cm 4.142 | chamfer_cm 5.102 | miou 0.397 | pq 0.258 | ap 0.345 | 0.0 s
+e81a-n35-small-none-s2
+  dev | e81a-n35-small-none-s2 | accuracy_cm 4.744 | completeness_cm 2.470 | chamfer_cm 3.607 | miou 0.360 | pq 0.293 | ap 0.218 | 0.0 s
+  val | e81a-n35-small-none-s2 | accuracy_cm 6.210 | completeness_cm 4.371 | chamfer_cm 5.291 | miou 0.405 | pq 0.261 | ap 0.347 | 0.0 s
+e81a-n145-default-gt-s0
+  dev | e81a-n145-default-gt-s0 | accuracy_cm 4.353 | completeness_cm 2.315 | chamfer_cm 3.334 | miou 0.360 | pq 0.292 | ap 0.218 | 0.0 s
+  val | e81a-n145-default-gt-s0 | accuracy_cm 6.542 | completeness_cm 3.940 | chamfer_cm 5.241 | miou 0.395 | pq 0.256 | ap 0.338 | 0.0 s
+e81a-n145-default-gt-s1
+  dev | e81a-n145-default-gt-s1 | accuracy_cm 4.477 | completeness_cm 2.479 | chamfer_cm 3.478 | miou 0.360 | pq 0.292 | ap 0.217 | 0.0 s
+  val | e81a-n145-default-gt-s1 | accuracy_cm 6.554 | completeness_cm 4.320 | chamfer_cm 5.437 | miou 0.395 | pq 0.258 | ap 0.341 | 0.0 s
+e81a-n145-default-gt-s2
+  dev | e81a-n145-default-gt-s2 | accuracy_cm 4.639 | completeness_cm 2.411 | chamfer_cm 3.525 | miou 0.360 | pq 0.293 | ap 0.217 | 0.0 s
+  val | e81a-n145-default-gt-s2 | accuracy_cm 6.416 | completeness_cm 4.158 | chamfer_cm 5.287 | miou 0.394 | pq 0.255 | ap 0.337 | 0.0 s
+e81a-n145-default-none-s0
+  dev | e81a-n145-default-none-s0 | accuracy_cm 4.533 | completeness_cm 2.397 | chamfer_cm 3.465 | miou 0.360 | pq 0.293 | ap 0.217 | 0.0 s
+  val | e81a-n145-default-none-s0 | accuracy_cm 6.050 | completeness_cm 4.256 | chamfer_cm 5.153 | miou 0.395 | pq 0.257 | ap 0.344 | 0.0 s
+e81a-n145-default-none-s1
+  dev | e81a-n145-default-none-s1 | accuracy_cm 4.398 | completeness_cm 2.499 | chamfer_cm 3.448 | miou 0.360 | pq 0.292 | ap 0.217 | 0.0 s
+  val | e81a-n145-default-none-s1 | accuracy_cm 6.007 | completeness_cm 4.423 | chamfer_cm 5.215 | miou 0.394 | pq 0.258 | ap 0.346 | 0.0 s
+e81a-n145-small-gt-s0
+  dev | e81a-n145-small-gt-s0 | accuracy_cm 4.576 | completeness_cm 2.210 | chamfer_cm 3.393 | miou 0.360 | pq 0.291 | ap 0.217 | 0.0 s
+  val | e81a-n145-small-gt-s0 | accuracy_cm 7.011 | completeness_cm 4.398 | chamfer_cm 5.705 | miou 0.395 | pq 0.257 | ap 0.335 | 0.0 s
+e81a-n145-small-gt-s1
+  dev | e81a-n145-small-gt-s1 | accuracy_cm 4.473 | completeness_cm 2.328 | chamfer_cm 3.401 | miou 0.360 | pq 0.294 | ap 0.222 | 0.0 s
+  val | e81a-n145-small-gt-s1 | accuracy_cm 7.367 | completeness_cm 4.363 | chamfer_cm 5.865 | miou 0.395 | pq 0.254 | ap 0.326 | 0.0 s
+e81a-n145-small-gt-s2
+  dev | e81a-n145-small-gt-s2 | accuracy_cm 4.994 | completeness_cm 2.617 | chamfer_cm 3.806 | miou 0.360 | pq 0.292 | ap 0.219 | 0.0 s
+  val | e81a-n145-small-gt-s2 | accuracy_cm 6.737 | completeness_cm 4.445 | chamfer_cm 5.591 | miou 0.394 | pq 0.258 | ap 0.343 | 0.0 s
+e81a-n145-small-none-s0
+  dev | e81a-n145-small-none-s0 | accuracy_cm 4.512 | completeness_cm 2.423 | chamfer_cm 3.468 | miou 0.361 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n145-small-none-s0 | accuracy_cm 6.085 | completeness_cm 4.400 | chamfer_cm 5.242 | miou 0.394 | pq 0.256 | ap 0.341 | 0.0 s
+e81a-n145-small-none-s1
+  dev | e81a-n145-small-none-s1 | accuracy_cm 4.677 | completeness_cm 2.550 | chamfer_cm 3.614 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n145-small-none-s1 | accuracy_cm 6.216 | completeness_cm 4.439 | chamfer_cm 5.328 | miou 0.392 | pq 0.255 | ap 0.343 | 0.0 s
+e81a-n145-small-none-s2
+  dev | e81a-n145-small-none-s2 | accuracy_cm 4.606 | completeness_cm 2.481 | chamfer_cm 3.544 | miou 0.360 | pq 0.292 | ap 0.216 | 0.0 s
+  val | e81a-n145-small-none-s2 | accuracy_cm 6.078 | completeness_cm 4.395 | chamfer_cm 5.237 | miou 0.395 | pq 0.257 | ap 0.346 | 0.0 s
