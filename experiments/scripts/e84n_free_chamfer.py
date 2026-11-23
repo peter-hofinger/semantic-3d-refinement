@@ -4,6 +4,8 @@ The loss of E84d (Poisson-tail charge) minimized over every pixel's x directly: 
 itself, away from any head, leads to a good cloud. Logs the loss, one Bernoulli(s) draw's exact
 Chamfer and the best exact Chamfer of a top share of x (GT-chosen).
 
+`save` writes s (N,) next to the scene's caches, a target for `loss: mimic` (E84r).
+
 `uv run python experiments/scripts/e84n_free_chamfer.py --cfg configs/e84n_free_chamfer.yaml`
 """
 
@@ -25,6 +27,8 @@ def main() -> None:
     raw = yaml.safe_load(parser.parse_args().cfg.read_text())
     torch.manual_seed(raw["seed"])
     scene = KeepScene.load(raw["scene"], raw, "cuda")
+    if "view" in raw:
+        scene = KeepScene.views(raw["scene"], raw, [raw["view"]], "cuda")[0]
     x = torch.full((len(scene.pred),), raw["init"], device="cuda", requires_grad=True)
     optimizer = torch.optim.Adam([x], lr=raw["lr"])
     generator = torch.Generator("cuda").manual_seed(raw["seed"])
@@ -50,6 +54,11 @@ def main() -> None:
                 flush=True,
             )
         optimizer.step()
+    if "save" in raw:
+        np.save(
+            Path(raw["root"]) / raw["scene"] / raw["save"],
+            torch.sigmoid(x).detach().cpu().numpy(),
+        )
 
 
 if __name__ == "__main__":

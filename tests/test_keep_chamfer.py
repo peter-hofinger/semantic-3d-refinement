@@ -26,6 +26,7 @@ from src.refinement.keep_chamfer import (
     loss_backward,
     mimic_backward,
     mimic_loss,
+    single_view,
     standardize,
     tail_distance,
 )
@@ -378,3 +379,23 @@ def test_standardize_gives_every_channel_zero_mean_and_unit_variance_over_scenes
     zeros = torch.zeros(FEATURES, dtype=torch.float64)
     assert torch.allclose(both.mean(1), zeros, atol=2e-3)
     assert torch.allclose(both.std(1, unbiased=False), zeros + 1, atol=2e-3)
+
+
+def test_a_view_is_a_sample_of_its_own_pixels_with_its_own_probes() -> None:
+    v, h, w = 3, 4, 5
+    pred, truth = clouds(v * h * w - 5, seed=9)
+    valid = torch.ones(v, h, w, dtype=torch.bool)
+    valid.view(-1)[[2, 21, 33, 40, 55]] = False  # views 0, 1, 2 lose 1, 2, 2 pixels
+    feats = torch.randn(v, FEATURES, h, w).half()
+    n, start = int(valid[1].sum()), int(valid[0].sum())
+    probes = Probes.build(pred[start : start + n], truth[start : start + n], 3, "bound")
+    single = single_view("toy", (feats, valid.numpy(), pred, truth, 1.0), 1, probes)
+    assert single.name == "toy_view1"
+    assert single.features.shape == (1, FEATURES, h, w)
+    assert torch.equal(single.features, feats[1:2])
+    assert np.array_equal(single.pred, pred[start : start + n])
+    kept = np.ones(n, dtype=bool)
+    acc, comp = brute(kept, single.pred, single.truth)
+    exact = exact_chamfer(kept, single.probes, single.pred, single.truth)
+    assert np.isclose(exact["accuracy_cm"], acc, rtol=1e-5)
+    assert np.isclose(exact["completeness_cm"], comp, rtol=1e-5)

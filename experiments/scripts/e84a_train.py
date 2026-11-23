@@ -6,7 +6,7 @@ the whole-scene sums are backpropagated). `loss: mimic` (E84m) regresses s onto 
 (`e84m_oracle_order.py`, cross-entropy). `loss: confidence` (E84i) replaces the expected Chamfer by
 Déjà View's ConfLoss on the head's x, with the point's distance to the nearest GT point as its error.
 Rung 3 of docs/experiments.md is the bedroom
-alone, rung 4 the dev scenes: the config's `scenes`. A step is every scene once, their
+alone (E84r: one view of it, the config's `view`), rung 4 the dev scenes: the config's `scenes`. A step is every scene once, their
 losses averaged. Every `eval_every` steps the exact Chamfer of the thresholded cloud is
 logged next to the loss, per scene, so a falling loss with a rising exact completeness
 shows. `head: {hidden, extra}` sizes a head that is not Déjà View's copy (E84l), `standardize: true` standardizes the 66 input channels (E84n), `resnet: {width, dilations}`
@@ -102,14 +102,19 @@ def main() -> None:
 
     t0 = sync()
     scenes = [KeepScene.load(name, raw, "cuda") for name in raw["scenes"]]
+    if "view" in raw:
+        scenes = [
+            KeepScene.views(name, raw, [raw["view"]], "cuda")[0]
+            for name in raw["scenes"]
+        ]
     if raw.get("standardize"):
         standardize(scenes)
     load_s = sync() - t0
     targets = {
         s.name: torch.from_numpy(
-            np.load(Path(raw["root"]) / s.name / raw["target"])
+            np.load(Path(raw["root"]) / name / raw["target"])
         ).cuda()
-        for s in scenes
+        for s, name in zip(scenes, raw["scenes"], strict=True)
         if raw.get("loss") == "mimic"
     }
     if raw.get("init") == "deja_view":
@@ -203,7 +208,9 @@ def main() -> None:
                         "step": step,
                         **mean,
                         "temperature": head.temperature,
-                        "exact": dict(zip(raw["scenes"], exact, strict=True)),
+                        "exact": {
+                            s.name: e for s, e in zip(scenes, exact, strict=True)
+                        },
                     }
                 )
                 print(

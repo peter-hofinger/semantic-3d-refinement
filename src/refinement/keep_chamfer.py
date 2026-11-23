@@ -42,7 +42,7 @@ released weights, so the head's ranking is Déjà View's until the loss moves it
 
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -313,72 +313,166 @@ class KeepScene:
 
         `cfg` is a config's root, views, backbone, r and miss (see `Probes.build`).
         """
-        views, backbone, r, miss = (cfg[k] for k in ("views", "backbone", "r", "miss"))
+        features, valid, pred, truth, scale = scene_arrays(name, cfg)
         folder = Path(cfg["root"]) / name
-        gt = GroundTruth.load(folder / f"gt_{views}.npz")
-        v = Views.load(folder / f"{views}.npz")
-        geometry = Geometry.load(folder / f"{backbone}_{views}.npz")
-        truth = ground_truth_cloud(
-            gt.depth, gt.instance_ids, gt.classes, v.intrinsics, v.cam_to_world
+        r, miss = cfg["r"], cfg["miss"]
+        probe_file = (
+            folder / f"e84a_probes_r{r}_{miss}_{cfg['backbone']}_{cfg['views']}.npz"
         )
-        scene = scene_from_geometry(geometry)
-        points = points_from_rays(scene.depth.double(), scene.rays.double()).numpy()
-        pred, _, _ = align_output(truth, points)
-        feature_file = folder / f"e84a_features_{backbone}_{views}.npy"
-        if not feature_file.is_file():
-            steps = int(backbone.removeprefix("dejaview_k"))
-            np.save(feature_file, capture_features(steps, v, geometry))
-        features = torch.from_numpy(np.load(feature_file))
-        probe_file = folder / f"e84a_probes_r{r}_{miss}_{backbone}_{views}.npz"
         if not probe_file.is_file():
-            Probes.build(pred, truth.points, r, miss).save(probe_file)
+            Probes.build(pred, truth, r, miss).save(probe_file)
         probes = Probes.load(probe_file)
-        assert truth.pixels is not None and len(pred) == len(probes.a)
-        assert (
-            features.shape[0] == len(v) and features.shape[2:] == truth.pixels.shape[1:]
-        )
+        assert len(pred) == len(probes.a)
         return cls(
             name,
             features.to(device),
-            torch.from_numpy(truth.pixels).to(device),
+            torch.from_numpy(valid).to(device),
             pred,
-            truth.points,
+            truth,
             probes,
-            (
-                torch.from_numpy(probes.a).to(device),
-                torch.from_numpy(probes.index.astype(np.int64)).to(device),
-                torch.from_numpy(probes.dist).to(device),
-            ),
-            float(
-                np.linalg.norm(truth.points - v.cam_to_world[0][:3, 3], axis=-1).mean()
-            ),
+            probe_tensors(probes, device),
+            scale,
+        )
+
+    @classmethod
+    def views(
+        cls, name: str, cfg: dict, which: Sequence[int], device: str
+    ) -> list["KeepScene"]:
+        """Return views `which` of a scene as single-view samples, probes cached.
+
+        The scene's probes are never built: each view's are (its GT points, R, miss),
+        one file per scene holding all views.
+        """
+        arrays = scene_arrays(name, cfg)
+        _, valid, pred, truth, _ = arrays
+        counts = valid.reshape(len(valid), -1).sum(1)
+        ends = np.cumsum(counts)
+        folder = Path(cfg["root"]) / name
+        r, miss = cfg["r"], cfg["miss"]
+        file = (
+            folder
+            / f"e84r_view_probes_r{r}_{miss}_{cfg['backbone']}_{cfg['views']}.npz"
+        )
+        if not file.is_file():
+            parts = {}
+            for i in range(len(valid)):
+                part = slice(int(ends[i] - counts[i]), int(ends[i]))
+                p = Probes.build(pred[part], truth[part], r, miss)
+                parts |= {f"a{i}": p.a, f"index{i}": p.index, f"dist{i}": p.dist}
+            np.savez(file, **parts)
+        out = []
+        with np.load(file) as f:
+            for i in which:
+                probes = Probes(f[f"a{i}"], f[f"index{i}"], f[f"dist{i}"])
+                out.append(single_view(name, arrays, i, probes).to(device))
+        return out
+
+    def to(self, device: str) -> "KeepScene":
+        """Return the scene with its tensors on the device."""
+        return replace(
+            self,
+            features=self.features.to(device),
+            valid=self.valid.to(device),
+            tensors=tuple(t.to(device) for t in self.tensors),
         )
 
 
-def standardize(scenes: list[KeepScene]) -> None:
-    """Give each of the 66 feature channels zero mean and unit variance over `scenes`.
+def single_view(
+    name: str,
+    arrays: tuple[Tensor, np.ndarray, np.ndarray, np.ndarray, float],
+    i: int,
+    probes: Probes,
+) -> KeepScene:
+    """Return view i of a scene's `scene_arrays` alone: its pixels, GT points, probes.
+
+    The ladder's single sample. The alignment is the whole scene's; a view's loss has no
+    other view to cover a dropped point, so its optimum keeps more than the scene's.
+    """
+    features, valid, pred, truth, scale = arrays
+    counts = valid.reshape(len(valid), -1).sum(1)
+    start = int(counts[:i].sum())
+    part = slice(start, start + int(counts[i]))
+    assert len(probes.a) == counts[i], (len(probes.a), counts[i])
+    return KeepScene(
+        f"{name}_view{i}",
+        features[i : i + 1].clone(),
+        torch.from_numpy(valid[i : i + 1]),
+        pred[part],
+        truth[part],
+        probes,
+        probe_tensors(probes, "cpu"),
+        scale,
+    )
+
+
+def probe_tensors(p: Probes, device: str) -> tuple[Tensor, Tensor, Tensor]:
+    """Return a scene's constants a, index (int64) and dist on the device."""
+    return (
+        torch.from_numpy(p.a).to(device),
+        torch.from_numpy(p.index.astype(np.int64)).to(device),
+        torch.from_numpy(p.dist).to(device),
+    )
+
+
+def scene_arrays(
+    name: str, cfg: dict
+) -> tuple[Tensor, np.ndarray, np.ndarray, np.ndarray, float]:
+    """Return a scene's features (V, 66, H, W), valid (V, H, W), predictions, GT, scale.
+
+    Features are captured from Déjà View on first use and cached next to the scene.
+    """
+    views, backbone = cfg["views"], cfg["backbone"]
+    folder = Path(cfg["root"]) / name
+    gt = GroundTruth.load(folder / f"gt_{views}.npz")
+    v = Views.load(folder / f"{views}.npz")
+    geometry = Geometry.load(folder / f"{backbone}_{views}.npz")
+    truth = ground_truth_cloud(
+        gt.depth, gt.instance_ids, gt.classes, v.intrinsics, v.cam_to_world
+    )
+    scene = scene_from_geometry(geometry)
+    points = points_from_rays(scene.depth.double(), scene.rays.double()).numpy()
+    pred, _, _ = align_output(truth, points)
+    feature_file = folder / f"e84a_features_{backbone}_{views}.npy"
+    if not feature_file.is_file():
+        steps = int(backbone.removeprefix("dejaview_k"))
+        np.save(feature_file, capture_features(steps, v, geometry))
+    features = torch.from_numpy(np.load(feature_file))
+    assert truth.pixels is not None and len(pred) == int(truth.pixels.sum())
+    assert features.shape[0] == len(v)
+    assert features.shape[2:] == truth.pixels.shape[1:]
+    scale = np.linalg.norm(truth.points - v.cam_to_world[0][:3, 3], axis=-1).mean()
+    return features, truth.pixels, pred, truth.points, float(scale)
+
+
+def standardize(
+    scenes: list[KeepScene], reference: list[KeepScene] | None = None
+) -> None:
+    """Give each of the 66 feature channels zero mean, unit variance over `reference`.
 
     A fixed affine map of the input, not a learned normalization: the channels of
     Déjà View's decoder differ in scale and offset by over 40 x (std 0.11-4.6), which
     stalls a head trained on them raw (E84n: 1 000 pixels do not overfit raw, do
-    standardized).
+    standardized). The statistics are those of `reference` (default `scenes`: the
+    training scenes), applied to every scene in `scenes`.
     """
     assert scenes, "no scenes"
-    count = sum(len(s.features) * s.features[0, 0].numel() for s in scenes)
-    total = torch.zeros(FEATURES, dtype=torch.float64, device=scenes[0].features.device)
-    for s in scenes:
+    fit = scenes if reference is None else reference
+    count = sum(len(s.features) * s.features[0, 0].numel() for s in fit)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    total = torch.zeros(FEATURES, dtype=torch.float64, device=device)
+    for s in fit:
         for view in s.features:
-            total += view.double().sum((1, 2))
+            total += view.to(device).double().sum((1, 2))
     mean = (total / count)[:, None, None]
     square = torch.zeros_like(total)
-    for s in scenes:
+    for s in fit:
         for view in s.features:
-            square += ((view.double() - mean) ** 2).sum((1, 2))
+            square += ((view.to(device).double() - mean) ** 2).sum((1, 2))
     std = (square / count).sqrt().clamp_min(1e-6)[:, None, None]
     for s in scenes:
         out = torch.empty_like(s.features)
         for i, view in enumerate(s.features):
-            out[i] = ((view.double() - mean) / std).half()
+            out[i] = ((view.to(device).double() - mean) / std).half().to(out.device)
         s.features = out
 
 
