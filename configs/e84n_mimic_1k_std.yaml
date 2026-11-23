@@ -1,0 +1,16 @@
+# E84n (issue #84): as e84n_mimic_1k_lr1e-3 with every feature channel standardized: is the failure to reach 0 the input's conditioning?
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scene: ai_006_007_cam_00
+target: e84m_oracle_v.npy
+r: 8
+miss: bound
+sizes: [1000]
+smoothing: []
+steps: 6000
+lr: 1.0e-3
+chunk: 4
+eval_every: 1000
+seed: 0
+standardize: true

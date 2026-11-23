@@ -1,0 +1,17 @@
+# E84r (issue #84): rung 3 of the ladder, one view: the expected-Chamfer loss of view 18 of the bedroom on free per-pixel logits, no head.
+# The loss's optimum for this one sample, the target a head must reach. The GT of the view is its own pixels' GT, the probes are rebuilt for it.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scene: ai_006_007_cam_00
+view: 18
+r: 8
+miss: bound
+tail: true
+eps: 1.0e-6
+init: 0.0
+steps: 1500
+lr: 0.1
+eval_every: 100
+seed: 0
+save: e84r_free_view18_s.npy   # s of the optimum, the mimic target of E84r

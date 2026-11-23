@@ -1,0 +1,19 @@
+bedroom ai_006_007_cam_00, exact Chamfer cm (accuracy / completeness), fixed alignment
+Déjà View confidence
+  top 1.0: 1.846 (2.520 / 1.172), probe_miss 0.000
+  top 0.9: 1.888 (2.174 / 1.602), probe_miss 0.058
+  top 0.8: 2.417 (2.041 / 2.794), probe_miss 0.121
+  top 0.7: 3.068 (1.945 / 4.192), probe_miss 0.194
+  top 0.6: 4.145 (1.862 / 6.429), probe_miss 0.280
+  top 0.5: 6.303 (1.736 / 10.869), probe_miss 0.374
+  top 0.4: 9.303 (1.590 / 17.015), probe_miss 0.512
+  top 0.3: 14.243 (1.399 / 27.087), probe_miss 0.620
+head s (e84d_overfit_bedroom-20261120-100928)
+  top 1.0: 1.846 (2.520 / 1.172), probe_miss 0.000
+  top 0.9: 1.663 (2.132 / 1.194), probe_miss 0.002
+  top 0.8: 1.577 (1.930 / 1.224), probe_miss 0.011
+  top 0.7: 1.539 (1.760 / 1.318), probe_miss 0.045
+  top 0.6: 1.647 (1.572 / 1.721), probe_miss 0.125
+  top 0.5: 2.455 (1.364 / 3.547), probe_miss 0.240
+  top 0.4: 6.025 (1.225 / 10.824), probe_miss 0.388
+  top 0.3: 15.174 (1.180 / 29.168), probe_miss 0.626

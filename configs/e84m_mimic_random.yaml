@@ -1,0 +1,21 @@
+# E84m rung 3 (issue #84): the same head as E84e / E84h (Déjà View's confidence branch, random init) trained to mimic the greedy
+# Chamfer oracle's drop order (1 % steps, `e84m_oracle_order.py`) as a value in [0, 1] (0 first dropped, 0.99 last 1 %):
+# s = sigmoid(x) against it by cross-entropy, lr 1e-3, 1000 steps, as the expected-Chamfer runs. The cut is a kept share of x.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+# random init, as E84e
+loss: mimic
+target: e84m_oracle_v.npy   # in the scene's folder
+r: 8
+miss: bound
+eps: 1.0e-6
+steps: 1000
+lr: 1.0e-3
+chunk: 4
+threshold: 0.5
+shares: [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
+eval_every: 50
+seed: 0
+snapshots: [0, 1000]

@@ -1,0 +1,36 @@
+# E84 rung 3 diagnostic: e84_rung3.yaml with width 128 (about 760k parameters, under 1M), 6000 steps (one change; compare e84_rung3_6k).
+# free per-pixel logits. Val: 4 views (0, 6, 12, 18) of each of the 11 val scenes, a random batch every step. Nothing else: no logit gain, constant Adam, no weight decay.
+name: e84_rung3_w128
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+store: cuda       # where the samples live; rung 5 keeps them on the CPU
+r: 8              # probes per GT point
+miss: bound
+tail: true        # Poisson-tail charge of a GT point whose probes are all dropped (E84d)
+eps: 1.0e-6
+resnet: {width: 128, dilations: [2, 4]}   # 5 convolutions, 190k parameters, 27 x 27 field
+lr: 1.0e-3
+steps: 6000
+batch: 1
+seed: 0
+eval_every: 100   # full loss of the eval views every eval_every steps
+cut_every: 500    # their exact cut Chamfer (the slow metric, KD-trees) every cut_every steps
+n_eval: 12        # fixed views of the train and the val set scored in full (loss and exact cut Chamfer) every eval_every steps
+n_optimum: 4      # val views whose free-logit optimum is computed (the train views' always)
+free_steps: 400   # free-logit optimum: Adam on each pixel's logit
+free_lr: 0.1
+train:
+  ai_006_007_cam_00: [18]
+val:
+  ai_003_010_cam_00: [0, 6, 12, 18]
+  ai_004_003_cam_00: [0, 6, 12, 18]
+  ai_004_004_cam_00: [0, 6, 12, 18]
+  ai_004_010_cam_00: [0, 6, 12, 18]
+  ai_005_005_cam_00: [0, 6, 12, 18]
+  ai_007_001_cam_00: [0, 6, 12, 18]
+  ai_009_007_cam_00: [0, 6, 12, 18]
+  ai_009_009_cam_00: [0, 6, 12, 18]
+  ai_031_004_cam_00: [0, 6, 12, 18]
+  ai_044_003_cam_01: [0, 6, 12, 18]
+  ai_050_002_cam_00: [0, 6, 12, 18]

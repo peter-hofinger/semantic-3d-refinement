@@ -1,0 +1,16 @@
+bedroom ai_006_007, R = 8, cm; E84d trained s: loss 1.485, exact (Bernoulli) 1.467
+oracle q = 0.7: exact Chamfer 1.300, probe_miss 0.022
+  s = 0.0 + 1.00 mask: tail loss  13.542 (A 1.285, C 25.800), cap-only loss   13.5
+  s = 0.02 + 0.96 mask: tail loss   1.338 (A 1.320, C 1.356), cap-only loss   11.8
+  s = 0.1 + 0.80 mask: tail loss   1.348 (A 1.472, C 1.225), cap-only loss    6.9
+  s = 0.3 + 0.40 mask: tail loss   1.584 (A 1.924, C 1.245), cap-only loss    2.5
+oracle q = 0.5: exact Chamfer 1.120, probe_miss 0.037
+  s = 0.0 + 1.00 mask: tail loss  21.390 (A 0.893, C 41.886), cap-only loss   21.4
+  s = 0.02 + 0.96 mask: tail loss   1.189 (A 0.958, C 1.420), cap-only loss   18.6
+  s = 0.1 + 0.80 mask: tail loss   1.230 (A 1.219, C 1.241), cap-only loss   10.6
+  s = 0.3 + 0.40 mask: tail loss   1.559 (A 1.869, C 1.249), cap-only loss    3.3
+oracle q = 0.2: exact Chamfer 1.033, probe_miss 0.133
+  s = 0.0 + 1.00 mask: tail loss  74.820 (A 0.453, C 149.188), cap-only loss   74.8
+  s = 0.02 + 0.96 mask: tail loss   1.189 (A 0.648, C 1.730), cap-only loss   64.7
+  s = 0.1 + 0.80 mask: tail loss   1.291 (A 1.248, C 1.334), cap-only loss   35.6
+  s = 0.3 + 0.40 mask: tail loss   1.682 (A 2.085, C 1.280), cap-only loss    8.0

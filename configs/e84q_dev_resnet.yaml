@@ -1,0 +1,24 @@
+# E84q rung 4 (issue #84): E84o's run (expected Chamfer, Poisson tail, logit gain 1 -> 0.1 over 500 steps, shallow dilated ResNet, standardized inputs) on the 3 dev scenes
+# at once, a step is every scene once. 700 steps, not E84o's 2000: three scenes cost about 2.4 s/step, and 700 keeps the job under the 30 min that need asking.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_010_007_cam_00, ai_006_007_cam_00, ai_044_001_cam_00]
+resnet: {width: 64, dilations: [2, 4]}
+r: 8
+miss: bound
+tail: true
+temperature:
+  start: 1.0
+  end: 0.1
+  steps: 500
+eps: 1.0e-6
+steps: 700
+lr: 1.0e-3        # Adam, constant, no weight decay
+chunk: 2
+threshold: 0.5
+shares: [0.9, 0.7, 0.5, 0.3, 0.2]
+eval_every: 100
+seed: 0
+snapshots: [0, 700]
+standardize: true

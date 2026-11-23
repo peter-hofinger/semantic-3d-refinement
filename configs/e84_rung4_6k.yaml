@@ -1,0 +1,26 @@
+# E84 rung 4 at 6000 steps: is the bedroom's miss (+7.4 %) the budget? (e84_rung4.yaml otherwise)
+# Same net and rate as rung 3: can one net map each input to its own output? No val here (rung 5 logs it).
+name: e84_rung4_6k
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+store: cuda       # where the samples live; rung 5 keeps them on the CPU
+r: 8              # probes per GT point
+miss: bound
+tail: true        # Poisson-tail charge of a GT point whose probes are all dropped (E84d)
+eps: 1.0e-6
+resnet: {width: 64, dilations: [2, 4]}   # 5 convolutions, 190k parameters, 27 x 27 field
+lr: 3.0e-4        # a third of E84r's: 1e-3 jitters and can collapse to s = 1 (the 6000-step run)
+steps: 6000
+batch: 3
+seed: 0
+eval_every: 100   # full loss of the eval views every eval_every steps
+cut_every: 500    # their exact cut Chamfer (the slow metric, KD-trees) every cut_every steps
+n_eval: 12        # fixed train views scored in full (loss; exact cut Chamfer every cut_every) every eval_every steps
+blocks: [1, 2, 4]  # the optimum of free logits constant on k x k cells, per train view: k = 1 is no network (E84: the bar no smooth net can meet)
+free_steps: 400   # free-logit optimum: Adam on each pixel's logit
+free_lr: 0.1
+train:
+  ai_010_007_cam_00: [18]
+  ai_006_007_cam_00: [18]
+  ai_044_001_cam_00: [18]

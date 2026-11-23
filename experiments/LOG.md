@@ -7550,3 +7550,794 @@ Interim entry: the check that the plan puts before any table.
   where alone they only added fragments (E59b). The dev gain (+0.026) halves on val. From SAM 3 + linking the val
   PQ rises 0.258 -> 0.349 in total. Still open: in the cause split of the linked labels, 160 of 471 val GT
   segments have no prediction at all (missed).
+
+## Plan: E84a, a keep head trained on the expected Chamfer of the kept cloud itself, not on the oracle's mask (issue #84, 20.11.2026)
+- **Why:** #84 asks for a model that predicts the greedy oracle's keep set. Imitating a mask hides the real
+  objective, the minimal Chamfer of the kept cloud, and the greedy is only a heuristic (K = 5 / 20 rounds: 2.048 /
+  1.993 on dev, not a lower bound). E84a trains on the objective itself: one head, one loss, the expected Chamfer of
+  the cloud that keeps prediction i with probability s_i.
+- **Head:** a copy of the confidence branch of Déjà View's convolutional depth head (`dvlt.model.dvlt.heads.DecoderHead`,
+  `output_block`: Conv 3 x 3 (64 + 2 UV -> 32), ReLU, Conv 1 x 1 -> out), one output, fed with the features that
+  `output_block` reads in the frozen model (66 channels per pixel, 378 x 504). s = sigmoid(logit). Fresh initialisation
+  (logit 0, s about 0.5), not DV's confidence weights, so DV's confidence is not a starting point. Only the head
+  trains. Cached per scene as fp16; the backbone never reruns after the cache.
+- **Loss** (per scene, N = pixels with GT depth, prediction i and GT point j share a pixel; cm; the predictions
+  aligned once by Umeyama on all N, scene_eval's own path):
+  A(s) = sum_i s_i a_i / (sum_i s_i + eps), C(s) = 1/N sum_j [sum_{r <= R} d_jr s_pi_j(r) prod_{r' < r} (1 - s_pi_j(r')) +
+  d_j,R+1 prod_r (1 - s_pi_j(r))], L = (A + C) / 2, R = 8 in the config, eps = 1e-6. a_i: distance to the nearest GT
+  point; d_jr: the r-th nearest prediction of GT point j. C is the exact expectation of the completeness when every
+  prediction is kept independently with probability s, if one of the R probes is kept; where all R are dropped it
+  charges d_j,R+1, a lower bound of the true distance. A is a ratio of expectations, not the expectation of the ratio.
+  No other term.
+- **Minibatches:** none of the loss. A and C are whole-scene sums, so a step is one scene, whole: s of all pixels is
+  computed without grad in chunks of views, L and dL/ds are computed on the full s, and the chunks are re-run with
+  grad and backpropagated with their slice of dL/ds (gradient caching). The gradient equals the full-batch one
+  (tested), no sub-sampling, no rescaling; a step over several scenes averages the scenes' L, as the dev mean does.
+- **Evaluation** (dev, never test): per scene and mean, A, C, Chamfer of (a) the exact Chamfer of the kept cloud in the
+  loss's fixed alignment (KD-tree, not the loss's probe lists), next to the loss value L and the kept share, for s >= t
+  (thresholded) and for Bernoulli(s) draws (seeds 0-4, mean and spread); (b) scene_eval's protocol, one Umeyama per
+  output on the kept pixels, for the same cuts, Déjà View uncut, and Déjà View's confidence at the thresholded kept
+  share. The cut t is picked on dev only. Completeness is against the depth of the same 20 views. A falling L with a
+  rising exact completeness means the loss is gamed.
+- **Rungs** (docs/experiments.md): 3 overfits `ai_006_007_cam_00` (20 views, one step = the scene), 4 the three dev
+  scenes. Adam, lr 1e-3 constant, no weight decay, no scheduler, seed 0, bf16 off. Rung 5 (train scenes, val) is not
+  part of E84a: it exceeds 30 min and needs the train scenes, so a result here is a diagnostic, not a score.
+- **Hypothesis, written before running:** the head's thresholded (t = 0.5) exact Chamfer on the bedroom ends below the
+  accuracy oracle's 1.41 cm (a pointwise ranking by a_i with the GT, E57c) and at best near the greedy's 1.04 (uncut
+  1.846); the head sees only 3 x 3 pixels of DV's features, so I expect 1.1 to 1.4, and exceeding 1.04 is possible
+  because the greedy is not a bound and E84a optimises soft keep. **Refuted** if the bedroom's exact thresholded
+  Chamfer is above 1.41 after the step budget: then a pixelwise head on this objective cannot even match the accuracy
+  oracle, and #84's premise of needing all views at once stands. Rung 4: refuted if the dev mean (scene_eval) is above
+  the accuracy oracle's 2.479 (greedy 2.048, density 3.188, uncut 3.500). Gaming: refuted if exact completeness at
+  the threshold exceeds the uncut cloud's while L falls. Bernoulli: its mean exact Chamfer within 10 % of L when s is
+  near binary; DV's confidence at the same share far worse (E57c: 25.4 at q 0.5 on dev).
+- **Ablation, if the main run works:** the sigmoid replaced by clamp(logit, 0, 1) (same bias-free head, logit
+  initialised at 0.5 by the bias); not run before the main result is in.
+- **Commands:** `uv run python -m experiments.scripts.e84a_train --cfg configs/e84a_overfit_bedroom.yaml`, then
+  `configs/e84a_overfit_dev.yaml`; evaluation `uv run python -m experiments.scripts.e84a_eval --run runs/<run>`
+  and `scene_eval` with `configs/e84a_eval.yaml`.
+
+## E84a: not yet working; the expected-Chamfer loss as specified has a spurious basin at the empty cloud, and rung 3 trains straight into it [the 'global minimum' of the first title is WRONG, corrected in the entry at the end] (bedroom, 20.11.2026)
+- **Code:** `src/refinement/keep_chamfer.py` (head, loss, probes, exact Chamfer, gradient caching), `tests/test_keep_chamfer.py`,
+  `experiments/scripts/e84a_{train,loss_profile,figures}.py`, `configs/e84a_overfit_{bedroom,dev}.yaml`. The head is
+  a copy of `DecoderHead.output_block` (checked against the installed dvlt in a test) on the 66 channels it reads, 19.3 k
+  parameters; features cached as fp16 (503 MB per scene), the backbone re-run once per scene (its depth asserted to
+  stay within 1e-2 median relative of the cached geometry). Whole-scene sums, no minibatch bias: s of all pixels without
+  grad, L and dL/ds on the full s, then the head re-run per chunk of views with grad and backpropagated with its slice
+  of dL/ds; equals the full-batch gradient (test, chunks 1, 2, 5). Tests (CPU, seconds): at binary s with every GT point
+  keeping a probe L equals the brute-force Chamfer; C equals the enumerated expectation over all 2^7 draws (R = n - 1);
+  `exact_chamfer` equals brute force with R = 2 where the fallback query runs. The all-kept loss is 1.8458 cm,
+  scene_eval's Déjà View bedroom 1.846.
+- **Commands** (RTX 3080, tree dirty = the new files, base 5012dda): `uv run python experiments/scripts/e84a_train.py
+  --cfg configs/e84a_overfit_bedroom.yaml` -> `runs/e84a_overfit_bedroom-20261120-084816` (R = 8, eps 1e-6, Adam 1e-3
+  constant, 1000 steps, seed 0; one step = the scene's 3.81 M pixels, 0.22 s median, 3.0 GB peak, 2.2 s to load the cached
+  scene, the first-run caches (re-run backbone, KD-tree probes) took about 15 s); `e84a_loss_profile.py` ->
+  `results/e84a_loss_profile.txt`; `e84a_figures.py` -> `figures/e84a_{curves,s_views}.jpg`. The same trajectory came
+  out in three runs; the first two crashed at step 225 in my own evaluation, which asserted a non-empty cloud, and
+  were rerun with the evaluation fixed.
+- **Result, rung 3** (bedroom ai_006_007; cm, fixed alignment; "exact" = KD-tree Chamfer of one Bernoulli(s) draw,
+  seed = step; Déjà View uncut 1.846 = A 2.520 / C 1.172):
+
+  | step | L (loss) | A / C of the loss | mean s | exact Chamfer, Bernoulli | exact completeness, Bernoulli | exact Chamfer, s >= 0.5 |
+  |---|---|---|---|---|---|---|
+  | 0 | 1.926 | 2.559 / 1.293 | 0.538 | 1.877 | 1.283 | 1.831 (everything kept) |
+  | 25 | 1.566 | 1.324 / 1.809 | 0.195 | 2.782 | 4.247 | 51.5 |
+  | 100 | 1.490 | 1.164 / 1.815 | 0.180 | 7.090 | 13.015 | 47.6 |
+  | 200 | 1.455 | 1.056 / 1.855 | 0.088 | 14.218 | 27.403 | 53.8 |
+  | 225 | 1.190 | 0.455 / 1.926 | 0.000 | 152.99 | 305.58 | nothing kept |
+  | 600-1000 | 0.963 | 0.000 / 1.926 | 0.000 | nothing kept | - | nothing kept |
+
+  The loss ends at 0.963 cm, below the greedy oracle's 1.04 and the uncut 1.846, with an empty cloud.
+- **Why** (`results/e84a_loss_profile.txt`, uniform s = c): for c >= 0.5 the loss equals the exact Bernoulli Chamfer to 0.1 %
+  (c = 0.5: 1.917 against 1.918; the share of GT points without a kept probe is 0.4 %), so the loss is right where its R
+  probes suffice. As c falls the share rises (0.17 at c = 0.2, 0.92 at c = 0.01) and the loss charges those points
+  d_j,R+1, a lower bound, so it undershoots (c = 0.01: 2.21 against 3.06). The empty cloud is the limit: A -> 0
+  (sum s -> 0 with eps = 1e-6 in the denominator) and C = mean d_j,R+1 = 1.927 cm, L(0) = 0.964 cm; R = 16, 32, 64 give
+  L(0) = 1.14, 1.38, 1.70 cm, all below the uncut cloud. So no finite R fixes it: switching points off is always
+  cheaper than the truncation charge, and the accurate-points-only A term pulls the same way. `figures/e84a_s_views.jpg`
+  (views 18, 0, 12, 6): at step 50 the head keeps the near floor and bed, where a_i is small, and switches off the
+  walls, where a_i is 3-5+ cm and where a dropped list is charged only d_9; by step 200 almost nothing is above 0.5.
+- **Against what was expected (written before running):** the bedroom's thresholded exact Chamfer below the accuracy
+  oracle's 1.41: **refuted** (51 cm at step 25, then an empty cloud; the only value near the uncut one is step 0's, where
+  every s is above 0.5). The gaming criterion (L falls while the exact completeness rises) fired from step 25 on: L
+  1.926 -> 0.963 while the Bernoulli completeness goes 1.28 -> 4.2 -> 305 cm. Bernoulli within 10 % of L: true only where
+  s >= 0.5 holds almost everywhere (step 0: 1.877 against 1.926), false after step 25.
+- **Reading:** not yet working, and not a failure of the head, the optimizer or the data: the objective is wrong where
+  it is cheapest to be wrong. The expected completeness is exact only while every GT point keeps a probe among its R
+  nearest; the loss gives the optimizer a way out of that regime that pays. This is a loss defect in rung 3's sense
+  (docs/experiments.md: targets, loss or optimizer), so the ladder stops here: rung 4 (dev) and the dev evaluation against
+  Déjà View, its confidence at the same kept share and the oracle were not run, since the head keeps nothing. The next
+  step is a change at this rung, one change: E84b charges a GT point whose R probes are all dropped an upper bound of
+  its distance instead of the lower bound d_j,R+1, so leaving the covered regime costs more than the point is worth.
+- **Limits:** one scene, one seed, R = 8 (R = 16-64 only through L(0), not trained), one learning rate; the sigmoid-vs-clamp
+  ablation not run (the sigmoid is not what fails). The exact Chamfer is at the loss's fixed alignment, scene_eval's
+  per-cut Umeyama was not used since no cut survived. The profile's Bernoulli numbers are means of 3 draws.
+
+## Plan: E84b, E84a's loss with an upper-bound charge for a GT point whose R probes are all dropped (issue #84, 20.11.2026)
+- **Why:** E84a trained into the empty cloud because a miss (all R probes of a GT point dropped) is charged d_j,R+1, a
+  lower bound of the true distance, so the loss undershoots exactly where the head switches points off, and
+  L(0) = mean d_R+1 / 2 = 0.96 cm lies below every real cloud. One change, nothing else: the miss is charged an upper
+  bound U of the distance from any GT point to any prediction, U = 100 (max_j |t_j - c| + max_i |p_i - c|) cm with c the
+  GT mean (triangle inequality; a scene constant, no tuned value). The loss is then an upper bound of the
+  expected Chamfer that is exact where every GT point keeps a probe, and L(0) = U / 2 (empty cloud: all points miss).
+  Config key `miss: next` (E84a) or `bound` (E84b); R = 8, eps, head, optimizer, seed, steps as in E84a rung 3.
+- **Hypothesis, written before running:** the head no longer collapses: mean s stays above 0.05 for all 1000 steps and the
+  Bernoulli exact Chamfer stays within 10 % of L after step 100, because a binary-ish s covers every GT point's probe list
+  (the oracle's structure) and the loss is then exact. The bedroom's thresholded (t = 0.5) exact Chamfer falls below the
+  accuracy oracle's 1.41 cm (uncut 1.846, greedy 1.04). **Refuted** if (a) it collapses again (nothing kept), (b) it stays
+  at s -> 1, the uncut cloud's 1.846 (the loss then has a local minimum at keeping everything), or (c) the thresholded
+  exact Chamfer ends above 1.41. A different outcome, e.g. a fractional s everywhere with Bernoulli far from the
+  threshold, is reported as such. If (c) fails but the others hold, the pixelwise head's 3 x 3 field is the limit, E84a's
+  question.
+- **Command:** `uv run python experiments/scripts/e84a_train.py --cfg configs/e84b_overfit_bedroom.yaml`; rung 4 and the dev
+  evaluation only if rung 3 passes.
+
+## E84b: charging a miss an upper bound removes the collapse, and the head is stable and honest but stays at 97.5 % kept; bedroom thresholded Chamfer 1.747 against the uncut 1.846, still falling at step 1000 (bedroom, 20.11.2026)
+- **Command** (RTX 3080, tree dirty = the new files, base 25868a7): `uv run python experiments/scripts/e84a_train.py
+  --cfg configs/e84b_overfit_bedroom.yaml` -> `runs/e84b_overfit_bedroom-20261120-085532`: E84a's rung 3 with
+  `miss: bound` (U = 100 (max |t - c| + max |p - c|) cm), nothing else. Figures `figures/e84b_{curves,s_views}.jpg`,
+  looked at. A test shows the loss with this charge is an upper bound of the brute-force completeness and equal to it
+  when every GT point keeps a probe.
+- **Result** (cm, fixed alignment; Déjà View uncut 1.846 = A 2.520 / C 1.172; exact = KD-tree on the cloud):
+
+  | step | L | mean s | s in (0.05, 0.95) | exact Chamfer, Bernoulli draw (A / C, kept) | exact Chamfer, s >= 0.5 (A / C, kept) |
+  |---|---|---|---|---|---|
+  | 0 | 3.099 | 0.538 | 1.00 | 1.902 (2.554 / 1.250, 0.66) | 1.846 (all kept) |
+  | 25 | 1.843 | 0.973 | 0.05 | 1.842 (2.508 / 1.177, 0.97) | 1.846 |
+  | 100 | 1.793 | 0.919 | 0.56 | 1.784 (2.368 / 1.201, 0.92) | 1.795 (2.410 / 1.179, 0.99) |
+  | 500 | 1.753 | 0.904 | 0.41 | 1.745 (2.285 / 1.204, 0.90) | 1.770 (2.358 / 1.181, 0.985) |
+  | 1000 | 1.733 | 0.901 | 0.36 | 1.723 (2.246 / 1.201, 0.90) | **1.747** (2.311 / 1.183, 0.975) |
+
+  The loss tracks the exact Chamfer of its own cloud within 0.6 % from step 25 on (1.733 against 1.723 at step 1000), the
+  gaming of E84a is gone, and the exact completeness never leaves 1.17-1.23 cm. 0.34 s per step (E84a 0.22: the
+  GPU was shared).
+- **Against what was expected (written before running):** (a) collapse: no; the head keeps 97.5 % at s >= 0.5. (b) stays
+  at the uncut cloud: nearly; step 25 is the all-keep state (mean s 0.973, 1.842) and the loss then falls only 0.1 cm in
+  975 steps, 1.747 thresholded and 1.723 Bernoulli, 5.4 % and 6.7 % below the uncut cloud, and it is still falling at
+  the end (-0.006 cm per 125 steps). (c) thresholded Chamfer below the accuracy oracle's 1.41: **refuted** at this
+  budget (1.747). Bernoulli within 10 % of L: yes (0.6 %). The loss and the exact Chamfer agree, so what fails is the
+  descent, not the objective.
+- **Reading** (hypotheses, not tested): the first 25 steps push every s to 1 to remove the miss charge (U P(miss) is 1000
+  times a centimetre), and from there a fractional s costs: at s = 0.6 a GT point misses with 0.4^8 = 7e-4, times U
+  of about 10 m. Dropping a point is cheap only when its GT neighbours' other probes sit at s = 1, a structured
+  (binary) state the gradient at a uniform s = 0.9 does not point to. Figure: after 1000 steps s is low (0.4-0.6) on
+  the far walls of views 12 and 6, where a_i is largest, and dips on depth edges, so the head learned the
+  accuracy ordering, but nowhere low enough to pay. The sigmoid saturating near 1 (s = 0.97 has a gradient factor of 0.03)
+  also slows it. Whether 10 times the learning rate escapes this (optimization) or not (landscape, or the 3 x 3 field) is
+  the next, single change: E84c.
+- **Limits:** one scene, one seed, one learning rate, 1000 steps; rung 3 not passed, so no dev rung and no dev evaluation.
+
+## Plan: E84c, E84b with ten times the learning rate (issue #84, 20.11.2026)
+- **Change:** `lr: 1.0e-2` (E84b: 1.0e-3), `configs/e84c_overfit_bedroom.yaml`, 1000 steps, all else as E84b; one change.
+- **Hypothesis, written before running:** E84b is optimization-limited, not landscape-limited: with 10 times the step the
+  bedroom's thresholded exact Chamfer falls below 1.41 cm within 1000 steps and the kept share below 80 %.
+  **Refuted** if it ends above 1.41 (then the descent stalls in the landscape or the 3 x 3 field and a larger lr does not
+  help; I expect then 1.6-1.75), or if it collapses or diverges (nothing kept, NaN). If it reaches 1.41 only at a
+  fractional s with Bernoulli far from the threshold, reported as such.
+
+## E84c: ten times the learning rate makes the head keep everything: s = 1.000 from step 25, the sigmoid saturates and the loss sits at the uncut 1.846 cm (bedroom, 20.11.2026)
+- **Command** (RTX 3080, tree dirty = the new config, base 75f2d76): `uv run python experiments/scripts/e84a_train.py
+  --cfg configs/e84c_overfit_bedroom.yaml` -> `runs/e84c_overfit_bedroom-20261120-090351`: E84b with `lr: 1.0e-2`.
+- **Result:** step 0: L 3.099 (the miss charge at s = 0.54), exact Chamfer of the s >= 0.5 cloud 1.846. From step 25 to
+  1000 L = 1.846 to three decimals (A 2.520 / C 1.172, the uncut cloud's), mean s 1.000, 0 % of the pixels in
+  (0.05, 0.95), thresholded and Bernoulli exact Chamfer 1.846. No figure: s is 1 everywhere.
+- **Against what was expected (written before running):** thresholded Chamfer below 1.41 and kept share below 80 %:
+  **refuted** (1.846, 100 %); no collapse, no divergence. I had expected 1.6-1.75 if the lr did not help; it is worse than
+  E84b's lr, which reached 1.747. The head does not stall in a basin of the landscape, it leaves the gradient's reach:
+  the first steps drive every logit far above 0 to remove the miss charge, and a saturated sigmoid (s(1 - s) < 1e-3) passes
+  no gradient back, so the all-keep cloud is a trap the optimizer cannot leave. A mechanism read off the numbers, not
+  yet tested (no logit histogram was logged).
+- **Status of E84 (rung 3, bedroom):** as specified (E84a) the loss is minimal at the empty cloud; with the upper-bound
+  miss charge (E84b) it is honest and the head learns the accuracy ordering slowly, 1.747 cm thresholded at lr 1e-3 after
+  1000 steps (uncut 1.846, accuracy oracle 1.41, greedy 1.04); at lr 1e-2 (E84c) it sticks at the uncut cloud. None passes
+  rung 3, so there is no dev rung, no dev evaluation and no claim against Déjà View's confidence, density or the oracle:
+  **not yet working**, the missing rung is rung 3. Not tried: a smaller lr or more steps, a logit initialised so that
+  s starts near 1 without the miss charge's first push, the clamp(logit, 0, 1) of the issue's ablation (it has zero
+  gradient outside [0, 1] too), annealing U, larger R, or all views at once (E41b's volume features), which #84's own
+  premise asks for.
+
+## E84a, correction: the empty cloud is not the loss's global minimum; the loss is U-shaped along the oracle's path with a lower minimum, and rung 3 falls into a worse basin (bedroom, 20.11.2026)
+- **What was wrong:** the E84a entry says the loss has its global minimum at the empty cloud, "below every real cloud",
+  "below the greedy oracle's 1.04". That compared the loss at the empty cloud (0.963, fixed alignment on all pixels) with
+  1.04, the greedy oracle's Chamfer under E57c's protocol (one Umeyama per cut, on the kept pixels). Not the same number.
+- **Check** (`experiments/scripts/e84a_oracle_path.py` -> `results/e84a_oracle_path.txt`): the greedy oracle's masks
+  at q = 0.9 ... 0.01 on the bedroom, scored in the loss's fixed alignment (cm; R = 8, miss: next):
+
+  | q | exact Chamfer (A / C) | loss L (A / C) | GT points with no kept probe |
+  |---|---|---|---|
+  | 0.9 | 1.520 (1.838 / 1.202) | 1.506 (1.838 / 1.174) | 0.006 |
+  | 0.5 | 1.092 (0.894 / 1.291) | 1.043 (0.894 / 1.192) | 0.035 |
+  | 0.2 | **0.950** (0.456 / 1.443) | **0.858** (0.456 / 1.260) | 0.108 |
+  | 0.1 | 0.985 (0.387 / 1.584) | 0.866 (0.387 / 1.345) | 0.184 |
+  | 0.02 | 1.284 (0.495 / 2.074) | 1.051 (0.495 / 1.606) | 0.484 |
+  | 0.01 | 1.532 (0.470 / 2.594) | 1.099 (0.470 / 1.728) | 0.671 |
+
+  Both the exact Chamfer and the loss are U-shaped over the kept share with their minimum at q = 0.2 (uncut 1.846, so
+  -49 % exact), as the premise of the experiment assumes. The loss undershoots increasingly (0.23 cm at q = 0.02, 0.43 at
+  q = 0.01) because of the misses, but it does not lose the minimum. The empty cloud's loss, 0.963, is above the minimum
+  of this path, 0.858: it is not the global minimum.
+- **Corrected reading of E84a:** the objective contains the oracle-like optimum; rung 3 did not find it. From s about 0.5 the
+  steepest descent concentrates s on the accurate near surfaces and switches off whole far walls (figure `e84a_s_views.jpg`,
+  step 50). There the R = 8 nearest predictions of a GT point are all neighbours in the same dropped region, so the loss
+  charges d_(R+1) of 1-2 cm where the true distance is tens of cm (Bernoulli completeness 4 -> 27 cm at steps 25 -> 200):
+  the loss undershoots most for spatially coherent drops, not for uniform thinning (uniform c = 0.01: 2.21 against 3.06).
+  The descent ends on a plateau with logits -40 to -200 and sum s = 1e-15 below eps, where A = 3e-9 (A is a weighted
+  mean of a only while sum s >> eps; at the end it is the eps artefact) and L = 0.963. So E84a's failure is an
+  optimization path into a region where the loss is wrong, not a minimum of the loss at the empty cloud. The statements
+  "no finite R fixes it" and "L(0) below every real cloud" are withdrawn; L(0) = mean d_(R+1) / 2 stays true as a value.
+- **Also:** the refutation thresholds I wrote for E84a-c (1.41 and 1.04) come from E57c's re-aligned protocol; the exact
+  Chamfer in the loss's alignment of the oracle is lower (0.950, loss 0.858). The refutations stand because the runs'
+  own scores (E84b 1.747, E84c 1.846) are above even the uncut cloud's 1.846 minus a margin, in both protocols (the
+  uncut cloud is the same in both). A rung-3 bar in the loss's own alignment is the oracle path's 0.950.
+
+## E84a, follow-ups: where the probes come from, what a larger R costs, and a Poisson-tail charge for a missed GT point (bedroom, 20.11.2026)
+- **Correction of wording:** the R probes of a GT point are its R nearest predictions in 3D over all 20 views (one KD-tree), not
+  the neighbours of a pixel or of a 14 px patch; "neighbours in the same dropped region" meant 3D proximity.
+- **Probe origin** (`experiments/scripts/e84a_probe_scaling.py` -> `results/e84a_probe_scaling.txt`, R = 8): only 28-31 %
+  of each rank's probes lie in the view of the GT point's own pixel; the 8 probes span 2.08 views on average, 28 % of GT points
+  have all 8 in one view, 28 % in three or more; the rank-1 probe is the GT point's own pixel for 1.2 % of them (the prediction
+  does not sit on its GT pixel's point). So a probe list mixes views, and whether a point is covered depends on other views' s.
+- **Cost of a larger R** (same script; C term only, over chunks of 250 k GT points, index int32, 3 passes, RTX 3080 10 GB;
+  head pass and A not included): R = 8 / 32 / 64 / 128: KD probes 2.1 / 3.2 / 4.6 / 7.2 s; C fwd+bwd 0.16 / 0.22 / 0.32 /
+  0.52 s; peak GPU 0.47 / 1.64 / 3.19 / 6.29 GB; probes 0.26 / 0.99 / 1.97 / 3.92 GB per scene (cache file the same).
+  The unchunked loss in `keep_chamfer.py` (int64 index, whole scene) peaks at 2.6 GB for R = 8 and 5.0 GB for R = 16 and ran
+  out of memory at R = 32 (measured before the chunked version; R = 16, 32 caches deleted again).
+- **Poisson-tail charge** (`e84a_tail_model.py` -> `results/e84a_tail_model.txt`; a diagnostic, nothing trained; suggested by
+  Peter): model the nearest kept prediction beyond the probes as the nearest point of a planar Poisson process thinned by
+  the local keep rate; its distance is Rayleigh, the radial marginal of an isotropic 2D Gaussian. With kappa = sum of s over
+  the R probes the expected distance is d_R (1 + sqrt(pi) erfcx(sqrt kappa) / (2 sqrt kappa)), capped at the scene's
+  upper bound. Completeness in cm (exact = Bernoulli draws; Déjà View uncut 1.172):
+
+  | state | exact | d_(R+1) charge (E84a) | Poisson tail |
+  |---|---|---|---|
+  | uniform c = 0.5 | 1.315 | 1.314 | 1.315 |
+  | c = 0.2 | 1.578 | 1.547 | 1.618 |
+  | c = 0.1 | 1.850 | 1.700 | 2.040 |
+  | c = 0.02 | 2.866 | 1.873 | 4.186 |
+  | c = 0.01 | 3.576 | 1.899 | 5.879 |
+  | E84a head, step 50 (mean s 0.24) | 7.457 | 1.796 | 27.807 |
+  | step 100 (0.18) | 13.045 | 1.815 | 61.920 |
+  | step 200 (0.09) | 26.714 | 1.855 | 158.636 |
+
+- **Reading:** the tail charge has the right direction (it grows as s falls, so no plateau at the empty cloud) and is
+  within 10 % for c >= 0.1, but it overshoots as the keep rate falls (+64 % at c = 0.01) and by 3.7-5.9 times on the head's
+  spatially clustered s, so it is neither exact nor a bound there. Probable causes, untested: the planar density
+  R / (pi d_R^2) understates the 20-view point density (overlapping layers), and sum s over 8 probes is a noisy keep rate for
+  a clustered s. Not trained on; whether its overshoot is a usable penalty (a smooth version of E84b's constant) is open.
+
+## E84d: rung 3 with the Poisson-tail charge for a missed GT point (issue #84, bedroom ai_006_007, 20.11.2026)
+- **Change (one):** E84b with `tail: true`. A GT point whose R = 8 probes are all dropped is charged not the constant upper
+  bound U (E84b) nor d_(R+1) (E84a) but the expected distance of the nearest kept prediction of a planar Poisson process
+  thinned by the local keep rate, d_R (1 + sqrt(pi) erfcx(sqrt kappa) / (2 sqrt kappa)), kappa = sum of s over the 8 probes,
+  capped at U (`tail_distance`; derivation in the follow-ups entry above; suggested by Peter). The cache of E84b's probes is reused.
+  Same head, lr 1e-3, 1000 steps, seed 0, `configs/e84d_overfit_bedroom.yaml`.
+- **Hypothesis:** the charge rises as s falls (E84a's plateau, where the charge stayed 1-2 cm, is gone) and, unlike E84b's
+  constant, it is graded, so the descent should leave s = 1 (E84b: 97.5 % kept, 1.747 thresholded) and find the interior
+  minimum, without switching off whole walls.
+- **Refuted if** (bedroom, thresholded at 0.5 and Bernoulli, exact Chamfer in the loss's alignment, uncut 1.846):
+  (i) the collapse of E84a returns: mean s < 0.05 with Bernoulli completeness > 5 cm (uncut 1.172) at any step; or
+  (ii) the thresholded exact Chamfer at step 1000 is not below E84b's 1.747; or
+  (iii) the exact completeness rises while the loss falls over the last 200 steps (the loss is gamed).
+  Rung 3 counts as passed below 1.41 (the bar of E84a-c; the oracle path's own minimum in this alignment is 0.950).
+  The loss is not exact here: it overshoots the completeness on clustered s (up to 5.9x in the offline test), so the
+  exact Chamfer is what is judged, next to the loss.
+- **Stage times and numbers:** in the result.
+- **E84d result (bedroom, one run, seed 0, git efa60c9, tree "dirty" only by the untracked e27a figure files; 1000 steps, step
+  median 0.33 s on a shared GPU, 0.20 s alone, peak 2.6 GB, scenes loaded in 2.2 s from cache):** refuted by (ii), not by (i)
+  or (iii). Run `runs/e84d_overfit_bedroom-20261120-100928`, figures `e84d_curves.jpg`, `e84d_s_views.jpg`, sweep
+  `results/e84d_cut_sweep.txt` (cm; uncut Déjà View: Chamfer 1.846, completeness 1.172).
+
+  | step | loss L | exact, Bernoulli(s) draw (A / C, kept) | exact, s >= 0.5 (A / C, kept) | mean s |
+  |---|---|---|---|---|
+  | 0 | 1.926 | 1.877 (2.472 / 1.283, 0.58) | 1.831 (2.487 / 1.174, 1.00) | 0.538 |
+  | 100 | 1.646 | 1.630 (1.831 / 1.430, 0.52) | 12.36 (1.437 / 23.28, 0.39) | 0.515 |
+  | 500 | 1.529 | 1.508 (1.604 / 1.412, 0.51) | 4.721 (1.290 / 8.151, 0.44) | 0.511 |
+  | 1000 | 1.485 | **1.467** (1.562 / 1.372, 0.53) | **3.243** (1.304 / 5.182, 0.47) | 0.529 |
+
+- **What happened:** no collapse: s stays at mean 0.5 and the loss falls monotonically (1.926 -> 1.485, still -0.002 per 25 steps
+  at the end), within 1.2 % of the exact Chamfer of a Bernoulli(s) draw at every step (E84a undershot by up to 27x in
+  completeness). The Bernoulli cloud is 20.5 % below the uncut cloud (1.467 against 1.846) in 53 % of the points; accuracy
+  2.47 -> 1.56 cm for completeness 1.28 -> 1.37 cm. That is the quantity the loss optimizes, and it improves. It does not
+  reach the 1.41 bar, and it is a single draw (no seed or draw spread logged).
+- **But the thresholded cloud, the one a user would take, is far worse than uncut:** 3.243 at s >= 0.5 (completeness 5.2 cm,
+  uncut 1.172), because the head does not push s to 0 or 1: 10 % of the pixels have s = 1 (near, accurate surfaces: floor,
+  bed, desk), the median is 0.40 and 1 % lie below 0.001. `e84d_s_views.jpg`: far walls get a smooth s of 0.1-0.5, not a
+  switch-off. Under independent keeps a wall thinned at s = 0.3 is still covered by its 20 views; a hard cut at 0.5 removes
+  whole contiguous regions, the same "all probes dropped" case the loss cannot see. The loss is optimized for a randomized
+  cloud, so the sampled and the thresholded cloud are two different objects. Ordering by s is still useful: the top 70 %
+  by s gives 1.539 (1.760 / 1.318) and the top 90 % 1.663, both below uncut 1.846 (steps 1000; on the training scene, a
+  diagnostic, no cut chosen from it), while top 50 % is 2.455 and top 20 % 32.2. The oracle path in this alignment reaches
+  0.950 at 20 %.
+- **Against the criteria:** (i) no collapse; (ii) thresholded 3.243 is not below E84b's 1.747: refuted; (iii) the completeness
+  does not rise while the loss falls (the Bernoulli completeness falls 1.42 -> 1.37 over the last 500 steps).
+  Rung 3 is not passed: the sampled cloud is 20.5 % better than uncut but the thresholded cloud is worse, and neither
+  approaches the oracle's 0.95. Dev rung and the comparison to Déjà View's confidence were not run.
+- **Status:** E84 "not yet working"; missing: a rung-3 head whose deterministic cut, not only a Bernoulli draw, beats the
+  uncut cloud by the oracle's margin. Not tried: a loss that makes s binary without a second term (annealing, a hard-concrete
+  relaxation, straight-through sampling), more steps (the loss is still falling), larger R, the clamp ablation, the
+  seed or draw spread, volume features across views.
+- **E84d, follow-up: the loss's own optimum is not where the head stopped** (`e84d_oracle_soft.py` -> `results/e84d_oracle_soft.txt`,
+  bedroom, the training scene; a diagnostic, no cut chosen). The greedy oracle's masks (exact Chamfer 1.300 / 1.120 / 1.033 at
+  q = 0.7 / 0.5 / 0.2, also the cloud a cut at 0.5 gives) scored with E84d's loss at s = eps + (1 - 2 eps) mask: eps = 0.02 gives
+  1.338 / 1.189 / 1.189, all below the trained head's 1.485, and eps = 0.1 gives 1.348 / 1.230 / 1.291. At exactly binary s the
+  loss is 13.5 / 21.4 / 74.8: a GT point whose 8 probes are all dropped has kappa = 0, and the tail charge is then the cap U.
+  So the loss does rank oracle-shaped states far below the head's soft state and a cut at 0.5 of such a state is the oracle's
+  cloud; E84d's state is a poor local optimum or not converged (the loss was still falling), not the loss's minimum. The
+  charge is a cliff at kappa -> 0: the minimum lies at small s > 0 on dropped regions, not at the vertex. Only three oracle
+  masks and four eps were tried; the loss's true minimum may be lower still.
+
+## E84e: rung 3 with a logit temperature, from the path to the cut (issue #84, bedroom ai_006_007, 20.11.2026)
+- **Change (one):** E84d with s = sigmoid(logit / T), T falling geometrically from 1 to 0.1 over the first 500 of 1000 steps
+  (`configs/e84e_overfit_bedroom.yaml`, `KeepHead.temperature`); everything else E84d (tail charge, R = 8, lr 1e-3, seed 0).
+- **What it is, and what it is not:** without noise, sigmoid(z / T) is a gain on the logit. The loss as a function of s is
+  E84d's and so are its minima; the cut at s = 0.5 is the logit's sign at any T. It is not deterministic annealing of the
+  objective (that would add noise, a relaxed Bernoulli sample, or an entropy term) and I recommended it as if it were; the
+  corrected reading is that it changes only the optimizer's path. It tests one thing: that E84d stopped on a slow path, not
+  at the loss's minimum (the oracle-shaped states in the E84d follow-up score 1.19-1.34 against its 1.485, the loss was
+  still falling).
+- **Hypothesis:** with up to 10x the gain the head reaches a bimodal s (about 0.02 / 0.98) with the loss near the oracle-shaped
+  states, and the thresholded cloud then follows the Bernoulli one instead of being twice as bad.
+- **Refuted if** (bedroom, exact Chamfer in the loss's alignment, uncut 1.846): (i) the thresholded Chamfer at step 1000 is not
+  below the uncut 1.846 (E84d: 3.243); or (ii) the head saturates, mean s >= 0.99 or <= 0.01 at any logged step (E84c, E84a); or
+  (iii) the loss at step 1000 is not below E84d's 1.485, i.e. the gain does not help the optimization at all. Rung 3 counts
+  as passed below 1.41. A run that passes (iii) but fails (i) says the loss's minimum itself, not the path, gives a bad cut.
+- **Stage times and numbers:** in the result.
+- **E84e result (bedroom, one run, seed 0, git bb83e2b, tree "dirty" only by the unrelated e27a files; 1000 steps, step median
+  0.33 s on a shared GPU, 0.20 s alone, peak 2.6 GB):** refuted by (i); (ii) and (iii) pass, (iii) only barely. Run
+  `runs/e84e_overfit_bedroom-20261120-104120`, figures `e84e_curves.jpg`, `e84e_s_views.jpg` (s saved at the T of that step),
+  sweep `results/e84e_cut_sweep.txt` (cm; uncut 1.846 / completeness 1.172; E84d in brackets).
+
+  | step (T) | loss | exact, Bernoulli draw (A / C, kept) | exact, s >= 0.5 (A / C, kept) | s in (0.05, 0.95) |
+  |---|---|---|---|---|
+  | 100 (0.63) | 1.638 | 1.622 (1.808 / 1.436, 0.51) | 12.79 (1.397 / 24.18, 0.38) | 0.73 |
+  | 500 (0.10) | 1.495 | 1.452 (1.493 / 1.410, 0.51) | 3.511 (1.327 / 5.696, 0.47) | 0.44 |
+  | 1000 (0.10) | **1.459** [1.485] | **1.446** [1.467] (1.562 / 1.331, 0.57) | **2.256** [3.243] (1.354 / 3.158, 0.52) | 0.51 [0.60] |
+
+- **What happened:** no saturation (mean s 0.51-0.59). The gain made s more decided (undecided share 0.51 against E84d's 0.60 at
+  step 1000) and the loss a little lower (1.459 against 1.485, -1.8 %, one seed), the Bernoulli cloud 1.446 (-21.7 % against
+  uncut). The thresholded cloud is 2.256 at step 1000 but 2.4-3.0 over steps 800-950: no better than uncut 1.846 and not
+  stable between evaluations. The top 70 % by s is 1.520 (E84d 1.539), the top 50 % 2.759. `e84e_s_views.jpg`: the same
+  layout as E84d (floor, bed, desk at 1; far walls at 0.1-0.5 in contiguous patches), only sharper.
+- **Against the criteria:** (i) thresholded 2.256 is not below 1.846: refuted; (ii) no saturation; (iii) the loss at step 1000
+  is below 1.485, by less than the E84d curve's own slope would suggest (the loss was still falling) and from one seed.
+  Rung 3 is not passed.
+- **Reading:** E84d's state is not only slow. Ten times the logit gain moves the loss by 2 % and does not leave the pattern, while
+  oracle-shaped soft states score 1.19-1.34 (E84d follow-up). So the head's state looks like a stable basin of the loss under
+  this head and init, not a path artefact; that is a reading from two runs, not a test. Untested: whether it is the head
+  (capacity, shared weights across views) or the loss (a basin of s on the walls): free per-pixel logits from the same init would
+  separate the two; so would starting the head at an oracle-shaped s and watching whether descent keeps it. A noisy relaxation
+  (relaxed Bernoulli, straight-through) would change the objective, which this run did not.
+- **Status:** E84 "not yet working"; missing: a rung-3 head whose cut beats uncut. Dev rung and baseline comparison not run.
+
+## E84, baseline at equal kept share: Déjà View's confidence against the head's s in one alignment (bedroom, 20.11.2026)
+- **Why:** the brief asks for the comparison with Déjà View's confidence at the same kept share; E57c measured it with a
+  re-alignment per cut (dev mean), so it is redone here in the loss's fixed alignment, next to E84d's s
+  (`e84_confidence_cut.py` -> `results/e84_confidence_cut.txt`; bedroom, a diagnostic; the head was trained on this scene,
+  the confidence was not, so the comparison favours the head).
+- **Results** (exact Chamfer cm, accuracy / completeness; uncut 1.846 = 2.520 / 1.172):
+
+  | kept share q | Déjà View confidence | E84d's s |
+  |---|---|---|
+  | 0.9 | 1.888 (2.174 / 1.602) | 1.663 (2.132 / 1.194) |
+  | 0.7 | 3.068 (1.945 / 4.192) | **1.539** (1.760 / 1.318) |
+  | 0.5 | 6.303 (1.736 / 10.869) | 2.455 (1.364 / 3.547) |
+  | 0.3 | 14.243 (1.399 / 27.087) | 15.174 (1.180 / 29.168) |
+
+- **Reading:** the confidence improves accuracy and ruins completeness at every q < 1 and never beats the uncut cloud in
+  Chamfer, as in E57c's dev mean (never below 3.500 uncut). Déjà View's confidence is c = 1 + exp(x) >= 1, no probability, so
+  there is no cut at 0.5: its cut is a quantile. The head's s at the same share has the better accuracy (q 0.5: 1.364 against
+  1.736) and a third of the completeness loss; it beats uncut for q 0.6-0.9 (best 1.539 at 0.7, -17 %) and is no better
+  than the confidence at q 0.3. The loss's own expected share is 0.53 (mean s), but the deterministic cut that minimizes the
+  Chamfer of the ranking is about 0.7: an independent thinning at 53 % costs completeness 1.37, the cut at 53 % costs 3.2.
+
+## E84g and E84h: rung 3 with the head started from Déjà View's own confidence (issue #84, bedroom ai_006_007, 20.11.2026)
+- **Why:** E84a-e used a randomly initialised head with a sigmoid, an idiosyncratic choice (the brief assumed the sigmoid was
+  Déjà View's). Déjà View's confidence is c = 1 + exp(x) >= 1 (`head_activations.py`; no sigmoid anywhere in `dvlt`), and
+  its released config trains no confidence loss (`disable_conf: true`). The least idiosyncratic head is Déjà View's own:
+  the released `output_block`'s 3 x 3 conv and its confidence channel, s = sigmoid(x) = 1 - 1/c (c - 1 is the odds of s: the
+  monotone image of c in (0, 1), the same x), `KeepHead.from_deja_view`. Checked on the bedroom's cached features: the head's s
+  equals 1 - 1/c of the cached confidence to 4e-4 (max), median 3e-6; mean s 0.930, 99.3 % of pixels at s >= 0.5 (c >= 2).
+- **Change (one, plus the learning rate):** E84d with `init: deja_view`. E84g uses Déjà View's own stage-2 finetune rate,
+  1e-4 (`dvlt-large-depthconv-stage2.yaml`; its warmup of 500 steps is not used); E84h uses E84d's 1e-3, so the effect of
+  the init is not mixed with the rate. Tail charge, R = 8, 1000 steps, seed 0, no temperature.
+- **Hypothesis:** the start is Déjà View's ranking (accurate kept points, collapsing completeness when cut); the expected
+  Chamfer sees other views' probes and so what a pixel contributes that no other view covers (E57c's m_i), and
+  fine-tunes the ranking so that the cut at s >= 0.5 (c >= 2) beats the uncut cloud, and beats the random-init runs
+  (E84d 3.243, E84e 2.256 at that cut).
+- **Refuted if** (bedroom, exact Chamfer in the loss's alignment, uncut 1.846; per run): (i) the thresholded Chamfer (s >= 0.5)
+  at step 1000 is not below 1.846; or (ii) the head does not move: mean s >= 0.99 at step 1000, or collapses to <= 0.01; or
+  (iii) the loss at step 1000 is not below E84d's 1.485. Rung 3 counts as passed below 1.41. Reported next to it: the
+  Bernoulli cloud (E84d 1.467) and the top-q sweep.
+- **Stage times and numbers:** in the result.
+- **E84g / E84h result (bedroom, one run each, seed 0, git 7718a56 with the unrelated e27a files dirty; 1000 steps, step median
+  0.20-0.33 s, peak 2.6 GB):** both refuted by (i); E84g also by (iii); (ii) holds. Runs `runs/e84g_overfit_bedroom-20261120-111248`
+  (lr 1e-4) and `runs/e84h_overfit_bedroom-20261120-111702` (lr 1e-3); figures `e84{g,h}_{curves,s_views}.jpg`, sweeps
+  `results/e84{g,h}_cut_sweep.txt` (cm; uncut 1.846 / completeness 1.172; E84d in brackets).
+
+  | run | loss at 1000 | exact, Bernoulli draw (A / C, kept) | exact, s >= 0.5 (A / C, kept) | top 70 % by s | Spearman(s, c) |
+  |---|---|---|---|---|---|
+  | E84g, lr 1e-4 | 1.610 | 1.595 (1.765 / 1.426, 0.50) | 7.570 (1.385 / 13.754, 0.41) | 3.041 | 0.72 |
+  | E84h, lr 1e-3 | 1.478 | 1.455 (1.520 / 1.390, 0.51) | 3.729 (1.274 / 6.185, 0.45) | 1.525 | 0.56 |
+  | E84d, random init | [1.485] | [1.467] | [3.243] | [1.539] | [0.56] |
+
+- **What happened:** the start is Déjà View's confidence (Spearman 1.0 with c; after one update the cut at c >= 2 keeps 99 % and
+  scores 1.794 / 1.769 against uncut 1.846: Déjà View's natural cut already helps by 2.8 %, hardly). Within 50 steps mean s
+  falls from 0.93 to 0.52-0.56 and the cut's kept share from 0.99 to 0.39-0.54, and the cut's Chamfer rises to 4.9-11.1 (completeness 8-21 cm):
+  the loss moves the head away from Déjà View's ranking at once, at 1e-4 as at 1e-3. At step 1000 the s maps (`e84g_s_views.jpg`)
+  show the same layout as E84d and E84e (floor, bed, desk near 1, far walls 0.1-0.5) and the ranking correlates with Déjà View's
+  confidence at 0.72 (E84g) and 0.56 (E84h), the same 0.56 as the randomly initialised E84d. E84h matches E84d within 0.5 % in loss
+  and 0.012 in the Bernoulli cloud, and is worse on the cut (3.729 against 3.243); the 1e-4 run is slower (loss 1.610) and worse
+  on every cut.
+- **Against the criteria:** E84g (i) 7.570 not below 1.846: refuted; (ii) mean s 0.505 holds; (iii) 1.610 not below 1.485:
+  refuted. E84h (i) 3.729: refuted; (ii) holds; (iii) 1.478 below 1.485 by 0.5 %, within what one seed could move. Rung 3 is not passed.
+- **Reading:** the failure is not the initialisation or the activation. Three starts (random, Déjà View's confidence at two rates)
+  end in the same soft state, which points at the loss with this head, not at a bad path; E84e's two-run reading is
+  strengthened. Still untested, and what separates the two: free per-pixel logits (head or loss) and an oracle-shaped start;
+  the oracle-shaped soft states score 1.19-1.34 against these 1.46-1.61, so this state is not the loss's minimum over all s.
+- **Where the head is now aligned and where it is not:** aligned: the raw x and its activation (s is the odds-image of c), the
+  hidden conv, the starting weights, E84g's rate (Déjà View's stage-2 finetune, no warmup). Not Déjà View's and ours: the
+  independent-keep model, the Poisson tail charge, R = 8, the cap U, eps, constant Adam, the cut.
+
+## E84, Déjà View's confidence loss against the expected Chamfer: what each one asks of a pixel (bedroom, 20.11.2026)
+- **Déjà View** (`dvlt.model_components.loss.common.ConfLoss`, from the installed package; its released configs disable it):
+  per pixel l = gamma c e - alpha log c, c = 1 + exp(x) >= 1, e the absolute depth error of the same pixel after dividing
+  depth and GT by a per-scene scale, alpha = 0.2, gamma = 1, mean over pixels after a 0.98 quantile mask of the losses.
+  Separable over pixels; optimum c = alpha / (gamma e) per pixel (a Laplace-like scale: c is a loss weight and an
+  uncertainty, not a decision); nothing in the loss counts or covers points.
+- **Ours:** L = (A + C) / 2 of the cloud kept with probability s: A weights a_i, the distance to the nearest GT point of any pixel
+  (cm, after one Umeyama); C is each GT point's expected distance to its nearest kept probe among the R nearest predictions
+  over all views, so a pixel's s enters the loss of the GT points it covers. Coupled across pixels and views, and the loss
+  itself trades accuracy against completeness (hence a share to keep).
+- **Measured** (`e84_confidence_target.py` -> `results/e84_confidence_target.txt`; e_i is here the 3D distance to the GT
+  point of the same pixel after the loss's alignment, a proxy for Déjà View's depth-space error): the nearest GT point of a
+  prediction is its own pixel's for 1.0 % of 3.81 M pixels; a_i / e_i has median 0.57 and a_i < e_i / 2 for 43.6 %;
+  mean a_i 2.52 cm, mean e_i 6.82 cm. Spearman: Déjà View's confidence with -e_i 0.49, with -a_i 0.35, a_i with e_i 0.73.
+  So the same-pixel error is not the accuracy term's a_i for most pixels, and the confidence ranks its own target only
+  moderately.
+
+## E84, the optimum of Déjà View's confidence loss as a filter, against its actual confidence (bedroom, 20.11.2026)
+- **Script** `experiments/scripts/e84_dejaview_optimum_filter.py` (test `tests/test_e84_dejaview_optimum.py`, which checks the
+  optimum against the installed `dvlt` `DepthLoss` itself): c* = max(1, alpha / (gamma e)) with alpha = 0.2, gamma = 1 (ConfLoss
+  defaults; the released configs train no confidence loss), e = |d / s_pred - d_gt / s_gt| the same-pixel depth error with each
+  depth divided by the mean distance of its valid world points to the first camera's centre (assumed to be Déjà View's
+  origin: its first pose is the identity; GT scale 3.205 m). The filter keeps c* >= tau, i.e. e <= alpha / (gamma tau); at a
+  kept share q it ranks by -e. A diagnostic on the bedroom: the filter uses the GT, no cut is chosen.
+  `results/e84_dejaview_optimum_filter.txt`, figures `e84_dejaview_optimum_{masks,calibration}.jpg` (views 18, 0, 12, 6).
+- **Results** (3.81 M pixels; exact Chamfer cm in the loss's fixed alignment, uncut 1.846):
+  - c: median 17.5, range 1.01-60.0; c*: median 22.2, 1.1 % at the floor c* = 1; Spearman(c, c*) 0.38, median c / c* 0.83.
+  - Same numeric threshold (kept share of c >= tau | c* >= tau | IoU): tau 2: 0.993 | 0.982 | 0.984; 5: 0.970 | 0.955 | 0.963;
+    10: 0.895 | 0.859 | 0.869; 20: 0.358 | 0.551 | 0.390.
+  - Same kept share q (IoU; Chamfer of the confidence cut | of the optimum's cut):
+
+    | q | IoU | confidence | optimum of Déjà View's loss |
+    |---|---|---|---|
+    | 0.9 | 0.902 | 1.888 (2.174 / 1.602) | 1.662 (2.075 / 1.249) |
+    | 0.7 | 0.669 | 3.068 (1.945 / 4.192) | **1.578** (1.698 / 1.457) |
+    | 0.5 | 0.459 | 6.303 (1.736 / 10.869) | 1.645 (1.466 / 1.825) |
+    | 0.3 | 0.253 | 14.243 (1.399 / 27.087) | 2.018 (1.261 / 2.775) |
+    | 0.1 | 0.090 | 42.825 (1.183 / 84.468) | 3.291 (1.129 / 5.452) |
+
+  - Per view at q = 0.5: IoU 0.53 (view 18), 0.48 (0), 0.43 (12), 0.25 (6).
+- **Reading:** (a) the optimum of Déjà View's own loss is a good filter: it beats the uncut cloud for q 0.5-0.9 (best 1.578 at
+  0.7, -14.5 %) and keeps completeness within 1.2-1.8 cm, where the actual confidence ruins it (10.9 cm at q 0.5). The loss as
+  written is not what fails; the predicted confidence is. (b) c is a smooth field (`..._masks.jpg`: low at depth edges and thin
+  structure, otherwise slowly varying) with a compressed range (10-56 over most pixels, a ceiling at 60.0, cause not checked)
+  while c* is high-frequency with a range of 1 to 1e6; the two agree in the middle (median ratio 0.83, and at tau <= 10
+  nearly the same kept share) and disagree in rank (0.38) and in the tails, so a cut at q 0.5 overlaps by 0.46. (c) the
+  ranking by -e (z-depth error) and by the 3D distance to the same-pixel GT point give 1.645 / 1.699 at q 0.5 and 1.578 /
+  1.633 at 0.7 (scratch check, not saved), both worse than by a_i (the nearest-GT distance: 1.369 / 1.387), as in E57c's order.
+- **Not explained:** E57c's `pixel` oracle (same-pixel 3D error) gave 3.560 at q 0.5 on dev against 1.699 here for the same
+  ranking; the differences are the per-cut re-alignment of E57c, the dev mean (uncut 3.500) against this one scene (1.846), and
+  a different set of pixels; none was tested.
+
+## E84i, the head on Déjà View's own confidence loss with the accuracy distance as its error (bedroom ai_006_007, 20.11.2026)
+- **Change:** the head is Déjà View's confidence branch from its released weights (E84g/h), the loss is its ConfLoss
+  `gamma c a - alpha log c`, c = 1 + exp(x), alpha 0.2, gamma 1, a = the point's distance to the nearest GT point over the
+  scene scale (3.205 m), no quantile mask, mean over the 3.81 M pixels. Separable over pixels: no keep probability, no
+  completeness term. The cut is a kept share of x. Config `configs/e84i_overfit_bedroom.yaml`, `loss: confidence`.
+- **Reference** (not a model; the ranking by the true a, same alignment, uncut 1.846): q 0.9 / 0.7 / 0.5 / 0.3 gives
+  1.543 / 1.387 / 1.369 / 1.569. Free per-pixel x would reach it exactly (c* = alpha / (gamma a)); the head is the limit.
+- **Hypothesis (the user's):** the loss is exact, so the overfit head converges to a tight margin of that ranking:
+  Chamfer within 3 % of it, <= 1.41 at q 0.5 and <= 1.43 at q 0.7. Refuted if either is above.
+- **My expectation, stated before I read the run:** it will miss. The head sees only 3 x 3 features, and the loss's optimum for a
+  head is alpha / E[a | features], not alpha / a; the smoothing check (e averaged over windows) already cost 1.578 -> 1.820
+  (7 x 7). I expect q 0.5 between 1.5 and 1.8, below uncut 1.846 and above 1.41. Beating uncut at q 0.5 and 0.7 is the weaker pass.
+- **Result (1000 steps, 0.13 s/step, seed 0; `results/e84i_overfit_bedroom.txt`):** ConfLoss -0.446 (Déjà View's weights) -> -0.486,
+  flat to 3 decimals over the last 250 steps, floor of a free per-pixel c* -0.537. Exact Chamfer of the top share of x
+  (uncut 1.846; the true-a ranking in brackets): q 0.9 1.727 (1.543), q 0.7 2.130 (1.387), q 0.5 3.591 (1.369), q 0.3 11.662
+  (1.569). Spearman(x, -a) 0.593 (Déjà View's c: 0.35), top-share IoU with the true-a mask 0.89 / 0.71 / 0.57.
+- **Reading:** the hypothesis is refuted (q 0.5 3.591 against <= 1.41, q 0.7 2.130 against <= 1.43) and my expectation was too
+  kind (I said 1.5-1.8 at q 0.5). Only q 0.9 beats uncut. The head does learn the accuracy term: A at q 0.5 is 1.342 against
+  2.520 uncut and 0.888 for the true-a ranking, and the loss covers 44 % of the way from the start to the
+  floor. What fails is completeness: C is 5.84 cm at q 0.5 against 1.85 for the true-a ranking at the same share. A
+  per-pixel loss is exact for the accuracy term but blind to coverage, and the head's errors are spatially correlated
+  (inference from C and from the smoothing check, no mask figure looked at): the true a is salt-and-pepper so its cut thins
+  every region, a smooth head's cut removes whole regions. Not tested: a larger head or a decayed rate (the loss may still
+  be capacity- or optimiser-limited), free per-pixel x as the upper end, a mask figure.
+
+## E84j, E84k, E84l: is E84i limited by the head, by the optimiser, or not at all? (bedroom ai_006_007, 20.11.2026)
+- **E84j** (`e84j_free_logits.py`): every pixel's x is a free parameter on E84i's loss, started at Déjà View's x, Adam lr 0.1,
+  2000 steps. **Hypothesis:** the separable loss reaches its floor (-0.537) and the cut by x is the cut by -a, so exact Chamfer
+  of the top share is within 1 % of the true-a ranking (q 0.9 / 0.7 / 0.5 / 0.3: 1.543 / 1.387 / 1.369 / 1.569). Refuted if
+  the loss stays more than 0.01 above the floor or q 0.5 is above 1.383. Expected to hold; it checks the loss and the code,
+  not a hypothesis about the method.
+- **E84k** (`e84k_overfit_bedroom.yaml`): E84i's head and loss, cosine decay 1e-3 -> 1e-5 over 3000 steps.
+  **E84l** (`e84l_overfit_bedroom.yaml`): the same schedule, a larger head (128 channels, 3 convolutions 3 x 3, random init).
+  **Hypothesis (the user's, the head is the limit):** the head converges to a tight margin of the true-a ranking, q 0.5 at most
+  1.41 and q 0.7 at most 1.43. **My expectation:** E84k stays near E84i (q 0.5 above 3, the optimiser is not what limits it);
+  E84l's loss falls further (below -0.50) but the q 0.5 Chamfer stays above 2.0, because the 66 cached channels carry
+  little of the per-pixel part of a. Refuted (user's) if q 0.5 > 1.41 or q 0.7 > 1.43 for E84l.
+- **Results** (`results/e84jkl_bedroom.txt`; exact Chamfer cm, uncut 1.846, the true-a ranking in brackets):
+
+  | run | loss (floor -0.537) | q 0.9 (1.543) | q 0.7 (1.387) | q 0.5 (1.369) | q 0.3 (1.569) |
+  |---|---|---|---|---|---|
+  | E84j free x | -0.5372 | 1.543 | 1.387 | 1.369 | 1.569 |
+  | E84i Déjà View's head, 1000 steps | -0.486 | 1.727 | 2.130 | 3.591 | 11.662 |
+  | E84k same, cosine rate, 3000 steps | -0.489 | 1.698 | 2.002 | 3.226 | 8.917 |
+  | E84l 128 ch, 3 convs, 3000 steps | -0.498 | 1.625 | 1.780 | 2.357 | 5.296 |
+
+- **Reading:** E84j holds: the loss reaches its floor within 100 steps and the cut by x is the true-a ranking to the third
+  decimal, so the loss and the code are exact and everything between 1.369 and E84i is the head. The user's hypothesis is
+  refuted for E84l (q 0.5 2.357 against <= 1.41, q 0.7 1.780 against <= 1.43). My expectations: E84k stays near E84i (held: the
+  decayed rate moves q 0.5 3.591 -> 3.226, the optimiser is not the main limit); E84l's loss below -0.50 (missed by 0.002, -0.498) and
+  q 0.5 above 2.0 (held, 2.357). The capacity trend is monotone and not saturated: the 128-channel head with a 7 x 7 field
+  closes 57 % of the loss gap (E84i 44 %), beats uncut at q 0.9 and 0.7 (1.625, 1.780) but not at 0.5 (2.357), and its
+  completeness at q 0.5 is 3.49 cm against 1.85 for the true-a ranking: the cut still removes regions, less so. Not tested:
+  a larger or deeper head, other seeds (one seed each), the dev rung.
+
+## E84m, the expected-Chamfer loss against mimicking the greedy oracle, same head (bedroom ai_006_007, 21.11.2026)
+- **Oracle:** the reverse greedy of E57c (`greedy_fast`) with 1 % steps (99 rounds, 43 s), the finest step because E57c showed finer
+  steps lower the Chamfer (10 % -> 2.5 %: 2.048 -> 1.993 on dev). Its drop order becomes v = 1 - (kept share before the round that
+  drops the pixel): 0 for the first 1 %, 0.99 for the last 1 % which no round drops; {v >= 1 - q} is the oracle's mask at every
+  multiple of 1 % (`e84m_oracle_order.py`, asserted). In the loss's alignment its Chamfer is 1.506 / 1.232 / 1.042 / 0.899 / 0.860 at
+  q 0.9 / 0.7 / 0.5 / 0.3 / 0.2 and **0.855 at q 0.16** (the 10 %-step path of E84a had 0.950). Ties inside a round share one v.
+- **Best loss so far** (`e84m_sweep.py`, `results/e84m_sweep.txt`; best Chamfer over the top share of x, q chosen with the GT):
+  E84e 1.511 (q 0.65), E84h 1.525 (0.7), E84d 1.539 (0.7), E84k (ConfLoss, a) 1.698 (0.9), E84i 1.723, E84g 1.740, E84b 1.681, E84c 1.846.
+  The expected-Chamfer losses with the Poisson tail are best and within 0.03 cm of each other, which one seed cannot separate; E84e is
+  the best by 0.014 and E84h has Déjà View's init. Both are compared, each with its own init.
+- **Mimic:** the same head (Déjà View's confidence branch), s = sigmoid(x) onto v by cross-entropy (soft targets; minimal at s = v, and the
+  gradient does not vanish at the saturated start s = 0.96 as an L2 would), Adam 1e-3 constant, 1000 steps, random init
+  (`e84m_mimic_random.yaml`, against E84e) and Déjà View's init (`e84m_mimic_dv.yaml`, against E84h). Nothing else changes.
+- **Hypothesis:** mimicry reaches a lower best Chamfer than the explicit loss with the same head and init, because its target is the
+  oracle's order, carries the cross-view completeness term and has no soft-state basin (E84d-h): best Chamfer below 1.511 (random)
+  and 1.525 (DV init). Refuted if either is above. **My expectation, before the run:** 1.35-1.55, so a small win, short of the rung 3 bar
+  1.41 in at least one of the two, because the head still sees 3 x 3 features and E84l showed that capacity is what binds.
+- **Result** (1000 steps each, 0.06 s/step after the load, seed 0; `results/e84m_sweep.txt`; best Chamfer over the top share q of x,
+  q chosen with the GT; the x >= 0 cloud in the last column; uncut 1.846, the oracle 0.855 at q 0.16):
+
+  | head and init | loss | best q | best Chamfer (A / C) | x >= 0 |
+  |---|---|---|---|---|
+  | random | expected Chamfer, tail (E84e) | 0.65 | **1.511** (1.637 / 1.385) | 2.256 |
+  | random | mimic the oracle (E84m) | 0.8 | 1.638 (1.862 / 1.414) | 3.064 |
+  | Déjà View's | expected Chamfer, tail (E84h) | 0.7 | **1.525** (1.736 / 1.313) | 3.729 |
+  | Déjà View's | mimic the oracle (E84m) | 0.9 | 1.727 (2.115 / 1.339) | 4.461 |
+
+- **Reading:** the hypothesis is refuted for both inits: mimicking the ideal order is worse than the explicit loss with the same head
+  (+0.127 and +0.202 cm) and my expectation (1.35-1.55) missed. Rank agreement with the oracle does not explain it: Spearman(x, v) 0.594 and 0.543 for the mimic heads against 0.555 and 0.548 for
+  the expected-Chamfer heads, which never saw v, and the top-50 % IoU with the oracle's mask is 0.577 / 0.558 against 0.586 / 0.574. The cross-entropy is
+  0.632 against a floor of 0.4999 (the mean entropy of v), so the head does not fit the order: it is capacity-bound as E84l showed,
+  and a head that can only match the order partly spends its capacity on the wrong pixels for the Chamfer (the same agreement
+  costs 1.64 where the Chamfer loss's costs 1.51). Which pixels the head gets wrong, spatially, was not looked at. Neither reaches the rung 3
+  bar 1.41, and the x >= 0 cut is far worse than uncut for all four. One seed per cell: the gaps of 0.13 and 0.20 exceed the
+  0.014-0.03 spread among the explicit runs (E84d, e, h) but a second seed was not run. Limits: the best q is GT-chosen, the head
+  is not scaled (as asked), the cross-entropy is one choice of mimic loss (an L2 or a rank loss were not tried).
+
+## E84n, does the mimic overfit, and does the expected-Chamfer loss work without a head? (Niessner's ladder, bedroom, 21.11.2026)
+- **Why this entry:** E84m compared two runs that had not passed rung 3 (the head did not fit its target: cross-entropy 0.632 against its
+  floor 0.4999, excess 0.132 from 0.204 at the start), and I wrote "capacity-bound" without testing it. Rung 1 first
+  (`e84n_target_figure.py` -> `figures/e84n_mimic_target.jpg`, looked at): v and the head's output both follow the scene (alignment is right);
+  v is speckled over flat walls (view 18's wall, view 12's wall and ceiling) where the head is smooth; rank(x) - v has a large-scale level
+  error there (head lower than v on view 12's wall, higher on floors and the bed) plus edge errors.
+- **First-principles hypothesis (written before the runs):** where the surface is seen redundantly the oracle's choice of which copy to
+  keep is a symmetry-breaking pick by tiny differences, so v is not a function of the local features; the best a pixel-wise head can
+  output there is E[v | features], a regional mean. If so (1) the head overfits a few pixels to the floor but not the scene, (2) the head's
+  remaining excess over the floor, KL(v || s) = BCE - H(v), is about that of v replaced by its own k x k local mean (k about 5-15), i.e. it is
+  the target's high-frequency content and not a bug or a missing capacity, and (3) the optimal policy there is a thinning (keep some
+  copies at random), which a threshold on a smooth output cannot do and a Bernoulli keep can (E84d: Bernoulli 1.467, s >= 0.5 cut 3.243).
+- **Numbers:** (1) excess <= 0.01 on 1 000 random pixels after 2000 steps (the ladder's "about 0"); refuted, i.e. a bug in the loss or
+  optimiser, if it stalls above 0.02. 100 000 pixels, one view and the scene: excess above 0.05 (not expected to reach 0). (2) the
+  scene excess lies within 30 % of KL(v || local mean) for some k in 3 ... 31.
+- **Free-logit expected Chamfer** (`e84n_free_chamfer.py`): per-pixel x, no head, Poisson-tail loss of E84d, Adam 0.1, from s = 0.5; the head-free
+  rung 3 of the loss itself (E84j did it for the confidence loss). Hypothesis: the loss works, it falls below the head's 1.485 and the best
+  top-share Chamfer reaches the rung 3 bar 1.41. Refuted if the loss stalls above 1.485 or the best Chamfer is above 1.41.
+- **Results of the ladder diagnostics (`results/e84n_ladder.txt`):** (a) free-logit expected Chamfer, no head: the loss falls 1.917 -> 0.879, 99 %
+  of the pixels decide (s outside 0.05-0.95), mean s 0.20, and the best top share (q 0.2) is **0.864** (A 0.508 / C 1.223), Bernoulli draw 0.875,
+  against the greedy oracle's 0.855-0.860: the loss works, from s = 0.5, and the minimum it finds is oracle-quality; E84a-l's failures were the
+  head and its path, not the loss (my E84h reading "the loss with this head" was half wrong). (b) the mimic head's excess KL(v || s):
+  1 000 px 0.077 after 2000 steps, 0.057 / 0.062 after 6000 at lr 1e-3 / 1e-2; 100 000 px 0.123; view 18 0.069; the scene 0.125. So hypothesis (1) is
+  refuted: the head cannot reproduce 1 000 targets (Spearman 0.86-0.89), and the stall is not the rate. (c) hypothesis (2) refuted too: the KL of v to its own
+  k x k local mean is 0.017 / 0.029 / 0.043 / 0.061 for k = 3 / 7 / 15 / 31, far below the head's 0.125, so v is mostly locally smooth and the head's miss is not the speckle;
+  it is a large-scale level error (the figure). Feature statistics: channel std 0.11-4.6, effective rank 26 of 66 (95 % of the variance).
+- **E84o (the user's request): a shallow ResNet in place of the 3 x 3 head.** KeepResNet: stem + 2 residual blocks (4 convs) at full resolution, 64 channels, dilations
+  2 and 4, 190k parameters, 27 x 27 field, no normalization (ladder rung 0). The same frozen 66 channels, random init, constant Adam 1e-3, 2000 steps.
+  Two runs: the expected-Chamfer loss of E84e (`e84o_resnet_chamfer.yaml`) and the mimic loss (`e84o_resnet_mimic.yaml`).
+  **Hypothesis (the user's):** the head's structure, not the loss, is the bottleneck: the ResNet with the expected-Chamfer loss passes rung 3, best top-share
+  Chamfer <= 1.41 (E84e's head 1.511), and with the mimic loss its excess KL falls below the 3 x 3 head's 0.125 (<= 0.08). Refuted if the ResNet's best
+  Chamfer is above 1.41 under the expected-Chamfer loss. **My expectation:** 1.15-1.40 for the expected-Chamfer ResNet, mimic excess 0.06-0.09 and
+  best mimic Chamfer 1.3-1.5: better than the 3 x 3 head, short of the free-logit 0.864, because the 66 cached channels are all the input.
+- **Finding that changed the plan (written before the runs below):** with every input channel standardized (`standardize: true`, a fixed affine map) the same 3 x 3
+  head overfits 1 000 pixels: excess 0.0208 / 0.0108 / 0.0033 after 1000 / 2000 / 6000 steps, Spearman 0.956 -> 0.994 (raw: 0.057, Spearman 0.86). So the head can produce
+  arbitrary outputs and the raw-input stall was the optimisation's conditioning (channel std 0.11-4.6, means to 5, 26 effective dimensions), not the head's structure. The user's suspicion that the head
+  is "fundamentally incompetent" is therefore not what this shows; it also means E84a-m trained on raw inputs and are suspect on that count.
+- **E84p:** E84e's and E84m's random-init 3 x 3 head runs with the inputs standardized, nothing else changed (`e84p_std_chamfer.yaml`, `e84p_std_mimic.yaml`).
+  **Hypothesis:** the conditioning, not the structure, was the bottleneck: the mimic excess falls below 0.08 (raw 0.125 at 2000 steps, 0.132 at 1000) and the
+  expected-Chamfer best top-share Chamfer reaches <= 1.41 (raw 1.511). Refuted if either stays above. **My expectation:** a gain but not the bar: excess
+  0.07-0.10 and best Chamfer 1.35-1.50, since the 3 x 3 field still cannot see a regional level. The ResNet runs of E84o now also use standardized inputs.
+- **Results of E84p and E84o** (`results/e84m_sweep.txt`, `results/e84n_ladder.txt`, figure `figures/e84n_heads_vs_oracle.jpg`, looked at; best Chamfer over the top share q,
+  q chosen with the GT; the x >= 0 cloud in the last column; uncut 1.846, greedy oracle 0.855 at q 0.16, free-logit expected Chamfer 0.864):
+
+  | head | input | loss | steps | best Chamfer (q) | x >= 0 cloud | rank agreement Spearman(x, v) |
+  |---|---|---|---|---|---|---|
+  | 3 x 3 (19k params) | raw | expected Chamfer (E84e) | 1000 | 1.511 (0.65) | 2.256 | 0.555 |
+  | 3 x 3 | standardized | expected Chamfer (E84p) | 1000 | **1.343** (0.60) | 1.487 | 0.605 |
+  | 3 x 3 | raw | mimic (E84m) | 1000 | 1.638 (0.80) | 3.064 | 0.594 |
+  | 3 x 3 | standardized | mimic (E84p) | 1000 | 1.544 (0.75) | 2.036 | - |
+  | dilated ResNet (190k) | standardized | expected Chamfer (E84o) | 2000 | **1.075** (0.35) | **1.317** | 0.730 |
+  | dilated ResNet | standardized | mimic (E84o) | 2000 | 1.372 (0.65) | 1.409 | 0.918 |
+
+  Mimic cross-entropy (floor 0.4999): 3 x 3 raw 0.632, 3 x 3 standardized 0.605 (excess 0.105), ResNet 0.537 (excess 0.037).
+- **Reading:** (1) **The loss works.** Without a head the expected-Chamfer loss reaches oracle quality (0.864) from s = 0.5; with a shallow ResNet on the same frozen
+  channels it reaches 1.075 (-42 % against uncut), its natural cut s >= 0.5 (31 % kept) gives 1.317, the rung 3 bar (<= 1.41) is passed with no q chosen. (2) **The earlier
+  failures were the head, in two parts.** Input conditioning: standardizing the 66 channels lets the 3 x 3 head overfit 1 000 pixels (excess 0.003, raw 0.06) and moves the
+  scene runs by 0.17 (expected Chamfer, 1.511 -> 1.343) and 0.09 (mimic) cm. Structure: a 27 x 27 field and 190k parameters move them a further 0.27 and 0.17 cm
+  (1.343 -> 1.075, 1.544 -> 1.372). The user's call that the head was the bottleneck holds; "fundamentally incompetent" overstates it, since the 3 x 3 head could fit arbitrary pixels once
+  conditioned. My E84m reading "capacity-bound" was untested and half wrong: conditioning came first. (3) **The ResNet fits the oracle's order almost exactly** (mimic excess 0.037, Spearman 0.918,
+  rank - v grey in the figure) and still loses to the explicit loss (1.372 against 1.075) and to the oracle itself (0.855): a near-perfect copy of a pattern that is only optimal as a whole
+  breaks it, a small rank error drops or keeps both of two complementary copies. This is my reading, not tested. The expected-Chamfer ResNet finds a different pattern (Spearman 0.73 with v;
+  in the figure it keeps whole regions of one view where the oracle thins), which scores better because the loss sees the consequence of its own outputs. (4) E84a-m trained on raw inputs: their numbers
+  are what a raw-input head does, no longer evidence about the loss; the E84h/g runs, which start from Déjà View's weights, were not rerun standardized.
+- **Against what was written before:** E84n (1): excess <= 0.01 at 1 000 px: refuted raw (0.077), met standardized (0.0033). (2) within 30 % of a local mean's KL: refuted (0.125 against 0.017-0.061). Free logits: held (0.864, loss 0.879 below 1.485).
+  E84p: expected Chamfer <= 1.41 held (1.343, expected 1.35-1.50), mimic excess <= 0.08 refuted (0.105, expected 0.07-0.10). E84o: the user's hypothesis held on both (1.075 <= 1.41; excess 0.037 <= 0.08), my expectations were
+  too low (1.15-1.40 and 0.06-0.09).
+- **Limits:** bedroom, rung 3 (the training scene, the oracle's GT), one seed per cell; steps differ between cells (1000 for 3 x 3, 2000 for ResNet); the ResNet on raw inputs was not run, so conditioning and structure are separated
+  only by the 3 x 3 pair and not by a 2 x 2 grid; best q is GT-chosen except the x >= 0 column; dev rung and generalization (rung 4-5) not run.
+
+### E84q: rung 4, the ResNet head on the 3 dev scenes (issue #84)
+
+- **Setting** (`configs/e84q_dev_resnet.yaml`): E84o's run (expected Chamfer with the Poisson tail, logit gain 1 -> 0.1 over 500 steps, KeepResNet 190k, standardized inputs with the
+  statistics of the 3 training scenes, constant Adam 1e-3, seed 0) on `ai_010_007` (living room), `ai_006_007` (bedroom), `ai_044_001` (hotel lobby), a step is every scene once.
+  **700 steps, not 2000:** three scenes cost about 2.4 s/step and 700 keeps the job under the 30 min that need asking; the bedroom's solo run was at 1.407 after 600 steps and 1.317 after 2000, so the
+  number is budget-limited and I will say so.
+- **Baselines (exact Chamfer cm, uncut, same alignment):** living room 1.601 (A 2.194, C 1.007), bedroom 1.846 (A 2.520, C 1.172), lobby 7.053 (A 9.312, C 4.795).
+- **Hypothesis:** the one head overfits all three scenes (rung 4: the outputs differ per input and the loss falls with the bedroom's): the natural cut s >= 0.5 beats uncut by >= 20 % on **every** scene
+  and the bedroom stays within 0.15 cm of its solo run at 700 steps (<= 1.55 at the cut). **Refuted** if any scene's s >= 0.5 cut is not at least 20 % under its uncut Chamfer, or the bedroom is worse than 1.55.
+  **My expectation:** living room 1.1-1.3, bedroom 1.35-1.50, lobby 4-5.5 (its errors are large and much of it is removable by dropping far, grazing points); the best GT-chosen share is 0.2-0.3 cm better than the cut.
+  Uncut DV and DV's confidence at the same kept share are computed after the run, in one sweep (as E84m).
+- **Results** (`runs/e84q_dev_resnet-20261122-094729`, `results/e84q_dev_sweep.txt`, figure `figures/e84q_dev_maps.jpg`, looked at; the 3 training scenes, exact Chamfer cm (A / C), fixed alignment; 700 steps,
+  2.4 s/step median, 4.4 GB peak, scenes load in 7 s; the head cut is x >= 0, "same share" is Déjà View's confidence cut to the head's kept share, "best q" is GT-chosen):
+
+  | scene | uncut | head x >= 0 (kept) | DV confidence, same share | head, best q | DV confidence, best q |
+  |---|---|---|---|---|---|
+  | living room ai_010_007 | 1.601 (2.194 / 1.007) | **1.266** (0.55) -21 % | 7.314 | **1.075** (0.6) -33 % | 1.601 (q 1.0) |
+  | bedroom ai_006_007 | 1.846 (2.520 / 1.172) | 1.742 (0.43) -6 % | 8.166 | **1.287** (0.5) -30 % | 1.793 (q 0.95) |
+  | lobby ai_044_001 | 7.053 (9.312 / 4.795) | **5.335** (0.36) -24 % | 85.734 | **4.138** (0.4) -41 % | 7.053 (q 1.0) |
+
+  The mean loss fell 3.695 -> 2.128 and was still falling (2.160 at step 600). At the cut the head's accuracy is far better (0.93 / 1.06 / 2.45 against 2.19 / 2.52 / 9.31 cm) and its completeness worse
+  (1.60 / 2.42 / 8.22 against 1.01 / 1.17 / 4.80): it drops whole regions (the figure: far walls and windows, the upper wall of the bedroom view, edges), not single points.
+  Déjà View's confidence at the same kept share is 4-12 x worse than uncut, and its best share is "keep everything" on two scenes and 0.95 on the bedroom.
+- **Against what was written before:** **Refuted.** The cut beats uncut by >= 20 % on the living room (-21 %) and the lobby (-24 %) but not on the bedroom (-6 %), and the bedroom at the cut is 1.742,
+  above 1.55 (its solo run: 1.407 at step 600, 1.317 at 2000). My expectations: living room 1.1-1.3 held (1.266), lobby 4-5.5 held (5.335), bedroom 1.35-1.50 missed (1.742); best q 0.2-0.3 cm better than the cut
+  missed on all three (0.19 / 0.46 / 1.20 cm).
+- **Reading:** rung 4 is **not yet passed**: the loss still falls, and the bedroom is worse than when trained alone (best q 1.287 against 1.075), so the shared head has not fitted three scenes at 700 steps. What it shows:
+  one head's outputs differ per input and track the true error map (figure), every scene is improved at the best share (-30 to -41 %), and the cut, the one number no GT chooses, wins -21 %, -6 %, -24 %. What is missing before
+  "approach fails" or "rung 4 passed" can be written: a run to convergence (2000+ steps, about 80 min, needs asking), a per-scene floor (the greedy oracle on the living room and the lobby; here only the bedroom's, 0.855, is known),
+  more than one seed.
+- **Limits:** training scenes, not a score (rung 4); 700 steps against the bedroom's 2000, so the budget confounds the comparison with E84o; one seed; the cut is x >= 0 with the temperature annealed to 0.1, so it is not a tuned threshold,
+  but the best-q column is GT-chosen.
+
+### E84r: rung 3 as the ladder says, one view (issue #84; the user's objection to E84o's and E84q's "overfit")
+
+- **What was wrong.** Rung 3 is "train on the bedroom only; one fixed, recorded view if a sample is a view". E84a-p and E84q trained on all 20 views of the bedroom (3.8 M pixels, 1 step = 0.8 s,
+  rung 2's bar is 1 s): the head is shared across 20 different images, so a fall of the loss can come from a rule that holds across views, not from memorizing a sample, and "overfit" was not shown. The
+  only single-sample evidence so far is E84n's 1 000 pixels (mimic loss, not the expected Chamfer) and the free logits (no head). E84o's "rung 3 passed" and E84q's "rung 4" are therefore not ladder results.
+- **Setting.** `KeepScene.view(i)`: view 18 alone, its own pixels, its own GT points (the pixels' GT), probes rebuilt (R = 8, bound, tail), the alignment the scene's. Uncut: 2.328 cm. Free logits
+  (`e84r_free_view18.yaml`, 1500 steps, no head): loss **1.536** (A 0.878 / C 2.195), best top share 0.35 at 1.518, Bernoulli draw 1.532: the loss's optimum for this one sample (-34 % against uncut), the target.
+  Heads: ResNet standardized, 3 x 3 standardized, 3 x 3 raw (E84a-h's setting), each 2000 steps, constant Adam 1e-3, gain 1 -> 0.1 over 500 steps, standardization with the view's own statistics.
+- **Hypothesis (the ladder's pass):** each head overfits the view: the loss reaches within 5 % of the free-logit optimum (<= 1.613) and the output matches the target (Spearman of its logit with the
+  free logit >= 0.9). **Refuted** if the ResNet or the standardized 3 x 3 head stays above 1.613 at step 2000: then the failure is at this rung (loss, targets or optimizer), not the approach.
+  **My expectation:** ResNet 1.54-1.58, standardized 3 x 3 1.55-1.65, raw 3 x 3 1.65-1.9 (the raw channels' conditioning, E84n). Timing (rung 2): about 0.1 s/step, a run under 5 minutes.
+- **Results, 2000 steps** (`runs/e84r_view18_*`, exact Chamfer cm, view 18 alone; free-logit optimum: loss 1.536, uncut 2.328):
+
+  | head | final loss (A / C) | s mean, undecided (0.05 < s < 0.95) | cut s >= 0.5 (kept) |
+  |---|---|---|---|
+  | ResNet, standardized | 1.762 (1.277 / 2.247) | 0.64, 0.34 | 2.900 (0.59) |
+  | 3 x 3, standardized | 1.804 (1.383 / 2.225) | 0.74, 0.23 | 2.399 (0.72) |
+  | 3 x 3, raw | 2.050 (1.953 / 2.147) | 0.93, 0.02 | 2.048 (0.93) |
+
+  Timing: 0.04 s/step (ResNet), 0.02 s/step (3 x 3), a run in 1.5 minutes, rung 2 passed.
+- **Against the hypothesis: refuted.** The ResNet's loss 1.762 and the standardized 3 x 3's 1.804 are above 1.613 (15 % and 17 % above the optimum), the raw head's 2.050 is 33 % above and its s sits near 1 (93 % kept, the
+  cut 2.048 is nearly the uncut 2.328 minus 12 %). The expectation was ResNet 1.54-1.58, 3 x 3 standardized 1.55-1.65, raw 1.65-1.9: missed on all three, in the same order. The ResNet's loss does not settle (1.77 at step 800, 1.83 at 1200-1600,
+  1.76 at 2000), and the cuts are worse than uncut for the two standardized heads (2.900 and 2.399 against 2.328), because a third of s is undecided: the loss, which uses s, is good where the cut is not.
+  **So no head has passed the ladder's rung 3 on one sample.** E84o's "rung 3 passed" (1.075 over 20 views) and E84q do not show an overfit; they are fits of a shared head to 20 images and 60 images, and I withdraw the label.
+  The failure is at this rung: the free logits reach 1.536, so the loss and targets are right (as E84j-n found); what is left is the head or the optimizer.
+- **Next, at this rung, one change at a time** (both on the single view, minutes each; written before the runs): (a) the learning rate: ResNet standardized at 1e-4, 6000 steps (`e84r_view18_resnet_lr1e-4.yaml`); (b) whether the head can produce
+  the target at all: the ResNet fits s* of the free-logit optimum with the mimic cross-entropy (`e84r_view18_resnet_mimic.yaml`, the target saved by `e84n_free_chamfer.py`). **Hypotheses:** (a) the oscillation is the rate: the final loss <= 1.613 at 1e-4;
+  refuted if it stays above. (b) the head can produce s*: the cut of the head's s lands within 5 % of the free optimum's exact Chamfer (the top-share 0.35 value 1.518, so <= 1.60) and the mimic cross-entropy
+  is within 0.05 of s*'s mean binary entropy. **My expectation:** (a) 1.60-1.70, i.e. refuted or marginal; (b) held, cut 1.55-1.8: a 27 x 27 field and 190k parameters on 190 000 pixels is plenty, the free-logit optimum is nearly binary.
+
+### E84 ladder (issue #84): rungs 3, 4, 5 redone on single views, train and val logged every step (the user's instruction, 23.11.2026)
+
+- **Why redone.** E84a-q broke three rules of `docs/experiments.md`: rung 2 (a step of 0.8-2.4 s, the bar is 1 s, ideally < 0.5 s), rung 3 (the "single sample" was 20 views and a whole-scene loss: a head shared across 20 images can fall by a
+  rule that holds across views, which is not memorizing a sample), and the val batch was never logged next to the train batch. The diagnostics of E84r (a): the 1e-4 run collapsed to "keep everything" (loss 2.328) at step 2000,
+  (b): the mimic of the free optimum stayed at cross-entropy 0.269 against its floor 0.0115, both with the logit gain 1 -> 10 of E84e still on: I suspect the gain (a x10 change of the sigmoid's slope in mid-training), untested. The ladder drops it.
+- **Setting.** A sample is one view: Déjà View's 66 cached channels in, s per pixel out, its loss the expected Chamfer (cm) of that view's kept cloud against that view's GT points (R = 8 probes, Poisson tail; the alignment the scene's).
+  `experiments/scripts/e84_ladder.py`: a step is one train batch (forward, backward, Adam) plus one random val batch (forward), both logged every step to TensorBoard; every 100 steps the loss and the exact Chamfer of the cut s >= 0.5 of
+  fixed eval subsets. Network: KeepResNet (5 convolutions, 190k parameters), inputs standardized with the training views' statistics (fixed affine map), constant Adam 1e-3, no gain, no schedule, seed 0.
+  Reference per sample: the optimum (free per-pixel logits, Adam lr 0.1, 400 steps) and the trivial baseline (keep everything). Val: 4 views (0, 6, 12, 18) of each of the 11 val scenes.
+- **Rung 3 (one view, `configs/e84_rung3.yaml`).** Pass: the train loss reaches within 5 % of the sample's optimum (E84r's free logits at 1500 steps: 1.536, so <= 1.613) in 2000 steps, under 500 ms per step; val loss is not expected to fall.
+  **Refuted** if the train loss stays above 1.613 or a step takes over 500 ms. **My expectation:** 1.54-1.65: the gain was the problem, a shallow ResNet reaches the optimum of one view. If it does not, the next change is the learning rate, then the width, one at a time.
+- **Rung 3, first run** (`runs/e84_rung3-20261123-092432`, 2000 steps, 44 ms/step incl. the val batch: the speed bar holds): train loss 2.434 -> 1.857 (100) -> 1.766 (1000) -> **1.751** (2000), the optimum 1.541 (free logits, 400 steps) and the uncut 2.328; the eval cut s >= 0.5
+  scores 2.48 cm exact (uncut 2.33). It jitters (1.838 at step 1200). Val loss over 44 views of the 11 val scenes: 6.7 at step 0, 37.0 at step 2000, far above its uncut baseline (~7): the net is confidently wrong where it was never trained. **Refuted: 1.751 > 1.613**, 14 % above the optimum.
+  The gain (E84r's suspicion) is not the cause: the plateau of 1.76-1.78 is the same without it. My expectation (1.54-1.65) missed. Rung 3 is not passed.
+- **Diagnostics at rung 3, one change each, 6000 steps** (`e84_rung3_6k`: baseline, `e84_rung3_lr3e-4`, `e84_rung3_w128`: width 128, 760k parameters, under the ladder's 1M). The sample asks for a pixel-level pattern (which flying and
+  grazing pixels to drop) from 190k parameters for 190k pixels, so I suspect capacity or the optimizer's noise, not the loss (free logits reach 1.541). **Hypotheses:** (a) lr 3e-4 reaches <= 1.613 where the baseline does not (refuted otherwise); (b) width 128 does
+  (refuted otherwise); (c) the baseline at 6000 steps is still above 1.613. **My expectation:** (c) 1.70-1.75, (a) 1.66-1.74, (b) 1.60-1.70: the width, if anything.
+- **Results of the three diagnostics** (`runs/e84_rung3_{6k,lr3e-4,w128}-*`, 6000 steps, train loss of the batch = the one view; optimum 1.541, uncut 2.328; 44 / 44 / 83 ms per step, 6-10 min wall each with startup and the 100-step evals):
+  baseline lr 1e-3: best 1.690, then **collapsed to s = 1 everywhere (2.328) late in the run**, the same dead-sigmoid collapse as E84r's 1e-4 run; lr 3e-4: 1.714 (last 200 steps' mean 1.716); width 128: best 1.778, last 200 steps' mean 1.868, noisy.
+  (a) refuted (1.714 > 1.613), (b) refuted (1.778), (c) held (1.690 > 1.613, then the collapse). My expectations (c) 1.70-1.75 held; (a) 1.66-1.74 held; (b) 1.60-1.70 missed (worse, not better).
+  **Rung 3 is still not passed.** Neither the rate nor the width moves the plateau, which sits 10-15 % above the optimum, and the baseline can fall to a dead state.
+- **Next at rung 3 (one change, written before the run):** can this network produce the optimum's output at all? Train it with a cross-entropy against s* of the same sample (the free-logit optimum), same net, same rate, no gain (`objective: mimic`). The target is near-binary (entropy floor 0.0115).
+  **Hypothesis:** the network fits it: cross-entropy <= 0.05 within 2000 steps, and the expected Chamfer of its output then lies within 5 % of the optimum (<= 1.62). If it fits and the expected-Chamfer loss does not, the loss's landscape is the bottleneck, not the net;
+  if it does not fit, the net or the optimizer is. **My expectation:** it does not fit (CE 0.10-0.25): the 27 x 27 field cannot tell two neighbouring, equally good pixels apart, and s* breaks that tie arbitrarily.
+- **Result of the mimic test** (`runs/e84_rung3_mimic-*`, 2000 steps, 31 ms/step): the net does not fit s*: cross-entropy 0.282 (floor 0.0115), the expected Chamfer of its output 1.80. **Refuted (<= 0.05)**; my expectation 0.10-0.25 was slightly optimistic. The mimic fit is therefore
+  not a test of the loss: the net cannot produce this output.
+- **Why: s* is a pixel-level pattern** (no training, `scratchpad/sstar_structure.py` on the saved s* of view 18): 51 % of the pixels have a 4-neighbour on the other side of 0.5, and a perfect 3 x 3 local mean of s* reaches cross-entropy only 0.315 (7 x 7: 0.39, 31 x 31: 0.49), worse than the net's 0.282.
+  The free optimum breaks ties between neighbouring near-duplicate points (keep one of two) pixel by pixel; a function of local features that cannot tell the two apart must give both the same s, and pays for it in the expected completeness
+  (both dropped with probability (1 - s)^2). So "the loss reaches the free-logit optimum" is a bar no smooth network can meet, whatever its depth: **the ladder's rung 3 bar must be the optimum of the function class**, not the free optimum.
+  **Test (written before the run):** free logits that are constant on k x k blocks (k = 2, 4, 8: the optimum of any function that cannot separate pixels within a block) against k = 1 (1.541). **Hypothesis:** the net's plateau (1.69-1.76) is at the k = 2 or k = 4 optimum, not at k = 1.
+  Refuted if the k = 2 optimum is below 1.62 and the net still stays at 1.69+. **My expectation:** k = 2: 1.60-1.68, k = 4: 1.68-1.80, k = 8: 1.85-2.05.
+- **Result of the block test** (`scratchpad/block_optimum.py`, view 18, free logits constant on k x k cells, 600 steps): k = 1: **1.538**, k = 2: **1.665**, k = 4: **1.783**, k = 8: 1.888, k = 16: 1.966 (uncut 2.328). My expectations (1.60-1.68, 1.68-1.80, 1.85-2.05) held.
+  The net's plateau (best 1.690, lr 3e-4 1.714, mimic-trained 1.80) lies between the 2 x 2 and the 4 x 4 optimum: **the hypothesis held**. A net with a 27 x 27 field and no position input is limited by what neighbouring pixels' features can separate, and the pairs the optimum keeps one of are
+  not separable. This changes what rung 3 can ask: not the free optimum (1.541), unreachable by construction, but the 2 x 2 optimum. **This bar was chosen after the failure** (the strict bar, within 5 % of 1.541, failed in four runs and stays failed); it is derived from the loss alone, not from the net.
+- **Rung 3, official rerun** (`configs/e84_rung3.yaml` now lr 3e-4, 3000 steps, the reference holds the k = 1, 2, 4 optima): **pass** if the train loss is <= 1.05 x the k = 2 optimum (<= 1.748) and below the k = 4 optimum (1.783), under 500 ms per step; the val loss is not expected to fall.
+  Refuted if the loss stays above 1.748. **My expectation:** 1.70-1.74.
+- **Rung 3 official result** (`runs/e84_rung3-20261123-095425`, lr 3e-4, 3000 steps, 44 ms/step incl. val batch, 3.5 min of steps): see the table in the report. Rung 4 (`configs/e84_rung4.yaml`: view 18 of each of the 3 dev scenes, batch 3, same net, rate and val) launched with the same bar per sample:
+  loss <= 1.05 x the sample's k = 2 optimum, mean over the three. **Refuted** if any sample's loss is above that bound; **my expectation:** within it for all three, since the three views are different inputs for a net with 190k parameters and the same pixel-level limit as rung 3.
+- **Rung 3 official result:** train loss last-100-step mean **1.742**, last 500 steps 1.723 +- 0.021 (the jitter of constant Adam), best 1.711, last step 1.750; the bar was <= 1.748: **at the bar, inside the jitter**. 44 ms per step with the val batch. Val loss 6.7 -> 20.9 (uncut ~7): nothing general is learned, as it should be.
+- **Rung 4 result** (`runs/e84_rung4-20261123-095747`, 3000 steps, 131 ms/step with a batch of 3 and the val batch): the train loss falls 6.05 -> 4.52 and is still falling slowly (4.55 at 2000). Per sample, loss against the k = 2 optimum (uncut):
+  living room 2.341 vs 2.241 (+4.4 %; uncut 3.073), bedroom 1.790 vs 1.666 (+7.4 %; uncut 2.328), lobby 9.438 vs 9.131 (+3.4 %; uncut 12.476); every sample gains 23-24 % against keeping everything. **Refuted** by the pre-registered per-sample bar (the bedroom is above +5 %); the mean is +4.1 %.
+  My expectation (all three within the bound) missed on the bedroom, which at rung 3 alone reached 1.74: three samples share the net. The same run at 6000 steps (`e84_rung4_6k`) is running to see whether the miss is the budget (hypothesis: the bedroom falls to <= 1.749; refuted if not).
+- **Correction (the user, 23.11.2026): no val on the overfit rungs.** I evaluated rungs 3 and 4 on the val set because the instruction said to log train and val in every experiment. On an overfit run the val loss is the one number that carries nothing (`docs/experiments.md`: it rises, nothing general is learned), it cost a third of the step time and a minute of loading
+  11 scenes, and it buried the train curve in the figure. From here rungs 3 and 4 log the train batch only (`val` absent from the config: no val samples are loaded, no val batch is drawn); the per-step val batch is kept for rung 5, where it is the result. The numbers above for rungs 3 and 4 come from runs that did also compute a val batch
+  (forward only, no gradient, so the training is the same up to the batch-draw random stream); their val columns are not reported.
+- **Rung 4 at 6000 steps** (`runs/e84_rung4_6k-20261123-101129`): mean train loss 4.60 (1000), 4.98 (2000), 4.71 (3000), 4.66 (4000), 4.64 (5000), **4.69 (6000)**; per sample against the k = 2 optimum: living room 2.691 (+20.1 %), bedroom 1.853 (+11.2 %), lobby 9.519 (+4.3 %).
+  **The hypothesis (the miss is the budget) is refuted: more steps are not better, the loss wanders around 4.6-4.9** and the 3000-step run's 4.52 was a favourable draw of the same jitter. The constant-rate Adam trajectory does not settle at 3e-4.
+  Diagnosis at this rung, one change (`e84_rung4_lr1e-4.yaml`, 3000 steps, no val): lr 1e-4. **Hypothesis:** the jitter is the rate: the final train loss is within 5 % of the k = 2 optimum on all three samples and the last 500 steps wander by under 1 %. Refuted otherwise.
+  **My expectation:** mean 4.40-4.55, stable; risk: the dead state (s = 1, loss = uncut) the 1e-4 run of E84r and the 6000-step rung 3 run fell into.
+- **Rung 4, lr 1e-4** (`runs/e84_rung4_lr1e-4-20261123-102617`, 3000 steps, 102 ms/step without val): mean loss 4.719 (last 500 steps 4.67 +- 0.09); per sample against the k = 2 optimum: living room 2.690 (+20.0 %), bedroom 1.844 (+10.7 %), lobby 9.622 (+5.4 %). **Refuted** (the bar is +5 % on every sample; expectation 4.40-4.55).
+  It lands where the 6000-step run at 3e-4 does (2.691 / 1.853 / 9.519): the band is robust to the rate and to the budget, and the 3000-step official run (2.341 / 1.790 / 9.438, mean 4.52) is the lucky end of it (the curves spike by 0.1-0.7 cm, Adam's constant-rate blow-ups, and recover to a different level).
+  **Rung 4 is not passed**, and the living room misses its 4 x 4 optimum (2.338) in the repeats.
+- **The loss is the exact Chamfer, and what it optimizes is not what a threshold deploys** (`scratchpad/draw_vs_loss.py`, the official rung 3 and 4 nets, 5 Bernoulli(s) draws per sample, exact Chamfer in the loss's alignment):
+
+  | sample | loss | exact Chamfer of Bernoulli draws | keep everything | cut s >= 0.5 (kept) |
+  |---|---|---|---|---|
+  | bedroom view 18 (rung 3) | 1.750 | 1.730 +- 0.001 | 2.328 | **3.025** (0.57) |
+  | living room (rung 4) | 2.341 | 2.337 | 3.073 | **3.443** (0.69) |
+  | bedroom (rung 4) | 1.790 | 1.779 | 2.328 | **2.427** (0.71) |
+  | lobby (rung 4) | 9.438 | 9.226 | 12.476 | 11.262 (0.47) |
+
+  The loss equals the exact Chamfer of random keeps within 2.3 % (the tail charge's model), so the loss is right. A random keep with the net's s is 23-25 % better than keeping everything; **the deterministic cut s >= 0.5 is worse than keeping everything on 3 of 4 samples**, because s is
+  not binary (mean s 0.5-0.7): the optimum is a dither a smooth net cannot copy, and a threshold turns its middle values into "keep both" or "drop both" of two near-duplicate points.
+  E84q's whole-scene loss over 20 views gave a cut 21 % and 24 % better than uncut on two dev scenes; there a pixel's near-duplicates are in other views. My reading, not tested: complementary keeping across views is what a threshold can realize and a single view's loss cannot ask for.
+- **Gate.** The instruction: rung 5 only if the loss went towards the theoretical optimum on rungs 3 and 4. Rung 3 is at its bar (inside the jitter), rung 4 is not (+4 % to +20 % per sample depending on the run, bar +5 %). By the pre-registered bar the gate is not passed and **rung 5 was not run**.
+  Prepared and smoke-tested (30 steps, a code check, not a result): 20 train scenes (every second of `hypersim.yaml`'s 40, 396 views, Déjà View cached; `configs/e84_hypersim_train20.yaml`, `configs/e84_rung5_n{5,20,100,400}.yaml`), a step of batch 4 plus the val batch takes 200 ms.
+- **E84 cut objective (written before the run, 23.11.2026): train on the cloud that is deployed.** The random-keep loss is exact but a threshold on its s is worse than keeping everything on single views. Change, one at a time: the loss's forward s is the cut (`objective: cut`, s = 1 where logit >= 0, else 0), its gradient the sigmoid's (straight-through); the rest as rung 3 and 4 (`configs/e84_cut_rung{3,4}.yaml`).
+  The per-pixel Chamfer expressions are evaluated at binary s, so the loss equals the exact cut Chamfer up to the probes (R = 8; the tail charge covers a GT point whose probes are all dropped). The reference of each sample is now the same loss with free logits constant on k x k cells (k = 1, 2, 4; Adam lr 0.1, 400 steps, best step), keep everything is 2.328 on view 18.
+  **Hypothesis 1 (reference, no network):** a deterministic cut can beat keeping everything on view 18 at k = 2: the k = 2 cut optimum is <= 2.10 (10 % below uncut). Refuted if it is >= 2.328 (then no cut of 2 x 2 cells helps and the objective, not the network, is the problem).
+  **Hypothesis 2 (network, rung 3):** after 3000 steps the exact Chamfer of the net's own cut (s >= 0.5, `cut` column of the eval) is <= 1.05 x the k = 2 cut optimum and < 0.95 x uncut (<= 2.21). Refuted otherwise.
+  **My expectation:** k = 1: 1.55-1.8 (the free optimum is near-binary, so a binary dither is almost as good), k = 2: 1.9-2.2, k = 4: 2.1-2.4; the net 2.0-2.3, jittery because straight-through gradients are biased. Risk: the cut starts at s = 1 everywhere (logit 0) and sigmoid' vanishes once a logit saturates.
+- **Results of the cut objective** (`runs/e84_cut_rung3-20261123-120012`, `runs/e84_cut_rung4-20261123-120505`, 3000 steps, lr 3e-4, no val; 77 ms/step with one view, 225 ms with three (the cumprod over probes with zeros costs; both under 500 ms). The train loss equals the exact cut Chamfer of the eval (2.125 / 2.125 at step 500).
+  **Reference, view 18 (hypothesis 1 held):** keep everything 2.328; cut optimum with free logits k = 1: **1.726** (kept 61 %), k = 2: **1.854** (75 %), k = 4: **2.021** (89 %). Expectations: k = 1 held (1.55-1.8), k = 2 and k = 4 were lower than I expected (1.9-2.2, 2.1-2.4): a deterministic dither is nearly as good as the random one.
+  **Rung 3 (hypothesis 2 refuted):** the net's own cut at step 3000 has exact Chamfer **2.011** (A 1.88 / C 2.14, kept 92 %), batch loss over the last 500 steps 2.039 +- 0.079, best 1.975. It is 13.6 % below keeping everything (the bar < 0.95 x uncut = 2.21 held) but 8.5 % above the k = 2 optimum (the bar <= 1.947 failed); it sits at the k = 4 optimum (2.021). My expectation 2.0-2.3 held.
+  The loss is noisy (the curve spikes above keeping everything whenever a few logits cross 0 at once): the straight-through gradient is biased and the cut is discontinuous.
+  **Rung 4 (same bar, <= 1.05 x the k = 2 optimum per sample; carried over from the random-keep rung 4, not re-registered):** mean of the last five 100-step evals, exact cut Chamfer: living room **2.83** (uncut 3.073, k = 2 optimum 2.411: +17 %), bedroom **2.15** (2.328, 1.854: +16 %), lobby **12.45** (12.476, 10.898: +14 %); at step 3000 the mean is 5.671 against 5.959 uncut (-4.8 %) and 5.054 at the k = 2 optima. **Not passed**, and the lobby does not improve on keeping everything.
+  **Baseline the reviewer asks for (Déjà View confidence, top share kept, exact Chamfer of the same views, GT-free ranking):** at 92 % kept: living room 2.813, bedroom 2.218, lobby 14.209 (worse than uncut); its best of the shares tried: 2.811 (85 %), 2.183 (95 %), 12.476 (100 %). So on the training views the cut-trained net is 9 % better than the confidence at rung 3 (2.011 against 2.218),
+  ties it on the living room, beats it on the bedroom (2.15 against 2.22) and on the lobby (12.45 against 14.2). These are overfit views: the comparison shows what a net that saw the sample can do, not what a method does.
+  Reading: the deployable objective works where the random one did not (the cut is below keeping everything, rung 3: -13.6 %), but one net does not map three inputs to three cuts at the optimum of its function class (rung 4: -4.8 % on average). **Rung 4 is not passed with either objective; rung 5 was not run.** Untested next: a smoother surrogate (the cut's s with a temperature that anneals), more seeds on rung 4, a larger first stage of the net.
+- **E84 annealed cut (written before the run, 23.11.2026).** The straight-through cut (E84 cut) left rung 3 at 2.011 (bar <= 1.947) and rung 4 at -4.8 % against keeping everything. A path from the random-keep loss (which one net reaches near its optimum) to the cut: s = sigmoid(gain * logit), gain geometric 1 -> 64 over the 3000 steps (`objective: anneal`, `configs/e84_anneal_rung{3,4}.yaml`; all else as E84 cut). The cut (logit >= 0) does not depend on the gain; at gain 64 the loss is the cut's except for logits within ~0.05 of zero. This is E84r's gain schedule under a different aim, and E84r found the gain not to be the bottleneck for the random-keep loss; the test here is whether it helps the cut.
+  The reference is unchanged (cut optima with free logits, view 18: uncut 2.328, k = 1 1.726, k = 2 1.854, k = 4 2.021); the eval cut Chamfer is now measured every 100 steps.
+  **Hypothesis (rung 3):** the exact Chamfer of the net's own cut at step 3000 is <= 1.947 (1.05 x the k = 2 optimum) and below the straight-through 2.011. Refuted otherwise. **Rung 4:** same bar per sample (<= 1.05 x k = 2: 2.532 / 1.947 / 11.443) on the mean of the last five evals; refuted otherwise.
+  **My expectation:** no better than straight-through (rung 3 2.0-2.3): the random-keep net's cut was 3.0 (worse than uncut) and as the gain rises the pixels near zero keep flipping; I expect the cut curve to rise as the gain passes ~8, then settle. Risk for the opposite: the soft phase positions the logits so that the hard phase starts near a good cut.
+- **Result of the annealed cut, rung 3** (`runs/e84_anneal_rung3-20261123-133644`, 3000 steps, gain 1 -> 64, 77 ms/step): the soft train loss falls to 1.75 (the random-keep level, spiking to 2.1 at steps 450, 1100, 1500, 1900, 2400 and at the end: 2.142 at step 3000), but **the exact Chamfer of the net's cut stays at 2.07-3.6** (every 100 steps; 3.17 at 100, 2.51 at 1000, 3.65 at 2200, best 2.066 at 2900, **2.265 at step 3000**, kept 87 %, 6 % of GT points without a probe).
+  **Refuted:** 2.265 > 1.947 and > the straight-through 2.011. My expectation (2.0-2.3, no better than straight-through) held. Mechanism, measured on the final net: 12 % of the logits are within 0.05 of zero (median |x| 1.06, 90th percentile 25): at gain 64 the net keeps s intermediate by shrinking those logits by 1/gain, so the soft loss does not become the cut loss
+  (2.142 soft against 2.265 cut at step 3000) and the net is not pushed to a binary decision. The gain moves the logits' scale, not the decision the loss asks for. Rung 4 not run: rung 3 is the gate. Straight-through stays the better deployable objective on rung 3 (2.011); neither passes.

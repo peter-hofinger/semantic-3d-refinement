@@ -1,0 +1,6 @@
+bedroom ai_006_007_cam_00, 3810240 pixels with GT, cm after the loss's alignment
+nearest GT point of prediction i is its own pixel's: 0.010
+a_i / e_i median 0.567; share with a_i < e_i / 2: 0.436
+mean a_i 2.520, mean e_i 6.815
+Spearman: (confidence, -e_i) 0.493, (confidence, -a_i) 0.353
+Spearman: (a_i, e_i) 0.726

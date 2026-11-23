@@ -1,0 +1,9 @@
+bedroom ai_006_007, N = 3810240, R = 8
+share of probe rank r in the same view as the GT point's pixel: 0.284 0.294 0.300 0.303 0.305 0.307 0.309 0.312
+rank-1 probe is the GT point's own pixel: 0.012
+distinct views among the 8 probes: mean 2.08, all 8 in one view 0.282, >= 3 views 0.280
+
+R =   8: KD probes  2.1 s, C fwd+bwd 0.163 s, peak GPU 0.47 GB, probes 0.26 GB (int32 + float32)
+R =  32: KD probes  3.2 s, C fwd+bwd 0.217 s, peak GPU 1.64 GB, probes 0.99 GB (int32 + float32)
+R =  64: KD probes  4.6 s, C fwd+bwd 0.318 s, peak GPU 3.19 GB, probes 1.97 GB (int32 + float32)
+R = 128: KD probes  7.2 s, C fwd+bwd 0.515 s, peak GPU 6.29 GB, probes 3.92 GB (int32 + float32)

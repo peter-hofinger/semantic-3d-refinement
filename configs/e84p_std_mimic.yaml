@@ -1,0 +1,19 @@
+# E84p (issue #84): e84m_mimic_random's run with every input channel standardized (fixed affine map, E84n's 1k-pixel finding); nothing else changes.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+loss: mimic
+target: e84m_oracle_v.npy   # in the scene's folder
+r: 8
+miss: bound
+eps: 1.0e-6
+steps: 1000
+lr: 1.0e-3
+chunk: 4
+threshold: 0.5
+shares: [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
+eval_every: 50
+seed: 0
+snapshots: [0, 1000]
+standardize: true

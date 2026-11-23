@@ -1,0 +1,76 @@
+E84n diagnostics on the bedroom ai_006_007 (logs of the runs; excess = BCE - H(v), 0 = fitted; Chamfer cm, uncut 1.846)
+
+== mimic head (E84m's, raw input), where it stops fitting (e84n_mimic_ladder.py, configs/e84n_mimic_ladder.yaml)
+scene: 3810240 pixels, H(v) 0.4999
+KL(v || 1x1 local mean of v) = -0.0000
+KL(v || 3x3 local mean of v) = 0.0170
+KL(v || 7x7 local mean of v) = 0.0287
+KL(v || 15x15 local mean of v) = 0.0430
+KL(v || 31x31 local mean of v) = 0.0611
+1000: 1000 px, step 0: excess 0.2090 (BCE 0.7071, floor 0.4981), Spearman -0.312, mean s 0.539
+1000: 1000 px, step 500: excess 0.1035 (BCE 0.6016, floor 0.4981), Spearman 0.707, mean s 0.495
+1000: 1000 px, step 1000: excess 0.0901 (BCE 0.5882, floor 0.4981), Spearman 0.752, mean s 0.499
+1000: 1000 px, step 1500: excess 0.0825 (BCE 0.5807, floor 0.4981), Spearman 0.774, mean s 0.469
+1000: 1000 px, step 2000: excess 0.0767 (BCE 0.5748, floor 0.4981), Spearman 0.792, mean s 0.483
+100000: 100000 px, step 0: excess 0.2057 (BCE 0.7045, floor 0.4988), Spearman -0.301, mean s 0.538
+100000: 100000 px, step 500: excess 0.1372 (BCE 0.6360, floor 0.4988), Spearman 0.572, mean s 0.493
+100000: 100000 px, step 1000: excess 0.1298 (BCE 0.6286, floor 0.4988), Spearman 0.604, mean s 0.494
+100000: 100000 px, step 1500: excess 0.1258 (BCE 0.6245, floor 0.4988), Spearman 0.623, mean s 0.502
+100000: 100000 px, step 2000: excess 0.1226 (BCE 0.6213, floor 0.4988), Spearman 0.637, mean s 0.499
+view18: 190512 px, step 0: excess 0.2026 (BCE 0.6938, floor 0.4911), Spearman -0.314, mean s 0.543
+view18: 190512 px, step 500: excess 0.0916 (BCE 0.5827, floor 0.4911), Spearman 0.666, mean s 0.571
+view18: 190512 px, step 1000: excess 0.0806 (BCE 0.5717, floor 0.4911), Spearman 0.725, mean s 0.568
+view18: 190512 px, step 1500: excess 0.0744 (BCE 0.5655, floor 0.4911), Spearman 0.755, mean s 0.557
+view18: 190512 px, step 2000: excess 0.0694 (BCE 0.5606, floor 0.4911), Spearman 0.773, mean s 0.572
+scene: 3810240 px, step 0: excess 0.2046 (BCE 0.7045, floor 0.4999), Spearman -0.298, mean s 0.538
+scene: 3810240 px, step 500: excess 0.1391 (BCE 0.6390, floor 0.4999), Spearman 0.559, mean s 0.495
+scene: 3810240 px, step 1000: excess 0.1319 (BCE 0.6318, floor 0.4999), Spearman 0.593, mean s 0.492
+scene: 3810240 px, step 1500: excess 0.1292 (BCE 0.6291, floor 0.4999), Spearman 0.610, mean s 0.517
+scene: 3810240 px, step 2000: excess 0.1247 (BCE 0.6246, floor 0.4999), Spearman 0.625, mean s 0.491
+
+== 1000 px, 6000 steps, lr 1e-2 (e84n_mimic_1k_lr1e-2.yaml)
+1000: 1000 px, step 0: excess 0.2090 (BCE 0.7071, floor 0.4981), Spearman -0.312, mean s 0.539
+1000: 1000 px, step 1000: excess 0.0984 (BCE 0.5965, floor 0.4981), Spearman 0.758, mean s 0.414
+1000: 1000 px, step 2000: excess 0.0775 (BCE 0.5757, floor 0.4981), Spearman 0.809, mean s 0.434
+1000: 1000 px, step 3000: excess 0.0668 (BCE 0.5649, floor 0.4981), Spearman 0.835, mean s 0.513
+1000: 1000 px, step 4000: excess 0.0567 (BCE 0.5548, floor 0.4981), Spearman 0.860, mean s 0.495
+1000: 1000 px, step 5000: excess 0.0638 (BCE 0.5620, floor 0.4981), Spearman 0.872, mean s 0.414
+1000: 1000 px, step 6000: excess 0.0617 (BCE 0.5598, floor 0.4981), Spearman 0.886, mean s 0.556
+
+== 1000 px, 6000 steps, lr 1e-3 (e84n_mimic_1k_lr1e-3.yaml)
+1000: 1000 px, step 0: excess 0.2090 (BCE 0.7071, floor 0.4981), Spearman -0.312, mean s 0.539
+1000: 1000 px, step 1000: excess 0.0893 (BCE 0.5875, floor 0.4981), Spearman 0.751, mean s 0.479
+1000: 1000 px, step 2000: excess 0.0768 (BCE 0.5749, floor 0.4981), Spearman 0.792, mean s 0.474
+1000: 1000 px, step 3000: excess 0.0693 (BCE 0.5674, floor 0.4981), Spearman 0.816, mean s 0.486
+1000: 1000 px, step 4000: excess 0.0655 (BCE 0.5637, floor 0.4981), Spearman 0.832, mean s 0.458
+1000: 1000 px, step 5000: excess 0.0600 (BCE 0.5582, floor 0.4981), Spearman 0.846, mean s 0.484
+1000: 1000 px, step 6000: excess 0.0569 (BCE 0.5550, floor 0.4981), Spearman 0.856, mean s 0.485
+
+== 1000 px, 6000 steps, lr 1e-3, standardized input (e84n_mimic_1k_std.yaml)
+1000: 1000 px, step 0: excess 0.2036 (BCE 0.7018, floor 0.4981), Spearman 0.114, mean s 0.536
+1000: 1000 px, step 1000: excess 0.0208 (BCE 0.5189, floor 0.4981), Spearman 0.956, mean s 0.480
+1000: 1000 px, step 2000: excess 0.0108 (BCE 0.5090, floor 0.4981), Spearman 0.978, mean s 0.481
+1000: 1000 px, step 3000: excess 0.0075 (BCE 0.5056, floor 0.4981), Spearman 0.985, mean s 0.481
+1000: 1000 px, step 4000: excess 0.0050 (BCE 0.5031, floor 0.4981), Spearman 0.991, mean s 0.481
+1000: 1000 px, step 5000: excess 0.0039 (BCE 0.5020, floor 0.4981), Spearman 0.993, mean s 0.481
+1000: 1000 px, step 6000: excess 0.0033 (BCE 0.5014, floor 0.4981), Spearman 0.994, mean s 0.481
+
+== free-logit expected Chamfer, no head (e84n_free_chamfer.py, configs/e84n_free_chamfer.yaml)
+step 0: loss 1.9173 (A 2.520 C 1.315) mean s 0.500, undecided 1.00 | Bernoulli 1.917 | best top share 1.0: 1.846 (A 2.520 C 1.172)
+step 100: loss 0.9767 (A 0.756 C 1.198) mean s 0.362, undecided 0.21 | Bernoulli 0.974 | best top share 0.3: 0.924 (A 0.594 C 1.255)
+step 200: loss 0.9153 (A 0.627 C 1.204) mean s 0.285, undecided 0.09 | Bernoulli 0.913 | best top share 0.25: 0.886 (A 0.550 C 1.222)
+step 300: loss 0.8970 (A 0.585 C 1.209) mean s 0.253, undecided 0.05 | Bernoulli 0.894 | best top share 0.2: 0.877 (A 0.502 C 1.253)
+step 400: loss 0.8894 (A 0.566 C 1.213) mean s 0.236, undecided 0.03 | Bernoulli 0.886 | best top share 0.2: 0.870 (A 0.505 C 1.236)
+step 500: loss 0.8856 (A 0.555 C 1.216) mean s 0.227, undecided 0.03 | Bernoulli 0.882 | best top share 0.2: 0.867 (A 0.505 C 1.230)
+step 600: loss 0.8834 (A 0.549 C 1.218) mean s 0.220, undecided 0.02 | Bernoulli 0.880 | best top share 0.2: 0.866 (A 0.505 C 1.227)
+step 700: loss 0.8821 (A 0.545 C 1.219) mean s 0.216, undecided 0.02 | Bernoulli 0.878 | best top share 0.2: 0.865 (A 0.504 C 1.227)
+step 800: loss 0.8812 (A 0.542 C 1.221) mean s 0.213, undecided 0.01 | Bernoulli 0.877 | best top share 0.2: 0.865 (A 0.503 C 1.226)
+step 900: loss 0.8806 (A 0.540 C 1.222) mean s 0.210, undecided 0.01 | Bernoulli 0.877 | best top share 0.2: 0.865 (A 0.503 C 1.227)
+step 1000: loss 0.8801 (A 0.538 C 1.222) mean s 0.208, undecided 0.01 | Bernoulli 0.876 | best top share 0.2: 0.864 (A 0.502 C 1.227)
+step 1100: loss 0.8797 (A 0.537 C 1.223) mean s 0.207, undecided 0.01 | Bernoulli 0.876 | best top share 0.2: 0.864 (A 0.502 C 1.227)
+step 1200: loss 0.8795 (A 0.535 C 1.224) mean s 0.206, undecided 0.01 | Bernoulli 0.875 | best top share 0.2: 0.864 (A 0.501 C 1.227)
+step 1300: loss 0.8793 (A 0.534 C 1.224) mean s 0.205, undecided 0.01 | Bernoulli 0.875 | best top share 0.2: 0.864 (A 0.502 C 1.227)
+step 1400: loss 0.8791 (A 0.534 C 1.224) mean s 0.204, undecided 0.01 | Bernoulli 0.875 | best top share 0.2: 0.865 (A 0.505 C 1.225)
+step 1500: loss 0.8789 (A 0.533 C 1.225) mean s 0.203, undecided 0.01 | Bernoulli 0.875 | best top share 0.2: 0.865 (A 0.508 C 1.223)
+
+== the 66 input channels: std 0.11-4.6 (median 0.23), |mean| up to 5.05, effective rank 26 of 66 (95 % of the variance), a scratch statistic on every 4th pixel

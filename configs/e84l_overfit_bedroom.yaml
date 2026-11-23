@@ -1,0 +1,23 @@
+# E84l rung 3 (issue #84): E84k's schedule with a larger head: 128 channels, 3 convolutions of 3 x 3 (receptive field 7 x 7)
+# before the 1 x 1, random init. No longer Déjà View's block; asks whether the head's capacity limits E84i.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+head: {hidden: 128, extra: 2}
+loss: confidence
+alpha: 0.2
+gamma: 1.0
+quantile: null
+r: 8
+miss: bound
+eps: 1.0e-6
+steps: 3000
+lr: 1.0e-3
+lr_end: 1.0e-5
+chunk: 4
+threshold: 0.5
+shares: [0.9, 0.7, 0.5, 0.3]
+eval_every: 100
+seed: 0
+snapshots: [0, 3000]

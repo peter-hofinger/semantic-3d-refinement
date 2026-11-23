@@ -1,0 +1,21 @@
+# E84p (issue #84): e84e_overfit_bedroom's run with every input channel standardized (fixed affine map, E84n's 1k-pixel finding); nothing else changes.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+r: 8              # probes per GT point: its R nearest predictions
+miss: bound       # the cap of the tail charge: an upper bound of any distance (the cache of E84b)
+tail: true        # charge a missed GT point the Poisson tail distance, not the cap
+temperature:      # geometric from start to end over `steps`, then constant
+  start: 1.0
+  end: 0.1
+  steps: 500
+eps: 1.0e-6       # in A's denominator, in pixels
+steps: 1000
+lr: 1.0e-3        # Adam, constant, no weight decay
+chunk: 4          # views per head pass; the gradient is the whole scene's whatever this is
+threshold: 0.5    # the cut of the logged exact Chamfer
+eval_every: 25
+seed: 0
+snapshots: [0, 50, 100, 200, 500, 1000]   # steps whose keep probabilities are saved for the figures (at that step's T)
+standardize: true

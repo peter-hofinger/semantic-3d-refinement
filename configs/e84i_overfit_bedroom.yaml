@@ -1,0 +1,24 @@
+# E84i rung 3 (issue #84, docs/experiments.md): the keep head, a copy of Déjà View's confidence branch started from its
+# released weights, trained on Déjà View's own ConfLoss (gamma c e - alpha log c, c = 1 + exp(x)) with e the point's
+# distance to the nearest GT point over the scene scale (the accuracy term's a_i), overfits the bedroom ai_006_007.
+# The loss is separable over pixels: no completeness term, no keep probability. The cut is a kept share of x.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+scenes: [ai_006_007_cam_00]
+init: deja_view
+loss: confidence
+alpha: 0.2        # ConfLoss defaults
+gamma: 1.0
+quantile: null    # ConfLoss drops the 2 % largest losses (0.98); here every pixel counts (the head should cut them)
+r: 8              # only the cache of the exact Chamfer's probes
+miss: bound
+eps: 1.0e-6
+steps: 1000
+lr: 1.0e-3        # Adam, constant, as E84h
+chunk: 4
+threshold: 0.5    # c >= 2
+shares: [0.9, 0.7, 0.5, 0.3]   # kept shares of s whose exact Chamfer is logged
+eval_every: 25
+seed: 0
+snapshots: [0, 100, 500, 1000]

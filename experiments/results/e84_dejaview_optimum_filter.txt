@@ -1,0 +1,21 @@
+bedroom ai_006_007_cam_00, 3810240 pixels with GT; alpha 0.2, gamma 1.0
+GT scale 3.205 m (e is the depth error over this scale)
+c: median 17.51, min 1.01, max 60.0
+c*: median 22.15, at the floor c* = 1: 0.011
+Spearman(c, c*) 0.382; median c / c* 0.834
+same numeric threshold tau: kept share of c >= tau | of c* >= tau | IoU
+  tau    2: 0.993 | 0.982 | 0.984
+  tau    5: 0.970 | 0.955 | 0.963
+  tau   10: 0.895 | 0.859 | 0.869
+  tau   20: 0.358 | 0.551 | 0.390
+same kept share q (uncut Chamfer 1.846); per cut: IoU, then exact Chamfer cm (accuracy / completeness) of confidence | of the optimum
+  q 0.9: IoU 0.902 | 1.888 (2.174 / 1.602) | 1.662 (2.075 / 1.249)
+  q 0.7: IoU 0.669 | 3.068 (1.945 / 4.192) | 1.578 (1.698 / 1.457)
+  q 0.5: IoU 0.459 | 6.303 (1.736 / 10.869) | 1.645 (1.466 / 1.825)
+  q 0.3: IoU 0.253 | 14.243 (1.399 / 27.087) | 2.018 (1.261 / 2.775)
+  q 0.1: IoU 0.090 | 42.825 (1.183 / 84.468) | 3.291 (1.129 / 5.452)
+per view at q = 0.5 (each view's own pixels, pooled threshold): IoU
+  view 18: 0.532
+  view 0: 0.483
+  view 12: 0.425
+  view 6: 0.245
