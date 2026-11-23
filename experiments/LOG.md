@@ -8414,3 +8414,31 @@ Interim entry: the check that the plan puts before any table.
 - **Commands:** rungs as in the plan (3080 job `/home/student/mircea/jobs_e87a_rungs.sh`); figure and raw:
   `uv run python experiments/scripts/e87a_rungs_figures.py` -> `figures/e87a_rungs.jpg` (rung 3 curves, rung 4
   per-scene ratios, gate norm), `results/e87a_rungs.yaml`.
+
+## E87a, lr_gate sweep: every lr and both arms end within the rerun noise of each other, of E52b's ungated arms and of LoRA alone; by the rule both arms take 1e-3 (issue #87, 23.11.2026)
+- **Setting:** the plan's sweep at cf85402 (clean), 3080, bf16, lr_lora 1e-4, lr_pool at E52b's choice
+  (GT 3e-6, grid 1e-5), 500 steps, `--splits` none, `select=val`, `probe_every=10`, one arm per run, seed 0;
+  22.11 23:07 - 23.11 01:13 (~19.7 min per run), peak 2.22 GB, 0 segments dropped. Runs
+  `runs/e87a_gate_sweep_<arm>_<lr>`; job `/home/student/mircea/jobs_e87a_gate_sweep.sh`.
+- **Ratio to Déjà View's error at step 250 / 500** (held-out 16 train scenes, val 11 scenes), and the gate
+  parameters' norm at step 500:
+
+  | lr_gate | gt held-out | gt val | gt gate norm | grid held-out | grid val | grid gate norm |
+  |---|---|---|---|---|---|---|
+  | 1e-5 | 0.9800 / 0.9766 | 0.9680 / 0.9655 | 0.05 | 0.9781 / 0.9785 | 0.9664 / 0.9651 | 0.06 |
+  | 1e-4 | 0.9795 / 0.9726 | 0.9705 / 0.9602 | 0.52 | 0.9796 / 0.9773 | 0.9675 / 0.9627 | 0.57 |
+  | 1e-3 | 0.9795 / 0.9772 | 0.9682 / **0.9596** | 3.78 | 0.9786 / 0.9731 | 0.9661 / **0.9563** | 3.72 |
+
+- **Reading:** the rule (least val ratio at 500) picks 1e-3 for both arms. Every gap is 0.0006-0.009, at or
+  inside the rerun spread at step 500 (0.007, E52b control), so the sweep separates neither the lrs nor the
+  arms; nor does it separate them from E52b's ungated arms at the same budget (GT 0.9568, grid 0.9597) or LoRA
+  alone (0.9627). The gate's parameters move about in proportion to lr_gate (norm 0.05 / 0.5 / 3.7 at 500
+  steps), so a 70 times larger gate leaves val unchanged within noise. The val probes (`figures/e87a_sweep.jpg`,
+  pale lines) swing between 0.94 and 1.02 over the 500 steps in lockstep across all three lrs, far more than
+  the lrs differ: the shared draws set the trajectory, not lr_gate. 1e-3 is also the lr at which the gate
+  moves most, so rung 5 at 1e-3 is the strongest test the plan allows of whether the gate can let segments act.
+  As in E52b's sweep, the choice is by rule, not by a measured difference. Next: rung 5 (2 arms x 3 seeds x
+  3000 steps, ~12 h on the 3080), asked first.
+- **Commands:** sweep as in the plan; figure and raw:
+  `uv run python experiments/scripts/e87a_sweep_figures.py` -> `figures/e87a_sweep.jpg` (val ratio per eval and
+  probe per arm and lr), `results/e87a_sweep.yaml`.
