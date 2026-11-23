@@ -7069,3 +7069,135 @@ Interim entry: the check that the plan puts before any table.
 - **Spread and budget:** the standard errors above are over 14 scenes (3 dev, 11 val); one cut of the grid origin (the union box), so a voxel
   boundary can split a surface in two: the within-one-voxel columns are the less sensitive. Not measured: the semantic classes, and the GT of
   parts of a scene no view sees (the GT here is what the 20 views see).
+
+## Plan: E69c = occupancy, then one vertex per occupied child voxel, trained on fixed per-voxel targets; with and without back-projected DINOv2 features (issue #69, 23.11.2026)
+- **Goal:** a generator that climbs the whole ladder. E69a's six arms stopped at rung 3: the fixed train error fell from 0.78 to about 0.3 cells
+  and stalled. Every arm trained on a set loss (Chamfer to the GT points that its points can reach, and a cross-entropy against that reach). A set
+  loss gives no point a fixed target, so its minimum is not a known output, and "loss about 0" cannot be checked against one. E69c replaces the
+  set loss with a fixed target for every element of the output, so the loss is zero exactly at the oracle. It then climbs the ladder in the order
+  that separates the faults: (0) the formulation through the real scorer, (3a) the output alone, (3b) the input-to-output map on one scene, (4) three
+  scenes, (5) unseen scenes. Issue #69's gate is unchanged: a learned generator beats Déjà View's points on the val scenes.
+- **Formulation, the two steps of #13 and #69** (TRELLIS.2, Xiang et al. 2025, arXiv 2512.14692: the O-Voxel's dual vertex, one point per active
+  voxel at a learned position inside it, and an upsampler that predicts which of a voxel's 8 children are active):
+  - **Candidates:** E69a's grid (192 cells along the longest side, a median of 7.2 cm), every voxel within `reach` 1 of a voxel holding a Déjà View
+    point. Unthresholded, these hold 0.895 of the GT-occupied voxels (E69b).
+  - **Step 1, occupancy:** each candidate voxel has `split`^3 children (split 2: 8 children, a 384-cell grid). One logit per child; its target is 1
+    if a GT point lies in the child.
+  - **Step 2, placement:** each child has one vertex, `child_min + child_size * sigmoid(v)`, so the vertex never leaves its child. Its target is
+    the mean of the GT points in the child, trained only where the occupancy target is 1.
+  - **Loss:** binary cross-entropy on the logits plus L1 on the vertices, in child units. No point is matched to another, and there is no reach
+    term. Output: the vertex of every child whose logit is positive.
+  - **Ceiling:** the representation's own ceiling `oracle-ovoxel` (every GT-occupied child at its GT mean) is exactly what zero loss produces, so
+    rung 3 has a known answer.
+  - **Inputs:** the GT is mapped into Déjà View's frame as in E69a (`volume.gt_in_frame`).
+- **Two inputs, one change apart (the arms):**
+  - `ovoxel`: E69a's grid channels (log count, mean confidence, mean colour, spread).
+  - `ovoxel-dino`: the same plus a back-projected feature volume (Pixal3D, Li et al., SIGGRAPH 2026, arXiv 2605.10922).
+    - **Lifting:** Pixal3D samples DINOv2 features for every voxel along a pixel's ray and averages them over views. Here each pixel's feature
+      goes to the voxel of its Déjà View point (its depth puts it on the surface) and is averaged over all points in the voxel, from every view.
+    - **Features:** DINOv2-B/14 (Oquab et al. 2023, Apache-2.0, from the Hugging Face hub) on the 20 views at 504 px. The patch features are
+      upsampled bilinearly to the pixels and reduced to 32 channels by a PCA fitted once on the train split, never on dev or val.
+    - **Cache:** the features are a new cache next to Déjà View's (`dinov2b`, git-ignored, about 30 MB per scene in float16). Refinement reads it
+      and never runs DINOv2 itself.
+- **Setting (rung 0 of the ladder, as E69a):** U-Net 24 / 48 / 96, a head of under 0.2 M parameters, under 1 M in all (asserted in `build`); Adam
+  at a constant learning rate, no weight decay, no augmentation, 48-cell crops with an 8-cell rim; one seed until the ablations. The learning
+  rate per arm is chosen from 3e-4, 1e-3 and 3e-3 by 300-step probes on the bedroom, as in E69a.
+- **Logging (as E69a):** TensorBoard under `runs/e69c/<rung>/tb/<model>/`. Logged every step: the train loss and its two terms, and a random val
+  crop. Every 100 steps, on the fixed crops: the fixed error (accuracy, completeness and Chamfer in cells), the occupancy precision and recall
+  of the children, and the vertex error. The kept step has the least fixed Chamfer on the train scenes (rungs 3 and 4) or on **dev** (rung 5,
+  where dev is unseen). Val is never used to choose anything here, so its rung-5 numbers are a held-out validation.
+- **Baselines (all on E69a's scorer, `cloud_eval`, Déjà View's alignment, run alongside):**
+  - Déjà View's pixels: bedroom 1.837, dev 3.480 on the 5090; the 3080's own numbers are rerun.
+  - The plain voxel density filter at q 0.5, the strongest simple filter on val (E86a: val 3.76 against Déjà View's 5.10). q is tuned on dev
+    over {0.5, 0.7, 0.9}, three values, as many as each arm's learning rate.
+  - Two references without training: `dv-ovoxel` (the children holding a Déjà View point, at those points' mean: Déjà View in this
+    representation) and `oracle-ovoxel`.
+- **Rungs and gates** (`experiments/scripts/e69c.sh` runs them in order and stops where a gate passes nothing; the rules are in `e69c_gate.py`, with
+  tests; Chamfer in cm; tie band 0.1 cm; "beats" means the mean gain exceeds the larger of the band and twice the standard error of the per-scene
+  differences, as E69a):
+  0. **Formulation, no training** (`e69c_oracle.py`, dev and val):
+     - **References:** `oracle-ovoxel` and `dv-ovoxel` at split 2, 3 and 4. Split is the smallest whose oracle is at most half of Déjà View's
+       Chamfer on each dev scene, chosen on dev and checked on val.
+     - **Damage map:** `oracle-ovoxel` damaged in a known way. Drop a share r of its occupied children and add a share f of the empty candidates
+       (vertex at the child centre), each in {0, 0.1, 0.2, 0.3, 0.5}. Move the vertices by Gaussian noise of σ in {0, 0.1, 0.2, 0.3} child sizes.
+       `dv-ovoxel`'s own r and f are marked on the map.
+     - **Gate:** `dv-ovoxel` within the band of Déjà View (the representation costs nothing by itself), and the chosen split's oracle below half
+       of Déjà View on every dev scene.
+     - **What the map gives:** the region of occupancy errors and vertex noise in which a model beats Déjà View on dev and on val. That region is
+       the target of every later rung, read from the precision, recall and vertex error that are logged, before any cloud is scored.
+  1. **Data:** `figures/e69c_data.jpg`, a 4-cell slab of the bedroom. Panels: the grid channels, the first three PCA channels of the DINOv2 volume,
+     the occupancy targets of the children, and the target vertices on top of the GT points. Looked at before any training.
+  2. **Speed:** `generate-cloud --profile`. Gate: the train step under 1 s and no job over 30 minutes, as E69a.
+  3. **Overfit the bedroom `ai_006_007`, in two parts:**
+     - **3a, the output alone** (an auto-decoder, DeepSDF, Park et al. 2019):
+       - **Setup:** the U-Net is replaced by a free 32-dimensional latent per voxel of the bedroom's grid, read by the same head. The latent table
+         is the memory of one scene, not a model, so the 1 M limit applies to the head only. It has more numbers per voxel than the targets
+         (split^3 x 4), so it can express them.
+       - **Gate:** the bedroom Chamfer within the larger of the band and 10% of the gap of Déjà View's above `oracle-ovoxel`, and child occupancy
+         precision and recall of at least 0.95.
+       - **If it fails:** the targets, the head, the decoding or the scoring is wrong, and that is fixed at this rung. It shows that the decoder can
+         carry the answer before any encoder is asked to produce it.
+     - **3b, input to output:** both arms, the U-Net on the bedroom's grid.
+       - **Gate (E69a's):** an arm closes at least half the gap from Déjà View (1.837) to `oracle-ovoxel`.
+       - **Escalation:** E69a found the stall to be underfitting, and X69's 1.42 M model with a one-cycle schedule did fit the bedroom. So if no arm
+         passes at the rung-0 setting (1 200 steps), these changes are made one at a time, and the first that lets an arm pass is kept for every
+         later rung:
+         - (E1) 4 800 steps;
+         - (E2) and widths 32 / 64 / 128, about 1.4 M parameters;
+         - (E3) and a cosine decay of the rate to zero.
+       - **Why the escalation is written down now:** these are rung-6 changes, a deviation from the ladder. They are stated here, before the run,
+         because the bar of "loss about 0" applies to the simplest model.
+  4. **Overfit the three dev scenes** (`ai_010_007`, `ai_006_007`, `ai_044_001`), the arms that passed, the setting that passed rung 3. Gate (E69a's):
+     the dev mean below Déjà View's by more than the band, on at least 2 of the 3 scenes.
+  5. **Generalize:** train on 5, then on 40 scenes of the repo's `train` split; keep the step on dev; score on val (11) and dev (3).
+     - **Gate (issue #69's):** an arm beats Déjà View on val, and its val Chamfer at 40 scenes is no worse than at 5 by more than the band.
+     - **Ablations** (40 scenes, seeds 0, 1 and 2 each), so that every part of the final method has one:
+       - the best arm;
+       - the same without DINOv2 (or with it, if `ovoxel` won);
+       - the same with the vertex fixed at the child centre (step 1 alone);
+       - the same with SAM 3's classes (`-sam3`, E34's nyu40 prompts at 0.3) as E69a's class histogram.
+       A part helps if removing it costs more than the spread of the seeds' val means.
+     - **Also reported:** the tuned density filter on val.
+- **Why success is a possible outcome here, unlike E69a:**
+  - The loss has a known minimum per element, and its zero is the oracle.
+  - Rung 3a proves the decoder before any encoder is asked to produce its input.
+  - The escalation that E69a's diagnosis calls for is pre-registered.
+  - Step 1 alone is a classification of candidate voxels. Its nearest working relative, the density filter, takes val from 5.10 to 3.76 cm by
+    dropping points. Step 1 can also keep children that Déjà View missed by one voxel (E69b: 0.895 within one voxel against 0.688 exactly).
+  - The damage map turns each rung's precision, recall and vertex error into "beats Déjà View or not" before any scoring.
+- **Rule and predictions, written before the run:**
+  - **Rung 0:**
+    - `oracle-ovoxel` at split 2: 0.3 to 0.7 cm on the bedroom, under 1.5 cm dev mean, so split 2 is chosen. The `oracle-lattice` of E69a,
+      0.267 / 0.753, snaps 8 points a voxel from up to 2 cells, so it is denser.
+    - `dv-ovoxel` within the band of Déjà View. Its child precision about 0.26 and recall about 0.55 (E69b's 384-cell row: 0.261 and 0.549).
+    - The map shows that recall can fall by 0.2 if precision rises above 0.6.
+    - **Refuted (stop, the representation is wrong):** no split up to 4 brings the oracle under half of Déjà View on the dev scenes.
+  - **3a:** passes within 10 minutes. A failure is a bug, not the approach.
+  - **3b:**
+    - `ovoxel` passes at the rung-0 setting or at E1, and `ovoxel-dino` passes too.
+    - **Refuted:** no arm closes half the gap after E3. That is "not yet working": the input does not determine the targets at this capacity,
+      and the next entry is a larger encoder, not a different decoder.
+  - **Rung 4:** a pass by the dev mean, with ai_044_001 (Déjà View 7.0 cm, median pixel error 17 cm) the scene most likely to lose.
+  - **Rung 5:**
+    - The best arm beats Déjà View on val, and most of the gain is accuracy (dropped floaters), as with the density filter. Expected val
+      Chamfer 3.8 to 4.6 cm against Déjà View's 5.10: a tie or a loss against the tuned density filter (3.76).
+    - DINOv2 gains within the seeds' spread. Semantic inputs gained nothing in E86a and E52f, and the Pixal3D argument is about single-view
+      ambiguity, which 20 views remove.
+    - The vertex (step 2) gains over the child centre by more than the spread on dev and val.
+    - **Refuted:** the val Chamfer at 40 scenes is not below Déjà View's by more than the larger of the band and twice the standard error.
+  - **Wording:** a negative result is "not yet working", with what is missing named. "The approach fails" needs rung 3 passed, the tuned density
+    filter below it, and the spread and budget logged.
+- **Budget (one RTX 3080, upper bounds from E69a's 3080 timings):**
+  - DINOv2 on 54 scenes x 20 views: under 15 min.
+  - Rung 0: CPU and scoring, under 1 h.
+  - Learning-rate probes: 2 arms x 3 rates x 300 steps, about 10 min.
+  - Rung 3: under 25 min per job.
+  - Rung 4: under 30 min per arm.
+  - Rung 5: 2 sizes x 2 arms, then 4 ablation arms x 3 seeds, under 30 min each, about 8 h in all.
+  - About 11 h of GPU time if every rung passes. Every single job stays under 30 minutes.
+- **Not in this run:** test and stress (reported once, at the end, in a later entry, if rung 5 passes); Déjà View's own tokens instead of DINOv2 (only
+  if `ovoxel-dino` beats `ovoxel`); a flow or diffusion model over the latents (TRELLIS.2 and Pixal3D need one for single-image ambiguity, and E69b
+  found the misses displaced, not ambiguous); Gaussians as the decoder's output, since the scorer reads points; scoring the parts of the scene
+  that no view sees.
+- **Commands (written with the code):** `experiments/scripts/e69c.sh` (all rungs in order). One rung: `uv run generate-cloud --config configs/e69c.yaml
+  --rung <rung>`, then `experiments/scripts/e69c_gate.py`. Features: `uv run python -m src.backbone.dinov2 configs/e69c.yaml` (writes the cache).
