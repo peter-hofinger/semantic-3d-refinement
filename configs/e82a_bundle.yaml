@@ -1,0 +1,32 @@
+# E82a (issue #82, src/refinement/bundle.py, bundle-refine): dense bundle adjustment of Deja View's output.
+# `matches`: RAFT matches of every train, dev and val scene (cached next to the views); `free`: the
+# training-free solver at each prior, written for dev and val; `train`: learned match weights, no classes vs
+# SAM 3 same-object flags, 2 seeds, trained on the train scenes with the last 8 held out, written for dev and val.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+split: configs/hypersim.yaml
+train_splits: [train, train_extra]
+held_out: 8
+predict_splits: [dev, val]
+stride: 8          # grid of depth unknowns: 47 x 63 per view at 504 px
+window: 2          # each view is matched to the views up to 2 steps along the path
+iterations: 8
+robust: 2.0        # Cauchy scale, pixels
+sigma: 1.0         # forward-backward error scale of the training-free weights, pixels
+prior: 1000.0      # lambda of the inverse-depth prior, for the learned models
+damping: 1.0e-4
+pose_prior: 1.0e+5 # alpha of the pose prior: weaker ones let poorly matched views drift (E82a smoke)
+free:              # training-free solvers: name -> prior
+  e82a-free-p1e2: 100.0
+  e82a-free-p1e3: 1000.0
+  e82a-free-p1e4: 10000.0
+  e82a-free-p1e6: 1000000.0   # depth held: poses only
+models:            # learned weights: name -> semantics
+  e82a-learned-none: none
+  e82a-learned-sam3: sam3
+hidden: 32
+steps: 2000
+lr: 1.0e-3
+seeds: [0, 1]
