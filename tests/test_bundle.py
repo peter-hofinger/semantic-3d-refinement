@@ -198,3 +198,28 @@ def test_window_pairs_link_each_view_to_its_path_neighbours() -> None:
     assert [0, 2] in pairs
     assert [4, 2] in pairs
     assert [0, 3] not in pairs
+
+
+def test_gradients_through_the_solver_are_finite() -> None:
+    rot, cen = cameras(4)
+    truth = make_scene(rot, cen)
+    matches = true_matches(truth)
+    bump = torch.tensor(
+        [[0.0, 0, 0], [0.01, -0.02, 0.01], [0, 0.01, 0.02], [0.02, 0, 0]]
+    )
+    moved = Scene(
+        truth.depth, truth.rays, truth.conf, truth.k, so3_exp(bump.double()) @ rot, cen
+    )
+    behind = matches.pairs[:, 1] == 1  # view 1 turned away: its matches fall behind it
+    turned = moved.rotation.clone()
+    turned[1] = so3_exp(torch.tensor([0.0, np.pi, 0.0]).double()) @ turned[1]
+    moved = Scene(moved.depth, moved.rays, moved.conf, moved.k, turned, moved.center)
+    assert behind.any()
+    weight = torch.full(matches.fb.shape, 0.5, dtype=torch.float64, requires_grad=True)
+    state = adjust(moved, matches, weight, config(iterations=3))
+    state.rho.sum().backward()
+    assert weight.grad is not None
+    assert torch.isfinite(weight.grad).all()
+    omega = torch.zeros(2, 3, dtype=torch.float64, requires_grad=True)
+    so3_log(so3_exp(omega)).sum().backward()
+    assert torch.isfinite(omega.grad).all()

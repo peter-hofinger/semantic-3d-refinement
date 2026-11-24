@@ -58,6 +58,7 @@ SEMANTICS = ("none", "sam3")
 FEATURES = 7  # per-match features of the learned weights, without the semantic flag
 MIN_DEPTH = 1e-6  # a match whose point is not in front of view j is dropped
 MU_START, MU_MIN, MU_MAX = 1e-2, 1e-6, 1e6  # Levenberg-Marquardt damping
+COS_MARGIN = 1e-12  # keeps arccos and its gradient finite at the identity
 SMALL_ANGLE = 1e-6  # below it, log uses its limit theta / (2 sin theta) -> 1/2
 RHO_RANGE = (0.5, 2.0)  # inverse depth stays within this factor of the backbone's
 
@@ -122,7 +123,8 @@ def skew(v: Tensor) -> Tensor:
 
 def so3_log(rotation: Tensor) -> Tensor:
     """Axis-angle vectors (..., 3) of rotation matrices, angles below pi."""
-    cos = ((torch.diagonal(rotation, dim1=-2, dim2=-1).sum(-1) - 1) / 2).clamp(-1, 1)
+    cos = (torch.diagonal(rotation, dim1=-2, dim2=-1).sum(-1) - 1) / 2
+    cos = cos.clamp(-1 + COS_MARGIN, 1 - COS_MARGIN)  # arccos' is infinite at +-1
     theta = torch.arccos(cos)
     vee = torch.stack(
         [
@@ -154,11 +156,21 @@ def pose_pull(scene: Scene, state: State, cfg: BundleConfig) -> tuple[Tensor, Te
 
 
 def so3_exp(omega: Tensor) -> Tensor:
-    """Rotation matrices (..., 3, 3) of axis-angle vectors (Rodrigues)."""
-    theta = omega.norm(dim=-1, keepdim=True).clamp_min(1e-12)[..., None]
-    k = skew(omega) / theta
+    """Rotation matrices (..., 3, 3) of axis-angle vectors (Rodrigues).
+
+    Taylor series below SMALL_ANGLE, and no division by a zero angle in either
+    branch: view 0's update is exactly zero, and 0/0 in the unused branch of a `where`
+    still makes the gradient NaN.
+    """
+    theta2 = (omega * omega).sum(-1)[..., None, None]
+    small = theta2 < SMALL_ANGLE**2
+    t2 = torch.where(small, torch.ones_like(theta2), theta2)
+    t = t2.sqrt()
+    a = torch.where(small, 1 - theta2 / 6, torch.sin(t) / t)
+    b = torch.where(small, 0.5 - theta2 / 24, (1 - torch.cos(t)) / t2)
+    k = skew(omega)
     eye = torch.eye(3, dtype=omega.dtype, device=omega.device).expand_as(k)
-    return eye + torch.sin(theta) * k + (1 - torch.cos(theta)) * k @ k
+    return eye + a * k + b * k @ k
 
 
 @dataclass
@@ -281,9 +293,13 @@ def residuals(
     fx, fy = kj[:, 0, 0, None, None], kj[:, 1, 1, None, None]
     cx, cy = kj[:, 0, 2, None, None], kj[:, 1, 2, None, None]
     dz = d[..., 2]
-    u = torch.stack([fx * d[..., 0] / dz + cx, fy * d[..., 1] / dz + cy], -1)
+    front = dz > MIN_DEPTH
+    dz_safe = torch.where(
+        front, dz, torch.ones_like(dz)
+    )  # no 1/0 in the dropped branch
+    u = torch.stack([fx * d[..., 0] / dz_safe + cx, fy * d[..., 1] / dz_safe + cy], -1)
     r = torch.where(
-        (dz > MIN_DEPTH)[..., None], u - matches.target, torch.nan
+        front[..., None], u - matches.target, torch.nan
     )  # behind view j: dropped
     zero = torch.zeros_like(dz)
     proj = torch.stack(
@@ -320,10 +336,11 @@ def solve_step(  # noqa: PLR0913  state, data, weights and settings stay separat
     v, gh, gw = state.rho.shape
     p = grid(*scene.depth.shape[1:], cfg.stride, scene.depth.device)
     r, j_wi, j_ti, j_wj, j_tj, j_rho = residuals(scene, state, matches, p)
-    norm = r.detach().norm(dim=-1).clamp_min(1e-9)
-    w = weight.reshape(-1) / (1 + (norm / cfg.robust) ** 2)  # Cauchy IRLS
-    w = torch.where(torch.isfinite(r).all(-1), w, torch.zeros_like(w))
+    valid = torch.isfinite(r).all(-1)  # NaN: the point is behind view j
     r = torch.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)
+    norm = r.detach().norm(dim=-1)  # finite everywhere, or 1/NaN poisons the gradient
+    w = weight.reshape(-1) / (1 + (norm / cfg.robust) ** 2)  # Cauchy IRLS
+    w = torch.where(valid, w, torch.zeros_like(w))
     jp = torch.cat([j_wi, j_ti, j_wj, j_tj], -1).detach()  # (N, 2, 12)
     jd = torch.nan_to_num(j_rho.detach())
     jp = torch.nan_to_num(jp)
@@ -690,7 +707,8 @@ def train_model(
     """Train the weights through the unrolled solver; keep the least held-out error.
 
     A sample on which the solver keeps no step returns the start state, which does not
-    depend on the weights; it is skipped and counted (`idle` in the history).
+    depend on the weights, and one whose gradient is not finite would poison them;
+    both are skipped and counted (`idle` in the history).
     """
     torch.manual_seed(seed)
     model = MatchWeights(cfg.hidden, semantics=semantics != "none").to(device)
@@ -731,7 +749,10 @@ def train_model(
             continue
         opt.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        if not torch.isfinite(norm):  # a degenerate solve: skip rather than poison
+            idle += 1
+            continue
         opt.step()
     assert best_state is not None
     model.load_state_dict(best_state)
