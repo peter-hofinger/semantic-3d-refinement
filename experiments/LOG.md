@@ -8552,3 +8552,31 @@ Interim entry: the check that the plan puts before any table.
 - **Figure, raw:** `uv run python experiments/scripts/e87a_gate.py --collect` (3080), then
   `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg` (gate and pull per loop step,
   gate by class and at depth edges, bedroom view 18 maps), `results/e87a_gate.yaml`.
+
+## Plan: E94a, val Chamfer of the 15 kept models of E52b and E87a: does the dev picture hold on unseen scenes? (issue #94, 24.11.2026)
+- **Goal:** E52b and E87a scored dev only (3 scenes); val (11 scenes) picked each run's kept state but was
+  never scored. Before #50 is closed and before the README reports LoRA's gain (3.155 vs Déjà View's 3.500 cm
+  dev Chamfer), score val Chamfer for LoRA alone, LoRA + pooling (GT, grid) and LoRA + gated pooling (GT,
+  grid), 3 seeds each.
+- **Change (one):** `--score <run> ...` in `experiments/scripts/e52a_segment_adapters.py`: each kept state
+  `<run>/<model>-<kind>.pt` is rebuilt from that run's own `e52a.yaml` config, loaded and scored on `--splits`
+  with the eval loop a training run uses on its own models (now `evaluate`), Déjà View in the same pass. No
+  training. Test: `tests/test_e52a_score.py` (a saved state comes back bit for bit, a run with another grid
+  is refused).
+- **Selection bias:** every kept state was chosen by the least val ratio (the training loss over Déjà View's,
+  12 fixed views) on these same 11 scenes. All arms share it, so arms compare fairly; the gain over Déjà View
+  is an upper estimate. Test is not touched.
+- **Prior:** the dev picture holds (pooling ties or trails LoRA alone). E11a's warning: the learned refiner's
+  masks helped on dev and not on val.
+- **Rule, fixed before the run:** margin m = max(0.080 cm, LoRA alone's val seed range). (1) A pooling arm
+  counts as a gain over LoRA alone only if it beats it by more than m in seed-mean val Chamfer and on at least
+  6 of the 11 scenes; otherwise #50's verdict stands. (2) LoRA alone gets its own README row only if it beats
+  Déjà View by more than m and on at least 6 of the 11 scenes.
+- **Check:** dev is rescored in the same run; every model's dev Chamfer must match its E52b / E87a record
+  within 0.014 cm (the eval-to-eval noise), else the loading is wrong and val is not read.
+- **Reading:** val Chamfer, accuracy and completeness per scene and mean, seed mean and range per arm, against
+  Déjà View from the same run; plain-camera scores and ray angle as recorded.
+- **Command** (3080, main pulled first):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits val dev --score runs/e52b_control runs/e52b_control_s1 runs/e52b_control_s2 runs/e52b_main_{gt,grid}_s{0,1,2} runs/e87a_main_{gt,grid}_s{0,1,2} --out runs/e94a_val`
+- **Cost:** 15 models x 14 scenes of 20 views plus Déjà View, ~1-2 h on the 3080. Smoke first (one run dir,
+  `--splits dev`, a few minutes). Ask before the full run.
