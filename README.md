@@ -22,6 +22,7 @@ Noise floor 0.036 cm (E40).
 | Do the segments explain what small gain there is? | The same refiner with no segments | No: ids permuted at random beat SAM 3 beyond noise, and ground-truth ids gain less than SAM 3's. Chamfer against no segments, dev: SAM 3 -0.069, ground truth -0.021, permuted -0.249 (val: -0.119, -0.043, -0.346) | E8a, E26a |
 | Does the best filter's semantic part help? | The same cut, every pixel one instance (plain voxel density): val 3.76 | No: SAM 3's instances 3.82 (better on 3 of 11 scenes), ground truth 3.70 (6 of 11, median within noise), ids permuted per view 4.31 | E86a |
 | Does a learned refiner do better? | Déjà View | Per-view U-Net: val Chamfer 5.06 against 5.10, the size of the noise floor, masks or not. Fused voxel grid with a 3D U-Net: no model beats Déjà View on val | E11a, E41b |
+| Do segments help inside Déjà View, as token pooling learned next to LoRA? | LoRA without segments: dev 3.155 (Déjà View 3.500), seed range 0.081 | No: pooling over ground-truth instances 3.245, over 3×3 grid tiles 3.224; with a per-token gate 3.257 and 3.246. Three seeds per arm; val only picked the kept state and was not scored | E52b, E87a |
 
 In the current energy the segments only switch off part of the cross-view term (E8a-E8c);
 `experiments/LOG.md` holds every setting we kept and why.
