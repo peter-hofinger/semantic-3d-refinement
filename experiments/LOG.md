@@ -8646,3 +8646,31 @@ Interim entry: the check that the plan puts before any table.
   semantic flag if sam3 does not beat none by more than the seed spread.
 - **Compute:** 3d-cluster: matches for all 167 scenes (1 GPU), then the training-free arms and the 4 learned models
   (one GPU each), each scored with `scene_eval --splits dev val`.
+## E82a: dense bundle adjustment of Deja View's output -> training-free hurts on val at every prior; learned weights gain 0.02 cm on val (0.4%, beyond the seed spread, 6-7 of 11 scenes) and the SAM 3 flag adds nothing (issue #82, 24.11.2026)
+- **Commits:** 1e9cc8f (plan, configs), 1a3dcb8 (scenes whose rays fit no pinhole, ai_003_001 and ai_016_009, are
+  skipped: the matches job died on them), 6bc9cb0 (finite gradients: a Taylor `so3_exp` near zero, residuals of
+  points behind a camera weighted 0 instead of NaN, steps with a non-finite gradient skipped; found by a pre-flight
+  of every stage on the 3080 before requeueing, with a test). Runs at 348ffa6 (same tree before the rebase).
+  3d-cluster, one RTX 5090 each: matches 9 min, the training-free arms 9 min, each learned model 17 min (training
+  and scoring); `experiments/results/e82a.txt`.
+- **Results** (Chamfer, cm; Deja View dev 3.500, val 5.102):
+
+  | arm | dev | val | val scenes better |
+  |---|---|---|---|
+  | free, lambda 1e2 | - | - | geometry breaks, not scored |
+  | free, lambda 1e3 | 3.825 | 5.544 | 3 / 11 |
+  | free, lambda 1e4 | 3.493 | 5.446 | 5 / 11 |
+  | free, lambda 1e6 (poses only) | 3.551 | 5.437 | 3 / 11 |
+  | learned, no classes (s0 / s1) | 3.469 / 3.440 | 5.080 / 5.086 | 6 / 6 |
+  | learned, SAM 3 flag (s0 / s1) | 3.456 / 3.442 | 5.081 / 5.086 | 7 / 6 |
+
+- **Training-free:** worse than Deja View on val at every prior, by 0.34-0.44 cm. The loss is concentrated: in
+  ai_004_004, ai_004_010 and ai_007_001 the cameras drift (+0.8 to +2.3 cm even with depth held), as the smoke
+  predicted: RAFT's matches move the cameras about as far as Deja View's own pose error.
+- **Learned:** the weights learn to damp the adjustment. The held-out error falls from 0.18-0.20 (untrained
+  weights) to 0.1471 in every model, against 0.1473 for Deja View itself. On val the gain is 0.016-0.022 cm, above
+  the seed spread (0.006) but small and mixed per scene (-0.10 to +0.08); on dev 0.03-0.06 cm, all 3 scenes.
+- **Conclusion:** by the plan's criteria the training-free arms are refuted, the learned arm passes (a 0.4% val
+  gain), and the semantic flag is refuted: SAM 3 ties no classes in both seeds (val difference <= 0.001 cm). The
+  limit is the matches: RAFT at these baselines constrains depth less precisely than Deja View already is, so
+  fitting them can at best leave the geometry nearly unchanged. Test not touched.

@@ -1,0 +1,60 @@
+E82a (issue #82): dense bundle adjustment of Deja View's output (configs/e82a_bundle.yaml); git 348ffa6, 3d-cluster RTX 5090.
+Chamfer in cm, scene_eval with SAM 3 labels; Deja View dev 3.500, val 5.102 (from E81a's untrained state, same scoring).
+free = training-free (weights from RAFT's forward-backward error), lambda = inverse-depth prior; p1e6 holds depth, poses only.
+learned = per-match MLP weights trained through the unrolled solver on 145 train scenes (8 held out), lambda 1e3.
+
+| arm | dev | val | val scenes better than Deja View |
+|---|---|---|---|
+| Deja View | 3.500 | 5.102 | - |
+| free p1e2 | - | - | not scored: the geometry breaks, the normal orientation check fails |
+| free p1e3 | 3.825 | 5.544 | 3 / 11 |
+| free p1e4 | 3.493 | 5.446 | 5 / 11 |
+| free p1e6 | 3.551 | 5.437 | 3 / 11 |
+| learned none s0 | 3.469 | 5.080 | 6 / 11 |
+| learned none s1 | 3.440 | 5.086 | 6 / 11 |
+| learned sam3 s0 | 3.456 | 5.081 | 7 / 11 |
+| learned sam3 s1 | 3.442 | 5.086 | 6 / 11 |
+
+Held-out relative point error during training (8 train scenes, grid points after the solver; Deja View itself 0.1473):
+step 0 -> 2000: none s0 0.1824 -> 0.1471, none s1 0.1795 -> 0.1471, sam3 s0 0.2018 -> 0.1471, sam3 s1 0.2007 -> 0.1471.
+
+Per scene, Chamfer minus Deja View's (cm):
+| scene | Deja View | p1e3 | p1e4 | p1e6 | none s0 | none s1 | sam3 s0 | sam3 s1 |
+|---|---|---|---|---|---|---|---|---|
+| dev ai_006_007 | 1.85 | +0.192 | +0.041 | +0.044 | -0.033 | -0.024 | -0.021 | -0.029 |
+| dev ai_010_007 | 1.60 | +0.607 | +0.061 | +0.080 | -0.035 | -0.046 | -0.046 | -0.048 |
+| dev ai_044_001 | 7.05 | +0.177 | -0.125 | +0.029 | -0.025 | -0.109 | -0.066 | -0.098 |
+| val ai_003_010 | 2.96 | +0.348 | +0.201 | +0.173 | -0.015 | -0.015 | -0.003 | -0.009 |
+| val ai_004_003 | 9.12 | -0.349 | -0.088 | -0.051 | -0.001 | +0.010 | +0.014 | +0.001 |
+| val ai_004_004 | 2.28 | +1.765 | +1.758 | +1.755 | +0.000 | +0.001 | +0.013 | +0.001 |
+| val ai_004_010 | 1.83 | +1.287 | +0.826 | +0.827 | +0.034 | +0.024 | +0.077 | +0.027 |
+| val ai_005_005 | 4.44 | +0.015 | -0.244 | -0.264 | -0.098 | -0.055 | -0.092 | -0.062 |
+| val ai_007_001 | 3.51 | +2.298 | +1.366 | +0.974 | -0.037 | -0.015 | -0.020 | -0.018 |
+| val ai_009_007 | 4.02 | +0.237 | +0.166 | +0.165 | +0.001 | +0.006 | +0.002 | +0.001 |
+| val ai_009_009 | 16.36 | -0.935 | -0.087 | +0.003 | +0.023 | +0.037 | -0.022 | +0.048 |
+| val ai_031_004 | 4.64 | +0.106 | +0.136 | +0.174 | +0.002 | -0.004 | -0.001 | -0.002 |
+| val ai_044_003 | 3.97 | +0.139 | -0.127 | +0.007 | -0.058 | -0.073 | -0.092 | -0.066 |
+| val ai_050_002 | 2.98 | -0.045 | -0.123 | -0.075 | -0.093 | -0.097 | -0.107 | -0.100 |
+
+Per model (scene_eval, dev and val):
+e82a-free-p1e3
+  dev | e82a-free-p1e3 | accuracy_cm 5.414 | completeness_cm 2.236 | chamfer_cm 3.825 | miou 0.360 | pq 0.297 | ap 0.217 | 0.0 s
+  val | e82a-free-p1e3 | accuracy_cm 7.177 | completeness_cm 3.912 | chamfer_cm 5.544 | miou 0.392 | pq 0.249 | ap 0.313 | 0.0 s
+e82a-free-p1e4
+  dev | e82a-free-p1e4 | accuracy_cm 4.603 | completeness_cm 2.382 | chamfer_cm 3.493 | miou 0.360 | pq 0.294 | ap 0.218 | 0.0 s
+  val | e82a-free-p1e4 | accuracy_cm 6.786 | completeness_cm 4.105 | chamfer_cm 5.446 | miou 0.392 | pq 0.248 | ap 0.312 | 0.0 s
+e82a-free-p1e6
+  dev | e82a-free-p1e6 | accuracy_cm 4.647 | completeness_cm 2.455 | chamfer_cm 3.551 | miou 0.361 | pq 0.294 | ap 0.219 | 0.0 s
+  val | e82a-free-p1e6 | accuracy_cm 6.772 | completeness_cm 4.102 | chamfer_cm 5.437 | miou 0.392 | pq 0.253 | ap 0.312 | 0.0 s
+e82a-learned-none-s0
+  dev | e82a-learned-none-s0 | accuracy_cm 4.596 | completeness_cm 2.341 | chamfer_cm 3.469 | miou 0.360 | pq 0.294 | ap 0.217 | 0.0 s
+  val | e82a-learned-none-s0 | accuracy_cm 6.023 | completeness_cm 4.136 | chamfer_cm 5.080 | miou 0.393 | pq 0.256 | ap 0.347 | 0.0 s
+e82a-learned-none-s1
+  dev | e82a-learned-none-s1 | accuracy_cm 4.552 | completeness_cm 2.328 | chamfer_cm 3.440 | miou 0.359 | pq 0.293 | ap 0.217 | 0.0 s
+  val | e82a-learned-none-s1 | accuracy_cm 6.028 | completeness_cm 4.143 | chamfer_cm 5.086 | miou 0.393 | pq 0.256 | ap 0.348 | 0.0 s
+e82a-learned-sam3-s0
+  dev | e82a-learned-sam3-s0 | accuracy_cm 4.588 | completeness_cm 2.324 | chamfer_cm 3.456 | miou 0.360 | pq 0.293 | ap 0.216 | 0.0 s
+  val | e82a-learned-sam3-s0 | accuracy_cm 6.036 | completeness_cm 4.126 | chamfer_cm 5.081 | miou 0.393 | pq 0.256 | ap 0.347 | 0.0 s
+e82a-learned-sam3-s1
+  dev | e82a-learned-sam3-s1 | accuracy_cm 4.551 | completeness_cm 2.333 | chamfer_cm 3.442 | miou 0.359 | pq 0.293 | ap 0.217 | 0.0 s
+  val | e82a-learned-sam3-s1 | accuracy_cm 6.027 | completeness_cm 4.144 | chamfer_cm 5.086 | miou 0.393 | pq 0.256 | ap 0.348 | 0.0 s
