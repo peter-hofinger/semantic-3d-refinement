@@ -8552,3 +8552,76 @@ Interim entry: the check that the plan puts before any table.
 - **Figure, raw:** `uv run python experiments/scripts/e87a_gate.py --collect` (3080), then
   `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg` (gate and pull per loop step,
   gate by class and at depth edges, bedroom view 18 maps), `results/e87a_gate.yaml`.
+
+## Plan: E94a, val Chamfer of the 15 kept models of E52b and E87a: does the dev picture hold on unseen scenes? (issue #94, 24.11.2026)
+- **Goal:** E52b and E87a scored dev only (3 scenes); val (11 scenes) picked each run's kept state but was
+  never scored. Before #50 is closed and before the README reports LoRA's gain (3.155 vs Déjà View's 3.500 cm
+  dev Chamfer), score val Chamfer for LoRA alone, LoRA + pooling (GT, grid) and LoRA + gated pooling (GT,
+  grid), 3 seeds each.
+- **Change (one):** `--score <run> ...` in `experiments/scripts/e52a_segment_adapters.py`: each kept state
+  `<run>/<model>-<kind>.pt` is rebuilt from that run's own `e52a.yaml` config, loaded and scored on `--splits`
+  with the eval loop a training run uses on its own models (now `evaluate`), Déjà View in the same pass. No
+  training. Test: `tests/test_e52a_score.py` (a saved state comes back bit for bit, a run with another grid
+  is refused).
+- **Selection bias:** every kept state was chosen by the least val ratio (the training loss over Déjà View's,
+  12 fixed views) on these same 11 scenes. All arms share it, so arms compare fairly; the gain over Déjà View
+  is an upper estimate. Test is not touched.
+- **Prior:** the dev picture holds (pooling ties or trails LoRA alone). E11a's warning: the learned refiner's
+  masks helped on dev and not on val.
+- **Rule, fixed before the run:** margin m = max(0.080 cm, LoRA alone's val seed range). (1) A pooling arm
+  counts as a gain over LoRA alone only if it beats it by more than m in seed-mean val Chamfer and on at least
+  6 of the 11 scenes; otherwise #50's verdict stands. (2) LoRA alone gets its own README row only if it beats
+  Déjà View by more than m and on at least 6 of the 11 scenes.
+- **Check:** dev is rescored in the same run; every model's dev Chamfer must match its E52b / E87a record
+  within 0.014 cm (the eval-to-eval noise), else the loading is wrong and val is not read.
+- **Reading:** val Chamfer, accuracy and completeness per scene and mean, seed mean and range per arm, against
+  Déjà View from the same run; plain-camera scores and ray angle as recorded.
+- **Command** (3080, main pulled first):
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits val dev --score runs/e52b_control runs/e52b_control_s1 runs/e52b_control_s2 runs/e52b_main_{gt,grid}_s{0,1,2} runs/e87a_main_{gt,grid}_s{0,1,2} --out runs/e94a_val`
+- **Cost:** 15 models x 14 scenes of 20 views plus Déjà View, ~1-2 h on the 3080. Smoke first (one run dir,
+  `--splits dev`, a few minutes). Ask before the full run.
+
+## E94a: on val no pooling arm differs from LoRA alone; LoRA alone passes the rule against Déjà View, but one scene carries the mean (issue #94, 24.11.2026)
+- **Setting:** the plan entry above at 06af43d (clean), 3080, bf16, 20 views per scene, the 15 kept states of
+  E52b and E87a, Déjà View in the same pass. 24.11 14:20 - 14:50 (210 model x scene scores, ~30 min; the smoke
+  estimate of 25-35 min held). Job `/home/student/mircea/jobs_e94a_val.sh`, run `runs/e94a_val`. Analysis
+  `experiments/scripts/e94a_val_figures.py`, numbers `experiments/results/e94a_val.yaml`, figure
+  `experiments/figures/e94a_val.jpg`.
+- **Check passed:** every model's rescored dev Chamfer equals its E52b / E87a record to 0.0000 cm (all 15 x 3
+  scenes); the smoke run had matched LoRA alone seed 0 the same way. Déjà View's val mean 5.102 cm equals E11a's.
+- **Val (11 scenes, cm, seed means; kept states were selected on these scenes, so gains over Déjà View are an
+  upper estimate):**
+
+  | | accuracy | completeness | Chamfer | seeds (Chamfer) | seed range | vs LoRA alone (scenes lower) |
+  |---|---|---|---|---|---|---|
+  | Déjà View | 6.061 | 4.142 | 5.102 | | | |
+  | LoRA alone | 5.698 | 3.787 | **4.743** | 4.704 / 4.800 / 4.724 | 0.096 | |
+  | LoRA + pool, GT (E52b) | 5.668 | 3.787 | 4.727 | 4.712 / 4.650 / 4.820 | 0.171 | -0.015 (7 of 11) |
+  | LoRA + pool, grid (E52b) | 5.642 | 3.756 | 4.699 | 4.672 / 4.755 / 4.670 | 0.086 | -0.044 (6 of 11) |
+  | LoRA + gated pool, GT | 5.665 | 3.743 | 4.704 | 4.682 / 4.669 / 4.760 | 0.092 | -0.039 (6 of 11) |
+  | LoRA + gated pool, grid | 5.684 | 3.778 | 4.731 | 4.635 / 4.722 / 4.836 | 0.201 | -0.011 (6 of 11) |
+
+  Seed-mean Chamfer minus Déjà View's per scene (cm):
+
+  | | 003_010 | 004_003 | 004_004 | 004_010 | 005_005 | 007_001 | 009_007 | 009_009 | 031_004 | 044_003 | 050_002 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|
+  | Déjà View | 2.959 | 9.118 | 2.283 | 1.829 | 4.442 | 3.512 | 4.023 | 16.358 | 4.644 | 3.971 | 2.980 |
+  | LoRA alone | +0.003 | -0.035 | -0.062 | +0.039 | +1.535 | -1.078 | -0.368 | -4.283 | -0.019 | -0.041 | +0.357 |
+  | pool, GT | -0.008 | -0.076 | -0.038 | +0.043 | +1.279 | -1.212 | -0.225 | -3.960 | -0.140 | -0.072 | +0.291 |
+  | pool, grid | -0.006 | -0.081 | -0.053 | +0.103 | +1.402 | -1.274 | -0.298 | -4.524 | +0.056 | -0.038 | +0.283 |
+  | gated, GT | +0.022 | -0.082 | -0.148 | +0.039 | +1.647 | -0.784 | -0.454 | -4.883 | -0.009 | -0.051 | +0.324 |
+  | gated, grid | +0.053 | -0.061 | +0.003 | +0.117 | +1.457 | -1.182 | -0.326 | -4.494 | +0.075 | -0.073 | +0.353 |
+
+- **Reading (the plan's rule, m = max(0.080, 0.096) = 0.096 cm):**
+  (1) No pooling arm beats LoRA alone: all four are 0.011-0.044 cm lower in mean, far inside m. GT vs grid has no
+  consistent sign (ungated GT 0.028 above grid, gated GT 0.027 below). #50's verdict stands, now on val.
+  The dev gap (pooling arms 0.07-0.10 cm behind LoRA alone, E87a) does not hold on val: it was dev noise.
+  (2) LoRA alone beats Déjà View by 0.359 cm on 7 of 11 scenes, so it formally passes. But the gain is one
+  scene: 009_009 (Déjà View 16.36 cm) gives -4.28 of the 11-scene sum of -3.95; without it LoRA alone is 4.009
+  vs Déjà View's 3.976 cm, and its median per-scene ratio is 0.996. Five of the seven scenes it improves move
+  by less than 0.07 cm, 005_005 gets 35% worse (+1.54) and 050_002 12% worse, in every arm. Read: fine-tuning
+  on Hypersim's train scenes repairs a few scenes where Déjà View fails badly and slightly hurts others; it is
+  not a uniform 7% gain. Every arm shares this pattern, so it comes from LoRA, not from segments.
+- **Conclusion:** semantics inside Déjà View, learned next to LoRA, do not help on val either (scoped: this
+  adapter, Hypersim, 120 train scenes, 3000 steps). LoRA's val gain is real by the rule but concentrated; report
+  it with the per-scene picture. Test not touched.

@@ -57,10 +57,15 @@ E87a (gated pooling, issue #87): a model's optional fourth flag adds the per-tok
 sigmoid(w_k · x + b_k) on the pooling branch, w_k and b_k trained at `lr_gate`; three-flag
 models (all earlier runs) have none.
 
+`--score <run> ...` (E94a, issue #94): no training; every kept state `<run>/<model>-<kind>.pt`
+is rebuilt from that run's own `e52a.yaml` config, loaded and scored on `--splits` exactly as
+a training run scores its own, with Déjà View in the same pass. Labels `<run>/<model>-<kind>`.
+
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true, false]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --check runs/e52a --out runs/e52a_check
+uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits val dev --score runs/e52b_control runs/e87a_main_gt_s0 --out runs/e94a_val
 writes `<out>/e52a.yaml` (records, config, git hash) and, for the default, every
 model's adapter and held-out curve `<out>/<model>-<segments>.pt`.
 """
@@ -520,11 +525,57 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
                 )
             torch.save({"state": adapter.state_dict()} | rec["models"][label],
                        args.out / f"{label}.pt")  # fmt: skip
-            adapters[label] = adapter
+            adapters[label] = adapter, kind
     del loaded, train_scenes, held, val, sets
+    rec["eval"] = evaluate(
+        backbone, adapters, scenes_of(cfg, raw, args.splits), cfg, raw
+    )
+    return rec
 
-    rec["eval"] = {}
-    for name in scenes_of(cfg, raw, args.splits):
+
+def kept(run: Path, cfg: dict, device: torch.device) -> tuple[dict, dict]:
+    """Kept states of one run, built from its own config: (adapter, kind), and records."""
+    run_cfg = yaml.safe_load((run / "e52a.yaml").read_text(encoding="utf-8"))["config"]
+    assert run_cfg["grid_tiles"] == cfg["grid_tiles"], (run, run_cfg["grid_tiles"])
+    adapters, meta = {}, {}
+    for path in sorted(run.glob("*-*.pt")):
+        model, kind = path.stem.split("-")
+        assert kind in run_cfg["segments"], (path, run_cfg["segments"])
+        saved = torch.load(path, map_location=device)
+        adapter = adapter_for(run_cfg, model, device)
+        adapter.load_state_dict(saved["state"])
+        label = f"{run.name}/{path.stem}"
+        adapters[label] = adapter, kind
+        meta[label] = {"best_step": saved["best_step"], "selected_on": saved["selected_on"],
+                       "is_zero": adapter.is_zero()}  # fmt: skip
+    assert adapters, f"no kept state in {run}"
+    return adapters, meta
+
+
+def score_kept(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
+    """Score the kept states of finished training runs on the eval splits, no training."""
+    backbone, net = setup(cfg)
+    device = next(net.parameters()).device
+    adapters: dict = {}
+    rec: dict = {"kept": {}}
+    for run in args.score:
+        a, m = kept(run, cfg, device)
+        adapters |= a
+        rec["kept"] |= m
+    for label, m in rec["kept"].items():
+        print(f"{label}: kept step {m['best_step']} on {m['selected_on']}", flush=True)
+    rec["eval"] = evaluate(
+        backbone, adapters, scenes_of(cfg, raw, args.splits), cfg, raw
+    )
+    return rec
+
+
+def evaluate(
+    backbone: DejaViewBackbone, adapters: dict, names: list[str], cfg: dict, raw: dict
+) -> dict:
+    """Score Déjà View and every (adapter, kind) per scene as the protocol, 20 views."""
+    rec = {}
+    for name in names:
         paths = input_paths(raw, name)
         views, gt = Views.load(paths["views"]), GroundTruth.load(paths["gt"])
         truth = ground_truth_cloud(
@@ -537,8 +588,7 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
                 kind, np.arange(len(views)), cfg)  # fmt: skip
         plain = backbone.predict(views)
         scene_rec = {BASE: score(plain, truth)[0] | {"ray_deg": 0.0}}
-        for label, adapter in adapters.items():
-            kind = label.split("-")[1]
+        for label, (adapter, kind) in adapters.items():
             codes, _ = codes_of(segments[kind], kind)
             with torch.no_grad():
                 out = backbone.predict(views, conditioned(adapter, codes))
@@ -547,7 +597,7 @@ def run(args: argparse.Namespace, cfg: dict, raw: dict) -> dict:
                 f"plain_cameras_{k}": v for k, v in score(fixed, truth)[0].items()}  # fmt: skip
             print(f"{name} {label}: Chamfer {scene_rec[label]['chamfer_cm']:.3f} "
                   f"(DV {scene_rec[BASE]['chamfer_cm']:.3f})", flush=True)  # fmt: skip
-        rec["eval"][name] = scene_rec
+        rec[name] = scene_rec
     return rec
 
 
@@ -611,6 +661,12 @@ def main() -> None:
         "--set", nargs="+", default=[], metavar="KEY=YAML",
         help="override config keys (smoke, lr sweep), recorded with the run")  # fmt: skip
     parser.add_argument("--check", type=Path, help="a training run's dir to check")
+    parser.add_argument(
+        "--score",
+        type=Path,
+        nargs="+",
+        help="training runs' dirs: score their kept states",
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     cfg = yaml.safe_load(args.cfg.read_text(encoding="utf-8"))
@@ -624,7 +680,10 @@ def main() -> None:
     raw = yaml.safe_load(Path(cfg["eval"]).read_text(encoding="utf-8"))
     assert raw["backbone"] == "dejaview_k16", raw["backbone"]
     args.out.mkdir(parents=True, exist_ok=False)
-    mode = probe if args.probe else check if args.check else run
+    modes = [m for m, on in ((probe, args.probe), (check, args.check),
+                             (score_kept, args.score)) if on]  # fmt: skip
+    assert len(modes) <= 1, "one of --probe, --check, --score"
+    mode = modes[0] if modes else run
     rec = mode(args, cfg, raw)
     summary = {"args": {k: str(v) for k, v in vars(args).items()}, "git": git_hash()}
     summary |= {"config": cfg, "records": rec}
