@@ -1,0 +1,37 @@
+LoRA alone (control):
+  rung3_last50: 0.8426139008998871
+  rung3_prev50: 0.8909983789920807
+  rung4_last100:
+    living room: 0.7745768077995466
+    bedroom: 0.910213828086853
+    lobby: 0.7056681290268898
+LoRA + pool, GT (E52b):
+  rung3_last50: 0.8409109580516815
+  rung3_prev50: 0.8862486171722412
+  rung4_last100:
+    living room: 0.7693721224432406
+    bedroom: 0.9115237454573314
+    lobby: 0.7061745648582777
+LoRA + pool, grid (E52b):
+  rung3_last50: 0.8409853291511535
+  rung3_prev50: 0.8858527064323425
+  rung4_last100:
+    living room: 0.7704899971899779
+    bedroom: 0.9080182592074076
+    lobby: 0.7041206459204356
+LoRA + gated pool, GT:
+  rung3_last50: 0.8420090103149414
+  rung3_prev50: 0.8876394665241242
+  rung4_last100:
+    living room: 0.770598221084346
+    bedroom: 0.9133243083953857
+    lobby: 0.7075256382425626
+  rung4_gate_norm_last: 0.7038189229975367
+LoRA + gated pool, grid:
+  rung3_last50: 0.8390259706974029
+  rung3_prev50: 0.8862212276458741
+  rung4_last100:
+    living room: 0.7711403719756914
+    bedroom: 0.9083824555079142
+    lobby: 0.7025566473603249
+  rung4_gate_norm_last: 1.0249831908631426

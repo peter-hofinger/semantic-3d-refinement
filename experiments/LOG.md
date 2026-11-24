@@ -8341,3 +8341,214 @@ Interim entry: the check that the plan puts before any table.
 - **Result of the annealed cut, rung 3** (`runs/e84_anneal_rung3-20261123-133644`, 3000 steps, gain 1 -> 64, 77 ms/step): the soft train loss falls to 1.75 (the random-keep level, spiking to 2.1 at steps 450, 1100, 1500, 1900, 2400 and at the end: 2.142 at step 3000), but **the exact Chamfer of the net's cut stays at 2.07-3.6** (every 100 steps; 3.17 at 100, 2.51 at 1000, 3.65 at 2200, best 2.066 at 2900, **2.265 at step 3000**, kept 87 %, 6 % of GT points without a probe).
   **Refuted:** 2.265 > 1.947 and > the straight-through 2.011. My expectation (2.0-2.3, no better than straight-through) held. Mechanism, measured on the final net: 12 % of the logits are within 0.05 of zero (median |x| 1.06, 90th percentile 25): at gain 64 the net keeps s intermediate by shrinking those logits by 1/gain, so the soft loss does not become the cut loss
   (2.142 soft against 2.265 cut at step 3000) and the net is not pushed to a binary decision. The gain moves the logits' scale, not the decision the loss asks for. Rung 4 not run: rung 3 is the gate. Straight-through stays the better deployable objective on rung 3 (2.011); neither passes.
+
+## Plan: E87a = a per-token gate on E52b's segment pooling: can LoRA + pooling learn where to trust a segment? (issue #87, 22.11.2026)
+- **Goal:** E52b's rung 5 found that pooling segment tokens inside Déjà View's loop on top of LoRA gains nothing:
+  GT instances 3.245, grid tiles 3.224, LoRA alone 3.155, Déjà View 3.500 cm dev Chamfer (seed means). The
+  pooling branch x_i += B_k A (m_s(i) - x_i) pulls every labelled token towards its segment's mean with one
+  map per loop step, wherever the segment is wrong or the token already knows better. The presentation feedback
+  (19.11) asked for a gate, so that the model can learn where to trust a segment. Does a per-token gate let GT
+  instances beat grid tiles and LoRA alone?
+- **Change (one):** x_i += g_i B_k A (m_s(i) - x_i), g_i = sigmoid(w_k · x_i + b_k), w_k, b_k per loop step,
+  zero at the start (g = 1/2, so B_k still trains from zero; w_k and b_k get a gradient once B_k has moved,
+  `tests/test_adapters.py`), as Flamingo's gated cross-attention (Alayrac et al. 2022) but per token. Model
+  `lora_pool_gate: [false, true, true, true]` in `experiments/scripts/e52a_segment_adapters.py`; everything
+  else as E52b's main arms (LoRA rank 16, lr_lora 1e-4, pooling rank 16, exact Sim(3), val selection).
+  The scalar gate tanh(alpha_k) of the issue follows only if this one is read and the user asks.
+- **Prior: low.** #50's rule (train only once a training-free step shows headroom) was not met (E51a, E53a), and
+  a gate adds no information the segments lack. The likely outcome is a gate that learns to close, i.e. a tie
+  with LoRA alone, and GT within the margin of grid as in E52a and E52b.
+- **Rule, fixed before the run:** GT-gated counts as a gain only if it beats Déjà View, LoRA alone (3.155) and
+  grid-gated by more than 0.080 cm dev mean Chamfer each (the control's seed range, E52c) and on at least 2 of
+  the 3 dev scenes. **GT-gated within 0.080 cm of grid-gated refutes** the hypothesis that the gate lets
+  instances act.
+- **Ladder** (`docs/experiments.md`), seed 0 unless stated, both arms (GT, grid) per run:
+  - Tests (done): a zero gated adapter is Déjà View; g = sigmoid written out; an open gate (b = 30) is E52b's
+    pooling, a closed one (b = -30) Déjà View; at B_k = 0 the gate has an exactly zero gradient, after not.
+  - Smoke: 4 views, 4 steps, end to end; step-1 ratio ~1; gradients reach w_k, b_k after step 1.
+  - Rung 3, bedroom only, 200 steps, 8 views. **Pass:** training ratio of the last 50 steps below 0.90 and
+    falling from the previous 50 (E52b: 0.841).
+  - Rung 4, dev (3 scenes), 300 steps. **Pass:** last-100 ratio below 0.95 on each scene.
+  - Gate lr sweep: lr_gate in {1e-5, 1e-4, 1e-3}, lr_pool at E52b's choice per arm (GT 3e-6, grid 1e-5),
+    500 steps, `--splits` none, least val ratio at step 500 picks each arm's lr.
+  - Rung 5: 3000 steps, seeds 0, 1, 2 per arm, dev scored on 20 views. Only rung 5's scores are reported.
+- **Reading:** dev Chamfer per scene and mean, seed mean and range per arm, against Déjà View, LoRA alone and
+  E52b's ungated arms (same script, same 3080); val curves; the gate itself on the kept states: its mean, its
+  spread across tokens and steps, and how it differs by class and near depth edges (does it open anywhere?).
+  If both arms tie, the verdict is "a per-token gate does not let segment inputs help LoRA here", scoped to this
+  adapter, Hypersim and this budget.
+- **Commands** (3080): rung 3
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits --set "models={lora_pool_gate: [false, true, true, true]}" "segments=[gt, grid]" lr_pool=3e-6 lr_lora=1e-4 lr_gate=1e-4 "train_scenes=[ai_006_007_cam_00]" held_out=0 select=val "view_subset=[8, 8]" steps=200 eval_every=200 align=exact --out runs/e87a_rung3`;
+  rung 4 as rung 3 with the 3 dev scenes and `steps=300 eval_every=300`; sweep as E52b's with `steps=500`,
+  `lr_gate=<lr>`, one arm per run at its lr_pool, `--out runs/e87a_gate_sweep_<arm>_<lr>`; rung 5
+  `uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --splits dev --set "models={lora_pool_gate: [false, true, true, true]}" "segments=[<arm>]" lr_pool=<lr> lr_lora=1e-4 lr_gate=<lr> align=exact select=val probe_every=10 seed=<s> --out runs/e87a_main_<arm>_s<s>`.
+- **Cost** (2.3 s per step on the 3080): smoke + rungs 3/4 ~40 min; sweep 6 x 500 steps ~2 h; rung 5 2 arms x
+  3 seeds x ~2 h ~12 h. Ask before rungs 3/4, before the sweep and before rung 5.
+
+## E87a, rungs 3 and 4: both gated arms pass and lie on E52b's ungated arms and LoRA alone; the gate's parameters move steadily from zero (issue #87, 22.11.2026)
+- **Setting:** the plan entry above, at cf85402 (clean), 3080, bf16, lr_pool 3e-6, lr_lora 1e-4, lr_gate 1e-4,
+  seed 0, both arms per run, `view_subset=[8, 8]`; same seed as E52b's rungs, so the same scene and view draws.
+  Smoke (4 views, 4 steps, `runs/e87a_smoke`, not of record): step-1 ratio 0.99996 in both arms, the gate's
+  gradient exactly 0 at step 1 (B_k = 0) and 4-10e-4 from step 2, as the test predicts; the first try did not
+  start (`uv` not on the job's PATH). Rung 3 22:31-22:43 (352 s per arm, `runs/e87a_rung3`), rung 4
+  22:43-23:01 (527 s per arm, `runs/e87a_rung4`); peak 2.22 GB, 1.76 s per step at 8 views, 0 segments dropped.
+- **Result** (training ratio to Déjà View's error; E52b's rows from its rung entry, same draws):
+
+  | | rung 3 last 50 (prev. 50) | rung 4 living room | bedroom | lobby | gate norm, rung 4 end |
+  |---|---|---|---|---|---|
+  | LoRA alone (control) | 0.843 (0.891) | 0.775 | 0.910 | 0.706 | |
+  | LoRA + pool, GT (E52b) | 0.841 (0.886) | 0.769 | 0.912 | 0.706 | |
+  | LoRA + pool, grid (E52b) | 0.841 (0.886) | 0.770 | 0.908 | 0.704 | |
+  | LoRA + gated pool, GT | 0.842 (0.888) | 0.771 | 0.913 | 0.708 | 0.70 |
+  | LoRA + gated pool, grid | 0.839 (0.886) | 0.771 | 0.908 | 0.703 | 1.02 |
+
+  Both gated arms pass: rung 3 below 0.90 and falling from the previous 50 steps; rung 4 below 0.95 on every
+  scene. Every gated ratio is within 0.002 of the same arm ungated and within 0.006 of LoRA alone, the size of
+  the bf16 rerun noise (0.003, E52a).
+- **Reading:** rungs are diagnostics, no score is reported. The gate trains (its parameters' norm grows about
+  linearly over the 300 steps, from 0) but changes nothing measurable while overfitting; as in E52b, the pooling
+  branch, gated or not, adds nothing on top of LoRA here. The gate moves faster with grid tiles (norm 1.02) than
+  with GT instances (0.70); that is the norm of (w_k, b_k), not where the gate opens, which is read on rung 5's
+  kept states. As predicted by the plan's low prior; it does not decide the main arms. Next: the lr_gate sweep
+  (2 arms x 3 lrs x 500 steps, ~2 h), asked first.
+- **Commands:** rungs as in the plan (3080 job `/home/student/mircea/jobs_e87a_rungs.sh`); figure and raw:
+  `uv run python experiments/scripts/e87a_rungs_figures.py` -> `figures/e87a_rungs.jpg` (rung 3 curves, rung 4
+  per-scene ratios, gate norm), `results/e87a_rungs.yaml`.
+
+## E87a, lr_gate sweep: every lr and both arms end within the rerun noise of each other, of E52b's ungated arms and of LoRA alone; by the rule both arms take 1e-3 (issue #87, 23.11.2026)
+- **Setting:** the plan's sweep at cf85402 (clean), 3080, bf16, lr_lora 1e-4, lr_pool at E52b's choice
+  (GT 3e-6, grid 1e-5), 500 steps, `--splits` none, `select=val`, `probe_every=10`, one arm per run, seed 0;
+  22.11 23:07 - 23.11 01:13 (~19.7 min per run), peak 2.22 GB, 0 segments dropped. Runs
+  `runs/e87a_gate_sweep_<arm>_<lr>`; job `/home/student/mircea/jobs_e87a_gate_sweep.sh`.
+- **Ratio to Déjà View's error at step 250 / 500** (held-out 16 train scenes, val 11 scenes), and the gate
+  parameters' norm at step 500:
+
+  | lr_gate | gt held-out | gt val | gt gate norm | grid held-out | grid val | grid gate norm |
+  |---|---|---|---|---|---|---|
+  | 1e-5 | 0.9800 / 0.9766 | 0.9680 / 0.9655 | 0.05 | 0.9781 / 0.9785 | 0.9664 / 0.9651 | 0.06 |
+  | 1e-4 | 0.9795 / 0.9726 | 0.9705 / 0.9602 | 0.52 | 0.9796 / 0.9773 | 0.9675 / 0.9627 | 0.57 |
+  | 1e-3 | 0.9795 / 0.9772 | 0.9682 / **0.9596** | 3.78 | 0.9786 / 0.9731 | 0.9661 / **0.9563** | 3.72 |
+
+- **Reading:** the rule (least val ratio at 500) picks 1e-3 for both arms. Every gap is 0.0006-0.009, at or
+  inside the rerun spread at step 500 (0.007, E52b control), so the sweep separates neither the lrs nor the
+  arms; nor does it separate them from E52b's ungated arms at the same budget (GT 0.9568, grid 0.9597) or LoRA
+  alone (0.9627). The gate's parameters move about in proportion to lr_gate (norm 0.05 / 0.5 / 3.7 at 500
+  steps), so a 70 times larger gate leaves val unchanged within noise. The val probes (`figures/e87a_sweep.jpg`,
+  pale lines) swing between 0.94 and 1.02 over the 500 steps in lockstep across all three lrs, far more than
+  the lrs differ: the shared draws set the trajectory, not lr_gate. 1e-3 is also the lr at which the gate
+  moves most, so rung 5 at 1e-3 is the strongest test the plan allows of whether the gate can let segments act.
+  As in E52b's sweep, the choice is by rule, not by a measured difference. Next: rung 5 (2 arms x 3 seeds x
+  3000 steps, ~12 h on the 3080), asked first.
+- **Commands:** sweep as in the plan; figure and raw:
+  `uv run python experiments/scripts/e87a_sweep_figures.py` -> `figures/e87a_sweep.jpg` (val ratio per eval and
+  probe per arm and lr), `results/e87a_sweep.yaml`.
+
+## E87a, rung 5: a per-token gate on the pooling changes nothing; gated GT instances tie gated grid tiles and the ungated arms, and none beats LoRA alone (issue #87, 23.11.2026)
+- **Setting:** the plan entry above, rung 5, at cf85402 (clean; later commits on the branch only add LOG
+  text, figures and figure scripts), 3080, bf16, lr_lora 1e-4, lr_pool at E52b's choice (GT 3e-6, grid
+  1e-5), lr_gate 1e-3 from the sweep, 3000 steps, seeds 0-2 per arm, state kept on val, dev scored on 20
+  views. One arm and seed per run, 23.11 10:57 - 23:28 (7150-7680 s training per run), peak 2.22 GB. GT
+  dropped 5 and 3 segments to the code cap over 3000 steps (seeds 1, 2), grid none. One CUDA allocator OOM
+  warning per run during dev scoring, as before; every score was written. Peter's `e69c_oracle` job shared
+  the GPU from ~16:10 (step time +7%). Job `/home/student/mircea/jobs_e87a_rung5.sh`, runs
+  `runs/e87a_main_<arm>_s<s>`. LoRA alone and the ungated arms are E52b's runs (same script, same 3080).
+- **Dev Chamfer (cm, seed mean per arm; Déjà View the same run in all fifteen):**
+
+  | | living room | bedroom | lobby | mean | seed range | kept steps |
+  |---|---|---|---|---|---|---|
+  | Déjà View | 1.601 | 1.846 | 7.053 | 3.500 | | |
+  | LoRA alone (control) | 1.522 | 1.647 | 6.295 | **3.155** | 0.081 | 2500 / 1500 / 3000 |
+  | LoRA + pool, GT (E52b) | 1.604 | 1.688 | 6.443 | 3.245 | 0.101 | 2500 / 2500 / 750 |
+  | LoRA + pool, grid (E52b) | 1.578 | 1.644 | 6.450 | 3.224 | 0.171 | 2250 / 2500 / 3000 |
+  | LoRA + gated pool, GT | 1.635 | 1.732 | 6.405 | 3.257 | 0.059 | 2500 / 2500 / 1250 |
+  | LoRA + gated pool, grid | 1.591 | 1.662 | 6.485 | 3.246 | 0.140 | 2250 / 2500 / 2000 |
+  | gated GT - gated grid | +0.043 | +0.070 | -0.080 | +0.011 | | |
+  | gated GT - LoRA alone | +0.112 | +0.084 | +0.111 | +0.102 | | |
+  | gated grid - LoRA alone | +0.069 | +0.015 | +0.191 | +0.091 | | |
+  | gated - ungated, GT / grid | +0.031 / +0.013 | +0.044 / +0.018 | -0.038 / +0.035 | +0.012 / +0.022 | | |
+
+  Per seed (dev mean, cm): gated GT 3.228 / 3.256 / 3.288, gated grid 3.276 / 3.301 / 3.161. With the same
+  seed, GT is ahead on seeds 0 and 1 and grid on seed 2, as in E52b's ungated arms.
+- **Reading (the plan's rule):** refuted. Gated GT would have needed to beat Déjà View, LoRA alone and gated
+  grid by more than 0.080 cm each, on 2 of 3 scenes. It beats Déjà View (-0.243 cm) but is within the margin
+  of gated grid (+0.011 cm, on the wrong side; ahead only on the lobby, by exactly the margin) and behind
+  LoRA alone on all three scenes (+0.102 cm mean). The plan's prediction (a tie with grid and with LoRA
+  alone's neighbourhood) holds. The gate moves each arm by at most 0.022 cm mean from its ungated run, well
+  inside every seed range, so it neither helps nor harms.
+- **Other observations:**
+  - The gate's parameters keep moving: their norm grows steadily over all 3000 steps (to 7.6-9.0; 5.2-7.7
+    at the kept steps) without levelling off, at the same rate with GT instances and grid tiles. The norm
+    does not say whether g_i opens or closes, or where; whether the plan's predicted "gate that learns to
+    close" happened is the gate analysis on the kept states, not done here.
+  - In the living room all three gated GT seeds are worse than Déjà View (seed mean 1.635 vs 1.601 cm); the
+    ungated GT arm sits at Déjà View there (1.604). Both GT arms are the worst arm on that scene; one scene,
+    within GT's spread across scenes, noted, not read.
+  - Val curves of the six gated runs interleave at every eval, and seeds of one arm differ as much as the
+    arms do (figure, middle); as in E52b, the kept step is a noisy choice (val moves up to 0.02 between
+    evals).
+- **Conclusion, for #87:** a per-token gate g_i = sigmoid(w_k · x_i + b_k) on E52b's pooling branch does not
+  let GT instances act: on Hypersim dev, with 3 seeds per arm and both arms swept alike, gated GT ties gated
+  grid and both ungated arms, and no pooling arm beats plain LoRA. Scoped to this adapter, Hypersim and this
+  budget. With E52a, E52b, E52c/E52e and E52f, segment inputs have not helped any trained adapter inside
+  Déjà View. Not done: the gate analysis (mean and spread of g_i by class and near depth edges on the kept
+  states), the scalar tanh(alpha_k) gate of the issue (only if the user asks).
+- **Figure, raw:** `uv run python experiments/scripts/e87a_main_figures.py` -> `figures/e87a_main.jpg` (dev
+  Chamfer ratio per scene with seeds for all five arms, val curves and gate norm of the six gated runs),
+  `results/e87a_main.yaml`.
+
+## Plan: E87a, gate analysis: where does rung 5's gate open, by class and at depth edges? (issue #87, 24.11.2026)
+- **Goal:** the plan's last reading. Rung 5 found the gate changes nothing measurable in dev Chamfer; this
+  reads g_i = sigmoid(w_k · x_i + b_k) itself on the six kept states, on the 3 dev scenes at 20 views, every
+  loop step, for the patch tokens that carry a GT instance (18 229 in the bedroom; the same tokens in both
+  arms): its mean and spread, per loop step, per GT class, on patches with vs without a GT depth edge
+  (`src/analysis/edges.py`, τ 5%), and the pull a token takes, |g_i δ_i| / |x_i|.
+- **Prediction (the plan's prior):** the gate learns to close (mean g below its start, 1/2) and does not
+  differ between GT instances and grid tiles, by class or at edges, by more than the spread over seeds.
+  **Refuted if** GT's gate differs from grid's on any shown class or at edges by more than the larger
+  arm's seed range, the same way in all three seeds; that would say where instances are taken, though rung 5
+  says it does not pay off in Chamfer.
+- **Command** (3080, minutes): `uv run python experiments/scripts/e87a_gate.py --collect`, then on the laptop
+  `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg`, `results/e87a_gate.yaml`.
+
+## E87a, gate analysis: the gate stays open (g ~ 1 in loop steps 0-9) and closes only in the last steps, but the update it scales is 0.02-0.07% of the token per step; GT's gate is lower than grid's on walls in every seed, with no lever on the output (issue #87, 24.11.2026)
+- **Setting:** the plan entry above, at df44c9a (clean), 3080, bf16, 24.11 00:00 (~2 min for all). Six kept
+  states of rung 5 (`runs/e87a_main_<arm>_s<s>`), 3 dev scenes, 20 views, all 16 loop steps; 53 479 patch
+  tokens with a GT instance (18% on a GT depth edge), the same tokens in both arms (checked: all labelled in
+  the GT and the grid codes). Records `runs/e87a_gate/<arm>_s<s>_<scene>.npz`.
+- **Result** (gate g, mean over tokens; pull = |g δ| / |x| per loop step; seeds 0 / 1 / 2):
+
+  | | mean g | g, steps 0-9 | g, steps 12-15 | g edge - interior | share g > 0.9 | pull per step | pull summed over 16 steps |
+  |---|---|---|---|---|---|---|---|
+  | GT instances | 0.891 / 0.883 / 0.836 | 0.98 / 1.00 / 0.99 | 0.63 / 0.55 / 0.38 | +0.035 / +0.006 / +0.013 | 0.53 / 0.37 / 0.20 | 2.4e-4 / 2.4e-4 / 1.6e-4 | 0.38% / 0.39% / 0.25% |
+  | grid tiles | 0.867 / 0.899 / 0.917 | 0.98 / 0.97 / 0.98 | 0.64 / 0.72 / 0.75 | +0.038 / +0.025 / +0.012 | 0.47 / 0.65 / 0.71 | 5.9e-4 / 6.0e-4 / 5.3e-4 | 0.94% / 0.96% / 0.85% |
+
+  No token has a mean gate below 0.1 in any run. By GT class (12 largest, figure top right), GT minus grid,
+  seed means: wall -0.065 (GT 0.84-0.89, grid 0.92-0.96), ceiling -0.089, door -0.076, floor +0.063; the
+  other 8 classes within ±0.045 with overlapping seeds.
+- **Reading (the plan's rule):** the prediction is refuted on both counts, but neither carries weight.
+  (1) The gate does not close: it stays at ~1 through loop steps 0-9 and falls to 0.4-0.75 only in the last
+  four, alike in both arms; at depth edges it is 0.01-0.04 higher than inside, in all six runs. (2) On wall
+  tokens GT's gate is below grid's in all three seeds by more than either arm's seed range (0.065 against
+  0.052 / 0.037); ceiling and door separate the same way but within the range. With 12 classes and 3
+  seeds per arm, about one class would separate by chance (1 in 10 per class); three large structural classes
+  on the same side is more than that, but untested beyond these runs. What matters more: the update the
+  gate scales is tiny. Per loop step it moves a token by 0.02% (GT) to 0.06% (grid) of its norm, and at most
+  ~1% summed over the 16 steps, so where the gate opens has almost no lever on Déjà View's output. The
+  pooling branch stays nearly inert at the learning rates the sweeps chose (lr_pool 3e-6 / 1e-5), which is
+  consistent with rung 5: gated = ungated = GT = grid within noise.
+- **Other observations:**
+  - The bedroom map (figure, view 18) shows the GT gate following the instances (bed higher, walls lower);
+    the grid gate shows a weaker version of the same layout. g is a function of the token's own state, which
+    differs by surface in both arms, so a map that follows objects does not by itself show the segments are
+    used.
+  - Grid's pull is 2-3x GT's in every step. Two plausible causes, not separated here: grid's lr_pool is
+    3x GT's, and a tile's mean mixes surfaces, so it may lie further from its tokens than an instance's.
+- **Conclusion, for #87 (with rung 5):** a per-token gate does not let segment inputs help LoRA inside Déjà
+  View. Trained, it stays open and closes only late in the loop, alike for GT instances and grid tiles, and
+  it scales a pooling update too small to matter. Why the pooling arms sit ~0.09 cm behind LoRA alone
+  (E52b, E87a) is not explained by this; with an update of ~1% it may be a difference in training, not in
+  the pooling. Open, not pursued unless asked: training with a larger lr_pool than E52b's sweep covered (up to
+  1e-5) to give the branch a lever; the scalar tanh(alpha_k) gate.
+- **Figure, raw:** `uv run python experiments/scripts/e87a_gate.py --collect` (3080), then
+  `uv run python experiments/scripts/e87a_gate.py` -> `figures/e87a_gate.jpg` (gate and pull per loop step,
+  gate by class and at depth edges, bedroom view 18 maps), `results/e87a_gate.yaml`.

@@ -53,6 +53,10 @@ loop block's attention linears (`src/backbone/adapters.py`), trained at `lr_lora
 Segment kind `none` gives every token no segment, so LoRA alone with `none` is plain
 fine-tuning of Déjà View on Hypersim (E52b's control).
 
+E87a (gated pooling, issue #87): a model's optional fourth flag adds the per-token gate
+sigmoid(w_k · x + b_k) on the pooling branch, w_k and b_k trained at `lr_gate`; three-flag
+models (all earlier runs) have none.
+
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --probe --out runs/e52a_probe
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --out runs/e52a
 uv run python experiments/scripts/e52a_segment_adapters.py --cfg configs/e52a_adapters.yaml --set steps=500 eval_every=50 "segments=[gt]" "models={pool: [false, true, false]}" lr_pool=1e-5 --out runs/e52a_sweep_1e-5
@@ -231,9 +235,11 @@ def train(
     named = {"beta": [adapter.beta], "up": [adapter.up],
              "down": [None if adapter.down is None else adapter.down.weight],
              "lora_down": list((adapter.lora_down or {}).values()),
-             "lora_up": list((adapter.lora_up or {}).values())}  # fmt: skip
+             "lora_up": list((adapter.lora_up or {}).values()),
+             "gate": [adapter.gate_w, adapter.gate_b]}  # fmt: skip
     lrs = {"beta": cfg["lr_bias"], "up": cfg["lr_pool"], "down": cfg["lr_pool"],
-           "lora_down": cfg["lr_lora"], "lora_up": cfg["lr_lora"]}  # fmt: skip
+           "lora_down": cfg["lr_lora"], "lora_up": cfg["lr_lora"],
+           "gate": cfg["lr_gate"]}  # fmt: skip
     groups = [
         {"params": ps, "name": n, "weight_decay": cfg["weight_decay_up"] * (n == "up"),
          "lr": lrs[n]}
@@ -391,10 +397,14 @@ def setup(cfg: dict) -> tuple[DejaViewBackbone, torch.nn.Module]:
 
 
 def adapter_for(cfg: dict, model: str, device: torch.device) -> SegmentAdapter:
-    """Build a zero adapter of the named model."""
-    bias, pool, lora = cfg["models"][model]
+    """Build a zero adapter of the named model; flags (bias, pool, lora[, gate])."""
+    flags = cfg["models"][model]
+    assert len(flags) in (3, 4), flags
+    bias, pool, lora, gate = (*flags, False)[:4]
     lora_rank = cfg["lora_rank"] if lora else 0
-    adapter = SegmentAdapter(bias=bias, pool=pool, rank=cfg["rank"], lora=lora_rank)
+    adapter = SegmentAdapter(
+        bias=bias, pool=pool, rank=cfg["rank"], lora=lora_rank, gate=gate
+    )
     return adapter.to(device)
 
 
