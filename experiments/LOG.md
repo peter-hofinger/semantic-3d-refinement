@@ -8674,3 +8674,39 @@ Interim entry: the check that the plan puts before any table.
   gain), and the semantic flag is refuted: SAM 3 ties no classes in both seeds (val difference <= 0.001 cm). The
   limit is the matches: RAFT at these baselines constrains depth less precisely than Deja View already is, so
   fitting them can at best leave the geometry nearly unchanged. Test not touched.
+
+## Plan: E69d = how much of the bedroom do the 20 input views miss? An all-frames ground truth, measured before any training (issue #69, 25.11.2026)
+- **Goal:** the generator of #69 is meant to draw clean, accurate and complete surfaces. Every score so far uses
+  the ground truth of the same 20 views Déjà View sees, so a correct point on a surface those views miss counts
+  as an accuracy error and nothing rewards it. Before training on a denser target, measure on the bedroom
+  `ai_006_007` how different that target is: (1) the share of the scene's surface that the 20 views do not see,
+  (2) Déjà View's scores against both targets, its completeness split into the seen and the unseen part, and
+  (3) what voxel-downsampling the targets does to the scores on its own (the cloud's density, not its surface).
+  Only if the unseen part is large does training once on each target (next step, bedroom first) measure anything.
+- **Setting:** the bedroom has one camera trajectory, `cam_00`, with 99 public frames; the 20 views are its
+  uniform subset (`select_frames`). So "all frames" is the same path sampled five times as densely, not new
+  viewpoints (other scenes have 2 to 5 trajectories: ai_044_001 2, ai_050_002 5). CPU, MacBook Air (M3, 16 GB).
+  `experiments/scripts/e69d_all_frames_gt.py`:
+  - **GT20:** the cached per-pixel ground truth of the 20 views (`gt_views_n20_uniform_504.npz`), today's target.
+  - **GT99:** all 99 frames lifted exactly as `prepare.build` lifts the 20 (504 px, nearest sampling, no-mesh
+    pixels dropped, OpenCV poses in metres).
+  - **Voxelized (GT20v, GT99v):** one point per occupied voxel, the mean of its points, side v = 1 cm (2 cm as
+    a sensitivity row), so overlapping views stop counting a surface several times.
+  - **Seen:** a GT99v point is seen if it is visible in at least one of the 20 views: it projects inside the
+    image in front of the camera and its depth is within max(2 cm, 2 % of the depth) of that view's GT depth at
+    the pixel (a pixel without GT depth sees nothing). Tolerance 1 cm and 4 cm as sensitivity rows.
+  - **Déjà View:** K = 16, unrefined, pinhole rays, aligned once by Umeyama on its pixels onto GT20 (the
+    protocol's alignment) and scored with that one alignment against every target; accuracy, completeness,
+    Chamfer (means, uncapped, cm), completeness also over the seen and the unseen GT99v points.
+- **Checks:** the 20 views' frames are among the 99, and their lifted depth equals the cached GT20 bit for bit;
+  Déjà View against GT20 reproduces scene_eval's bedroom Chamfer (1.846 cm on the 3080 cache). Tests
+  (`tests/test_e69d.py`): voxel centroids of a known set, visibility of a point on a plane in front of a camera,
+  behind it and outside the image.
+- **Prediction:** the unseen share of GT99v is at most 10 % (same path, interleaved frames), and Déjà View's
+  Chamfer against GT99v is within 0.2 cm of that against GT20v. Voxelizing raises completeness (surfaces seen
+  by few views gain weight), size unknown.
+- **Rule:** unseen share > 25 % at 1 cm: the bedroom can test completion, so train once on GT20 and once on
+  GT99 and score both on GT99v, split seen / unseen, as planned. Unseen share <= 10 %: on the bedroom the two
+  targets are nearly the same and that comparison measures little; completion has to be tested on a scene with
+  more trajectories, a decision for the team. In between: report and decide with the numbers.
+- **Budget:** ~140 MB download (99 frames x ~1.4 MB), minutes of CPU.
