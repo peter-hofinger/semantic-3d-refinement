@@ -9444,3 +9444,19 @@ Interim entry: the check that the plan puts before any table.
 - **Stopped here, as asked:** nothing trained, the box unchanged. The two open questions: whether the dropped
   out-of-box points are the completeness gap, and whether reach 4's 79.1 % is close enough to proceed on the
   in-box part, are decisions for the next entry.
+
+## Plan: E69e out-of-box check = are the 24 225 Déjà View points that `child_targets` drops the 0.32 cm completeness gap of `dv-ovoxel`? (bedroom, 25.11.2026)
+- **Why:** at the child's own size `dv-ovoxel` s4 has Déjà View's accuracy (3.117 against 3.127 cm) but 0.317 cm
+  worse completeness (4.232 against 3.915; seen +0.21, unseen +1.55). The only points the conversion loses are
+  the 0.64 % outside the grid box (Déjà View's 1-99 % box, padded 5 %). If they are the gap, `dv-ovoxel` is
+  Déjà View in this representation inside the box, and the cost belongs to the box, not to the children.
+- **Measurements, one run** (added to `experiments/scripts/e69e_rung0_checks.py`, same scorer, GT99v at 1 cm):
+  - **Restore:** `dv-ovoxel` s4 plus the dropped points, voxelized at the child size (1.17 cm), unioned.
+  - **Remove:** Déjà View with only its points inside the grid box, voxelized at 1.17 cm.
+  - **Where:** completeness of Déjà View (1.17 cm) and `dv-ovoxel` s4 over the GT99v points inside and outside
+    the grid box, separately.
+- **Prediction:** the dropped points are the gap: restore lands within 0.05 cm of Déjà View's completeness
+  (3.915), remove within 0.05 cm of `dv-ovoxel`'s (4.232), and the gap sits in the GT outside the box.
+- **Rule:** restoring closes >= 80 % of the 0.317 cm = explained, the box is the cost; < 50 % = refuted, the
+  children lose surface inside the box and that is found before anything is trained; in between = partly. The
+  box is not changed in this entry.
