@@ -9561,3 +9561,54 @@ Interim entry: the check that the plan puts before any table.
     is measured around a poor prediction.
 - **Open for the user:** change the candidate rule (larger or physical reach, or candidates not tied to Déjà
   View's voxels), refit the box (out-of-box GT 13.7 % in the courtyard), or both. Nothing trained.
+
+## Plan: E69f = close E69e's rung 0: the three caveats, a candidate rule that reaches the unseen surface, and a locked box (issue #69, 25.11.2026, overnight, autonomous)
+- **Why:** E69e's rung 0 is blocked: reach 4 around Déjà View's voxels holds a median 71.1 % (min 48.5 %) of the
+  in-box unseen GT99v over six scenes (gate 80 %), and the grid box clips > 5 % of GT99v on two scenes and > 0.5 cm
+  of seen completeness on three. No training before this entry's gates pass. Same six scenes (bedroom, living
+  room, hotel lobby from dev; bathroom `ai_004_003`, `ai_009_009`, courtyard `ai_031_004` from val, only to check
+  a rule, nothing fit on them), same GT99v, seen tolerance 2 cm / 2 %, split 4, CPU.
+- **Part 1, caveats** (`experiments/scripts/e69f_rung0.py diagnose`):
+  - **C1, bathroom windows.** Per input-view pixel with GT: the distance between Déjà View's aligned point and the GT
+    point of the same pixel; among pixels off by > 50 cm, the share that is bright (luminance > 0.9) and their GT
+    and Déjà View camera depths. *Hypothesis:* the GT looks through window glass at geometry metres away while the
+    image is blown out and Déjà View puts a surface near the window: a dataset fact the protocol already contains
+    (GT20 has the same pixels), not an E69d visibility bug. *Refuted* if the far-off pixels are < 50 % bright or
+    their GT depth is within 20 % of Déjà View's (then the seen test is suspect and is debugged first).
+  - **C2, upstream error vs. candidate rule.** Coverage of the in-box unseen GT99v by candidates built around GT20's
+    own points (the input a perfect backbone would give, same box) against those around Déjà View's, reach 1-4.
+    *Hypothesis:* on `ai_009_009` and the hotel lobby (Déjà View accuracy 32.8 and 11.8 cm) GT20-built candidates
+    cover >= 15 points more at reach 4, on the other four < 5 points more. *Refuted* if the difference is < 5 points
+    there too (then the candidate rule, not the backbone, is the limit everywhere).
+  - **C3, where the missing unseen lives.** For in-box unseen points outside reach 4: distance to the nearest Déjà
+    View point (cm and cells; median, 80th, 95th percentile), and the share inside at least one input view's frustum
+    (occluded, since unseen) vs. outside all 20. *Prediction:* >= 70 % occluded in a frustum, median 5-10 cells.
+- **Part 2, candidate rule** (`... coverage`): for every rule, per scene: in-box unseen coverage, the oracle (GT99
+  children of the candidates, split 4) Chamfer in-box and pass-through (Déjà View's out-of-box points added),
+  candidates (voxels), mean candidates per 32-cell training crop, positive / negative ratio of the children, and
+  the head's memory per crop (children x 4 floats x bytes for the forward and backward pass, an estimate; the U-Net
+  on the crop is unchanged). Rules:
+  - **R, cell reach** r in {4, 6, 8, 10, 12} (Chebyshev, as now);
+  - **P, physical reach** d in {25, 50, 75, 100} cm, r = ceil(d / cell) per scene;
+  - **C, carved reach:** R at r in {6, 8, 12} minus every voxel whose centre a Déjà View ray passes in front of its
+    predicted depth by more than one cell (space carving; free space is known empty, as TSDF fusion and SG-NN's
+    unknown-space masks use it, Dai et al. 2020). Fewer negatives at the same reach, at the risk of carving true
+    surface where Déjà View is too deep;
+  - **H, two-level (coarse to fine, TRELLIS / SG-NN style):** coarse cells of 2 fine cells, coarse reach in {3, 4, 6};
+    fine candidates = the children of the coarse voxels that hold GT (what a perfect coarse stage passes on), cost
+    = coarse candidates + those children. Coverage equals its coarse reach's.
+  - **Gate G0c'** (unchanged bar): in-box unseen coverage median >= 80 % and min >= 80 % over the six. **Pick:** the
+    passing rule with the fewest candidates per crop whose head fits 10 GB at a 32-cell crop; if none passes the min,
+    the cheapest one passing the median, with the failing scene and the reason (C1-C3) named, and that weakening
+    stated in the result as a bar weakened. *Prediction:* R needs r >= 8 for the median; C halves R's candidates
+    at equal coverage minus <= 2 points; the bathroom fails every rule below 50 cm (its unseen lies past the windows).
+- **Part 3, box** (`... box`): why seen surface is clipped (per clipped Déjà View point: distance to GT20, which
+  face of the box it leaves through), then boxes: percentile p in {1, 0.5, 0.1, 0} (per axis, low and high), pad
+  in {5, 10} %, with 192 cells (the child grows) and with the cell kept at the 1-99 % box's (cells grow). Reported:
+  out-of-box GT99v %, seen clipping, out-of-box Déjà View points, child size, cells. **Pick (pre-registered):** the
+  smallest box with seen clipping <= 0.2 cm and out-of-box Déjà View points <= 0.1 % on every scene; with the
+  cell kept if the grid stays <= 384 cells on its longest side, else 192 cells. Out-of-box GT that Déjà View does not
+  reach (the bathroom's exterior) is reported, not chased. *Prediction:* clipping comes from accurate points beyond
+  the 1-99 % box (far walls seen through doors), p = 0.1 with 5 % fixes it.
+- **Lock:** box + candidate rule into `configs/e69f.yaml`; rerun the six-scene rung-0 table with them: both baselines
+  (in-box, full-room pass-through), the oracle ceilings, coverage. Only then does rung 1 start (a separate entry).
