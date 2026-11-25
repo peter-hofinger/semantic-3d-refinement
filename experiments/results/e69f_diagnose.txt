@@ -1,0 +1,33 @@
+E69f diagnose: split 4, seen tolerance 2 cm / 2 %
+
+== ai_006_007_cam_00 (cell 4.67 cm)
+C1 pixels with GT 3,810,240; off by > 50 cm: 1.36 %; bright among them 7.5 % (among all 4.1 %); median depth GT / Déjà View: far 3.23 / 3.39 m, rest 3.51 / 3.52 m
+C2 in-box unseen coverage, Déjà View / GT20 candidates: r1  51.2 /  52.7, r2  65.1 /  64.8, r3  73.5 /  72.1, r4  79.1 /  77.7
+C3 in-box unseen outside reach 4: 26,258 points (20.9 %); distance to Déjà View median / p80 / p95 58 / 100 / 125 cm = 12.3 / 21.3 / 26.8 cells; to GT20 median 62 cm; in an input frustum (occluded) 4.3 %
+
+== ai_010_007_cam_00 (cell 6.97 cm)
+C1 pixels with GT 3,809,675; off by > 50 cm: 1.12 %; bright among them 13.9 % (among all 5.0 %); median depth GT / Déjà View: far 7.06 / 7.42 m, rest 7.09 / 7.11 m
+C2 in-box unseen coverage, Déjà View / GT20 candidates: r1  33.2 /  30.9, r2  47.9 /  46.1, r3  60.0 /  58.3, r4  69.8 /  68.2
+C3 in-box unseen outside reach 4: 20,823 points (30.2 %); distance to Déjà View median / p80 / p95 57 / 74 / 88 cm = 8.2 / 10.6 / 12.6 cells; to GT20 median 61 cm; in an input frustum (occluded) 17.4 %
+
+== ai_044_001_cam_00 (cell 18.25 cm)
+C1 pixels with GT 3,810,217; off by > 50 cm: 6.65 %; bright among them 3.1 % (among all 2.5 %); median depth GT / Déjà View: far 17.06 / 15.46 m, rest 9.98 / 10.15 m
+C2 in-box unseen coverage, Déjà View / GT20 candidates: r1  42.9 /  43.7, r2  53.3 /  54.1, r3  58.9 /  59.1, r4  63.3 /  63.3
+C3 in-box unseen outside reach 4: 110,637 points (36.7 %); distance to Déjà View median / p80 / p95 221 / 330 / 433 cm = 12.1 / 18.1 / 23.7 cells; to GT20 median 231 cm; in an input frustum (occluded) 2.3 %
+
+== ai_004_003_cam_00 (cell 4.40 cm)
+C1 pixels with GT 3,779,949; off by > 50 cm: 1.16 %; bright among them 19.2 % (among all 3.2 %); median depth GT / Déjà View: far 8.54 / 5.81 m, rest 2.76 / 2.94 m
+C2 in-box unseen coverage, Déjà View / GT20 candidates: r1  18.3 /  19.8, r2  32.5 /  28.6, r3  42.0 /  36.0, r4  48.5 /  42.9
+C3 in-box unseen outside reach 4: 69,858 points (51.5 %); distance to Déjà View median / p80 / p95 56 / 78 / 99 cm = 12.8 / 17.8 / 22.5 cells; to GT20 median 59 cm; in an input frustum (occluded) 1.5 %
+
+== ai_009_009_cam_00 (cell 15.17 cm)
+C1 pixels with GT 3,810,240; off by > 50 cm: 20.17 %; bright among them 2.0 % (among all 2.5 %); median depth GT / Déjà View: far 16.09 / 16.21 m, rest 7.98 / 8.31 m
+C2 in-box unseen coverage, Déjà View / GT20 candidates: r1  52.3 /  53.4, r2  72.3 /  72.7, r3  82.5 /  82.8, r4  89.0 /  88.9
+C3 in-box unseen outside reach 4: 47,261 points (11.0 %); distance to Déjà View median / p80 / p95 136 / 184 / 238 cm = 8.9 / 12.1 / 15.7 cells; to GT20 median 107 cm; in an input frustum (occluded) 42.6 %
+
+== ai_031_004_cam_00 (cell 4.29 cm)
+C1 pixels with GT 3,758,250; off by > 50 cm: 7.41 %; bright among them 1.7 % (among all 3.4 %); median depth GT / Déjà View: far 4.53 / 4.99 m, rest 2.68 / 2.68 m
+C2 in-box unseen coverage, Déjà View / GT20 candidates: r1  36.7 /  35.8, r2  53.4 /  49.0, r3  63.8 /  58.8, r4  72.5 /  67.1
+C3 in-box unseen outside reach 4: 67,331 points (27.5 %); distance to Déjà View median / p80 / p95 36 / 47 / 70 cm = 8.4 / 11.1 / 16.3 cells; to GT20 median 30 cm; in an input frustum (occluded) 69.6 %
+
+total 193 s

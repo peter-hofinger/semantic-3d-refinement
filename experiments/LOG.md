@@ -9612,3 +9612,94 @@ Interim entry: the check that the plan puts before any table.
   the 1-99 % box (far walls seen through doors), p = 0.1 with 5 % fixes it.
 - **Lock:** box + candidate rule into `configs/e69f.yaml`; rerun the six-scene rung-0 table with them: both baselines
   (in-box, full-room pass-through), the oracle ceilings, coverage. Only then does rung 1 start (a separate entry).
+
+## E69f, result: rung 0 closes. The caveats point at the candidate rule, not the data or the backbone; two-level candidates (coarse reach 6) cover a median 96.8 % / min 86.5 % of the in-box unseen GT at 3.7 k candidates per crop; the 0.1-99.9 % box padded 5 % at the old cell removes the clipping on all six (issue #69, 26.11.2026)
+- **Setting:** the plan above, unchanged; MacBook Air M3, CPU. `experiments/scripts/e69f_rung0.py diagnose` (193 s),
+  `coverage` (about 2 h, nearly all of it in the cubic max-pool of the large reaches; the dilation is now separable,
+  tested equal), `box` (545 s), `lock` (see below). Results `experiments/results/e69f_<command>.txt`.
+- **Run note:** `coverage` computed all 90 (rule, scene) rows, then crashed writing the table: the physical-reach
+  rules were named with each scene's own reach (`P25cm(r6)`), so the names differed between scenes. The rows printed
+  during the run (`e69f_coverage_log.txt`, verbatim) were parsed into `e69f_coverage.json` and the table rewritten
+  from them (`... table`), no rerun; the naming is fixed (`P25cm`, the reach in its own column).
+- **C1, bathroom windows: refuted as worded, the mechanism is blinds.** 1.16 % of the bathroom's input pixels are
+  off by > 50 cm; 19.2 % of those are bright (gate 50 %), and their median GT depth is 8.54 m against Déjà View's
+  5.81 m (not within 20 %). `experiments/figures/e69f_far_ai_004_003_cam_00.jpg`: venetian blinds; the GT depth is
+  striped (rays pass the slat gaps to the exterior), Déjà View predicts one plane at the blinds. So the far pixels
+  are not blown out, but the conclusion the hypothesis was for holds: a fact of the data that GT20 contains too
+  (the same pixels), and the seen test reads GT depth, so it is consistent by construction; no E69d bug. Other scenes:
+  1.1-20 % far pixels, 2-14 % of them bright (ai_009_009: 20.2 %, where Déjà View is far off everywhere).
+- **C2, backbone vs candidate rule: hypothesis refuted, the rule is the limit everywhere.** In-box unseen coverage at
+  reach 4, candidates around Déjà View / around GT20: bedroom 79.1 / 77.7, living room 69.8 / 68.2, hotel lobby
+  63.3 / 63.3, bathroom 48.5 / 42.9, ai_009_009 89.0 / 88.9, courtyard 72.5 / 67.1. A perfect backbone's points
+  would not reach more (on three scenes fewer: GT20 lies on the seen surface only).
+- **C3, where the missing unseen lies: prediction refuted.** In-box unseen outside reach 4: 11-52 % of the unseen;
+  median distance to Déjà View 36-221 cm = 8.2-12.8 cells (p95 12.6-26.8 cells); inside an input frustum (occluded)
+  only 1.5-17.4 % on four scenes, 42.6 % on ai_009_009, 69.6 % in the courtyard. Mostly outside all 20 frusta, so
+  carving (which only knows what the views see) cannot find it, and a reach of ~12 cells is needed.
+- **Pareto table (in-box unseen coverage over the six; medians of the rest; 1-99 % box):**
+
+  | rule | cover med / mean / min % | oracle in-box cm | oracle pass cm | voxels k | per 32-cell crop k | pos/neg % |
+  |---|---|---|---|---|---|---|
+  | R4 (E69e) | 71.1 / 70.3 / 48.5 | 0.935 | 3.235 | 932 | 22.0 | 1.55 |
+  | R6 | 85.1 / 80.1 / 59.1 | 0.673 | 2.750 | 1181 | 25.9 | 1.29 |
+  | R8 | 91.7 / 87.0 / 68.4 | 0.541 | 2.521 | 1404 | 28.0 | 1.13 |
+  | R10 | 95.0 / 91.2 / 76.7 | 0.450 | 2.422 | 1605 | 29.8 | 1.01 |
+  | **R12** | **96.6 / 94.4 / 84.8** | 0.425 | 2.296 | 1784 | 30.4 | 0.92 |
+  | P25cm | 71.0 / 71.0 / 53.3 | 0.692 | 4.208 | 1132 | 23.4 | 1.47 |
+  | P50cm | 91.3 / 86.5 / 58.9 | 0.432 | 3.369 | 1573 | 28.8 | 1.11 |
+  | P75cm | 97.9 / 92.2 / 67.4 | 0.367 | 2.977 | 1838 | 30.3 | 0.91 |
+  | P100cm | 99.7 / 94.5 / 71.7 | 0.358 | 2.636 | 2089 | 31.0 | 0.80 |
+  | C6 | 82.6 / 74.4 / 37.1 | 1.817 | 4.166 | 649 | 13.7 | 2.25 |
+  | C8 | 88.6 / 80.9 / 44.7 | 1.669 | 3.933 | 804 | 15.2 | 1.88 |
+  | C12 | 93.4 / 88.2 / 60.2 | 1.506 | 3.707 | 1089 | 17.1 | 1.48 |
+  | H3 | 87.3 / 82.1 / 61.2 | 0.632 | 2.639 | 303 | 3.7 | 12.29 |
+  | H4 | 92.8 / 88.1 / 70.2 | 0.514 | 2.493 | 331 | 3.6 | 12.26 |
+  | **H6** | **96.8 / 95.0 / 86.5** | 0.424 | 2.284 | 380 | 3.7 | 12.22 |
+
+  Per scene in `e69f_coverage.txt`. H's crop count is the fine level only; its coarse level adds at most 4 096 coarse
+  cells per crop (16^3), so < 8 k in all. Memory: the head is one 1 x 1 convolution over the whole crop (E69c), so its
+  memory (32^3 cells x 4^3 children x 4 numbers, ~34 MB in float32 forward) is the same for every rule and far under
+  10 GB; the rules differ in which children the loss reads and in their balance, not in memory.
+- **Gate G0c' passes; pick (pre-registered): H6.** Two rules pass median and min >= 80 %: R12 (min 84.8, the
+  bathroom) and H6 (min 86.5, the bathroom). The pick is the passing rule with the fewest candidates per crop: H6, 3.7 k
+  against 30.4 k, and positives at 12 % of the children instead of 0.9 %. H6's coverage assumes a perfect coarse
+  stage; the generator's coarse stage is learned (a gate on the U-Net's half-size level, trained teacher-forced),
+  so its own recall is a new failure point that rung 3 measures.
+- **Predictions:** R needs r >= 8 for the median: wrong, r 6 gives 85.1. C halves R's candidates at <= 2 points:
+  wrong; it halves them but loses 2.5-13 points of coverage, 11-24 on the bathroom, and its oracle is 1.1-1.4 cm
+  worse in-box: carving removes true surface where Déjà View is too deep (the bathroom's blinds). The bathroom fails
+  every rule below 50 cm: right (P25cm 59.1 %, P50cm 84.8 %). Physical reach is worse than cell reach at equal cost:
+  the hotel lobby's 18 cm cells give it reach 2-6.
+- **Box:** Déjà View's clipped points are partly accurate (bedroom and living room: median own-pixel error 5.2-5.4 cm,
+  44-48 % within 5 cm; they leave through x-/y- resp. z-/z+), partly off (bathroom 20.5 cm, ai_009_009 62.3 cm,
+  courtyard 68.2 cm median). Prediction (accurate far walls) right on two scenes, wrong on three: the box also cut
+  Déjà View's floaters, which count against it in the pass-through baseline either way. **Pick (pre-registered):**
+  the smallest box with seen clipping <= 0.2 cm and Déjà View outside <= 0.1 % on every scene is p 0.1, pad 5 %:
+  seen clipping <= 0.009 cm, Déjà View outside <= 0.057 % (courtyard); p 0.5 pad 10 % fails (bedroom 0.111 %,
+  bathroom 0.428 %, courtyard 0.209 % outside). The grid stays <= 232 cells at the old cell, so the cell is kept
+  (children 1.07-4.56 cm as before). Out-of-box GT left: bathroom 6.54 % (the exterior behind the blinds, which Déjà
+  View does not reach; reported, not chased), courtyard 1.80 %, the rest <= 0.62 %. Prediction (p 0.1, 5 %) right.
+- **Lock** (`configs/e69f.yaml`; `volume.scene_points(box=...)`, `generator.coarse_candidates`, `two_level`; tests):
+  the six-scene rung 0 again (`... lock --config configs/e69f.yaml`, 641 s, `e69f_lock.txt`). Child = cell / 4;
+  oracle = the GT99 children of the H6 candidates; cm unless %. **These are the baselines every later E69 row is
+  measured against.**
+
+  | scene | cells | child | in-box unseen | out-of-box GT | DV outside | seen clipping | **in-box baseline** | **pass-through baseline** | H6 cover | H6 oracle in-box / pass |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | ai_006_007 bedroom | 208 | 1.17 | 7.5 % | 0.50 % | 0.000 % | 0.000 | 3.365 | 3.521 | 92.9 % | 0.39 / 0.45 |
+  | ai_010_007 living room | 208 | 1.74 | 2.9 % | 0.62 % | 0.024 % | 0.009 | 2.680 | 2.899 | 98.6 % | 0.47 / 0.61 |
+  | ai_044_001 hotel lobby | 200 | 4.56 | 3.2 % | 0.00 % | 0.000 % | 0.000 | 10.300 | 10.301 | 90.4 % | 1.24 / 1.24 |
+  | ai_004_003 bathroom | 224 | 1.10 | 12.3 % | 6.54 % | 0.017 % | 0.000 | 10.627 | 43.807 | 87.2 % | 0.28 / 35.09 |
+  | ai_009_009 | 216 | 3.79 | 6.1 % | 0.01 % | 0.003 % | 0.000 | 26.503 | 26.529 | 99.3 % | 1.10 / 1.12 |
+  | ai_031_004 courtyard | 232 | 1.07 | 12.6 % | 1.80 % | 0.057 % | 0.000 | 10.138 | 12.093 | 91.9 % | 1.73 / 3.52 |
+  | **median** | | | | | | | 10.219 | 11.197 | 92.4 % | 0.79 / 1.18 |
+  | **mean** | | | | | | | 10.602 | 16.525 | 93.4 % | 0.84 / 7.01 |
+  | **min** (cover) | | | | | | | | | 87.2 % | |
+
+  The in-box baseline rose against E69e's (median 7.59 -> 10.22): the larger box now holds Déjà View's floaters
+  (ai_009_009, the bathroom, the courtyard), which used to fall outside and go unscored in-box. Pass-through is
+  unchanged by construction (all of Déjà View against all of GT99v). With the larger box, more unseen GT is in-box
+  and H6 covers a median 92.4 % (min 87.2 %, bathroom) instead of 96.8 / 86.5: **G0c' still passes.** The oracle
+  ceiling lies far under both baselines everywhere; the bathroom's pass-through ceiling (35.1 cm) is the exterior
+  behind the blinds, outside the box and unreachable by any rule here.
+- **Rung 0 is closed.** No training happened in E69f. Rung 1 onwards on these settings is E69g.

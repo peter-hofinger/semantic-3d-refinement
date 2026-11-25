@@ -6,6 +6,7 @@ import pytest
 import torch
 import yaml
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+from torch.nn import functional as F  # noqa: N812
 
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
@@ -29,7 +30,9 @@ from src.refinement.generator import (
     child_scores,
     child_targets,
     cloud_loss,
+    coarse_candidates,
     crop_losses,
+    dilate,
     direct_terms,
     distance_loss,
     draw_crop,
@@ -54,6 +57,7 @@ from src.refinement.generator import (
     split_arm,
     spread,
     train,
+    two_level,
 )
 from src.refinement.volume import (
     ScenePoints,
@@ -826,3 +830,57 @@ def test_the_parameter_limit_is_raised_only_by_the_config() -> None:
         build(wide)
     raised = dataclasses.replace(wide, max_parameters=2_000_000)
     assert sum(p.numel() for p in build(raised).parameters()) > 10**6
+
+
+def test_separable_dilation_equals_the_cubic_max_pool() -> None:
+    """Three 1D pools give the (2r + 1)^3 max-pool exactly, on random sparse masks."""
+    gen = torch.Generator().manual_seed(0)
+    for reach in (1, 3, 6):
+        mask = torch.rand(20, 17, 23, generator=gen) < 0.01
+        cubic = F.max_pool3d(mask.float()[None, None], 2 * reach + 1, 1, reach)
+        assert torch.equal(dilate(mask, reach), cubic[0, 0] > 0)
+
+
+def test_coarse_candidates_pass_on_the_reached_coarse_voxels_with_truth() -> None:
+    """One occupied fine voxel; truth in coarse voxels 2 and 4 coarse cells away.
+
+    Coarse reach 2 reaches the first (its 8 fine voxels pass on), not the second.
+    """
+    occupied = torch.zeros(4, 4, 16, dtype=torch.bool)
+    truth = torch.zeros_like(occupied)
+    occupied[0, 0, 0] = True
+    truth[1, 1, 5] = True  # coarse x 2
+    truth[0, 0, 9] = True  # coarse x 4
+    out = coarse_candidates(occupied, 2, truth)
+    assert out.sum() == 8
+    assert out[:2, :2, 4:6].all()
+
+
+def test_two_level_teacher_forces_while_training_and_never_reads_the_gt_otherwise() -> (
+    None
+):
+    """Training: the coarse voxels the GT holds; evaluating: the gate (open at 0)."""
+    grid = voxelize(plane(), semantics=False)
+    occupied = grid[0] > 0
+    truth = torch.zeros_like(occupied)
+    truth[9, 4:8, 4:8] = True
+    model = build(config(kind="ovoxel", loss="direct", coarse_reach=2))
+    model.train()
+    _, forced, _, _ = two_level(model, grid, 2, truth)
+    assert torch.equal(forced, coarse_candidates(occupied, 2, truth))
+    model.eval()
+    _, opened, _, wide = two_level(model, grid, 2, truth)
+    _, blind, _, _ = two_level(model, grid, 2, None)
+    up = wide.repeat_interleave(2, 0).repeat_interleave(2, 1).repeat_interleave(2, 2)
+    assert torch.equal(opened, blind) and torch.equal(opened, up)
+
+
+def test_a_two_level_ovoxel_generator_trained_on_a_plane_finds_its_children() -> None:
+    """Scored with its own gate (no GT), as a whole scene is generated."""
+    cfg = config(kind="ovoxel", loss="direct", lr=1e-2, coarse_reach=2)
+    model = fit_plane(cfg, 150)
+    pts = plane()
+    children = scene_children(model, pts, pts.points, cfg, torch.device("cpu"))
+    scores = child_scores(child_counts(children, 2))
+    assert scores["precision"] > 0.9 and scores["recall"] > 0.9
+    assert scores["vertex_err"] < 0.1

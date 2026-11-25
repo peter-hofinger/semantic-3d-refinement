@@ -151,6 +151,12 @@ class GeneratorConfig:
     )
     dino: int = 0  # DINOv2 feature channels in the grid (the PCA's), 0: none
     dino_cache: str = "dinov2b"  # name of the DINOv2 cache and its PCA
+    target: str = "gt20"  # "gt20": the input views' GT pixels; "gt99": E69d's GT99v
+    box_percentile: float = 1.0  # the grid spans the percentile..100-percentile box ...
+    box_pad: float = 0.05  # ... padded by this share, at the 1-99 % box's cell (E69f)
+    coarse_reach: int = (
+        0  # > 0: two-level candidates (`coarse_candidates`), not `reach`
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -619,7 +625,7 @@ class OVoxelGenerator(UNet3d):
     distance = False
     seeded = False
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the sizes and two switches of the head
         self,
         grid_channels: int,
         widths: list[int],
@@ -627,14 +633,23 @@ class OVoxelGenerator(UNet3d):
         *,
         semantics: bool,
         free_vertex: bool = True,
+        coarse: bool = False,
     ) -> None:
-        """Start the head at zero; without `free_vertex` every vertex stays centred."""
+        """Start the heads at zero; without `free_vertex` every vertex stays centred.
+
+        With `coarse` a 1 x 1 gate on the U-Net's half-size level gives each coarse
+        (2^3) voxel an occupancy logit (`two_level`).
+        """
         super().__init__(grid_channels, widths)
         self.semantics = semantics
         self.free_vertex = free_vertex
         self.head = nn.Conv3d(widths[0], split**3 * 4, 1)
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
+        self.gate = nn.Conv3d(widths[1], 1, 1) if coarse else None
+        if self.gate is not None:
+            nn.init.zeros_(self.gate.weight)
+            nn.init.zeros_(self.gate.bias)
         self.register_buffer("base", lattice(split))
         self.register_buffer("corner", child_corner(split))
 
@@ -649,6 +664,42 @@ class OVoxelGenerator(UNet3d):
             self.corner,
             free_vertex=self.free_vertex,
         )
+
+
+def two_level(
+    model: OVoxelGenerator,
+    grid: Tensor,
+    reach: int,
+    truth: Tensor | None,
+    *,
+    amp: bool = False,
+) -> tuple[Outputs, Tensor, Tensor, Tensor]:
+    """Children of the two-level candidates; also the candidates, coarse logits, mask.
+
+    grid (C, Z, Y, X), sides even; truth (Z, Y, X) bool, the voxels holding GT, or None.
+    Coarse candidates: the 2^3 max-pool of the occupied voxels dilated by `reach` coarse
+    cells (`coarse_candidates`). The fine candidates are the 8 voxels of each coarse
+    candidate that the GT occupies while training (teacher forcing, as SG-NN and
+    TRELLIS train their fine level) and of each with a logit >= 0 otherwise, so
+    evaluation never sees the GT. Returns the children, the fine candidates (Z, Y, X),
+    the coarse logits (Z/2, Y/2, X/2) and the coarse candidates.
+    """
+    assert model.gate is not None and all(d % 2 == 0 for d in grid.shape[1:])
+    fine, half = model.pyramid(grid, amp=amp)[:2]
+    logit = model.gate(half[None])[0, 0]
+    occupied = grid[0] > 0
+    wide = dilate(F.max_pool3d(occupied.float()[None, None], 2)[0, 0] > 0, reach)
+    if truth is not None and model.training:
+        keep = F.max_pool3d(truth.float()[None, None], 2)[0, 0] > 0
+    else:
+        keep = logit >= 0  # the untrained gate (logit 0) opens every candidate
+    on = wide & keep
+    candidates = on.repeat_interleave(2, 0).repeat_interleave(2, 1)
+    candidates = candidates.repeat_interleave(2, 2)
+    out = decode_children(
+        model.head, fine, candidates, model.corner, free_vertex=model.free_vertex
+    )
+    return out, candidates, logit, wide
 
 
 class LatentGenerator(nn.Module):
@@ -715,8 +766,10 @@ def build(cfg: GeneratorConfig, dims: tuple[int, int, int] | None = None) -> nn.
             cfg.split,
             semantics=sem,
             free_vertex=not cfg.fixed_vertex,
+            coarse=cfg.coarse_reach > 0,
         )
     else:
+        assert cfg.coarse_reach == 0, "two-level candidates: `ovoxel` only"
         model = KINDS[cfg.kind](
             channels,
             cfg.widths,
@@ -729,11 +782,46 @@ def build(cfg: GeneratorConfig, dims: tuple[int, int, int] | None = None) -> nn.
     return model
 
 
+def box_of(cfg: GeneratorConfig) -> tuple[float, float]:
+    """Return the grid's extent, (percentile, pad), for `scene_points`."""
+    return cfg.box_percentile, cfg.box_pad
+
+
+def dilate(mask: Tensor, reach: int) -> Tensor:
+    """Voxels (Z, Y, X) within `reach` cells (Chebyshev) of a True one.
+
+    The Chebyshev ball is a cube, so the 3D max-pool separates into one 1D pool per
+    axis: 3 (2r + 1) reads per voxel instead of (2r + 1)^3 (reach 12: 75, not 15 625).
+    """
+    out = mask.float()[None, None]
+    for kernel, pad in (
+        ((2 * reach + 1, 1, 1), (reach, 0, 0)),
+        ((1, 2 * reach + 1, 1), (0, reach, 0)),
+        ((1, 1, 2 * reach + 1), (0, 0, reach)),
+    ):
+        out = F.max_pool3d(out, kernel, 1, pad)
+    return out[0, 0] > 0
+
+
+def coarse_candidates(occupied: Tensor, reach: int, truth: Tensor) -> Tensor:
+    """Two-level candidates (Z, Y, X): fine voxels of coarse voxels holding `truth`.
+
+    occupied, truth (Z, Y, X) bool, sides even. The coarse level is the 2^3 max-pool of
+    `occupied` dilated by `reach` coarse cells; of those, the ones `truth` occupies pass
+    their 8 fine voxels on (what a perfect coarse stage keeps, as TRELLIS's sparse
+    structure and SG-NN's coarse-to-fine levels train their fine level). E69f: coarse
+    reach 6 (12 fine cells) covers a median 96.8 % of the unseen GT, 3.7 k candidates
+    per 32-cell crop where a fine reach of 12 needs 30.4 k.
+    """
+    assert occupied.shape == truth.shape and all(d % 2 == 0 for d in truth.shape)
+    pool = F.max_pool3d(torch.stack([occupied, truth]).float()[:, None], 2)[:, 0] > 0
+    keep = dilate(pool[0], reach) & pool[1]
+    return keep.repeat_interleave(2, 0).repeat_interleave(2, 1).repeat_interleave(2, 2)
+
+
 def candidate_mask(grid: Tensor, reach: int) -> Tensor:
     """Voxels (Z, Y, X) within `reach` cells (Chebyshev) of one that holds a point."""
-    occupied = (grid[0] > 0).float()[None, None]
-    wide = F.max_pool3d(occupied, 2 * reach + 1, 1, reach)
-    return wide[0, 0] > 0
+    return dilate(grid[0] > 0, reach)
 
 
 class EmptyCrop(Exception):  # noqa: N818 - a signal to draw again, not an error
@@ -943,7 +1031,7 @@ def load_render(cfg: GeneratorConfig, scene: str) -> RenderViews:
     gt = GroundTruth.load(folder / f"gt_{cfg.views}.npz")
     none = np.full(geometry.depth.shape, -1)
     _, rays, depth, scale = scene_points(
-        geometry, views.images, none, {}, cfg.resolution
+        geometry, views.images, none, {}, cfg.resolution, box_of(cfg)
     )
     return render_views((rays, depth), views, gt, scale, cfg.stride)
 
@@ -1059,7 +1147,7 @@ class TrainScene:
 def load_scene(
     cfg: GeneratorConfig, scene: str, semantics: str
 ) -> tuple[ScenePoints, Tensor, Tensor, float]:
-    """One scene's pixels, their GT in the grid's frame, where it exists, the scale."""
+    """One scene's pixels, its GT (`target`) in the grid's frame, where it is, scale."""
     folder = cfg.root / scene
     views = Views.load(folder / f"{cfg.views}.npz")
     geometry = Geometry.load(folder / f"{cfg.backbone}_{cfg.views}.npz")
@@ -1072,7 +1160,7 @@ def load_scene(
     else:
         ids, classes = np.full(geometry.depth.shape, -1), {}
     pts, rays, depth, scale = scene_points(
-        geometry, views.images, ids, classes, cfg.resolution
+        geometry, views.images, ids, classes, cfg.resolution, box_of(cfg)
     )
     if cfg.dino:
         pca = Pca.load(pca_path(cfg.root, cfg.dino_cache, cfg.dino))
@@ -1081,7 +1169,13 @@ def load_scene(
         pts = dataclasses.replace(
             pts, patches=patches, image=tuple(views.images.shape[1:3])
         )
-    in_dv, has = gt_in_frame(rays, depth, views, gt)
+    if cfg.target == "gt99":
+        _, _, (s, rotation, t) = gt_alignment(rays, depth, views, gt)
+        world = np.load(folder / f"gt99v1cm_{cfg.views}.npz")["points"]
+        in_dv, has = (world - t) @ rotation / s, np.ones(len(world), dtype=bool)
+    else:
+        assert cfg.target == "gt20", cfg.target
+        in_dv, has = gt_in_frame(rays, depth, views, gt)
     return (
         pts,
         torch.from_numpy(in_dv / scale).float(),
@@ -1225,6 +1319,8 @@ class Children:
     occupied: Tensor  # (M, K) bool target
     vertex: Tensor  # (M, K, 3) target vertex, child units; 0 where empty
     scored: Tensor  # (M,) bool: the voxel counts (not in the crop's rim)
+    # two-level candidates: the scored coarse candidates' logits and targets (bool)
+    coarse: tuple[Tensor, Tensor] | None = None
 
     def placed(self, split: int) -> Tensor:
         """Return the vertices in child units (M, K, 3): 0 to 1 inside their child."""
@@ -1252,6 +1348,8 @@ def direct_terms(
     if vertex:
         placed = children.placed(split)[live][occupied]
         terms["vertex"] = (placed - children.vertex[live][occupied]).abs().mean()
+    if children.coarse is not None and children.coarse[1].any():
+        terms["coarse"] = occupancy_loss(*children.coarse)
     return terms
 
 
@@ -1311,6 +1409,8 @@ def crop_window(
     local = ((centre - pts.lo) / pts.cell).floor().long().cpu().numpy()
     size = np.minimum(cfg.crop, pts.dims)  # x y z
     lo = np.clip(local - size // 2, 0, np.array(pts.dims) - size)
+    if cfg.coarse_reach:  # coarse voxels of the crop are the scene's (sizes are x8)
+        lo -= lo % 2
     zyx = (2, 1, 0)
     window = (slice(None), *(slice(int(lo[a]), int(lo[a] + size[a])) for a in zyx))
     return grid[window], lo, size
@@ -1333,14 +1433,25 @@ def direct_crop(
     """
     pts, gt, _ = scene
     sub, lo, size = crop_window(pts, grid, cfg, rng)
-    candidates = candidate_mask(sub, cfg.reach)
-    if not candidates.any():
-        raise EmptyCrop
-    out = model(sub, candidates, amp=cfg.amp)
-    device = out.pos.device
+    device = sub.device
     extent = torch.from_numpy(size).float().to(device)
     cells = (gt - pts.lo) / pts.cell - torch.from_numpy(lo).float().to(device)
     in_crop = ((cells >= 0) & (cells < extent)).all(1)
+    coarse = None
+    if cfg.coarse_reach:
+        truth = torch.zeros(sub.shape[1:], dtype=torch.bool, device=device)
+        x, y, z = cells[in_crop].floor().long().unbind(1)
+        truth[z, y, x] = True
+        out, candidates, logit, wide = two_level(
+            model, sub, cfg.coarse_reach, truth, amp=cfg.amp
+        )
+        coarse = (logit, F.max_pool3d(truth.float()[None, None], 2)[0, 0] > 0, wide)
+    else:
+        candidates = candidate_mask(sub, cfg.reach)
+        if candidates.any():
+            out = model(sub, candidates, amp=cfg.amp)
+    if not candidates.any():
+        raise EmptyCrop
     edge = (
         torch.from_numpy(lo > 0).to(device),
         torch.from_numpy(lo + size < pts.dims).to(device),
@@ -1355,6 +1466,12 @@ def direct_crop(
         voxel, cells[in_crop], cfg.split, tuple(int(v) for v in size)
     )
     scored = ((voxel >= start) & (voxel < stop)).all(1)
+    if coarse is not None:
+        logit, held, wide = coarse
+        parent = torch.nonzero(wide).flip(1)  # x y z, coarse cells
+        live = ((2 * parent >= start) & (2 * parent + 2 <= stop)).all(1)
+        index = tuple(parent[live].flip(1).unbind(1))
+        coarse = (logit[index], held[index])
     children = Children(
         out.logit,
         out.pos,
@@ -1362,6 +1479,7 @@ def direct_crop(
         occupied,
         vertex,
         scored,
+        coarse,
     )
     truth = (cells[in_crop], cells[inner])
     return children, tuple(
@@ -1474,7 +1592,7 @@ def crop_losses(
 
 def to_device(scene: TrainScene, device: torch.device) -> OnDevice:
     """Return the scene's pixels (all views), their GT and render views on a device."""
-    pts = expand(scene.pts, torch.arange(len(scene.gt)), device)
+    pts = expand(scene.pts, torch.arange(len(scene.pts.points)), device)
     gt = scene.gt.to(device)[scene.has.to(device)]
     if scene.render is None:
         return pts, gt, None
@@ -1714,6 +1832,19 @@ def profile(
     return out
 
 
+def scene_candidates(
+    model: nn.Module, grid: Tensor, cfg: GeneratorConfig
+) -> tuple[Outputs, Tensor]:
+    """Return a whole scene's output and candidates (Z, Y, X); never reads the GT."""
+    if cfg.coarse_reach:
+        out, candidates, _, _ = two_level(
+            model, grid, cfg.coarse_reach, None, amp=cfg.amp
+        )
+        return out, candidates
+    candidates = candidate_mask(grid, cfg.reach)
+    return model(grid, candidates, amp=cfg.amp), candidates
+
+
 def scored_points(
     model: nn.Module, pts: ScenePoints, device: torch.device, cfg: GeneratorConfig
 ) -> tuple[Tensor, Tensor, Tensor]:
@@ -1732,8 +1863,7 @@ def scored_points(
             out = model(grid, seeds, amp=cfg.amp)
             home = seeds.pos[:, None].expand_as(out.pos).reshape(-1, 3)
         else:
-            candidates = candidate_mask(grid, cfg.reach)
-            out = model(grid, candidates, amp=cfg.amp)
+            out, candidates = scene_candidates(model, grid, cfg)
             centre = torch.nonzero(candidates).flip(1).float() + 0.5
             home = (centre[:, None] + model.base).reshape(-1, 3)
     points = (on.lo + out.pos.reshape(-1, 3) * on.cell).cpu()
@@ -1752,8 +1882,7 @@ def scene_children(
     with torch.no_grad():
         on = expand(compact(pts), torch.arange(len(pts.points)), device)
         grid = scene_grid(model, on)
-        candidates = candidate_mask(grid, cfg.reach)
-        out = model(grid, candidates, amp=cfg.amp)
+        out, candidates = scene_candidates(model, grid, cfg)
         voxel = torch.nonzero(candidates).flip(1)
         occupied, vertex = child_targets(
             voxel, (gt.to(device) - on.lo) / on.cell, cfg.split, on.dims

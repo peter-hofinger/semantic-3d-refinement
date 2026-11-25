@@ -1,0 +1,117 @@
+E69f box: split 4, seen tolerance 2 cm / 2 %
+
+== ai_006_007_cam_00
+out-of-box Déjà View pixels 24,225 (0.64 %); own-pixel error median 5.4 cm, < 5 cm 44.2 %; face x- y- z- x+ y+ z+ (Déjà View's frame) 36 61 0 0 0 4
+p  1.0 pad 0.05 192 cells: cells 192, child 1.17 cm; out-of-box GT  3.67 %, Déjà View 0.636 %; seen clipping 0.209 cm
+p  1.0 pad 0.05 cell kept: cells 192, child 1.17 cm; out-of-box GT  3.67 %, Déjà View 0.636 %; seen clipping 0.209 cm
+p  1.0 pad 0.10 192 cells: cells 192, child 1.27 cm; out-of-box GT  1.87 %, Déjà View 0.219 %; seen clipping 0.082 cm
+p  1.0 pad 0.10 cell kept: cells 216, child 1.17 cm; out-of-box GT  1.87 %, Déjà View 0.219 %; seen clipping 0.082 cm
+p  0.5 pad 0.05 192 cells: cells 192, child 1.20 cm; out-of-box GT  2.19 %, Déjà View 0.288 %; seen clipping 0.097 cm
+p  0.5 pad 0.05 cell kept: cells 200, child 1.17 cm; out-of-box GT  2.19 %, Déjà View 0.288 %; seen clipping 0.097 cm
+p  0.5 pad 0.10 192 cells: cells 192, child 1.31 cm; out-of-box GT  1.24 %, Déjà View 0.111 %; seen clipping 0.031 cm
+p  0.5 pad 0.10 cell kept: cells 216, child 1.17 cm; out-of-box GT  1.24 %, Déjà View 0.111 %; seen clipping 0.031 cm
+p  0.1 pad 0.05 192 cells: cells 192, child 1.24 cm; out-of-box GT  0.50 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 cell kept: cells 208, child 1.17 cm; out-of-box GT  0.50 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 192 cells: cells 192, child 1.35 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 cell kept: cells 224, child 1.17 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 192 cells: cells 192, child 1.37 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 cell kept: cells 232, child 1.17 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 192 cells: cells 192, child 1.49 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 cell kept: cells 248, child 1.17 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+
+== ai_010_007_cam_00
+out-of-box Déjà View pixels 38,641 (1.01 %); own-pixel error median 5.2 cm, < 5 cm 48.0 %; face x- y- z- x+ y+ z+ (Déjà View's frame) 0 11 49 0 0 40
+p  1.0 pad 0.05 192 cells: cells 192, child 1.74 cm; out-of-box GT  3.96 %, Déjà View 1.014 %; seen clipping 1.174 cm
+p  1.0 pad 0.05 cell kept: cells 192, child 1.74 cm; out-of-box GT  3.96 %, Déjà View 1.014 %; seen clipping 1.174 cm
+p  1.0 pad 0.10 192 cells: cells 192, child 1.90 cm; out-of-box GT  2.20 %, Déjà View 0.363 %; seen clipping 0.249 cm
+p  1.0 pad 0.10 cell kept: cells 216, child 1.74 cm; out-of-box GT  2.07 %, Déjà View 0.336 %; seen clipping 0.223 cm
+p  0.5 pad 0.05 192 cells: cells 192, child 1.78 cm; out-of-box GT  1.95 %, Déjà View 0.310 %; seen clipping 0.179 cm
+p  0.5 pad 0.05 cell kept: cells 200, child 1.74 cm; out-of-box GT  2.17 %, Déjà View 0.356 %; seen clipping 0.218 cm
+p  0.5 pad 0.10 192 cells: cells 192, child 1.95 cm; out-of-box GT  0.79 %, Déjà View 0.020 %; seen clipping 0.006 cm
+p  0.5 pad 0.10 cell kept: cells 216, child 1.74 cm; out-of-box GT  0.96 %, Déjà View 0.020 %; seen clipping 0.009 cm
+p  0.1 pad 0.05 192 cells: cells 192, child 1.82 cm; out-of-box GT  0.59 %, Déjà View 0.024 %; seen clipping 0.009 cm
+p  0.1 pad 0.05 cell kept: cells 208, child 1.74 cm; out-of-box GT  0.62 %, Déjà View 0.024 %; seen clipping 0.009 cm
+p  0.1 pad 0.10 192 cells: cells 192, child 1.99 cm; out-of-box GT  0.02 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 cell kept: cells 224, child 1.74 cm; out-of-box GT  0.11 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 192 cells: cells 192, child 1.94 cm; out-of-box GT  0.10 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 cell kept: cells 216, child 1.74 cm; out-of-box GT  0.06 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 192 cells: cells 192, child 2.12 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 cell kept: cells 240, child 1.74 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+
+== ai_044_001_cam_00
+out-of-box Déjà View pixels 8 (0.00 %); own-pixel error median 15.9 cm, < 5 cm 0.0 %; face x- y- z- x+ y+ z+ (Déjà View's frame) 88 12 0 0 0 0
+p  1.0 pad 0.05 192 cells: cells 192, child 4.56 cm; out-of-box GT  0.03 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  1.0 pad 0.05 cell kept: cells 192, child 4.56 cm; out-of-box GT  0.03 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  1.0 pad 0.10 192 cells: cells 192, child 4.98 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  1.0 pad 0.10 cell kept: cells 216, child 4.56 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.5 pad 0.05 192 cells: cells 192, child 4.59 cm; out-of-box GT  0.01 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.5 pad 0.05 cell kept: cells 200, child 4.56 cm; out-of-box GT  0.01 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.5 pad 0.10 192 cells: cells 192, child 5.00 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.5 pad 0.10 cell kept: cells 216, child 4.56 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 192 cells: cells 192, child 4.63 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 cell kept: cells 200, child 4.56 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 192 cells: cells 192, child 5.05 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 cell kept: cells 216, child 4.56 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 192 cells: cells 192, child 4.73 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 cell kept: cells 200, child 4.56 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 192 cells: cells 192, child 5.16 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 cell kept: cells 224, child 4.56 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+
+== ai_004_003_cam_00
+out-of-box Déjà View pixels 45,039 (1.18 %); own-pixel error median 20.5 cm, < 5 cm 0.0 %; face x- y- z- x+ y+ z+ (Déjà View's frame) 51 40 9 0 0 0
+p  1.0 pad 0.05 192 cells: cells 192, child 1.10 cm; out-of-box GT  8.44 %, Déjà View 1.182 %; seen clipping 0.364 cm
+p  1.0 pad 0.05 cell kept: cells 192, child 1.10 cm; out-of-box GT  8.44 %, Déjà View 1.182 %; seen clipping 0.364 cm
+p  1.0 pad 0.10 192 cells: cells 192, child 1.20 cm; out-of-box GT  6.86 %, Déjà View 0.800 %; seen clipping 0.051 cm
+p  1.0 pad 0.10 cell kept: cells 216, child 1.10 cm; out-of-box GT  6.86 %, Déjà View 0.800 %; seen clipping 0.051 cm
+p  0.5 pad 0.05 192 cells: cells 192, child 1.14 cm; out-of-box GT  6.76 %, Déjà View 0.607 %; seen clipping 0.077 cm
+p  0.5 pad 0.05 cell kept: cells 200, child 1.10 cm; out-of-box GT  6.76 %, Déjà View 0.607 %; seen clipping 0.048 cm
+p  0.5 pad 0.10 192 cells: cells 192, child 1.24 cm; out-of-box GT  6.51 %, Déjà View 0.428 %; seen clipping 0.000 cm
+p  0.5 pad 0.10 cell kept: cells 224, child 1.10 cm; out-of-box GT  6.51 %, Déjà View 0.428 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 192 cells: cells 192, child 1.25 cm; out-of-box GT  6.54 %, Déjà View 0.017 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 cell kept: cells 224, child 1.10 cm; out-of-box GT  6.54 %, Déjà View 0.017 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 192 cells: cells 192, child 1.37 cm; out-of-box GT  6.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 cell kept: cells 240, child 1.10 cm; out-of-box GT  6.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 192 cells: cells 192, child 1.39 cm; out-of-box GT  6.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 cell kept: cells 248, child 1.10 cm; out-of-box GT  6.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 192 cells: cells 192, child 1.52 cm; out-of-box GT  6.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 cell kept: cells 272, child 1.10 cm; out-of-box GT  6.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+
+== ai_009_009_cam_00
+out-of-box Déjà View pixels 54,091 (1.42 %); own-pixel error median 62.3 cm, < 5 cm 0.0 %; face x- y- z- x+ y+ z+ (Déjà View's frame) 0 36 62 0 1 1
+p  1.0 pad 0.05 192 cells: cells 192, child 3.79 cm; out-of-box GT  4.61 %, Déjà View 1.420 %; seen clipping 1.973 cm
+p  1.0 pad 0.05 cell kept: cells 192, child 3.79 cm; out-of-box GT  4.61 %, Déjà View 1.420 %; seen clipping 1.973 cm
+p  1.0 pad 0.10 192 cells: cells 192, child 4.14 cm; out-of-box GT  1.49 %, Déjà View 0.141 %; seen clipping 0.035 cm
+p  1.0 pad 0.10 cell kept: cells 216, child 3.79 cm; out-of-box GT  1.49 %, Déjà View 0.139 %; seen clipping 0.035 cm
+p  0.5 pad 0.05 192 cells: cells 192, child 4.09 cm; out-of-box GT  1.29 %, Déjà View 0.127 %; seen clipping 0.051 cm
+p  0.5 pad 0.05 cell kept: cells 208, child 3.79 cm; out-of-box GT  1.29 %, Déjà View 0.200 %; seen clipping 0.034 cm
+p  0.5 pad 0.10 192 cells: cells 192, child 4.47 cm; out-of-box GT  0.19 %, Déjà View 0.002 %; seen clipping 0.000 cm
+p  0.5 pad 0.10 cell kept: cells 232, child 3.79 cm; out-of-box GT  0.19 %, Déjà View 0.016 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 192 cells: cells 192, child 4.14 cm; out-of-box GT  0.01 %, Déjà View 0.024 %; seen clipping 0.006 cm
+p  0.1 pad 0.05 cell kept: cells 216, child 3.79 cm; out-of-box GT  0.01 %, Déjà View 0.003 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 192 cells: cells 192, child 4.52 cm; out-of-box GT  0.00 %, Déjà View 0.003 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 cell kept: cells 232, child 3.79 cm; out-of-box GT  0.00 %, Déjà View 0.001 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 192 cells: cells 192, child 5.41 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 cell kept: cells 280, child 3.79 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 192 cells: cells 192, child 5.91 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 cell kept: cells 304, child 3.79 cm; out-of-box GT  0.00 %, Déjà View 0.000 %; seen clipping 0.000 cm
+
+== ai_031_004_cam_00
+out-of-box Déjà View pixels 82,070 (2.15 %); own-pixel error median 68.2 cm, < 5 cm 0.9 %; face x- y- z- x+ y+ z+ (Déjà View's frame) 1 26 32 18 0 23
+p  1.0 pad 0.05 192 cells: cells 192, child 1.07 cm; out-of-box GT 13.67 %, Déjà View 2.154 %; seen clipping 1.740 cm
+p  1.0 pad 0.05 cell kept: cells 192, child 1.07 cm; out-of-box GT 13.67 %, Déjà View 2.154 %; seen clipping 1.740 cm
+p  1.0 pad 0.10 192 cells: cells 192, child 1.17 cm; out-of-box GT  9.25 %, Déjà View 0.933 %; seen clipping 0.339 cm
+p  1.0 pad 0.10 cell kept: cells 216, child 1.07 cm; out-of-box GT  8.90 %, Déjà View 0.802 %; seen clipping 0.061 cm
+p  0.5 pad 0.05 192 cells: cells 192, child 1.17 cm; out-of-box GT  8.80 %, Déjà View 0.569 %; seen clipping 0.100 cm
+p  0.5 pad 0.05 cell kept: cells 216, child 1.07 cm; out-of-box GT  7.39 %, Déjà View 0.580 %; seen clipping 0.126 cm
+p  0.5 pad 0.10 192 cells: cells 192, child 1.27 cm; out-of-box GT  1.70 %, Déjà View 0.209 %; seen clipping 0.001 cm
+p  0.5 pad 0.10 cell kept: cells 232, child 1.07 cm; out-of-box GT  1.70 %, Déjà View 0.209 %; seen clipping 0.001 cm
+p  0.1 pad 0.05 192 cells: cells 192, child 1.29 cm; out-of-box GT  1.80 %, Déjà View 0.057 %; seen clipping 0.000 cm
+p  0.1 pad 0.05 cell kept: cells 232, child 1.07 cm; out-of-box GT  1.80 %, Déjà View 0.057 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 192 cells: cells 192, child 1.41 cm; out-of-box GT  1.64 %, Déjà View 0.024 %; seen clipping 0.000 cm
+p  0.1 pad 0.10 cell kept: cells 256, child 1.07 cm; out-of-box GT  1.64 %, Déjà View 0.024 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 192 cells: cells 192, child 1.33 cm; out-of-box GT  1.67 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.05 cell kept: cells 240, child 1.07 cm; out-of-box GT  1.67 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 192 cells: cells 192, child 1.45 cm; out-of-box GT  1.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+p  0.0 pad 0.10 cell kept: cells 264, child 1.07 cm; out-of-box GT  1.51 %, Déjà View 0.000 %; seen clipping 0.000 cm
+
+total 545 s

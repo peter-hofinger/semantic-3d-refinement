@@ -17,6 +17,7 @@ from src.refinement.volume import (
     VolumeRefiner,
     compact,
     distance_target,
+    grid_box,
     grid_channels,
     keep_labels,
     keep_score,
@@ -257,3 +258,18 @@ def test_distance_head_overfits_a_smooth_distance(tmp_path: Path) -> None:
     assert log[-1]["distance_l1"] < 0.25 * log[0]["distance_l1"]
     assert model.outputs == 2
     assert max(r["spearman"] for r in log) > 0.8
+
+
+def test_grid_box_keeps_every_point_at_percentile_zero_and_a_given_cell() -> None:
+    """At p 0 and no pad every point lies inside; at p 1 the extremes leave it."""
+    rng = np.random.default_rng(0)
+    points = rng.normal(size=(1000, 3))
+    for p, everything in ((0.0, True), (1.0, False)):
+        lo, cell, dims = grid_box(points, 64, percentile=p, pad=0.0)
+        top = lo + np.array(dims) * cell
+        assert ((points >= lo) & (points < top)).all(1).all() == everything
+        assert max(dims) >= 64
+    lo, cell, dims = grid_box(points, 64, percentile=0.0, pad=0.0, cell=0.5)
+    assert cell == 0.5
+    spans = np.ptp(points, axis=0)
+    assert all(d % 8 == 0 and d * 0.5 >= w for d, w in zip(dims, spans, strict=True))

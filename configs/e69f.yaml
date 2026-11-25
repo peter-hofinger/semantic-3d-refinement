@@ -1,0 +1,53 @@
+# E69f (issue #69): E69c's O-Voxel generator with E69f's locked grid box and two-level candidates. Rung 0 of the
+# ladder (`experiments/scripts/e69f_rung0.py lock`) runs on these settings; the later rungs are added as they are
+# pre-registered in `experiments/LOG.md`.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+split_file: configs/hypersim.yaml
+tag: e69f
+
+# DINOv2-B/14 (Oquab et al. 2023, Apache-2.0): patch features of the 20 views at 504 px, cached as <name>_<views>.npz; a PCA to
+# `channels`, fitted on the train split only, is <root>/<name>_pca<channels>.npz (`python -m src.backbone.dinov2`)
+dinov2: {model: facebook/dinov2-base, name: dinov2b, channels: 32}
+
+# Rung 0 of the ladder: under 1 M parameters, Adam at a constant rate, no weight decay, no augmentation (the grid is built
+# from all 20 views). The sizes are E69a's, so the scorer, the grid and the crops are the same.
+resolution: 192       # cells along the scene box's longest side: a median 7.2 cm
+widths: [24, 48, 96]  # U-Net channels per level
+split: 4              # children per voxel and axis: E69c's rung 0 chose 4
+reach: 1              # unused while coarse_reach > 0
+# E69f's lock (LOG, 26.11.2026): the grid spans the 0.1-99.9 % box padded 5 %, at the 1-99 % box's cell (at most 232 cells
+# on the six scenes; seen clipping <= 0.009 cm, Déjà View outside <= 0.06 %); candidates are two-level, coarse cells of
+# 2^3 voxels within 6 coarse cells of Déjà View's (median in-box unseen coverage 96.8 %, min 86.5 % on the 1-99 % box)
+box_percentile: 0.1
+box_pad: 0.05
+coarse_reach: 6
+offset: 2.0           # E69a's largest move of a point; the kinds of this experiment do not read it
+crop: 32             # E69e: an 8-cell rim around a 16-cell interior
+margin: 8
+gen_cap: 20000
+gt_cap: 50000
+comp_cap: 4000
+fixed_crops: 4        # the fixed error: crops per scene ...
+fixed_scenes: 3       # ... on at most this many scenes of each list
+eval_every: 100
+amp: true
+lr: 1.0e-3            # constant; the learning-rate rung sets one per arm
+seeds: [0]
+
+# E69g (LOG): E69e's rungs 1-3 on these settings; the one change between the two arms is the target
+arms:
+  ovoxel-gt99: {kind: ovoxel, loss: direct, target: gt99}   # E69d's all-frames GT, voxelized at 1 cm
+  ovoxel-gt20: {kind: ovoxel, loss: direct, target: gt20}   # the 20 input views' GT pixels
+  latent-gt99: {kind: latent, loss: direct, amp: false, target: gt99, coarse_reach: 0, reach: 12}   # rung 3a, a free latent per voxel
+
+rungs:
+  # rung 3a, the output alone; 3b, input to output on the whole bedroom. The living room only logs a held-out loss
+  # (no val scene is read before rung 5); the pre-registered escalations of E69e, one at a time
+  overfit1a: {train_scenes: [ai_006_007_cam_00], val_scenes: [ai_006_007_cam_00], predict_scenes: [ai_006_007_cam_00], select: train, steps: 1200, run: [latent-gt99]}
+  overfit1: &overfit1 {train_scenes: [ai_006_007_cam_00], val_scenes: [ai_010_007_cam_00], predict_scenes: [ai_006_007_cam_00], select: train, steps: 1200, run: [ovoxel-gt99, ovoxel-gt20]}
+  overfit1_e1: &e1 {<<: *overfit1, steps: 4800}
+  overfit1_e2: &e2 {<<: *e1, widths: [32, 64, 128], max_parameters: 1500000}
+  overfit1_e3: {<<: *e2, cosine: true}

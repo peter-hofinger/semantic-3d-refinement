@@ -193,33 +193,46 @@ def pixel_classes(ids: np.ndarray, classes: dict[int, str]) -> np.ndarray:
 
 
 def grid_box(
-    points: np.ndarray, resolution: int
+    points: np.ndarray,
+    resolution: int,
+    *,
+    percentile: float = 1.0,
+    pad: float = 0.05,
+    cell: float | None = None,
 ) -> tuple[np.ndarray, float, tuple[int, int, int]]:
-    """Corner, cell size and cells per axis (x8) of the padded 1-99 % box."""
-    lo, hi = np.percentile(points, [1, 99], axis=0)
-    pad = 0.05 * (hi - lo)
-    lo, hi = lo - pad, hi + pad
-    cell = float((hi - lo).max() / resolution)
+    """Corner, cell, cells per axis (x8) of the padded p..100-p box."""
+    assert 0 <= percentile < 100 - percentile and pad >= 0, (percentile, pad)
+    lo, hi = np.percentile(points, [percentile, 100 - percentile], axis=0)
+    margin = pad * (hi - lo)
+    lo, hi = lo - margin, hi + margin
+    cell = float((hi - lo).max() / resolution) if cell is None else cell
     dims = tuple(
         int(8 * np.ceil((h - low) / cell / 8)) for low, h in zip(lo, hi, strict=True)
     )
     return lo, cell, dims
 
 
-def scene_points(
+def scene_points(  # noqa: PLR0913, PLR0917 - the box's extent is one more grid setting
     geometry: Geometry,
     images: np.ndarray,
     ids: np.ndarray,
     classes: dict[int, str],
     resolution: int,
+    box: tuple[float, float] = (1.0, 0.05),
 ) -> tuple[ScenePoints, np.ndarray, np.ndarray, float]:
-    """Flat pixels in the grid's frame; also the raw rays (N, 6), depth and scale."""
+    """Flat pixels in the grid's frame; also the raw rays (N, 6), depth and scale.
+
+    The cell is the padded 1-99 % box's longest side / `resolution`; the grid spans
+    the `box` = (percentile, pad) box at that cell (E69f: (0.1, 0.05) keeps the seen
+    walls the 1-99 % box clips, without coarsening the cell).
+    """
     scene = scene_from_geometry(geometry)
     rays = scene.rays.reshape(-1, 6).double().numpy()
     depth = geometry.depth.reshape(-1).astype(np.float64)
     scale = float(np.median(depth))
     x = (rays[:, :3] + depth[:, None] * rays[:, 3:]) / scale
-    lo, cell, dims = grid_box(x, resolution)
+    cell = grid_box(x, resolution)[1]
+    lo, cell, dims = grid_box(x, resolution, percentile=box[0], pad=box[1], cell=cell)
     log_conf = np.log(geometry.confidence.reshape(-1).astype(np.float64))
     direction = rays[:, 3:] / np.linalg.norm(rays[:, 3:], axis=1, keepdims=True)
     pts = ScenePoints(
