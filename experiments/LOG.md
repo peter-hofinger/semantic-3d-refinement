@@ -9383,3 +9383,64 @@ Interim entry: the check that the plan puts before any table.
   Déjà View's points (the box of the scene's floor-to-ceiling extent, or a coarse occupancy over the whole box
   first, as SG-NN's and the `gated` arm's coarse level does); (2) G0a's remainder measured with the scorer's voxel
   equal to the child. One scene, no seeds needed; the density filter's q was picked on the same scene.
+
+## Plan: E69e rung-0 checks = is G0a's 0.28 cm quantization or a conversion bug, and how much of the unseen surface inside Déjà View's box do the candidates reach? (bedroom, 25.11.2026)
+- **Why:** rung 0 failed G0a (`dv-ovoxel` s4 0.28 cm worse than Déjà View) and G0c (reach 4 holds 55.7 % of the
+  unseen points, 29.6 % lie outside the grid box). G0a mixes two quantizations: the scorer's 1 cm cubes in the
+  world frame and the 1.17 cm children in Déjà View's frame (rotated against the world). G0c mixes local
+  refinement (unseen surface near Déjà View's points) with surface no input view looks at (the ceiling). The
+  floor-to-ceiling box is not tested (an arbitrary prior on the scene).
+- **Measurements, one run** (`experiments/scripts/e69e_rung0_checks.py`, same scorer, same GT99v at 1 cm):
+  - **Bug check:** Déjà View's points averaged per child of split 4 by an independent path (floor of the point's
+    cell times 4, grouped, mean), against `dv-ovoxel` s4 from `generator.child_targets`. The two point sets must be
+    equal to float32 precision; the count of Déjà View points outside the grid box (which `child_targets` ignores)
+    is reported.
+  - **Matched scorer:** Déjà View, the density filter (q 0.7) and `dv-ovoxel` s4, with the output voxelized at 1 cm
+    (rung 0's) and at the child size (1.17 cm); and the independent child-grid average, unvoxelized.
+  - **G0c inside the box:** coverage at reach 1-4 of the unseen GT99v points inside Déjà View's grid box (its
+    1-99 % box, padded 5 %), and the unseen completeness of Déjà View and the GT99 oracle (s4, reach 1-4) split
+    into inside and outside the box.
+- **Predictions:** the two point sets are equal (no bug); with the scorer at 1.17 cm `dv-ovoxel` is within the
+  0.1 cm band of Déjà View (the gap is quantization); inside the box reach 4 holds 75-85 % of the unseen points.
+- **Rule:** equal sets and a gap within the band = quantization, G0a passes under the matched scorer; equal sets
+  and a gap past the band = the representation costs accuracy; unequal sets = a bug, fixed before anything else.
+  G0c inside the box passes at the smallest reach holding >= 80 %. Nothing is trained after this entry.
+
+## E69e rung-0 checks, result: no conversion bug; at the child's own size the accuracy gap is gone and 0.15 cm of completeness remains; inside Déjà View's box reach 4 covers 79.1 % of the unseen points, one point short of the gate (bedroom, 25.11.2026)
+- **Setting:** the plan above, unchanged; `experiments/scripts/e69e_rung0_checks.py` (test in `tests/test_e69e.py`),
+  MacBook Air M3, CPU, 44 s, one run (no randomness). Child of split 4: 1.166 cm. Rung 0's `score` got a voxel-side
+  argument; its numbers are unchanged (the 1 cm rows below reproduce them).
+  `experiments/results/e69e_rung0_checks_ai_006_007_cam_00.txt`.
+- **Bug check: no bug.** `dv-ovoxel` s4 and the independent child means are the same 1 840 265 points (largest
+  nearest distance 1.3e-4 cm, float32), with identical scores. `child_targets` drops the Déjà View points outside
+  the grid box: 24 225 of 3 810 240 (0.64 %).
+- **Matched scorer (against GT99v, 1 cm; cm):**
+
+  | cloud | output voxel | accuracy | completeness (seen / unseen) | Chamfer |
+  |---|---|---|---|---|
+  | Déjà View | 1 cm | 2.984 | 3.878 (1.565 / 30.53) | 3.431 |
+  | Déjà View | 1.17 cm | 3.127 | 3.915 (1.604 / 30.55) | 3.521 |
+  | density q 0.7 | 1.17 cm | 2.831 | 4.086 (1.767 / 30.81) | 3.459 |
+  | `dv-ovoxel` s4, voxelized again | 1.17 cm | 3.246 | 4.256 (1.839 / 32.11) | 3.751 |
+  | `dv-ovoxel` s4, as it is (its children are the 1.17 cm cubes) | - | 3.117 | 4.232 (1.814 / 32.10) | 3.674 |
+
+- **Rule, as written:** sets equal, and `dv-ovoxel` scored at 1.17 cm is 0.23 cm above Déjà View at 1.17 cm, past
+  the band: "the representation costs accuracy". **That reading is wrong in its detail, and the rule should
+  have compared like with like:** voxelizing `dv-ovoxel` again quantizes it twice. Against Déjà View at the
+  child's size, `dv-ovoxel` as it is has the **same accuracy** (3.117 against 3.127): the accuracy part of rung
+  0's gap was quantization. What remains is **completeness, +0.32 cm (Chamfer +0.153)**, seen +0.21 and unseen
+  +1.55: `dv-ovoxel` misses surface that Déjà View's points cover. A plausible cause, **not tested**: the 0.64 %
+  of points outside the grid box, which `child_targets` drops, lie where nothing else covers (the box's edges,
+  the few points near the ceiling). My prediction (within the band) was wrong by 0.05 cm on the fairer
+  comparison and by 0.13 cm on the planned one.
+- **G0c inside the box:** of the 178 350 unseen GT99v points, 125 589 lie inside the grid box and 52 761
+  (29.6 %) outside. Coverage of the unseen inside: reach 1 51.2 %, 2 65.1 %, 3 73.5 %, **4 79.1 %**: the gate
+  (>= 80 %) fails by 0.9 points; prediction (75-85 %) held. Unseen completeness, inside / outside the box:
+  Déjà View 20.59 / 54.18 cm; GT99 oracle s4 at reach 1 15.50 / 60.43, reach 4 **9.25** / 51.68. So inside the
+  box the representation could halve Déjà View's unseen error (20.6 -> 9.3 cm at reach 4); outside it, where
+  the unseen error is 2.6 times larger per point and makes up about half of Déjà View's unseen sum, no reach
+  helps. Local completion and the unobserved ceiling are separate problems, and only the first is in reach of
+  this grid.
+- **Stopped here, as asked:** nothing trained, the box unchanged. The two open questions: whether the dropped
+  out-of-box points are the completeness gap, and whether reach 4's 79.1 % is close enough to proceed on the
+  in-box part, are decisions for the next entry.

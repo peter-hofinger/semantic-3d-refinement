@@ -9,6 +9,7 @@ from experiments.scripts.e69e_rung0 import (
     to_grid_frame,
     to_world,
 )
+from experiments.scripts.e69e_rung0_checks import child_means
 
 
 def test_grid_frame_inverts_the_world_map() -> None:
@@ -56,3 +57,14 @@ def test_score_in_a_region_equals_scoring_the_cropped_clouds() -> None:
     cropped = score(cloud[b], truth[keep], seen[keep], voxel=False)
     assert regional == cropped
     assert score(truth, truth, seen, voxel=False)["chamfer"] == 0
+
+
+def test_child_means_average_the_points_of_each_child_and_count_the_outside() -> None:
+    """Split 2 of one cell: two points share child 0, one is alone, one is outside."""
+    cells = np.array(
+        [[0.1, 0.1, 0.1], [0.3, 0.2, 0.4], [0.7, 0.1, 0.1], [1.5, 0.1, 0.1]]
+    )
+    means, outside = child_means(cells, 2, (1, 1, 1))
+    expected = np.array([[0.2, 0.15, 0.25], [0.7, 0.1, 0.1]])
+    assert outside == 1
+    assert np.allclose(np.sort(means, axis=0), np.sort(expected, axis=0))

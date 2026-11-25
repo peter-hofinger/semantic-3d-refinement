@@ -105,13 +105,15 @@ def score(
     *,
     voxel: bool = True,
     region: tuple[int, float] | None = None,
+    side: float = SIDE,
 ) -> dict[str, float]:
     """Accuracy, completeness (seen / unseen), Chamfer in cm of a world cloud against GT99v.
 
-    `region` (axis, cut) keeps the points of both with coordinate >= cut, half B.
+    `region` (axis, cut) keeps the points of both with coordinate >= cut, half B; the
+    output is voxelized at `side` metres unless `voxel` is False.
     """
     assert len(truth) == len(seen), (len(truth), len(seen))
-    out = voxel_centroids(cloud, SIDE) if voxel else cloud
+    out = voxel_centroids(cloud, side) if voxel else cloud
     if region is not None:
         axis, cut = region
         out = out[out[:, axis] >= cut]
