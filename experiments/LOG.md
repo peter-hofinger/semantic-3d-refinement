@@ -9703,3 +9703,37 @@ Interim entry: the check that the plan puts before any table.
   ceiling lies far under both baselines everywhere; the bathroom's pass-through ceiling (35.1 cm) is the exterior
   behind the blinds, outside the box and unreachable by any rule here.
 - **Rung 0 is closed.** No training happened in E69f. Rung 1 onwards on these settings is E69g.
+
+## Plan: E69g = E69e's rungs 1-3b on E69f's locked box and two-level candidates: does the O-Voxel generator, given GT99 targets, memorize the bedroom near its oracle? (issue #69, 26.11.2026, overnight, autonomous)
+- **What changes against E69e's plan:** only what E69f locked: the grid box (0.1-99.9 % padded 5 %, the old cell)
+  and the candidates (two-level, coarse reach 6; the coarse gate is a 1 x 1 convolution on the U-Net's half-size
+  level, trained by a class-balanced cross-entropy against "the coarse cell holds GT", teacher-forced while
+  training, its own gate (logit >= 0) when evaluating and generating, `generator.two_level`). Head, loss (`direct`
+  plus the gate's term), crop 32 with an 8-cell rim, widths 24/48/96 (806 k parameters), Adam 1e-3 constant, seed 0:
+  E69e's. `configs/e69f.yaml`, arms `ovoxel-gt99` / `ovoxel-gt20` (the target is the one change) and `latent-gt99`.
+  The living room logs a held-out crop loss only; no val scene is read before rung 5.
+- **Scorer:** `experiments/scripts/e69g.py score`: the whole-scene output (generated with the model's own gate, no
+  GT), voxelized at the child's size, against GT99v in the box (in-box) and, plus Déjà View's out-of-box points,
+  against all of it (pass-through): E69f's lock definitions, so the bedroom's baselines are **in-box 3.365 cm,
+  pass-through 3.521 cm**, the H6 oracle 0.39 / 0.45 cm. Tie band 0.1 cm.
+- **Rung 1, data** (`e69g.py data`): `experiments/figures/e69g_data.jpg`, a 4-cell slab of the bedroom in cm:
+  Déjà View, GT99v seen / unseen, coarse candidates, fine candidates with their target vertices; printed checks:
+  grid finite, vertices in [0, 1], the in-box unseen coverage equal to the lock's 92.9 %. Pass: the four panels
+  agree with each other by eye (candidates around Déjà View's surface, targets on the GT), the checks hold.
+- **Rung 2, speed:** measured while writing this plan (`generate-cloud --profile`, MPS): 0.43 s a step (grid 0.10,
+  forward and loss 0.05, backward 0.01, held-out crop 0.24 s). Pass: < 1 s.
+- **Rung 3a, the output alone:** `latent-gt99`, a free latent per voxel, 1 200 steps. The latent kind has no gate,
+  so it reads fine reach 12 (E69f's R12, oracle 0.40 cm in-box on the locked box). Gate (E69e's): child precision
+  and recall >= 0.95 on the whole bedroom and in-box Chamfer within max(0.1, 10 % of 3.365 - 0.40) = **0.70 cm**.
+  A failure is a targets, head or scorer bug, fixed here.
+- **Rung 3b, whole bedroom, input to output:** `ovoxel-gt99` and `ovoxel-gt20`, 1 200 steps. Gate: the gt99 model
+  closes at least half the gap from Déjà View to the H6 oracle, in-box Chamfer <= (3.365 + 0.39) / 2 = **1.88 cm**.
+  Escalation (E69e's, one at a time, the first that passes is kept): E1 4 800 steps, E2 widths 32/64/128, E3 cosine.
+  Reported, not gated: pass-through, the gt20 model on GT99v, the gate's own recall (share of GT-holding coarse
+  candidates it opens) and precision, seen / unseen completeness.
+- **Predictions:** rung 1 passes; 3a passes; 3b's 1 200 steps reach about 2.3 cm in-box (E69c's ovoxel at 1 200 steps
+  was not yet at its oracle), E1 passes; the gate's recall is the weak link (> 0.9 needed so that it does not cut
+  completeness); the gt20 model's unseen completeness stays near Déjà View's.
+- **Not in E69g:** rung 3c (half the room) needs a training region in `generate-cloud` (E69e's `train_region`, not
+  written yet); it is the next entry if 3b passes. Budget: rung 1 ~3 min CPU; 3a and 3b ~10-15 min a model on MPS;
+  E1 ~50 min.
