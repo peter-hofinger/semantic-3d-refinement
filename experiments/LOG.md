@@ -9275,3 +9275,71 @@ Interim entry: the check that the plan puts before any table.
 - **Next:** decided with the team. The bedroom does carry a completion signal (1.18 cm), so training once on
   GT20 and once on GT99 and scoring both on GT99v, split seen / unseen, measures something there; the spatial
   hold-out inside the bedroom is what separates completion from memorizing the target.
+
+## Plan: E69e = the cost of the 20-view ground truth, on the bedroom only: the O-Voxel generator trained on GT20 and on GT99, then on half the room (issue #69, 25.11.2026)
+- **Goal:** E69d found that the 20 input views miss 8 % of the bedroom's surface and that this 8 % adds 1.18 cm to
+  Déjà View's Chamfer against the 99-frame ground truth. Does a generator trained on GT99 close that part, does it
+  carry over to a part of the room it was not trained on, and how much worse is the same generator trained on
+  GT20? Everything on `ai_006_007` alone; no other scene is trained on before rung 3c passes ("very promising"
+  below). Scaling before the basics are certain would measure nothing.
+- **Head and input, fixed:** E69c's O-Voxel arm (`ovoxel`, kind `ovoxel`, loss `direct`): occupancy logit and one
+  vertex per child of every candidate voxel, fixed per-child targets, zero loss exactly at `oracle-ovoxel`. Input:
+  E69a's grid channels, no DINOv2, no classes (the input comes after the basics, at rung 5). One head, so the only
+  change between the two models of each rung is the target. A UDF head (one continuous surface, points sampled on
+  its zero level) is the next entry if the O-Voxel representation fails rung 0 or 3a.
+- **Targets (the one change):** `gt20` = E69c's (the 20 views' GT pixels), `gt99` = E69d's GT99 voxelized at 1 cm
+  (2.23 M points; children of 1.8 to 3.6 cm, so 1 cm loses nothing a child can express). Both mapped into Déjà
+  View's frame by the same Umeyama onto GT20 (`volume.gt_alignment`), so every model and scorer shares one frame.
+- **Scorer (one for every row):** `cloud_eval` with Déjà View's one alignment, against **GT99v** (1 cm), the output
+  **also voxelized at 1 cm** (one point per occupied cube, the mean), so neither side's density weights the
+  means; completeness split into **seen / unseen** by E69d's test (2 cm / 2 %). The raw-output scores are reported
+  next to it. This is a new protocol for this experiment only; adopting it elsewhere is a team decision.
+- **Half the room (rung 3c):** the bedroom's GT99v box is cut at the median of its longest horizontal axis into
+  halves A (train) and B (held out). A crop trains only if its interior (where the loss is) lies in A; its rim may
+  reach into B, since the rim is input only and Déjà View's points are there at test time too. Outputs and GT are
+  scored inside B only. Crops 32 cells with an 8-cell rim (an interior of 16 cells, ~1.2 m) at every rung of E69e,
+  so 3b and 3c differ only in the region, not the crop (E69c used 48).
+- **Code before any run (with tests):** E69d's script also writes `gt99v1cm_<views>.npz` (world frame) per scene;
+  `generate-cloud` gets `target: gt20 | gt99` and `train_region: {axis, side}`; `cloud_eval` gets the GT99v target,
+  the 1 cm output voxelization, the seen / unseen split and a scoring region. Tests: a crop whose interior crosses
+  the cut is never drawn; scoring inside a region equals scoring the cropped clouds; GT99 and GT20 targets coincide
+  where GT99 adds no point.
+- **Rungs and gates** (tie band 0.1 cm; "beats" = more than the larger of the band and twice the seeds' standard
+  deviation where there are seeds):
+  0. **No training, CPU** (MacBook Air): Déjà View; the plain voxel density filter at q in {0.5, 0.7, 0.9}
+     (picked on the bedroom itself, so optimistic, and labelled so); `dv-ovoxel`; `oracle-ovoxel` from GT20 and
+     from GT99; at split 2 and 4. Coverage: the share of GT99v's unseen and seen points inside a candidate child at
+     reach 1, 2, 3, 4. Halves: GT99v points and unseen share in A and in B, Déjà View's scores on B.
+     - **G0a:** `dv-ovoxel` within the band of Déjà View under the 1 cm both-sides scorer (E69c blamed its
+       0.93 cm on density weighting; this tests that). Fails: the representation itself costs accuracy, stop.
+     - **G0b:** `oracle-ovoxel` (GT99) at most half of Déjà View's GT99v Chamfer; the smaller split that passes.
+     - **G0c:** the smallest reach <= 4 whose candidates hold >= 80 % of the unseen points; none: this head
+       cannot complete what the views miss, stop and go to the UDF entry.
+     - **G0d:** half B holds >= 5 % unseen points, else the hold-out cannot measure completion (cut on the other
+       axis; if neither works, report it).
+  1. **Data:** `e69e_data.jpg`, a slab of the bedroom: candidates, GT20 and GT99 child targets, seen / unseen, A / B.
+  2. **Speed (measured 25.11. on the MacBook Air, M3, MPS):** E69c's `ovoxel` at rung 0, 300 steps in 187 s, 0.62 s
+     a step with its val crop and fixed evaluations; 1 200 steps ~13 min. Gate: < 1 s a step, every job < 30 min.
+  3. **Bedroom:**
+     - **3a, the output alone** (E69c's `latent`, GT99 targets): gate as E69c's (Chamfer within the larger of the
+       band and 10 % of the gap of Déjà View over `oracle-ovoxel`, child precision and recall >= 0.95). A failure
+       is a bug in the targets, head or scorer, fixed here.
+     - **3b, whole room, input to output:** two models, target gt20 and gt99, seed 0, 1 200 steps. Gate: the gt99
+       model closes at least half of the gap from Déjà View to `oracle-ovoxel` (GT99). Escalation as E69c's, one
+       at a time, pre-registered: E1 4 800 steps, E2 widths 32/64/128, E3 cosine decay. Reported, not gated: the
+       gt20 model on GT99v (unseen completeness expected near Déjà View's, nothing supervised it there).
+     - **3c, half the room:** both targets, seeds 0, 1, 2, the setting that passed 3b, trained on A, scored on B.
+       Baselines on B: Déjà View, the density filter with q picked on A, `oracle-ovoxel` (GT99).
+       **Very promising** (the only way to rung 4) = all four: the gt99 model on B (i) beats Déjà View's Chamfer;
+       (ii) has at most half of Déjà View's unseen completeness; (iii) beats the gt20 model's Chamfer (that
+       difference is the cost of the 20-view ground truth, reported with its spread); (iv) is not worse than Déjà
+       View on the seen part (accuracy and seen completeness) by more than the band, so completion is not bought
+       with floaters. Otherwise "not yet working on the bedroom": change the representation (reach, split, UDF),
+       not the scale.
+- **Predictions:** G0a passes (E69c's loss was density weighting); G0c needs reach 3 or 4 (the unseen points lie a
+  mean 30.5 cm, ~4 cells, from Déjà View), which multiplies the candidates; 3a passes; 3b passes only after E1 or
+  E2, as E69a and E69c suggest; 3c: (ii) and (iii) hold, mostly the ceiling, whose plane continues from A into B;
+  (i) fails narrowly, the seen part undertrained on half a room.
+- **Budget (MacBook Air unless stated):** rung 0 ~10 min CPU; 3a and 3b ~13 min a model; 3c 6 models, ~80 min in
+  all. E1 (~50 min a model) and 3c as a whole exceed the 30-minute rule: asked before they run, or on the 3080.
+  Val, test and stress untouched; no scene but the bedroom is read.
