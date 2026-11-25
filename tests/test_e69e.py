@@ -9,7 +9,7 @@ from experiments.scripts.e69e_rung0 import (
     to_grid_frame,
     to_world,
 )
-from experiments.scripts.e69e_rung0_checks import child_means
+from experiments.scripts.e69e_rung0_checks import child_means, summary
 
 
 def test_grid_frame_inverts_the_world_map() -> None:
@@ -68,3 +68,20 @@ def test_child_means_average_the_points_of_each_child_and_count_the_outside() ->
     expected = np.array([[0.2, 0.15, 0.25], [0.7, 0.1, 0.1]])
     assert outside == 1
     assert np.allclose(np.sort(means, axis=0), np.sort(expected, axis=0))
+
+
+def test_summary_gives_mean_median_min_and_max_per_column() -> None:
+    """Three scenes, two columns: each statistic row equals numpy's over the scenes."""
+    numbers = {
+        "a": {"x": 1.0, "y": 10.0},
+        "b": {"x": 2.0, "y": 30.0},
+        "c": {"x": 6.0, "y": 20.0},
+    }
+    stats = summary(numbers)[4:]
+    rows = {r.split()[0]: [float(v) for v in r.split()[1:]] for r in stats}
+    assert rows == {
+        "mean": [3.0, 20.0],
+        "median": [2.0, 20.0],
+        "min": [1.0, 10.0],
+        "max": [6.0, 30.0],
+    }

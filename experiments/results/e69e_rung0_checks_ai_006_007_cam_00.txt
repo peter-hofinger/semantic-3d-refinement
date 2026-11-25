@@ -22,6 +22,9 @@ Déjà View, voxelized at 1.17 cm      1.87 M  acc  3.127  comp  3.915 (seen  1.
 dv-ovoxel s4                         1.84 M  acc  3.117  comp  4.232 (seen  1.814, unseen  32.095)  Chamfer  3.674
 dv-ovoxel s4 + dropped               1.86 M  acc  3.127  comp  3.915 (seen  1.604, unseen  30.551)  Chamfer  3.521
 Déjà View inside the box             1.85 M  acc  3.118  comp  4.230 (seen  1.813, unseen  32.086)  Chamfer  3.674
+
+in-box baseline: Déjà View's in-box points against the in-box GT99v; cm
+Déjà View inside the box             1.85 M  acc  3.129  comp  2.691 (seen  1.579, unseen  20.617)  Chamfer  2.910
   completeness over the GT99v points inside / outside the grid box (2,151,444 / 81,948):
   Déjà View                      inside  2.690, outside  36.084 cm
   dv-ovoxel s4                   inside  2.691, outside  44.685 cm
@@ -35,4 +38,4 @@ G0c inside the grid box
   reach 4: covers  79.1 % of the unseen inside; oracle GT99 s4 unseen completeness inside   9.25, outside  51.68 cm
   Déjà View unseen completeness inside  20.59, outside  54.18 cm
 
-total 57 s
+total 62 s

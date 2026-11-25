@@ -10,8 +10,12 @@ the box: coverage and unseen completeness over the unseen GT99v points inside th
 points outside the box, which `child_targets` drops, restored to `dv-ovoxel` (voxelized at the
 child's size) and removed from Déjà View; completeness split by the box.
 
-`uv run python -m experiments.scripts.e69e_rung0_checks` writes
-`experiments/results/e69e_rung0_checks_<scene>.txt`.
+Baselines: in-box (Déjà View's in-box points against the in-box GT99v) and full-room pass-through
+(all of Déjà View, which equals `dv-ovoxel` plus its out-of-box points); seen clipping: how much
+worse the seen completeness gets when Déjà View is cut to the box.
+
+`uv run python -m experiments.scripts.e69e_rung0_checks --scenes <scene_cam> ...` writes
+`experiments/results/e69e_rung0_checks_<scene>.txt` and, for several, `..._summary.txt`.
 """
 
 import argparse
@@ -39,6 +43,7 @@ from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
 from src.loaders.views import Views
 from src.refinement.generator import (
+    GeneratorConfig,
     candidate_mask,
     child_targets,
     load_rung,
@@ -75,20 +80,15 @@ def same_set(a: np.ndarray, b: np.ndarray) -> float:
     return float(max(nearest_distances(a, b).max(), nearest_distances(b, a).max()))
 
 
-def main() -> None:
-    """Run both checks on the scene and write the table."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scene", default="ai_006_007_cam_00")
-    parser.add_argument("--config", type=Path, default=Path("configs/e69c.yaml"))
-    args = parser.parse_args()
-    cfg = load_rung(args.config, "overfit1").cfg
-    folder = cfg.root / args.scene
+def check(cfg: GeneratorConfig, scene: str) -> tuple[list[str], dict[str, float]]:
+    """Run every check on one scene; return its table and the numbers the summary needs."""
+    folder = cfg.root / scene
     t0 = time.time()
 
     views = Views.load(folder / f"{cfg.views}.npz")
     geometry = Geometry.load(folder / f"{cfg.backbone}_{cfg.views}.npz")
     gt20 = GroundTruth.load(folder / f"gt_{cfg.views}.npz")
-    pts, _, _, scale = load_scene(cfg, args.scene, "none")
+    pts, _, _, scale = load_scene(cfg, scene, "none")
     _, rays, depth, _ = scene_points(
         geometry, views.images, np.full(geometry.depth.shape, -1), {}, cfg.resolution
     )
@@ -98,9 +98,7 @@ def main() -> None:
     frame = Frame(pts.lo, pts.cell, scale)
     grid = voxelize(pts, semantics=False)
     child_m = pts.cell * scale * similarity[0] / SPLIT
-    lines = [
-        f"E69e rung-0 checks, {args.scene}: split {SPLIT}, child {CM * child_m:.3f} cm"
-    ]
+    lines = [f"E69e rung-0 checks, {scene}: split {SPLIT}, child {CM * child_m:.3f} cm"]
 
     dv_cells = (pts.points - pts.lo) / pts.cell
     voxel = torch.nonzero(candidate_mask(grid, 1)).flip(1)
@@ -156,17 +154,26 @@ def main() -> None:
     assert (~dv_in).sum() == outside, ((~dv_in).sum(), outside)
     dropped = voxel_centroids(dv[~dv_in], child_m)
     restored = np.concatenate([dv_ovoxel, dropped])
+    full = score(dv, truth, seen, side=child_m)
+    in_box = score(dv[dv_in], truth, seen, side=child_m)
+    restore = score(restored, truth, seen, voxel=False)
+    boxed = score(dv[dv_in], truth[inside], seen[inside], side=child_m)
+    numbers = {
+        "unseen %": 100 * (~seen).mean(),
+        "out-of-box GT %": 100 * (~inside).mean(),
+        "seen clipping cm": in_box["comp_seen"] - full["comp_seen"],
+        "in-box baseline cm": boxed["chamfer"],
+        "pass-through baseline cm": full["chamfer"],
+        "restore - Déjà View cm": restore["chamfer"] - full["chamfer"],
+    }
     lines += [
         "\nout-of-box points: restored to dv-ovoxel, removed from Déjà View; cm",
-        line(
-            f"Déjà View, voxelized at {CM * child_m:.2f} cm",
-            score(dv, truth, seen, side=child_m),
-        ),
+        line(f"Déjà View, voxelized at {CM * child_m:.2f} cm", full),
         line(f"dv-ovoxel s{SPLIT}", score(dv_ovoxel, truth, seen, voxel=False)),
-        line(
-            f"dv-ovoxel s{SPLIT} + dropped", score(restored, truth, seen, voxel=False)
-        ),
-        line("Déjà View inside the box", score(dv[dv_in], truth, seen, side=child_m)),
+        line(f"dv-ovoxel s{SPLIT} + dropped", restore),
+        line("Déjà View inside the box", in_box),
+        "\nin-box baseline: Déjà View's in-box points against the in-box GT99v; cm",
+        line("Déjà View inside the box", boxed),
         (
             "  completeness over the GT99v points inside / outside the grid box "
             f"({inside.sum():,} / {(~inside).sum():,}):"
@@ -194,6 +201,7 @@ def main() -> None:
     for r in REACHES:
         mask = candidate_mask(grid, r)
         cover = covered(truth_cells, mask.numpy())
+        numbers[f"in-box unseen cover r{r} %"] = 100 * cover[unseen_in].mean()
         voxel = torch.nonzero(mask).flip(1)
         occ, vertex = child_targets(voxel, gt99_cells, SPLIT, pts.dims)
         oracle = to_world(
@@ -212,10 +220,46 @@ def main() -> None:
         f"outside {CM * comp[unseen_out].mean():6.2f} cm"
     )
     lines.append(f"\ntotal {time.time() - t0:.0f} s")
+    return lines, numbers
 
-    out = Path("experiments/results", f"e69e_rung0_checks_{args.scene}.txt")
-    out.write_text("\n".join(lines) + "\n")
-    print("\n".join(lines))
+
+def summary(numbers: dict[str, dict[str, float]]) -> list[str]:
+    """Per-scene rows and mean, median, min and max over the scenes, one column each."""
+    keys = list(next(iter(numbers.values())))
+    lines = [f"{'scene':20s}" + "".join(f"{k:>27s}" for k in keys)]
+    lines += [
+        f"{name:20s}" + "".join(f"{row[k]:27.3f}" for k in keys)
+        for name, row in numbers.items()
+    ]
+    table = np.array([[row[k] for k in keys] for row in numbers.values()])
+    for label, f in (
+        ("mean", np.mean),
+        ("median", np.median),
+        ("min", np.min),
+        ("max", np.max),
+    ):
+        lines.append(f"{label:20s}" + "".join(f"{v:27.3f}" for v in f(table, 0)))
+    return lines
+
+
+def main() -> None:
+    """Run the checks on every scene, write one table each and, for several, a summary."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scenes", nargs="+", default=["ai_006_007_cam_00"])
+    parser.add_argument("--config", type=Path, default=Path("configs/e69c.yaml"))
+    args = parser.parse_args()
+    cfg = load_rung(args.config, "overfit1").cfg
+    numbers = {}
+    for scene in args.scenes:
+        lines, numbers[scene] = check(cfg, scene)
+        out = Path("experiments/results", f"e69e_rung0_checks_{scene}.txt")
+        out.write_text("\n".join(lines) + "\n")
+        print("\n".join(lines), flush=True)
+    if len(numbers) > 1:
+        lines = summary(numbers)
+        out = Path("experiments/results", "e69e_rung0_checks_summary.txt")
+        out.write_text("\n".join(lines) + "\n")
+        print("\n".join(lines))
 
 
 if __name__ == "__main__":

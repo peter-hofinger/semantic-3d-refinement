@@ -9515,3 +9515,49 @@ Interim entry: the check that the plan puts before any table.
   so, with the scene named; median < 80 % → the candidate rule is the limit, not the box, and is changed before
   training. Out-of-box GT > 5 % or a seen clipping gap > 0.5 cm on any scene → refitting the box goes to the user.
   Nothing is trained after this entry.
+
+## E69e rung-0 checks on six scenes, result: the in-box coverage gate fails on 5 of 6 (median 71.1 %, min 48.5 % at reach 4), so the bedroom's 79.1 % was not a near miss; the box also clips > 5 % of the GT on 2 scenes and > 0.5 cm of seen completeness on 3; "not yet working", nothing trained (25.11.2026)
+- **Setting:** the plan above, unchanged. GT99v of the five new scenes from E69d's script, unchanged (all 20 input
+  views' depth identical to the cache on every scene; 76-117 s each; `experiments/results/e69d_<scene>.txt`,
+  `experiments/figures/e69d_<scene>_unseen.jpg`). Checks: `experiments/scripts/e69e_rung0_checks.py --scenes ...`,
+  MacBook Air M3, CPU, about 9 min for six scenes, no randomness; per scene `e69e_rung0_checks_<scene>.txt`, summary
+  `e69e_rung0_checks_summary.txt`. The bedroom's rows are those of the entries above. Raw frames of the five scenes
+  downloaded (220 MB, `data/hypersim/raw`).
+- **Per scene (seen tolerance 2 cm / 2 %; child = grid cell / 4, which follows the scene's size; cm unless %):**
+
+  | scene | child | unseen | out-of-box GT | seen clipping | in-box baseline | pass-through baseline | restore - DV | in-box unseen cover r1 / r2 / r3 / **r4** |
+  |---|---|---|---|---|---|---|---|---|
+  | ai_006_007 bedroom | 1.17 | 8.0 % | 3.7 % | 0.21 | 2.910 | 3.521 | -0.000 | 51.2 / 65.1 / 73.5 / **79.1** |
+  | ai_010_007 living room | 1.74 | 3.3 % | 4.0 % | 1.17 | 2.367 | 2.899 | -0.000 | 33.2 / 47.9 / 60.0 / **69.8** |
+  | ai_044_001 hotel lobby | 4.56 | 3.2 % | 0.03 % | 0.00 | 10.298 | 10.301 | -0.039 | 42.9 / 53.3 / 58.9 / **63.3** |
+  | ai_004_003 bathroom | 1.10 | 14.0 % | 8.4 % | 0.37 | 9.507 | 43.807 | -0.035 | 18.3 / 32.5 / 42.0 / **48.5** |
+  | ai_009_009 | 3.79 | 6.1 % | 4.6 % | 1.97 | 24.599 | 26.529 | -0.008 | 52.3 / 72.3 / 82.5 / **89.0** |
+  | ai_031_004 courtyard | 1.07 | 13.9 % | 13.7 % | 1.74 | 5.676 | 12.093 | -0.006 | 36.7 / 53.4 / 63.8 / **72.5** |
+  | **mean** | | 8.1 % | 5.7 % | 0.91 | 9.226 | 16.525 | -0.015 | 39.1 / 54.1 / 63.5 / **70.3** |
+  | **median** | | 7.0 % | 4.3 % | 0.77 | 7.592 | 11.197 | -0.007 | 39.8 / 53.3 / 61.9 / **71.1** |
+  | **min** (max for clipping, out-of-box) | | 3.2 % | 13.7 % (max) | 1.97 (max) | 2.367 | 2.899 | -0.039 | 18.3 / 32.5 / 42.0 / **48.5** |
+
+  In-box baseline: Déjà View's in-box points against the in-box GT99v (primary training metric). Pass-through:
+  all of Déjà View against all of GT99v (headline). Seen clipping: seen completeness of Déjà View cut to the box
+  minus that of all of Déjà View. Restore - DV: `dv-ovoxel` s4 plus the dropped points, minus Déjà View (Chamfer).
+- **Rule:** median 71.1 % < 80 %: **the candidate rule (reach <= 4 around Déjà View's voxels) is the limit, not
+  the box, and changes before training**. Only ai_009_009 passes (89.0 %); the bedroom is the second best, so its
+  0.9-point miss was not noise around a passing value. Out-of-box GT > 5 % on the bathroom (8.4 %) and the
+  courtyard (13.7 %), seen clipping > 0.5 cm on the living room (1.17), ai_009_009 (1.97) and the courtyard
+  (1.74): refitting the box goes to the user, as planned. Prediction wrong on coverage (70-90 % each, median near
+  80 %: three scenes below 70 %) and on the out-of-box share (2-8 %: two scenes outside); right on the restore.
+- **Held on every scene:** restoring the dropped points matches Déjà View to <= 0.04 cm Chamfer (negative =
+  slightly better), so `dv-ovoxel` loses nothing inside the box on all six; the box alone is the conversion's
+  cost.
+- **Caveats, not tested:**
+  - The child size follows the room (192 cells on the longest side): 1.07 cm in the courtyard, 4.56 cm in the
+    hotel lobby. Reach r is r cells, so it spans 18-87 cm depending on the scene; coverage at one reach is not
+    the same physical distance across scenes.
+  - The bathroom's pass-through baseline (43.8 cm) and its outside completeness (796 cm) are dominated by GT
+    seen through its windows: E69d's figure shows the overexposed windows as seen, not red, so the GT behind
+    them (probably the exterior, metres away) counts as seen surface that Déjà View collapses onto the window.
+    Likely, not checked against the GT depth.
+  - Déjà View itself is far off on ai_009_009 (accuracy 32.8 cm) and the hotel lobby (11.8 cm); coverage there
+    is measured around a poor prediction.
+- **Open for the user:** change the candidate rule (larger or physical reach, or candidates not tied to Déjà
+  View's voxels), refit the box (out-of-box GT 13.7 % in the courtyard), or both. Nothing trained.

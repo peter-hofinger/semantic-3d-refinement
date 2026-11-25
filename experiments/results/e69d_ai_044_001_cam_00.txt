@@ -1,0 +1,22 @@
+E69d, ai_044_001_cam_00: GT20 = the 20 input views, GT99 = every public frame
+frames: 99, of which the 20 input views (depth identical to the cache: yes); lifted in 3 s
+points: GT20 3,810,217, GT99 18,860,613, Déjà View 3,810,217 (aligned once onto GT20, scale 9.4203)
+
+Déjà View, Chamfer = (accuracy + completeness) / 2, cm, means, uncapped
+  vs GT20 pixels (the protocol)   acc 9.312  comp 4.795  Chamfer 7.053
+  vs GT99 pixels                  acc 8.904  comp 6.303  Chamfer 7.603
+
+voxel side 1 cm: GT20v 2,987,814 points, GT99v 9,374,780
+  vs GT20v                        acc 9.336  comp 5.000  Chamfer 7.168
+  tolerance 1 cm / 1 %: unseen 3.4 % of GT99v; vs GT99v acc 8.965  comp 8.384  Chamfer 8.675  (comp seen 5.106, unseen 102.879)
+  tolerance 2 cm / 2 %: unseen 3.2 % of GT99v; vs GT99v acc 8.965  comp 8.384  Chamfer 8.675  (comp seen 5.110, unseen 106.830)
+  tolerance 4 cm / 4 %: unseen 3.1 % of GT99v; vs GT99v acc 8.965  comp 8.384  Chamfer 8.675  (comp seen 5.118, unseen 111.510)
+
+voxel side 2 cm: GT20v 1,881,470 points, GT99v 3,984,435
+  vs GT20v                        acc 9.451  comp 5.509  Chamfer 7.480
+  tolerance 1 cm / 1 %: unseen 6.0 % of GT99v; vs GT99v acc 9.183  comp 13.122  Chamfer 11.153  (comp seen 5.889, unseen 126.023)
+  tolerance 2 cm / 2 %: unseen 5.8 % of GT99v; vs GT99v acc 9.183  comp 13.122  Chamfer 11.153  (comp seen 5.896, unseen 130.355)
+  tolerance 4 cm / 4 %: unseen 5.6 % of GT99v; vs GT99v acc 9.183  comp 13.122  Chamfer 11.153  (comp seen 5.909, unseen 134.866)
+
+pixels of the 79 non-input frames whose point no input view sees (tolerance 2 cm / 2 %): 2.7 %
+total 108 s

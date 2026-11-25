@@ -1,0 +1,41 @@
+E69e rung-0 checks, ai_009_009_cam_00: split 4, child 3.792 cm
+
+bug check: dv-ovoxel (child_targets) against the independent child means
+  points 1,609,603 / 1,609,603; largest nearest distance 4.91e-04 cm; Déjà View points outside the grid box 54,091 of 3,810,240 (1.42 %)
+
+output voxelized at 1 cm (rung 0), against GT99v (1 cm); cm
+Déjà View                            3.48 M  acc 21.355  comp 20.113 (seen 17.434, unseen  61.273)  Chamfer 20.734
+density q 0.7                        2.34 M  acc 17.090  comp 21.510 (seen 18.816, unseen  62.904)  Chamfer 19.300
+dv-ovoxel s4                         1.61 M  acc 32.524  comp 23.032 (seen 19.585, unseen  75.978)  Chamfer 27.778
+
+output voxelized at 3.79 cm, against GT99v (1 cm); cm
+Déjà View                            1.65 M  acc 32.774  comp 20.284 (seen 17.609, unseen  61.377)  Chamfer 26.529
+density q 0.7                        1.00 M  acc 28.275  comp 21.658 (seen 18.967, unseen  63.000)  Chamfer 24.967
+dv-ovoxel s4                         1.43 M  acc 34.200  comp 23.085 (seen 19.638, unseen  76.032)  Chamfer 28.643
+
+unvoxelized; cm
+dv-ovoxel s4                         1.61 M  acc 32.521  comp 23.032 (seen 19.585, unseen  75.978)  Chamfer 27.776
+child means (independent)            1.61 M  acc 32.521  comp 23.032 (seen 19.585, unseen  75.978)  Chamfer 27.776
+
+out-of-box points: restored to dv-ovoxel, removed from Déjà View; cm
+Déjà View, voxelized at 3.79 cm      1.65 M  acc 32.774  comp 20.284 (seen 17.609, unseen  61.377)  Chamfer 26.529
+dv-ovoxel s4                         1.61 M  acc 32.521  comp 23.032 (seen 19.585, unseen  75.978)  Chamfer 27.776
+dv-ovoxel s4 + dropped               1.65 M  acc 32.756  comp 20.287 (seen 17.612, unseen  61.370)  Chamfer 26.521
+Déjà View inside the box             1.61 M  acc 32.540  comp 23.030 (seen 19.582, unseen  75.984)  Chamfer 27.785
+
+in-box baseline: Déjà View's in-box points against the in-box GT99v; cm
+Déjà View inside the box             1.61 M  acc 32.703  comp 16.495 (seen 15.072, unseen  42.691)  Chamfer 24.599
+  completeness over the GT99v points inside / outside the grid box (8,336,683 / 402,443):
+  Déjà View                      inside 16.344, outside 101.916 cm
+  dv-ovoxel s4                   inside 16.498, outside 158.386 cm
+  dv-ovoxel s4 + dropped         inside 16.346, outside 101.910 cm
+
+G0c inside the grid box
+  unseen GT99v points: inside 429,719, outside 104,434 (19.6 % of the unseen)
+  reach 1: covers  52.3 % of the unseen inside; oracle GT99 s4 unseen completeness inside  28.29, outside 222.51 cm
+  reach 2: covers  72.3 % of the unseen inside; oracle GT99 s4 unseen completeness inside  19.35, outside 213.09 cm
+  reach 3: covers  82.5 % of the unseen inside; oracle GT99 s4 unseen completeness inside  12.83, outside 205.25 cm
+  reach 4: covers  89.0 % of the unseen inside; oracle GT99 s4 unseen completeness inside   9.06, outside 201.86 cm
+  Déjà View unseen completeness inside  42.44, outside 138.77 cm
+
+total 110 s
