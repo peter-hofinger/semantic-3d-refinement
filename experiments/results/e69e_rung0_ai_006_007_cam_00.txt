@@ -1,0 +1,87 @@
+E69e rung 0, ai_006_007_cam_00: GT99v 2,233,392 points (1 cm), unseen 8.0 %; alignment scale 2.4402
+halves: world y cut at -4.046 m; A 1,116,696 points, unseen 4.3 %; B 1,116,696 points, unseen 11.6 %
+grid: 192 cells on the longest side, cell 4.67 cm, dims (176, 72, 192)
+
+coverage of GT99v by the candidate voxels (share of points)
+  reach 1: seen  98.0 %, unseen  36.0 %, candidates 426,590 voxels
+  reach 2: seen  98.5 %, unseen  45.8 %, candidates 636,768 voxels
+  reach 3: seen  98.6 %, unseen  51.8 %, candidates 803,023 voxels
+  reach 4: seen  98.6 %, unseen  55.7 %, candidates 945,151 voxels
+  inside the grid at all: seen 98.6 %, unseen 70.4 %
+
+whole room, output voxelized at 1 cm (the headline); cm
+Déjà View, every pixel               2.24 M  acc  2.984  comp  3.878 (seen  1.565, unseen  30.532)  Chamfer  3.431
+Déjà View, pixels with GT            2.24 M  acc  2.984  comp  3.878 (seen  1.565, unseen  30.532)  Chamfer  3.431
+density q 0.5                        0.86 M  acc  2.284  comp  4.606 (seen  2.238, unseen  31.890)  Chamfer  3.445
+density q 0.7                        1.46 M  acc  2.721  comp  4.060 (seen  1.739, unseen  30.808)  Chamfer  3.391
+density q 0.9                        1.99 M  acc  2.916  comp  3.918 (seen  1.605, unseen  30.578)  Chamfer  3.417
+dv-ovoxel s2                         0.56 M  acc  4.108  comp  4.495 (seen  2.088, unseen  32.235)  Chamfer  4.302
+oracle-ovoxel gt20 s2 r1             0.27 M  acc  0.359  comp  3.863 (seen  1.176, unseen  34.822)  Chamfer  2.111
+oracle-ovoxel gt99 s2 r1             0.30 M  acc  0.350  comp  3.365 (seen  1.116, unseen  29.271)  Chamfer  1.857
+oracle-ovoxel gt20 s2 r2             0.28 M  acc  0.359  comp  3.816 (seen  1.153, unseen  34.491)  Chamfer  2.087
+oracle-ovoxel gt99 s2 r2             0.30 M  acc  0.351  comp  3.110 (seen  1.096, unseen  26.317)  Chamfer  1.731
+oracle-ovoxel gt20 s2 r3             0.28 M  acc  0.359  comp  3.813 (seen  1.151, unseen  34.481)  Chamfer  2.086
+oracle-ovoxel gt99 s2 r3             0.31 M  acc  0.351  comp  2.924 (seen  1.094, unseen  24.013)  Chamfer  1.638
+oracle-ovoxel gt20 s2 r4             0.28 M  acc  0.359  comp  3.812 (seen  1.151, unseen  34.480)  Chamfer  2.086
+oracle-ovoxel gt99 s2 r4             0.31 M  acc  0.351  comp  2.787 (seen  1.094, unseen  22.292)  Chamfer  1.569
+dv-ovoxel s4                         1.71 M  acc  3.174  comp  4.239 (seen  1.822, unseen  32.098)  Chamfer  3.707
+oracle-ovoxel gt20 s4 r1             0.83 M  acc  0.311  comp  3.522 (seen  0.821, unseen  34.641)  Chamfer  1.916
+oracle-ovoxel gt99 s4 r1             1.03 M  acc  0.191  comp  2.857 (seen  0.606, unseen  28.792)  Chamfer  1.524
+oracle-ovoxel gt20 s4 r2             0.83 M  acc  0.311  comp  3.475 (seen  0.798, unseen  34.322)  Chamfer  1.893
+oracle-ovoxel gt99 s4 r2             1.04 M  acc  0.190  comp  2.600 (seen  0.585, unseen  25.815)  Chamfer  1.395
+oracle-ovoxel gt20 s4 r3             0.83 M  acc  0.311  comp  3.472 (seen  0.796, unseen  34.311)  Chamfer  1.892
+oracle-ovoxel gt99 s4 r3             1.05 M  acc  0.190  comp  2.413 (seen  0.583, unseen  23.490)  Chamfer  1.301
+oracle-ovoxel gt20 s4 r4             0.83 M  acc  0.311  comp  3.472 (seen  0.796, unseen  34.310)  Chamfer  1.892
+oracle-ovoxel gt99 s4 r4             1.06 M  acc  0.190  comp  2.277 (seen  0.583, unseen  21.801)  Chamfer  1.234
+
+whole room, raw output; cm
+Déjà View, every pixel               3.81 M  acc  2.547  comp  3.860 (seen  1.546, unseen  30.525)  Chamfer  3.204
+Déjà View, pixels with GT            3.81 M  acc  2.547  comp  3.860 (seen  1.546, unseen  30.525)  Chamfer  3.204
+density q 0.5                        1.91 M  acc  1.966  comp  4.584 (seen  2.215, unseen  31.884)  Chamfer  3.275
+density q 0.7                        2.67 M  acc  2.299  comp  4.042 (seen  1.720, unseen  30.801)  Chamfer  3.170
+density q 0.9                        3.43 M  acc  2.483  comp  3.900 (seen  1.586, unseen  30.571)  Chamfer  3.192
+dv-ovoxel s2                         0.56 M  acc  4.105  comp  4.494 (seen  2.087, unseen  32.234)  Chamfer  4.300
+oracle-ovoxel gt20 s2 r1             0.28 M  acc  0.360  comp  3.862 (seen  1.175, unseen  34.820)  Chamfer  2.111
+oracle-ovoxel gt99 s2 r1             0.30 M  acc  0.350  comp  3.364 (seen  1.116, unseen  29.271)  Chamfer  1.857
+oracle-ovoxel gt20 s2 r2             0.28 M  acc  0.360  comp  3.815 (seen  1.153, unseen  34.490)  Chamfer  2.087
+oracle-ovoxel gt99 s2 r2             0.30 M  acc  0.351  comp  3.110 (seen  1.096, unseen  26.317)  Chamfer  1.731
+oracle-ovoxel gt20 s2 r3             0.28 M  acc  0.360  comp  3.812 (seen  1.150, unseen  34.480)  Chamfer  2.086
+oracle-ovoxel gt99 s2 r3             0.31 M  acc  0.351  comp  2.924 (seen  1.094, unseen  24.013)  Chamfer  1.638
+oracle-ovoxel gt20 s2 r4             0.28 M  acc  0.360  comp  3.811 (seen  1.150, unseen  34.479)  Chamfer  2.086
+oracle-ovoxel gt99 s2 r4             0.31 M  acc  0.351  comp  2.786 (seen  1.094, unseen  22.291)  Chamfer  1.569
+dv-ovoxel s4                         1.84 M  acc  3.117  comp  4.232 (seen  1.814, unseen  32.095)  Chamfer  3.674
+oracle-ovoxel gt20 s4 r1             0.91 M  acc  0.335  comp  3.519 (seen  0.819, unseen  34.635)  Chamfer  1.927
+oracle-ovoxel gt99 s4 r1             1.03 M  acc  0.191  comp  2.855 (seen  0.604, unseen  28.791)  Chamfer  1.523
+oracle-ovoxel gt20 s4 r2             0.92 M  acc  0.335  comp  3.473 (seen  0.796, unseen  34.316)  Chamfer  1.904
+oracle-ovoxel gt99 s4 r2             1.05 M  acc  0.191  comp  2.599 (seen  0.584, unseen  25.814)  Chamfer  1.395
+oracle-ovoxel gt20 s4 r3             0.92 M  acc  0.335  comp  3.470 (seen  0.794, unseen  34.305)  Chamfer  1.902
+oracle-ovoxel gt99 s4 r3             1.06 M  acc  0.190  comp  2.411 (seen  0.582, unseen  23.489)  Chamfer  1.301
+oracle-ovoxel gt20 s4 r4             0.92 M  acc  0.335  comp  3.470 (seen  0.794, unseen  34.304)  Chamfer  1.902
+oracle-ovoxel gt99 s4 r4             1.06 M  acc  0.190  comp  2.276 (seen  0.582, unseen  21.799)  Chamfer  1.233
+
+half B only, output voxelized at 1 cm; cm
+Déjà View, every pixel               0.93 M  acc  3.140  comp  5.908 (seen  1.779, unseen  37.296)  Chamfer  4.524
+Déjà View, pixels with GT            0.93 M  acc  3.140  comp  5.908 (seen  1.779, unseen  37.296)  Chamfer  4.524
+density q 0.5                        0.38 M  acc  2.190  comp  6.620 (seen  2.361, unseen  38.999)  Chamfer  4.405
+density q 0.7                        0.62 M  acc  2.776  comp  6.064 (seen  1.929, unseen  37.501)  Chamfer  4.420
+density q 0.9                        0.83 M  acc  3.044  comp  5.941 (seen  1.813, unseen  37.327)  Chamfer  4.493
+dv-ovoxel s2                         0.24 M  acc  4.296  comp  6.728 (seen  2.405, unseen  39.595)  Chamfer  5.512
+oracle-ovoxel gt20 s2 r1             0.13 M  acc  0.357  comp  6.059 (seen  1.269, unseen  42.475)  Chamfer  3.208
+oracle-ovoxel gt99 s2 r1             0.14 M  acc  0.347  comp  5.349 (seen  1.221, unseen  36.729)  Chamfer  2.848
+oracle-ovoxel gt20 s2 r2             0.13 M  acc  0.357  comp  6.007 (seen  1.258, unseen  42.104)  Chamfer  3.182
+oracle-ovoxel gt99 s2 r2             0.15 M  acc  0.347  comp  4.936 (seen  1.211, unseen  33.249)  Chamfer  2.642
+oracle-ovoxel gt20 s2 r3             0.13 M  acc  0.357  comp  6.006 (seen  1.258, unseen  42.098)  Chamfer  3.181
+oracle-ovoxel gt99 s2 r3             0.15 M  acc  0.348  comp  4.626 (seen  1.211, unseen  30.585)  Chamfer  2.487
+oracle-ovoxel gt20 s2 r4             0.13 M  acc  0.357  comp  6.006 (seen  1.258, unseen  42.098)  Chamfer  3.181
+oracle-ovoxel gt99 s2 r4             0.15 M  acc  0.348  comp  4.380 (seen  1.211, unseen  28.474)  Chamfer  2.364
+dv-ovoxel s4                         0.70 M  acc  3.369  comp  6.490 (seen  2.155, unseen  39.446)  Chamfer  4.930
+oracle-ovoxel gt20 s4 r1             0.40 M  acc  0.312  comp  5.719 (seen  0.910, unseen  42.281)  Chamfer  3.016
+oracle-ovoxel gt99 s4 r1             0.50 M  acc  0.189  comp  4.837 (seen  0.708, unseen  36.224)  Chamfer  2.513
+oracle-ovoxel gt20 s4 r2             0.40 M  acc  0.312  comp  5.670 (seen  0.900, unseen  41.930)  Chamfer  2.991
+oracle-ovoxel gt99 s4 r2             0.50 M  acc  0.189  comp  4.424 (seen  0.698, unseen  32.751)  Chamfer  2.306
+oracle-ovoxel gt20 s4 r3             0.40 M  acc  0.312  comp  5.669 (seen  0.899, unseen  41.923)  Chamfer  2.990
+oracle-ovoxel gt99 s4 r3             0.51 M  acc  0.188  comp  4.110 (seen  0.698, unseen  30.049)  Chamfer  2.149
+oracle-ovoxel gt20 s4 r4             0.40 M  acc  0.312  comp  5.669 (seen  0.899, unseen  41.923)  Chamfer  2.990
+oracle-ovoxel gt99 s4 r4             0.51 M  acc  0.188  comp  3.871 (seen  0.698, unseen  27.990)  Chamfer  2.029
+
+total 102 s

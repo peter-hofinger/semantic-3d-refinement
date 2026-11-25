@@ -9343,3 +9343,43 @@ Interim entry: the check that the plan puts before any table.
 - **Budget (MacBook Air unless stated):** rung 0 ~10 min CPU; 3a and 3b ~13 min a model; 3c 6 models, ~80 min in
   all. E1 (~50 min a model) and 3c as a whole exceed the 30-minute rule: asked before they run, or on the 3080.
   Val, test and stress untouched; no scene but the bedroom is read.
+
+## E69e, rung 0: two of four gates fail; Déjà View's own grid does not reach 44 % of the unseen surface (mostly the ceiling) at any reach up to 4, and the O-Voxel form of Déjà View costs 0.28 cm; no model trained, "not yet working" (bedroom, 25.11.2026)
+- **Setting:** the plan above; `experiments/scripts/e69e_rung0.py` (tests `tests/test_e69e.py`), E69c's grid
+  (`configs/e69c.yaml`, 192 cells, here 4.67 cm), MacBook Air M3, CPU, 110 s, one run (no randomness). E69d's
+  script now also writes the GT99v cache (`gt99v1cm_<views>.npz`, 2 233 392 points); its results are unchanged.
+  `experiments/results/e69e_rung0_ai_006_007_cam_00.txt`, `experiments/figures/e69e_rung0_ai_006_007_cam_00.jpg`.
+- **Check:** Déjà View's raw output on this scorer reproduces E69d (3.204 cm); every bedroom pixel has GT, so its
+  two rows coincide.
+- **Headline (output voxelized at 1 cm, against GT99v, cm; split 4, reach 1 unless stated):**
+
+  | cloud | accuracy | completeness (seen / unseen) | Chamfer |
+  |---|---|---|---|
+  | Déjà View | 2.984 | 3.878 (1.565 / 30.53) | 3.431 |
+  | density filter, best q (0.7, picked on this scene) | 2.721 | 4.060 (1.739 / 30.81) | 3.391 |
+  | `dv-ovoxel` s4 / s2 | 3.174 / 4.108 | 4.239 / 4.495 | 3.707 / 4.302 |
+  | `oracle-ovoxel` GT20 s4, reach 1 / 4 | 0.311 / 0.311 | 3.522 / 3.472 (unseen 34.6 / 34.3) | 1.916 / 1.892 |
+  | `oracle-ovoxel` GT99 s4, reach 1 / 4 | 0.191 / 0.190 | 2.857 / 2.277 (unseen 28.8 / 21.8) | 1.524 / 1.234 |
+
+  Coverage of GT99v by the candidate voxels, seen / unseen: reach 1 98.0 / 36.0 %, 2 98.5 / 45.8 %, 3 98.6 / 51.8 %,
+  4 98.6 / 55.7 % (945 k voxels); inside the grid at all 98.6 / 70.4 %. Halves: cut on world y at -4.046 m, A
+  1.12 M points with 4.3 % unseen, B 1.12 M with 11.6 % unseen. On B alone Déjà View 4.524, density 4.405 (q 0.5),
+  `oracle-ovoxel` GT99 s4 r1 2.513.
+- **Gates:**
+  - **G0a fails:** `dv-ovoxel` s4 is 0.28 cm worse than Déjà View (3.707 against 3.431; accuracy +0.19,
+    completeness +0.36), past the 0.1 cm band. My prediction (E69c's 0.93 cm was density weighting, which the 1 cm
+    scorer removes) is **wrong** for most of it: voxelizing both sides takes the gap from 0.93 (E69c, dev, raw)
+    to 0.28 here, but not to the band. Not tested here: whether the rest is the child (1.17 cm) being coarser
+    than the scorer's 1 cm voxel, so that sparse floaters weigh more against a thinned surface.
+  - **G0b passes at split 4** (1.524 <= 1.716, half of Déjà View); split 2 needs reach 3 (1.638).
+  - **G0c fails:** no reach up to 4 puts 80 % of the unseen points in a candidate; reach 4 holds 55.7 %, and 29.6 %
+    lie outside the grid box itself (Déjà View's 1-99 % box, padded 5 %). The figure: what no candidate reaches
+    is almost all ceiling (2.5 to 3.1 m), which the input views never look at, so Déjà View puts no point near it.
+    Even the GT99 oracle at reach 4 removes only 29 % of Déjà View's unseen completeness (30.5 -> 21.8 cm).
+  - **G0d passes:** B holds 11.6 % unseen (A 4.3 %: the half trained on carries little unseen supervision).
+- **Verdict:** by the plan, stop: no training. The plan's fallback for G0c, a UDF head, would **not** fix it: it
+  would be sampled in the same candidate region of the same box. The limit is where the grid is, not the head.
+  What it would take, each one change, for the team to choose: (1) a box and candidate region not anchored to
+  Déjà View's points (the box of the scene's floor-to-ceiling extent, or a coarse occupancy over the whole box
+  first, as SG-NN's and the `gated` arm's coarse level does); (2) G0a's remainder measured with the scorer's voxel
+  equal to the child. One scene, no seeds needed; the density filter's q was picked on the same scene.

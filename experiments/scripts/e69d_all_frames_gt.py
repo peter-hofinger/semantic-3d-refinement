@@ -17,7 +17,8 @@ points. A pixel of a non-input frame is unseen if its lifted point is, which the
 
 `uv run python experiments/scripts/e69d_all_frames_gt.py` (downloads nothing; run
 `src.loaders.hypersim.download` for the scene first) writes
-`experiments/results/e69d_<scene>.txt` and `experiments/figures/e69d_<scene>_unseen.jpg`.
+`experiments/results/e69d_<scene>.txt`, `experiments/figures/e69d_<scene>_unseen.jpg` and the
+cache `gt99v1cm_<views>.npz` (GT99 at the first voxel side, world frame) that E69e trains on.
 """
 
 import argparse
@@ -229,6 +230,10 @@ def main() -> None:
     lines.append(f"  vs GT99 pixels                  {fmt(scores(dv, gt99))}")
     for side in SIDES:
         v20, v99 = voxel_centroids(truth20.points, side), voxel_centroids(gt99, side)
+        if side == SIDES[0]:
+            np.savez_compressed(
+                folder / f"gt99v{CM * side:.0f}cm_{VIEWS}.npz", points=v99
+            )
         lines.append(
             f"\nvoxel side {CM * side:.0f} cm: GT20v {len(v20):,} points, GT99v {len(v99):,}"
         )
