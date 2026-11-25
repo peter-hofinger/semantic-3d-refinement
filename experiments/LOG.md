@@ -8710,3 +8710,40 @@ Interim entry: the check that the plan puts before any table.
   targets are nearly the same and that comparison measures little; completion has to be tested on a scene with
   more trajectories, a decision for the team. In between: report and decide with the numbers.
 - **Budget:** ~140 MB download (99 frames x ~1.4 MB), minutes of CPU.
+
+## E69d, result: the 20 input views miss 8 % of the bedroom's surface, but that 8 % lies 30 cm from Déjà View on average and adds 1.18 cm to its Chamfer (bedroom, 25.11.2026)
+- **Setting:** the plan above, unchanged except one fix before the result was read: the plan's sensitivity rows
+  varied only the absolute tolerance, which the 2 % relative one dominates at room depths (the first run gave
+  identical rows), so the rows now scale both, (1 cm, 1 %), (2 cm, 2 %), (4 cm, 4 %). MacBook Air M3, CPU:
+  download 23 s (34 MB, 99 frames), measurement 69 s, peak memory 5.1 GB. Commit with this entry.
+  `experiments/results/e69d_ai_006_007_cam_00.txt`, `experiments/figures/e69d_ai_006_007_cam_00_unseen.jpg`.
+- **Checks passed:** the 20 input frames are among the 99, their lifted depth equals the cached GT20 bit for bit;
+  Déjà View against GT20 pixels gives 1.846 cm, scene_eval's bedroom number.
+- **Result (Déjà View, cm, one alignment onto GT20; 1 cm voxels, tolerance 2 cm / 2 %):**
+
+  | target | points | accuracy | completeness | Chamfer |
+  |---|---|---|---|---|
+  | GT20 pixels (the protocol) | 3.81 M | 2.520 | 1.172 | 1.846 |
+  | GT99 pixels | 18.86 M | 2.406 | 1.731 | 2.069 |
+  | GT20v | 1.38 M | 2.596 | 1.458 | 2.027 |
+  | GT99v | 2.23 M | 2.547 | 3.860 (seen 1.546, unseen 30.5) | **3.204** |
+
+  Unseen share of GT99v: 8.6 / 8.0 / 7.4 % at the three tolerances (1 cm voxels), 11.6 / 10.8 / 10.0 % at 2 cm
+  voxels (GT99v Chamfer 3.959 there); 3.9 % of the 79 non-input frames' pixels. The figure: the unseen surface is
+  the ceiling (the input views never look up), surfaces seen only close up (the dresser top in frame 38, 57 %
+  of that frame), the back of the vase and of the lamp shade.
+- **Predictions:** (1) unseen share <= 10 %: **held** (8.0 %). (2) Chamfer against GT99v within 0.2 cm of GT20v:
+  **wrong**, +1.18 cm (2.027 -> 3.204), all of it completeness: the unseen points lie a mean 30.5 cm from the
+  nearest Déjà View point, so 8 % of the points carry 37 % of the GT99v Chamfer. (3) voxelizing raises
+  completeness: held, GT20 pixels -> GT20v 1.172 -> 1.458, Chamfer +0.18 cm, from the density alone; the voxel
+  side itself moves the scores by another 0.13 cm (1 -> 2 cm).
+- **Reading:** accuracy barely changes with the denser target (2.596 -> 2.547): only ~0.05 cm of Déjà View's
+  accuracy error is a correct point on a surface the 20 views miss, so the 20-view GT does not punish Déjà View
+  for completion it does not attempt. Completeness is where the targets differ, and by a lot: the missing
+  surface is not a thin band at the edge of the seen one but whole regions far from any prediction. The rule
+  of the plan, written on the share alone, puts the bedroom in "<= 10 %: a decision for the team"; the share
+  was the wrong proxy, since a small share far away dominates a mean. One scene, one trajectory, no seeds (none
+  needed: no randomness).
+- **Next:** decided with the team. The bedroom does carry a completion signal (1.18 cm), so training once on
+  GT20 and once on GT99 and scoring both on GT99v, split seen / unseen, measures something there; the spatial
+  hold-out inside the bedroom is what separates completion from memorizing the target.
