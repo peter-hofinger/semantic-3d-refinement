@@ -1,0 +1,77 @@
+# E69c (issue #69): occupancy, then one vertex per occupied child voxel, on fixed per-voxel targets; with and without
+# back-projected DINOv2 features. One file; `generate-cloud --config configs/e69c.yaml --rung <rung>` runs one rung,
+# `experiments/scripts/e69c.sh` all of them in order.
+root: data/processed/hypersim
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+split_file: configs/hypersim.yaml
+tag: e69c
+
+# DINOv2-B/14 (Oquab et al. 2023, Apache-2.0): patch features of the 20 views at 504 px, cached as <name>_<views>.npz; a PCA to
+# `channels`, fitted on the train split only, is <root>/<name>_pca<channels>.npz (`python -m src.backbone.dinov2`)
+dinov2: {model: facebook/dinov2-base, name: dinov2b, channels: 32}
+
+# Rung 0 of the ladder: under 1 M parameters, Adam at a constant rate, no weight decay, no augmentation (the grid is built
+# from all 20 views). The sizes are E69a's, so the scorer, the grid and the crops are the same.
+resolution: 192       # cells along the scene box's longest side: a median 7.2 cm
+widths: [24, 48, 96]  # U-Net channels per level
+split: 2              # children per voxel and axis; rung 0 chooses it (the smallest whose oracle is at most half of Déjà View's), 2 is its expected value
+reach: 1              # voxels this many cells from an occupied one are candidates
+offset: 2.0           # E69a's largest move of a point; the kinds of this experiment do not read it
+crop: 48
+margin: 8
+gen_cap: 20000
+gt_cap: 50000
+comp_cap: 4000
+fixed_crops: 4        # the fixed error: crops per scene ...
+fixed_scenes: 3       # ... on at most this many scenes of each list
+eval_every: 100
+amp: true
+lr: 1.0e-3            # constant; the learning-rate rung sets one per arm
+seeds: [0]
+
+# what differs between the approaches; the name of an arm followed by -sam3 or -gt sees that class source
+arms:
+  ovoxel: {kind: ovoxel, loss: direct}
+  ovoxel-dino: {kind: ovoxel, loss: direct, dino: 32}
+  latent: {kind: latent, loss: direct, amp: false}   # rung 3a: a free latent per voxel of one scene, no U-Net
+  ovoxel-centre: {kind: ovoxel, loss: direct, fixed_vertex: true}   # ablation: step 1 alone, every vertex at its child's centre
+
+# settings the rungs share (YAML anchors; `generate-cloud` ignores this key)
+anchors:
+  bedroom: &bedroom
+    train_scenes: [ai_006_007_cam_00]
+    val_splits: [val]
+    select: train
+    run: [ovoxel, ovoxel-dino]
+
+# a rung overrides the settings above and names its scenes, its steps and the arms it runs; `sizes` are
+# train scenes per model (0: all of them), `select` whose fixed error picks the kept step
+rungs:
+  # the learning rate of each arm, from three probes of 300 steps on the bedroom (e69c_gate.py lr)
+  lr_probe_3e-4: {<<: *bedroom, steps: 300, lr: 3.0e-4}
+  lr_probe_1e-3: {<<: *bedroom, steps: 300, lr: 1.0e-3}
+  lr_probe_3e-3: {<<: *bedroom, steps: 300, lr: 3.0e-3}
+  # rung 3a, the output alone: the bedroom's table, its own scene as the (meaningless) validation crop
+  overfit1a:
+    train_scenes: [ai_006_007_cam_00]
+    val_scenes: [ai_006_007_cam_00]
+    predict_scenes: [ai_006_007_cam_00]
+    select: train
+    steps: 1200
+    run: [latent]
+  # rung 3b, input to output on the bedroom; val is logged but nothing general is learned, so it should not fall.
+  # The escalation is pre-registered in the plan, one change at a time, the first that lets an arm pass is kept for the
+  # later rungs (`--set`): E1 steps 4800; E2 and widths 32/64/128 (about 1.4 M parameters, so the limit is raised); E3 and a cosine decay
+  overfit1: &overfit1 {<<: *bedroom, predict_splits: [dev], steps: 1200}
+  overfit1_e1: &e1 {<<: *overfit1, steps: 4800}
+  overfit1_e2: &e2 {<<: *e1, widths: [32, 64, 128], max_parameters: 1500000}
+  overfit1_e3: {<<: *e2, cosine: true}
+  # rung 4: overfit the three dev scenes (the arms that passed rung 3, the setting that passed)
+  overfit3: {train_splits: [dev], val_splits: [val], predict_splits: [dev], select: train, steps: 2000, run: [ovoxel, ovoxel-dino]}
+  # rung 5: 5 and 40 of the repo's train scenes; the kept step is the one with the least fixed error on dev (the `val` list
+  # of the run), so val's numbers are a held-out validation; scored on val and on dev
+  generalize: {train_splits: [train], val_splits: [dev], predict_splits: [val, dev], select: val, steps: 2000, sizes: [5, 40], run: [ovoxel, ovoxel-dino]}
+  # the ablations of the best arm, three seeds, 40 train scenes (arms are set on the command line)
+  ablation: {train_splits: [train], val_splits: [dev], predict_splits: [val, dev], select: val, steps: 2000, seeds: [0, 1, 2], run: []}

@@ -150,6 +150,8 @@ class ScenePoints:
     lo: Tensor  # (3,) grid corner
     cell: float  # cell size in the normalized frame
     dims: tuple[int, int, int]  # cells along x, y, z
+    patches: Tensor | None = None  # (V, C, h, w) DINOv2 features per view, if any
+    image: tuple[int, int] = (0, 0)  # H, W of the views `patches` belong to
 
 
 def compact(pts: ScenePoints) -> ScenePoints:
@@ -233,10 +235,14 @@ def scene_points(
     return pts, rays, depth, scale
 
 
-def gt_in_frame(
+def gt_alignment(
     rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth
-) -> tuple[np.ndarray, np.ndarray]:
-    """GT points (N, 3) in Deja View's frame (Umeyama onto them) and where GT is."""
+) -> tuple[np.ndarray, np.ndarray, tuple[float, np.ndarray, np.ndarray]]:
+    """GT points (N, 3), where the GT has one (N,), Umeyama (s, R, t) onto them.
+
+    The similarity maps Deja View's points onto the GT pixels' points (the
+    evaluation's alignment): gt = s R dv + t.
+    """
     gt_points = np.stack(
         [
             lift(d.astype(np.float64), k.astype(np.float64), c2w)
@@ -247,7 +253,14 @@ def gt_in_frame(
     ).reshape(-1, 3)
     has = gt.depth.reshape(-1) > 0
     pred = rays[:, :3] + depth[:, None] * rays[:, 3:]
-    s, rotation, t = umeyama(pred[has], gt_points[has])
+    return gt_points, has, umeyama(pred[has], gt_points[has])
+
+
+def gt_in_frame(
+    rays: np.ndarray, depth: np.ndarray, views: Views, gt: GroundTruth
+) -> tuple[np.ndarray, np.ndarray]:
+    """GT points (N, 3) in Deja View's frame (Umeyama onto them) and where GT is."""
+    gt_points, has, (s, rotation, t) = gt_alignment(rays, depth, views, gt)
     return (gt_points - t) @ rotation / s, has
 
 
@@ -276,12 +289,57 @@ def distance_target(
     return out
 
 
-def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
-    """Grid (C, Z, Y, X): log count, conf, colour, spread, class histogram."""
-    nx, ny, nz = pts.dims
+def cell_index(pts: ScenePoints) -> Tensor:
+    """Flat z-major index (N,) of each point's grid cell, clamped into the grid."""
+    nx, ny, _ = pts.dims
     idx3 = ((pts.points - pts.lo) / pts.cell).floor().long()
     idx3 = torch.stack([idx3[:, k].clamp(0, n - 1) for k, n in enumerate(pts.dims)], 1)
-    flat = (idx3[:, 2] * ny + idx3[:, 1]) * nx + idx3[:, 0]
+    return (idx3[:, 2] * ny + idx3[:, 1]) * nx + idx3[:, 0]
+
+
+def voxelize_features(
+    pts: ScenePoints, patches: Tensor, size: tuple[int, int]
+) -> Tensor:
+    """Grid (C, Z, Y, X) of the mean feature of the pixels in each cell (0 where none).
+
+    patches (V, C, h, w): a feature per patch of each view (`backbone/dinov2.py`);
+    pts holds the V * H * W pixels view-major, size = (H, W). Each pixel's feature is
+    the patch grid upsampled bilinearly to the pixel (patch centres at (i + .5) H / h);
+    a cell's feature is the mean over all its pixels, from every view (Pixal3D, 2026).
+    """
+    height, width = size
+    views, channels = patches.shape[:2]
+    assert len(pts.points) == views * height * width, (len(pts.points), patches.shape)
+    nx, ny, nz = pts.dims
+    flat = cell_index(pts)
+    sums = torch.zeros(nx * ny * nz, channels, device=pts.points.device)
+    for v in range(views):
+        up = (
+            F.interpolate(
+                patches[v : v + 1].to(pts.points.device).float(),
+                size=size,
+                mode="bilinear",
+                align_corners=False,
+            )[0]
+            .reshape(channels, -1)
+            .T
+        )
+        sums.index_add_(0, flat[v * height * width : (v + 1) * height * width], up)
+    count = torch.zeros(nx * ny * nz, device=sums.device).index_add_(
+        0, flat, torch.ones(len(flat), device=sums.device)
+    )
+    grid = (sums / count.clamp(min=1)[:, None]).T.reshape(channels, nz, ny, nx)
+    assert grid.isfinite().all()
+    return grid
+
+
+def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
+    """Grid (C, Z, Y, X): log count, conf, colour, spread, class histogram, features.
+
+    The feature channels (`voxelize_features`) are appended where the scene has patches.
+    """
+    nx, ny, nz = pts.dims
+    flat = cell_index(pts)
     cells = nx * ny * nz
     local = (pts.points - pts.lo) / pts.cell
     values = torch.cat([pts.log_conf[:, None], pts.color, local, local**2], 1)
@@ -298,6 +356,8 @@ def voxelize(pts: ScenePoints, *, semantics: bool) -> Tensor:
         )
         feats.append(hist.view(cells, CLASSES) / count.clamp(min=1)[:, None])
     grid = torch.cat(feats, 1).T.reshape(-1, nz, ny, nx)
+    if pts.patches is not None:
+        grid = torch.cat([grid, voxelize_features(pts, pts.patches, pts.image)])
     assert grid.isfinite().all()
     return grid
 
@@ -310,7 +370,48 @@ def block(c_in: int, c_out: int) -> nn.Sequential:
     )  # fmt: skip
 
 
-class VolumeRefiner(nn.Module):
+class UNet3d(nn.Module):
+    """3D U-Net on a grid (C, Z, Y, X): one block per width, average-pool down."""
+
+    def __init__(self, grid_channels: int, widths: list[int]) -> None:
+        """Widths per level; the last output has `widths[0]` channels at full size."""
+        super().__init__()
+        self.down = nn.ModuleList()
+        c = grid_channels
+        for w in widths:
+            self.down.append(block(c, w))
+            c = w
+        self.up = nn.ModuleList(
+            block(widths[i] + widths[i + 1], widths[i]) for i in range(len(widths) - 1)
+        )
+
+    def pyramid(self, grid: Tensor, *, amp: bool = False) -> list[Tensor]:
+        """Return the decoder features (C_i, Z_i, Y_i, X_i), full size first.
+
+        grid: (C_in, Z, Y, X); the sizes halve per level; bfloat16 with amp.
+        """
+        if amp and grid.is_cuda:
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                return [level.float() for level in self.pyramid(grid)]
+        skips, x = [], grid[None]
+        for i, enc in enumerate(self.down):
+            x = enc(x if i == 0 else F.avg_pool3d(x, 2))
+            skips.append(x)
+        levels = [x[0]]
+        for i in reversed(range(len(self.up))):
+            x = F.interpolate(
+                x, size=skips[i].shape[2:], mode="trilinear", align_corners=False
+            )
+            x = self.up[i](torch.cat([x, skips[i]], 1))
+            levels.append(x[0])
+        return levels[::-1]
+
+    def features(self, grid: Tensor, *, amp: bool = False) -> Tensor:
+        """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X); bfloat16 with amp."""
+        return self.pyramid(grid, amp=amp)[0]
+
+
+class VolumeRefiner(UNet3d):
     """3D U-Net on the grid, then a per-pixel head on the sampled features."""
 
     def __init__(
@@ -323,15 +424,7 @@ class VolumeRefiner(nn.Module):
         outputs: int = 1,
     ) -> None:
         """Widths per U-Net level; outputs r (and the keep logit), zero at the start."""
-        super().__init__()
-        self.down = nn.ModuleList()
-        c = grid_channels
-        for w in widths:
-            self.down.append(block(c, w))
-            c = w
-        self.up = nn.ModuleList(
-            block(widths[i] + widths[i + 1], widths[i]) for i in range(len(widths) - 1)
-        )
+        super().__init__(grid_channels, widths)
         self.embed = nn.Embedding(CLASSES, 8) if semantics else None
         point = 3 + 1 + 3 + 3 + (8 if semantics else 0)
         self.head = nn.Sequential(
@@ -353,22 +446,6 @@ class VolumeRefiner(nn.Module):
     def outputs(self) -> int:
         """Head outputs: 1 (r) or 2 (r and the keep logit)."""
         return self.head[-1].out_features
-
-    def features(self, grid: Tensor, *, amp: bool = False) -> Tensor:
-        """U-Net features (C, Z, Y, X) of a grid (C_in, Z, Y, X); bfloat16 with amp."""
-        if amp and grid.is_cuda:
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                return self.features(grid).float()
-        skips, x = [], grid[None]
-        for i, enc in enumerate(self.down):
-            x = enc(x if i == 0 else F.avg_pool3d(x, 2))
-            skips.append(x)
-        for i in reversed(range(len(self.up))):
-            x = F.interpolate(
-                x, size=skips[i].shape[2:], mode="trilinear", align_corners=False
-            )
-            x = self.up[i](torch.cat([x, skips[i]], 1))
-        return x[0]
 
     def forward(self, feats: Tensor, pts: ScenePoints, sel: Tensor) -> Tensor:
         """Residual r (n,) of the selected pixels from U-Net features (C, Z, Y, X)."""
@@ -758,9 +835,9 @@ def outputs(cfg: VolumeConfig) -> int:
     return 1 if cfg.keep is None else 2
 
 
-def grid_channels(*, semantics: bool) -> int:
-    """Channels `voxelize` writes: count, conf, colour, spread (+ class histogram)."""
-    return 8 + (CLASSES if semantics else 0)
+def grid_channels(*, semantics: bool, features: int = 0) -> int:
+    """Channels `voxelize` writes: count, conf, colour, spread, classes, features."""
+    return 8 + (CLASSES if semantics else 0) + features
 
 
 def main() -> None:

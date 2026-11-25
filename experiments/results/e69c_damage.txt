@@ -1,0 +1,45 @@
+E69c rung 0, damage map at split 4: variants of oracle-ovoxel that beat Deja View (val: mean gain above the larger of 0.1 cm and twice the standard error of the per-scene differences; dev, 3 scenes: mean gain above 0.1 cm and at least 2 scenes above 0.1 cm). Precision, recall, vertex error: measured, mean over the split's scenes.
+
+dev: Deja View 3.501 cm; dv-ovoxel (s4) recall 0.464, precision 0.234, vertex error equal to Gaussian sigma 0.27 child sizes
+  sigma 0.0, r 0.0: beats with up to f 0
+  sigma 0.0, r 0.1: beats with up to f 0
+  sigma 0.0, r 0.2: beats with up to f 0
+  sigma 0.0, r 0.3: beats with up to f 0
+  sigma 0.0, r 0.5: beats with up to f 0
+  sigma 0.1, r 0.0: beats with up to f 0
+  sigma 0.1, r 0.1: beats with up to f 0
+  sigma 0.1, r 0.2: beats with up to f 0
+  sigma 0.1, r 0.3: beats with up to f 0
+  sigma 0.1, r 0.5: beats with up to f 0
+  sigma 0.2, r 0.0: beats with up to f 0
+  sigma 0.2, r 0.1: beats with up to f 0
+  sigma 0.2, r 0.2: beats with up to f 0
+  sigma 0.2, r 0.3: beats with up to f 0
+  sigma 0.2, r 0.5: beats with up to f 0
+  sigma 0.3, r 0.0: beats with up to f 0
+  sigma 0.3, r 0.1: beats with up to f 0
+  sigma 0.3, r 0.2: beats with up to f 0
+  sigma 0.3, r 0.3: beats with up to f 0
+  sigma 0.3, r 0.5: beats with up to f 0
+
+val: Deja View 7.134 cm; dv-ovoxel (s4) recall 0.296, precision 0.135, vertex error equal to Gaussian sigma 0.27 child sizes
+  sigma 0.0, r 0.0: beats with up to f 0
+  sigma 0.0, r 0.1: beats with up to f 0
+  sigma 0.0, r 0.2: beats with up to f 0
+  sigma 0.0, r 0.3: beats with up to f 0
+  sigma 0.0, r 0.5: beats with up to f 0
+  sigma 0.1, r 0.0: beats with up to f 0
+  sigma 0.1, r 0.1: beats with up to f 0
+  sigma 0.1, r 0.2: beats with up to f 0
+  sigma 0.1, r 0.3: beats with up to f 0
+  sigma 0.1, r 0.5: beats with up to f 0
+  sigma 0.2, r 0.0: beats with up to f 0
+  sigma 0.2, r 0.1: beats with up to f 0
+  sigma 0.2, r 0.2: beats with up to f 0
+  sigma 0.2, r 0.3: beats with up to f 0
+  sigma 0.2, r 0.5: beats with up to f 0
+  sigma 0.3, r 0.0: beats with up to f 0
+  sigma 0.3, r 0.1: beats with up to f 0
+  sigma 0.3, r 0.2: beats with up to f 0
+  sigma 0.3, r 0.3: beats with up to f 0
+  sigma 0.3, r 0.5: beats with up to f 0
