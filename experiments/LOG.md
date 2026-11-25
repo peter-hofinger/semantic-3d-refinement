@@ -9488,3 +9488,30 @@ Interim entry: the check that the plan puts before any table.
   View plus its own out-of-box points passed through unchanged (3.521 cm), or Déjà View scored inside the box.
   The box is not changed here; that choice, and whether reach 4's 79.1 % in-box coverage is enough to train,
   are the next entry's.
+
+## Plan: E69e rung-0 checks on five more scenes = does the in-box unseen-coverage gate fail only on the bedroom? And the two baselines the generator will be measured against (issue #69, 25.11.2026)
+- **Why:** the bedroom missed G0c inside the box by 0.9 points (79.1 % at reach 4 against 80 %). One room is no
+  reason to waive the gate, nor to refit the box. The out-of-box check showed that the box decides `dv-ovoxel`'s
+  cost; how much surface it clips, in other rooms, decides whether it has to change.
+- **Baselines, fixed now (grid box unchanged):**
+  - **in-box (the primary training metric):** output points inside the grid box against the GT99v points inside
+    it; Déjà View's value is its in-box points at the child size.
+  - **full-room pass-through (the headline):** the output inside the box plus Déjà View's own out-of-box points,
+    at the child size, against all of GT99v; Déjà View's value is the whole of Déjà View at the child size
+    (3.521 cm on the bedroom), which the out-of-box check showed equals `dv-ovoxel` plus those points.
+- **Scenes:** the bedroom plus dev `ai_010_007` (living room), `ai_044_001` (hotel lobby) and val `ai_004_003`
+  (bathroom), `ai_009_009`, `ai_031_004` (courtyard): six, from small and closed to half outdoor. Val is used to
+  check a choice made on one dev room, as `configs/hypersim.yaml` intends; nothing is fit on it. Each needs GT99v
+  first: E69d's script, unchanged, on every public frame of its trajectory (raw frames downloaded for these five).
+- **Per scene, `experiments/scripts/e69e_rung0_checks.py` (now over several scenes):** in-box unseen coverage at
+  reach 1-4; the share of GT99v outside the box; the seen-surface clipping gap (seen completeness of Déjà View's
+  in-box points minus that of all of Déjà View, both at the child size against all of GT99v; 0.209 cm on the
+  bedroom); both baselines; and the out-of-box restore check. Summary: mean, median and min (max for the clipping)
+  over the six.
+- **Prediction:** the bedroom is typical: in-box reach-4 coverage between 70 and 90 % on each scene, median near 80 %;
+  out-of-box GT 2-8 % per scene; restoring the dropped points matches Déjà View on every scene.
+- **Rule:** median and min of in-box reach-4 coverage >= 80 % → the gate holds on the set and the bedroom's miss
+  is within the scene spread; median >= 80 % but some scene below → the gate is waived only if the user decides
+  so, with the scene named; median < 80 % → the candidate rule is the limit, not the box, and is changed before
+  training. Out-of-box GT > 5 % or a seen clipping gap > 0.5 cm on any scene → refitting the box goes to the user.
+  Nothing is trained after this entry.
