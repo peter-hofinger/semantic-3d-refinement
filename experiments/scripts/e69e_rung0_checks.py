@@ -6,7 +6,9 @@ child is floor(k c) of its grid cell coordinate c, the points are grouped by it 
 The two sets must agree to float32 precision. Matched scorer: the outputs are voxelized at the
 child's size (cell / k in metres) instead of rung 0's 1 cm, against the same GT99v. G0c inside
 the box: coverage and unseen completeness over the unseen GT99v points inside the grid box
-(Déjà View's 1-99 % box, padded 5 %) and outside it, separately.
+(Déjà View's 1-99 % box, padded 5 %) and outside it, separately. Out-of-box: the Déjà View
+points outside the box, which `child_targets` drops, restored to `dv-ovoxel` (voxelized at the
+child's size) and removed from Déjà View; completeness split by the box.
 
 `uv run python -m experiments.scripts.e69e_rung0_checks` writes
 `experiments/results/e69e_rung0_checks_<scene>.txt`.
@@ -20,7 +22,7 @@ import numpy as np
 import torch
 
 from experiments.scripts.e69c_oracle import Frame, children_cloud
-from experiments.scripts.e69d_all_frames_gt import seen_by
+from experiments.scripts.e69d_all_frames_gt import seen_by, voxel_centroids
 from experiments.scripts.e69e_rung0 import (
     CM,
     REACHES,
@@ -146,9 +148,40 @@ def main() -> None:
         line("child means (independent)", score(independent, truth, seen, voxel=False))
     )
 
-    truth_cells = to_grid_frame(truth, similarity, scale)
-    truth_cells = (truth_cells - pts.lo.double().numpy()) / pts.cell
-    inside = covered(truth_cells, np.ones(grid.shape[1:], dtype=bool))
+    box = np.ones(grid.shape[1:], dtype=bool)
+    lo = pts.lo.double().numpy()
+    truth_cells = (to_grid_frame(truth, similarity, scale) - lo) / pts.cell
+    inside = covered(truth_cells, box)
+    dv_in = covered((to_grid_frame(dv, similarity, scale) - lo) / pts.cell, box)
+    assert (~dv_in).sum() == outside, ((~dv_in).sum(), outside)
+    dropped = voxel_centroids(dv[~dv_in], child_m)
+    restored = np.concatenate([dv_ovoxel, dropped])
+    lines += [
+        "\nout-of-box points: restored to dv-ovoxel, removed from Déjà View; cm",
+        line(
+            f"Déjà View, voxelized at {CM * child_m:.2f} cm",
+            score(dv, truth, seen, side=child_m),
+        ),
+        line(f"dv-ovoxel s{SPLIT}", score(dv_ovoxel, truth, seen, voxel=False)),
+        line(
+            f"dv-ovoxel s{SPLIT} + dropped", score(restored, truth, seen, voxel=False)
+        ),
+        line("Déjà View inside the box", score(dv[dv_in], truth, seen, side=child_m)),
+        (
+            "  completeness over the GT99v points inside / outside the grid box "
+            f"({inside.sum():,} / {(~inside).sum():,}):"
+        ),
+    ]
+    for label, cloud in (
+        ("Déjà View", voxel_centroids(dv, child_m)),
+        (f"dv-ovoxel s{SPLIT}", dv_ovoxel),
+        (f"dv-ovoxel s{SPLIT} + dropped", restored),
+    ):
+        comp = nearest_distances(cloud, truth)
+        lines.append(
+            f"  {label:30s} inside {CM * comp[inside].mean():6.3f}, "
+            f"outside {CM * comp[~inside].mean():7.3f} cm"
+        )
     unseen_in, unseen_out = ~seen & inside, ~seen & ~inside
     lines += [
         "\nG0c inside the grid box",

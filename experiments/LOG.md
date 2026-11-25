@@ -9460,3 +9460,31 @@ Interim entry: the check that the plan puts before any table.
 - **Rule:** restoring closes >= 80 % of the 0.317 cm = explained, the box is the cost; < 50 % = refuted, the
   children lose surface inside the box and that is found before anything is trained; in between = partly. The
   box is not changed in this entry.
+
+## E69e out-of-box check, result: the 24 225 dropped points are the whole completeness gap; inside the grid box `dv-ovoxel` s4 is Déjà View at the child's size, so G0a's cost belongs to the box (bedroom, 25.11.2026)
+- **Setting:** the plan above, unchanged; added to `experiments/scripts/e69e_rung0_checks.py`, MacBook Air M3, CPU,
+  57 s for the whole script, one run (no randomness); the earlier rows of
+  `experiments/results/e69e_rung0_checks_ai_006_007_cam_00.txt` are unchanged. The script asserts that the Déjà
+  View pixels outside the box, found from the world cloud, are the 24 225 that `child_targets` drops.
+- **Result (against GT99v, 1 cm; cm):**
+
+  | cloud | accuracy | completeness (seen / unseen) | Chamfer |
+  |---|---|---|---|
+  | Déjà View, voxelized at 1.17 cm | 3.127 | 3.915 (1.604 / 30.55) | 3.521 |
+  | `dv-ovoxel` s4 | 3.117 | 4.232 (1.814 / 32.10) | 3.674 |
+  | `dv-ovoxel` s4 + the dropped points at 1.17 cm | 3.127 | **3.915** (1.604 / 30.55) | **3.521** |
+  | Déjà View inside the box, at 1.17 cm | 3.118 | **4.230** (1.813 / 32.09) | **3.674** |
+
+  Completeness over the 2 151 444 GT99v points inside the box / the 81 948 (3.7 %) outside: Déjà View 2.690 /
+  36.08, `dv-ovoxel` 2.691 / **44.69**, restored 2.690 / 36.09. The outside excess alone, 8.6 cm x 81 948 /
+  2 233 392, is 0.316 cm of the 0.317.
+- **Rule:** restoring closes 100 % of the gap (>= 80 %): **explained**. Prediction held on all three counts.
+  Removing the points from Déjà View reproduces `dv-ovoxel` to 0.002 cm, and inside the box the two complete
+  the GT equally (2.690 against 2.691 cm). The 0.64 % of Déjà View's points beyond its padded 1-99 % box are
+  the only cover of 3.7 % of the surface (seen +0.21 cm: part of it is seen walls and floor near the box's
+  faces, not only the ceiling).
+- **What it means for E69e:** the O-Voxel children cost nothing inside the box; G0a fails only because the
+  generator's output is confined to the box. With the box kept, the fair baseline for the generator is Déjà
+  View plus its own out-of-box points passed through unchanged (3.521 cm), or Déjà View scored inside the box.
+  The box is not changed here; that choice, and whether reach 4's 79.1 % in-box coverage is enough to train,
+  are the next entry's.
