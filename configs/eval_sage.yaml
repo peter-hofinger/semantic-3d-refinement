@@ -2,7 +2,7 @@
 # `sage-prepare` wrote (configs/sage.yaml); Deja View, SAM 3 and DSINE caches per room as for Hypersim.
 output_dir: runs
 root: data/processed/sage
-dataset: data/processed/sage/splits.yaml   # split -> rooms, written by sage-prepare
+dataset: data/processed/sage/splits.yaml   # split -> usable rooms, written by sage-splits
 aggregated: [train, val]
 per_scene: [val]
 views: views_n20_uniform_504

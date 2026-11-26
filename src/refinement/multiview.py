@@ -154,6 +154,39 @@ def check_inputs(depth: Tensor, rays: Tensor, conf: Tensor) -> None:
     assert conf.isfinite().all() and (conf >= 0).all() and (conf > 0).any()
 
 
+def pinhole_params(
+    rays: np.ndarray, rotation: np.ndarray
+) -> tuple[float, float, float, float, float]:
+    """Fit a pinhole to a ray map: fx, cx, fy, cy and the median residual in pixels."""
+    h, w = rays.shape[:2]
+    d = rays[..., 3:] @ rotation
+    x, y = d[..., 0] / d[..., 2], d[..., 1] / d[..., 2]
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    fx, cx = np.polyfit(x.ravel(), u.ravel(), 1)
+    fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
+    residual = np.median(np.hypot(fx * x + cx - u, fy * y + cy - v))
+    return float(fx), float(cx), float(fy), float(cy), float(residual)
+
+
+def pinhole_residuals(geometry: Geometry) -> np.ndarray:
+    """Median pinhole-fit residual (px) of every view's ray map, (V,)."""
+    assert geometry.ray_origins is not None and geometry.ray_directions is not None
+    return np.array(
+        [
+            pinhole_params(
+                np.concatenate([o, d], axis=-1).astype(np.float64),
+                c2w[:3, :3].astype(np.float64),
+            )[4]
+            for o, d, c2w in zip(
+                geometry.ray_origins,
+                geometry.ray_directions,
+                geometry.cam_to_world,
+                strict=True,
+            )
+        ]
+    )
+
+
 def fit_pinhole(
     rays: np.ndarray, rotation: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -170,13 +203,9 @@ def fit_pinhole(
     catches a fit that broke (MAX_PINHOLE_RESIDUAL), not a camera that is off.
     """
     h, w = rays.shape[:2]
-    d = rays[..., 3:] @ rotation
-    x, y = d[..., 0] / d[..., 2], d[..., 1] / d[..., 2]
+    fx, cx, fy, cy, residual = pinhole_params(rays, rotation)
+    assert residual < MAX_PINHOLE_RESIDUAL, residual
     v, u = np.mgrid[0:h, 0:w].astype(np.float64)
-    fx, cx = np.polyfit(x.ravel(), u.ravel(), 1)
-    fy, cy = np.polyfit(y.ravel(), v.ravel(), 1)
-    residual = np.hypot(fx * x + cx - u, fy * y + cy - v)
-    assert np.median(residual) < MAX_PINHOLE_RESIDUAL, np.median(residual)
     dirs = (
         np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1) @ rotation.T
     )

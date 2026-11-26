@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from src.evaluation.labeled import lift
+from src.geometry import Geometry
 from src.loaders.ground_truth import NO_MESH, STUFF_BASE
 from src.loaders.hypersim.scene import NYU40
 from src.loaders.sage.config import load_config
@@ -18,7 +19,9 @@ from src.loaders.sage.scene import (
     opencv_pose,
     ray_cast,
 )
+from src.loaders.sage.usable import assign_splits
 from src.loaders.splits import scene_folders
+from src.refinement.multiview import MAX_PINHOLE_RESIDUAL, pinhole_residuals
 
 CFG = load_config(Path("configs/sage.yaml"))
 
@@ -164,3 +167,31 @@ def test_both_split_formats_give_scene_folders(tmp_path: Path) -> None:
         scene_folders(rooms, ["test"])
     hypersim = scene_folders(Path("configs/hypersim.yaml"), ["dev"])["dev"]
     assert "ai_006_007_cam_00" in hypersim
+
+
+def test_rooms_whose_rays_are_no_pinhole_are_found() -> None:
+    h, w = 90, 120
+    k = np.array([[100.0, 0, 60.0], [0, 100.0, 45.0], [0, 0, 1]])
+    v, u = np.mgrid[0:h, 0:w].astype(np.float64)
+    cam = np.stack([u, v, np.ones_like(u)], -1) @ np.linalg.inv(k).T
+    dirs = np.stack([cam, cam])
+    shuffled = np.random.default_rng(0).permutation(h * w)  # rays in no order: broken
+    dirs[1] = cam.reshape(-1, 3)[shuffled].reshape(h, w, 3)
+    geometry = Geometry(
+        np.ones((2, h, w), np.float32),
+        np.ones((2, h, w), np.float32),
+        np.stack([k, k]).astype(np.float32),
+        np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
+        np.zeros((2, h, w, 3)),
+        dirs,
+    )
+    residual = pinhole_residuals(geometry)
+    assert residual[0] < 1e-6
+    assert residual[1] > MAX_PINHOLE_RESIDUAL
+
+
+def test_held_out_rooms_are_the_last_usable_ones() -> None:
+    names = ["a", "b", "c", "d", "e"]
+    splits = assign_splits(names, {"a", "c", "d", "e"}, 2)
+    assert splits == {"train": ["a", "c"], "val": ["d", "e"]}
+    assert assign_splits(names, {"a"}, 2) == {"train": [], "val": ["a"]}

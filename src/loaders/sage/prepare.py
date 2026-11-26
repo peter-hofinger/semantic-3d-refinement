@@ -2,11 +2,12 @@
 
 Writes, per room, `views_n<N>_uniform_<W>.npz` (Views), `gt_<views stem>.npz`
 (GroundTruth, NYU40 classes) and `labels_<views stem>.json` (SAGE's type and
-description per instance) into <output_root>/<room>/, and `<output_root>/splits.yaml`
-(train, and the last `held_out` rooms as val). The views are `num_frames` poses evenly
-spaced along the kit's planned path of `path_frames` poses, seeded per room. A room
+description per instance) into <output_root>/<room>/. The views are `num_frames`
+poses evenly spaced along the kit's planned path of `path_frames` poses, seeded per
+room. A room
 already written is skipped, so a run can be resumed; `--shard i/n` splits the rooms
-over n processes (one GPU each), and each refreshes `splits.yaml` with the rooms done.
+over n processes (one GPU each). `sage-splits` writes the split file once the
+backbone has run.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ import zlib
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 from src.loaders.frames import select_frames
 from src.loaders.ground_truth import NO_MESH, STUFF_BASE, GroundTruth
@@ -145,10 +145,6 @@ def main() -> None:
             100 * (ids == NO_MESH).mean(),
             len(np.unique(ids[(ids >= 0) & (ids < STUFF_BASE)])),
         )
-    val = len(names) - cfg.held_out
-    splits = {"train": [n for n in names[:val] if done(cfg, n)],
-              "val": [n for n in names[val:] if done(cfg, n)]}  # fmt: skip
-    (cfg.output_root / "splits.yaml").write_text(yaml.safe_dump(splits))
     logging.shutdown()
     # bpy's teardown can spin for minutes after the last room (3080: 9+ min at 70% CPU
     # after two rooms, not reproduced by a bare render); every file is closed by now
