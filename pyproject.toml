@@ -34,6 +34,8 @@ scannetpp-prepare = "src.loaders.scannetpp.prepare:main"
 scannetpp-render-gt = "src.loaders.scannetpp.gt:main"
 hypersim-download = "src.loaders.hypersim.download:main"
 hypersim-prepare = "src.loaders.hypersim.prepare:main"
+sage-download = "src.loaders.sage.download:main"
+sage-prepare = "src.loaders.sage.prepare:main"
 eth3d-download = "src.loaders.eth3d.download:main"
 eth3d-prepare = "src.loaders.eth3d.prepare:main"
 kitti360-prepare = "src.loaders.kitti360.prepare:main"
@@ -93,6 +95,14 @@ dev = [
 ]
 normals = [  # DSINE (data/third_party/dsine_hub, not in git)
     "geffnet>=1.0.2",
+]
+sage = [  # SAGE-10k rendering (issue #99); the dataset kit lives in data/third_party/sage
+    "bpy==4.5.15",
+    "imageio>=2.38.2",
+    "plyfile>=1.1.5",
+    "pygltflib>=1.16.5",
+    "trimesh>=5.2.2",
+    "xatlas>=0.0.11",
 ]
 segvggt = [
     "einops>=0.8.2",
