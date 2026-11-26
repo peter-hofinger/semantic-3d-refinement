@@ -15,7 +15,7 @@ centre lies, in some view, in front of Déjà View's depth at its pixel by more 
 
     free(x) = OR_v [ inside_v(x) and 0 < z_v(x) < D_v(pixel_v(x)) - cell ]
 
-Two-level (coarse to fine, as TRELLIS's sparse structure and SG-NN): coarse voxels of 2^3
+Two-level (coarse to fine; TRELLIS.2 §3.3 generates the occupancy first): coarse voxels of 2^3
 fine ones dilated by a coarse reach; the fine candidates are the coarse voxels that hold
 GT (what a perfect coarse stage passes on), so the cost is both levels' voxels.
 

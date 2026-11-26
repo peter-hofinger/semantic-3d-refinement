@@ -10015,3 +10015,34 @@ Interim entry: the check that the plan puts before any table.
   next 3b run, one at a time: (1) score with crop-tiled inference (no training; tests 2a-iii on E1c and E2);
   (2) E1c's sampler with far more steps (each crop needs ~1 500 steps alone, the room ~100 interiors);
   (3) normalization that does not depend on the input's size (e.g. GroupNorm replaced by a per-voxel norm).
+
+## Correction: the `ovoxel` head is not TRELLIS.2's O-Voxel; it takes two of its ideas. Checked against the paper's text (issue #69, 26.11.2026)
+- **What was wrong:** E69c to E69i called the head "TRELLIS.2's O-Voxel" (plan, code, configs, figures), from memory of the
+  paper, which had not been read. Read now: Xiang et al., "Native and Compact Structured Latents for 3D Generation", arXiv
+  2512.14692v1, 16 Dec 2025 (TRELLIS.2 is its project page), §1-4.5 and the conclusion in full; the appendix was not read
+  and nothing below rests on it.
+
+  | | TRELLIS.2 (section) | this repo's `ovoxel` kind | same? |
+  |---|---|---|---|
+  | vertex | dual vertex v in [0, 1]^3 inside its voxel, solved by a QEF, "can receive learnable adjustments" (§3.1.1, Eq. 2) | one vertex per child, sigmoid inside the child, regressed | the constraint, not the solver |
+  | other per-voxel content | 3 edge-intersection flags, a splitting weight, 6 material channels (§3.1.1-3.1.2) | none | no |
+  | surface | a mesh, by field-free dual contouring (§3.1.1) | a point cloud | no |
+  | child occupancy | early-pruning upsampler of the **VAE decoder**: a binary mask over the 8 children before each upsampling step, BCE (§3.2.1-3.2.2) | a logit per child, BCE | the idea; theirs is in the decoder |
+  | subdivision | x2 per step, 16x in all | one coarse gate, then one x4-per-axis jump (64 children) | no |
+  | model | sparse-convolutional compression VAE + DiT flow-matching generators, ~4 B parameters (§3.2-3.3) | 3D U-Net + 1 x 1 head, < 1.5 M | no |
+  | order | occupancy layout, then geometry, then material (§3.3) | gate and children in one pass | loosely |
+  | conditioning | DINOv3-L image features (§3.3; how they enter is not stated in the main text) | Déjà View's fused voxel grid | no |
+  | task | image-to-3D objects, ~800 k assets (§1, §4) | refining and completing one room | no |
+
+- **Name from here on:** a *child-vertex head*: per-child occupancy and one vertex inside each child, after the dual vertex of
+  TRELLIS.2's O-Voxel (§3.1.1) and its early-pruning upsampler (§3.2.1). The kind stays `ovoxel` in code and configs, because
+  saved runs load by it; the generator's docstring now says what it takes and what it does not. Corrected: `generator.py`
+  (module and class docstrings; two claims that TRELLIS and SG-NN "train their fine level" by teacher forcing are removed, the
+  paper's text does not say it), `e69f_rung0.py`, `e69i.py`, `configs/e69f.yaml`, the slide figure's header. Earlier LOG
+  entries are left as written; this entry corrects them.
+- **Not yet checked against their text** (cited in `generator.py` from memory, each claim to be verified or removed before
+  it is presented): SG-NN (Dai et al. 2020), ConvONet (Peng et al. 2020), POCO (Boulch and Marlet 2022), Grad-PU (He et al.
+  2023), SnowflakeNet (Xiang et al. 2021), LiDiff (Nunes et al. 2024), VolSplat (Wang et al. 2025), DFusion (Niu et al.
+  2022), DeepSDF (Park et al. 2019), Pixal3D (Li et al. 2026).
+- **Rule from here on:** a paper is named in a plan or docstring only with the section the borrowed idea comes from, read
+  when the plan is written; a paper not read is not named after.

@@ -30,19 +30,23 @@ loss of feed-forward splatting, VolSplat, Wang et al. 2025), no point matched to
 another. The ground truth is mapped into Deja View's frame by the evaluation's Umeyama
 fit (`volume.gt_in_frame`), so the model is trained for the frame it is scored in.
 
-E69c (kinds `ovoxel` and `latent`, loss `direct`): TRELLIS.2's O-Voxel (Xiang et al.
-2025, arXiv 2512.14692) puts one vertex in every active voxel, and its upsampler decides
-which of a voxel's 8 children are active. Here every candidate voxel has `split`^3
-children, each with a logit and a vertex `child_min + child_size * sigmoid(v)`, so a
-vertex never leaves its child. Every child has a fixed target (`child_targets`):
-occupied if a ground-truth point lies in it, and then its vertex is the mean of those
-points. The loss is the cross-entropy of the logits plus the L1 of the vertices (child
-units, occupied children only), zero exactly at `oracle-ovoxel`; no output is matched to
-another. Kind `latent` is the auto-decoder of DeepSDF (Park et al. 2019): a free 32-d
-latent per voxel of one scene's grid replaces the U-Net, read by the same head, to show
-that the head can carry the targets before an encoder is asked to produce its input.
-`dino` adds DINOv2 features to the grid (`volume.voxelize_features`, Pixal3D, Li et al.
-2026).
+E69c (kinds `ovoxel` and `latent`, loss `direct`): a child-vertex head. Two ideas are
+taken from TRELLIS.2 (Xiang et al. 2025, arXiv 2512.14692), nothing else of it: the
+O-Voxel's dual vertex, one point per active voxel constrained to lie inside it (its
+§3.1.1, there solved by a QEF), and the early-pruning upsampler of its VAE decoder, a
+BCE-trained mask over a voxel's 8 children (§3.2.1-3.2.2). Its edge flags, splitting
+weights, materials, mesh extraction, VAE and flow-matching DiTs are not used; the kind
+is named `ovoxel` for the vertex only (LOG: the TRELLIS.2 correction). Here every
+candidate voxel has `split`^3 children at once (not x2 per step), each with a logit and
+a regressed vertex `child_min + child_size * sigmoid(v)`, so a vertex never leaves its
+child. Every child has a fixed target (`child_targets`): occupied if a ground-truth
+point lies in it, and then its vertex is the mean of those points. The loss is the
+cross-entropy of the logits plus the L1 of the vertices (child units, occupied children
+only), zero exactly at `oracle-ovoxel`; no output is matched to another. Kind `latent`
+is the auto-decoder of DeepSDF (Park et al. 2019): a free 32-d latent per voxel of one
+scene's grid replaces the U-Net, read by the same head, to show that the head can carry
+the targets before an encoder is asked to produce its input. `dino` adds DINOv2 features
+to the grid (`volume.voxelize_features`, Pixal3D, Li et al. 2026).
 
 Protocol of the ladder in `docs/experiments.md`: one model per arm (`arms` of the
 config) under under 1 M parameters, Adam at a constant learning rate, no weight decay,
@@ -615,8 +619,9 @@ def decode_children(
 class OVoxelGenerator(UNet3d):
     """U-Net features, then per candidate voxel `split`^3 children, each with a vertex.
 
-    The two steps of TRELLIS.2's O-Voxel (Xiang et al. 2025): which children are active,
-    and where the dual vertex of each lies in its child. Both heads are one 1 x 1
+    A child-vertex head (the module docstring says what is taken from TRELLIS.2): which
+    children are active, and where the one vertex of each lies in its child. Both heads
+    are one 1 x 1
     convolution on the U-Net's full-size features, started at zero (logit 0, vertex at
     the child's centre). The output is the vertex of every child with a positive logit.
     """
@@ -678,8 +683,8 @@ def two_level(
     grid (C, Z, Y, X), sides even; truth (Z, Y, X) bool, the voxels holding GT, or None.
     Coarse candidates: the 2^3 max-pool of the occupied voxels dilated by `reach` coarse
     cells (`coarse_candidates`). The fine candidates are the 8 voxels of each coarse
-    candidate that the GT occupies while training (teacher forcing, as SG-NN and
-    TRELLIS train their fine level) and of each with a logit >= 0 otherwise, so
+    candidate that the GT occupies while training (teacher forcing) and of each with a
+    logit >= 0 otherwise, so
     evaluation never sees the GT. Returns the children, the fine candidates (Z, Y, X),
     the coarse logits (Z/2, Y/2, X/2) and the coarse candidates.
     """
@@ -807,8 +812,8 @@ def coarse_candidates(occupied: Tensor, reach: int, truth: Tensor) -> Tensor:
 
     occupied, truth (Z, Y, X) bool, sides even. The coarse level is the 2^3 max-pool of
     `occupied` dilated by `reach` coarse cells; of those, the ones `truth` occupies pass
-    their 8 fine voxels on (what a perfect coarse stage keeps, as TRELLIS's sparse
-    structure and SG-NN's coarse-to-fine levels train their fine level). E69f: coarse
+    their 8 fine voxels on (what a perfect coarse stage keeps; TRELLIS.2 likewise
+    generates the occupancy layout before the geometry, its §3.3). E69f: coarse
     reach 6 (12 fine cells) covers a median 96.8 % of the unseen GT, 3.7 k candidates
     per 32-cell crop where a fine reach of 12 needs 30.4 k.
     """

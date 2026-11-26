@@ -1,4 +1,4 @@
-# E69f (issue #69): E69c's O-Voxel generator with E69f's locked grid box and two-level candidates. Rung 0 of the
+# E69f (issue #69): E69c's child-vertex generator (kind ovoxel) with E69f's locked grid box and two-level candidates. Rung 0 of the
 # ladder (`experiments/scripts/e69f_rung0.py lock`) runs on these settings; the later rungs are added as they are
 # pre-registered in `experiments/LOG.md`.
 root: data/processed/hypersim
@@ -54,7 +54,7 @@ rungs:
   # E69g's amendment (LOG): crops centred on a voxel within the candidates' reach, not on a pixel, so the scored
   # interiors reach the far candidates where the unseen surface lies
   overfit1_e1c: {<<: *e1, crop_centre: candidate}
-  # E69h: the O-Voxel arm's rate, 300 steps on the whole bedroom each (E69c's probe protocol)
+  # E69h: the child-vertex arm's rate, 300 steps on the whole bedroom each (E69c's probe protocol)
   lr_probe_3e-4: {<<: *overfit1, steps: 300, eval_every: 300, lr: 3.0e-4}
   lr_probe_1e-3: {<<: *overfit1, steps: 300, eval_every: 300, lr: 1.0e-3}
   lr_probe_3e-3: {<<: *overfit1, steps: 300, eval_every: 300, lr: 3.0e-3}

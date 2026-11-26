@@ -1,4 +1,4 @@
-"""E69i: why the O-Voxel arm completes nothing unseen on the bedroom (issue #69).
+"""E69i: why the child-vertex arm completes nothing unseen on the bedroom (issue #69).
 
 Three diagnostics of E69g's rung 3b, none of which trains on more than one crop:
 
