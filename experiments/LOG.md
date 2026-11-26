@@ -9821,3 +9821,28 @@ Interim entry: the check that the plan puts before any table.
 - **Next, as registered:** E2 (widths 32/64/128, 1.4 M parameters, point-centred as E1 so that one thing changes),
   running. Not registered and not run: a rate probe for the O-Voxel arm, and a decision threshold below 0 (the
   logits of occupied children sit just under it).
+
+## E69g, rung 3b E2: fails (in-box 10.73 cm); a threshold sweep on its logits (diagnostic, read on the training scene) bottoms out at 2.94 cm, under Déjà View's 3.365 but far from the gate's 1.88, and its unseen completeness stays at Déjà View's (26.11.2026)
+- **Run:** `overfit1_e2`, widths 32/64/128 (1.4 M parameters), 4 800 steps at 1e-3, point-centred crops (E1's, so
+  only the width changes), 2 397 s on MPS. Train fixed error at step 4 800: Chamfer 0.68 cells, child precision /
+  recall 0.59 / 0.27 (E1: 0.73, 0.65 / 0.28); the curve is noisy and still falling.
+- **Whole bedroom (cm):** in-box **10.734** (gate 1.88: **fails**; E1 12.962, E1c 11.420, Déjà View 3.365), accuracy
+  0.822, completeness 20.646, seen 17.872, unseen 54.745, 204 145 points; pass-through 10.905 (Déjà View 3.521).
+  Figure `experiments/figures/e69g_e69f-overfit1_e2-ovoxel-gt99-s0_ai_006_007.jpg`: what is kept is pale (close),
+  most walls are missing.
+- **Diagnostic, not a result (the children's threshold read on the scene it was trained on):**
+
+  | threshold | in-box Chamfer | acc | comp | seen comp | unseen comp | points |
+  |---|---|---|---|---|---|---|
+  | 0 (the model's) | 10.729 | 0.822 | 20.635 | 17.859 | 54.746 | 204 150 |
+  | -0.5 | 4.781 | 1.019 | 8.542 | 6.079 | 38.813 | 429 065 |
+  | -1.0 | 2.989 | 1.328 | 4.650 | 2.461 | 31.550 | 1 025 254 |
+  | -1.5 | 2.943 | 2.564 | 3.323 | 1.362 | 27.423 | 1 840 841 |
+  | Déjà View | 3.365 | 3.127 | 3.603 | 1.604 | 28.167 | 1 865 703 |
+
+  The logits rank children well (the trade-off is smooth and, at -1.0 to -1.5, under Déjà View's Chamfer) but are
+  shifted below 0, as the plain cross-entropy on 7.6 % positives does to an underfit head. Even the best threshold is
+  1 cm above the gate, and the unseen completeness never drops below Déjà View's: **the model has not learned to
+  complete anything yet**; it has learned a cleaner, thinner version of the seen surface.
+- **Escalation:** E3 (E2 plus cosine decay) runs as the last registered step. Every escalation so far moved the
+  in-box Chamfer by 1-2 cm against a 9 cm gap; the verdict for rung 3b is "not yet working".
