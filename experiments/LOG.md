@@ -9872,3 +9872,12 @@ Interim entry: the check that the plan puts before any table.
   that keeps the decision at 0 on 7.6 % positives (class-balanced or focal; balanced was tried on one latent crop
   only, where it traded precision for recall); (3) far more steps than 4 800 (the whole room is ~100 crops' worth
   of interiors, each crop alone needs ~500 steps). Each is a new pre-registered entry.
+
+## Plan: E69h = the O-Voxel arm's learning rate on the whole bedroom, E69g's first missing piece (issue #69, 26.11.2026, overnight)
+- **Why:** E69g's rung 3b runs all used 1e-3 (E69c's rate, probed for a different crop and split) and every train
+  curve was still falling at its stop. Three probes, `ovoxel-gt99`, E69g's settings otherwise (806 k parameters,
+  point-centred crops, seed 0), 300 steps each at 3e-4, 1e-3, 3e-3 (`lr_probe_*` in `configs/e69f.yaml`).
+- **Measure:** mean train loss and its children's cross-entropy over steps 200-299 (TensorBoard), and whether the
+  loss diverges. **Hypothesis:** 3e-3 is lowest by more than the step-to-step spread of the 1e-3 probe. *Refuted* if
+  1e-3 is lowest or 3e-3 diverges; then the rate is not E69g's limit. Nothing is scored on the whole scene: 300
+  steps is a probe, not a model. ~12 min on MPS.
