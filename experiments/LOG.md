@@ -9881,3 +9881,19 @@ Interim entry: the check that the plan puts before any table.
   loss diverges. **Hypothesis:** 3e-3 is lowest by more than the step-to-step spread of the 1e-3 probe. *Refuted* if
   1e-3 is lowest or 3e-3 diverges; then the rate is not E69g's limit. Nothing is scored on the whole scene: 300
   steps is a probe, not a model. ~12 min on MPS.
+
+## E69h, result: the rate is not E69g's limit; 1e-3 is lowest and all three probes lie within one standard deviation of each other (26.11.2026)
+- **Run:** as planned, ~4 min a probe on MPS, all finite. Mean ± standard deviation over steps 200-299:
+
+  | rate | train loss | children's cross-entropy | vertex L1 | gate's cross-entropy |
+  |---|---|---|---|---|
+  | 3e-4 | 0.869 ± 0.181 | 0.317 ± 0.026 | 0.194 ± 0.004 | 0.359 ± 0.170 |
+  | **1e-3** | **0.839 ± 0.207** | **0.305 ± 0.026** | 0.194 ± 0.004 | 0.340 ± 0.196 |
+  | 3e-3 | 0.864 ± 0.205 | 0.311 ± 0.024 | 0.194 ± 0.004 | 0.358 ± 0.196 |
+
+- **Hypothesis refuted:** 3e-3 is not lower; 1e-3 is, by less than the spread. At 300 steps the children's term sits
+  at the base rate's entropy (0.33 nats for 7.6-10 % positives) for every rate and the vertex term has not moved,
+  so the whole-room problem is not the step size. Of E69g's missing pieces, (2), the loss on rare positives, and (3),
+  far more steps, remain, plus one this probe makes likelier: the children head learns the per-crop prior long
+  before it learns any position, so the signal per crop (16^3 scored voxels, a few percent of them on a surface) may
+  be what is too weak.
