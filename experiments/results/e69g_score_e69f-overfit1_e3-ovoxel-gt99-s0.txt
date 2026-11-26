@@ -1,0 +1,8 @@
+== ai_006_007_cam_00 e69f-overfit1_e3-ovoxel-gt99-s0 (cm, output voxelized at the child, 1.17 cm)
+in-box:
+Déjà View (baseline)     chamfer   3.365  acc   3.127  comp   3.603  seen   1.604  unseen  28.167  points 1,865,703
+e69f-overfit1_e3-ovoxel-gt99-s0 chamfer  11.681  acc   0.869  comp  22.492  seen  19.679  unseen  57.067  points   177,497
+oracle of the candidates chamfer   0.392  acc   0.186  comp   0.597  seen   0.308  unseen   4.161  points 1,123,391
+pass-through:
+Déjà View (baseline)     chamfer   3.521  acc   3.127  comp   3.915  seen   1.604  unseen  30.551  points 1,865,703
+e69f-overfit1_e3-ovoxel-gt99-s0 + DV outside chamfer  11.838  acc   0.869  comp  22.807  seen  19.679  unseen  58.858  points   177,497

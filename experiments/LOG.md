@@ -9846,3 +9846,29 @@ Interim entry: the check that the plan puts before any table.
   complete anything yet**; it has learned a cleaner, thinner version of the seen surface.
 - **Escalation:** E3 (E2 plus cosine decay) runs as the last registered step. Every escalation so far moved the
   in-box Chamfer by 1-2 cm against a 9 cm gap; the verdict for rung 3b is "not yet working".
+
+## E69g, rung 3b E3 and the verdict: every registered escalation fails the bedroom gate; rung 3b "not yet working", the ladder stops at rung 3 (26.11.2026)
+- **E3** (`overfit1_e3`: E2 plus cosine decay, 4 800 steps, 2 517 s): in-box **11.681 cm**, accuracy 0.869,
+  completeness 22.492 (seen 19.679, unseen 57.067), 177 497 points; pass-through 11.838. Child precision / recall
+  on the train fixed error at step 4 800: 0.68 / 0.22. Decaying the rate of an underfit model does not help, as the
+  ladder's verdict table says.
+- **Rung 3b, all runs (bedroom, cm; gate in-box <= 1.88; baselines in-box 3.365, pass-through 3.521; H6 oracle 0.392):**
+
+  | run | change | in-box | acc | comp | unseen comp | pass-through |
+  |---|---|---|---|---|---|---|
+  | 1 200 steps | as planned | crashed (no state kept; fixed since) | | | | |
+  | E1 | 4 800 steps | 12.962 | 0.794 | 25.130 | 70.245 | 13.381 |
+  | E1c | E1, candidate-centred crops | 11.420 | 0.900 | 21.940 | 60.775 | 11.864 |
+  | E2 | E1, widths 32/64/128 | 10.734 | 0.822 | 20.646 | 54.745 | 10.905 |
+  | E3 | E2, cosine | 11.681 | 0.869 | 22.492 | 57.067 | 11.838 |
+
+  One seed each, so the 1-2 cm between them is within what a second seed might move; none comes near the gate.
+- **Verdict: "not yet working", not "approach fails".** The first condition of CLAUDE.md is not reached (the model
+  has not memorized the bedroom), so no claim about the approach follows. What is established: targets, loss, gate
+  and optimizer fit one fixed crop (precision / recall 0.90 / 0.90 in 500 steps); the head and targets reach 0.46 cm
+  wherever a latent was trained; the whole-room failure is the children head, underfit and shifted below 0 (gate
+  recall 88.6 %, child recall 11 %). **Missing, in the order I would try them:** (1) a rate probe for the O-Voxel
+  arm (300 steps at 3e-4, 1e-3, 3e-3 on the whole room; the train curve was still falling at every stop); (2) a loss
+  that keeps the decision at 0 on 7.6 % positives (class-balanced or focal; balanced was tried on one latent crop
+  only, where it traded precision for recall); (3) far more steps than 4 800 (the whole room is ~100 crops' worth
+  of interiors, each crop alone needs ~500 steps). Each is a new pre-registered entry.
