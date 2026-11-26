@@ -1720,7 +1720,9 @@ def train(
     the second list (the validation scenes, in eval mode) to TensorBoard; every
     `eval_every` steps the fixed error on both lists, and the state with the least
     fixed error on the `select` list is kept (step 0, the untrained generator, is
-    among the candidates, so the result is never worse than where training started).
+    among the candidates, so the result is never worse than where training started);
+    of equal errors the later, so a run whose output keeps nothing at every evaluation
+    (an infinite error, E69g) returns its last state instead of none.
     """
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
@@ -1748,7 +1750,7 @@ def train(
                 for term, value in e.items():
                     writer.add_scalar(f"fixed/{k}_{term}", value, step)
             print(f"step {step}: {log[-1]}", flush=True)  # noqa: T201
-            if (key := err[cfg.select]["chamfer_cells"]) < best:
+            if (key := err[cfg.select]["chamfer_cells"]) <= best:
                 best = key
                 best_state = {
                     k: v.detach().cpu().clone() for k, v in model.state_dict().items()

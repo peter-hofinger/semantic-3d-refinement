@@ -1,0 +1,4 @@
+grid (8, 208, 88, 192), finite True, channel ranges [(0.0, 7.48), (-2.82, 1.04), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 0.49), (0.0, 0.49), (0.0, 0.5)]
+dims (x y z) (192, 88, 208); occupied 146,399; coarse candidates 271,289 (x8 fine); fine candidates 177,496
+children 11,359,744, occupied 1,123,391 (9.89 %); vertices in [0, 1]: True
+GT99v in box 99.50 %; in-box unseen inside a fine candidate 92.9 %

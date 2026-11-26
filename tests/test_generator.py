@@ -884,3 +884,16 @@ def test_a_two_level_ovoxel_generator_trained_on_a_plane_finds_its_children() ->
     scores = child_scores(child_counts(children, 2))
     assert scores["precision"] > 0.9 and scores["recall"] > 0.9
     assert scores["vertex_err"] < 0.1
+
+
+def test_training_whose_output_keeps_nothing_returns_its_last_state(
+    tmp_path: Path,
+) -> None:
+    """At a rate of 1e-9 an O-Voxel head keeps nothing: every fixed error is inf."""
+    cfg = config(kind="ovoxel", loss="direct", steps=2, eval_every=1, lr=1e-9)
+    scene = plane_scene()
+    model, log = train(
+        cfg, ([scene], [scene]), torch.device("cpu"), seed=0, log_dir=tmp_path
+    )
+    assert all(e["train"]["chamfer_cells"] == float("inf") for e in log)
+    assert log[-1].get("best") and isinstance(model, OVoxelGenerator)

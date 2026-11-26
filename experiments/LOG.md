@@ -9737,3 +9737,33 @@ Interim entry: the check that the plan puts before any table.
 - **Not in E69g:** rung 3c (half the room) needs a training region in `generate-cloud` (E69e's `train_region`, not
   written yet); it is the next entry if 3b passes. Budget: rung 1 ~3 min CPU; 3a and 3b ~10-15 min a model on MPS;
   E1 ~50 min.
+
+## E69g, first run of rungs 1-3b: rung 1 passes; 3a and 3b fail; one fixed crop says rate and budget, not a bug; amendment before the rerun (26.11.2026)
+- **Rung 1 passes** (`experiments/figures/e69g_data.jpg`, `experiments/results/e69g_data.txt`): Déjà View's walls lie
+  on GT99v's, the unseen GT (red) is furniture backs and wall pieces, the fine candidates hug the GT and the target
+  vertices sit on it; grid finite, vertices in [0, 1], in-box unseen inside a fine candidate 92.9 % (the lock's).
+  Seen in the figure: the coarse candidates fill nearly the whole room's slab (Déjà View's floater cloud in the
+  middle of the room, dilated by 56 cm), so the gate must close most of the room.
+- **Rung 2 passes:** 0.43 s a step (measured with the plan); 1 200 steps took 557-677 s with the fixed evaluations.
+- **Rung 3a fails:** `latent-gt99`, 1 200 steps at 1e-3: train loss 0.86 -> 0.31, still falling; on the whole bedroom
+  child precision 0.006, recall 0.011; in-box Chamfer **29.1 cm** (Déjà View 3.365): it keeps 1.7 M wrong points.
+- **Rung 3b fails, and crashed:** `ovoxel-gt99`, 1 200 steps at 1e-3: the children's cross-entropy 0.40 -> 0.27,
+  barely under the 0.33 nats of predicting the 10 % base rate; the vertex L1 0.195 -> 0.191 (it does not learn);
+  the gate's term 0.67 -> 0.26. Every fixed evaluation kept nothing in some crop (Chamfer infinite), so `train`
+  kept no state and stopped at its assertion; `ovoxel-gt20` (same curves at 600 steps) was stopped. Two code bugs
+  surfaced and are fixed with a test: `train` now keeps the later of equal errors (an all-infinite run returns its
+  last state), and `e69g.py score` passed the distance's arguments the wrong way round.
+- **Diagnosis at rung 3 (the ladder: targets, loss or optimizer), one fixed bedroom crop, 300-500 steps on MPS:**
+  - `ovoxel-gt99` at 1e-3: children's cross-entropy 0.69 -> 0.051, vertex 0.19 -> 0.073, gate 1.07 -> 0.001, child
+    precision / recall 0.90 / 0.90 at step 500 and rising. **Targets, loss, gate and optimizer work.** The whole
+    room is 3.5 M cells against 32^3 crops: 1 200 crops visit each cell about 11 times. Budget, which E1 is for.
+  - `latent-gt99` at 1e-3: the cross-entropy falls to 0.085 while recall falls to 0.02 (the reach-12 children are
+    2.2 % occupied; at this rate the table only learns the prior). Class-balanced: recall 1.0, precision 0.23 at
+    step 300. **At 1e-2 (plain): cross-entropy 0.016, vertex 0.016, precision / recall 0.90 / 0.85 and rising.** A
+    free table moves by about the rate per step, so 1e-3 is the rate of the U-Net, not of a table (E69c probed a
+    rate per arm; the CPU test of the latent arm uses 3e-2). The balanced variant was dropped again (it trades
+    precision for recall, and no run uses it).
+- **Amendment (before rerunning; one change per rung):** 3a reruns with the latent's rate 1e-2, 1 200 steps, same
+  gate (in-box <= 0.70 cm against the R12 oracle, child precision and recall >= 0.95). 3b goes to its pre-registered
+  E1 (4 800 steps, ~40 min, rate 1e-3 unchanged), gt99 first; the gate is unchanged (in-box <= 1.88 cm). If E1 fails,
+  E2 and E3 follow as registered; a rate probe for the O-Voxel arm is not in them and would be a new entry.

@@ -41,7 +41,7 @@ seeds: [0]
 arms:
   ovoxel-gt99: {kind: ovoxel, loss: direct, target: gt99}   # E69d's all-frames GT, voxelized at 1 cm
   ovoxel-gt20: {kind: ovoxel, loss: direct, target: gt20}   # the 20 input views' GT pixels
-  latent-gt99: {kind: latent, loss: direct, amp: false, target: gt99, coarse_reach: 0, reach: 12}   # rung 3a, a free latent per voxel
+  latent-gt99: {kind: latent, loss: direct, amp: false, target: gt99, coarse_reach: 0, reach: 12, lr: 1.0e-2}   # rung 3a, a free latent per voxel; rate: E69g's one-crop check
 
 rungs:
   # rung 3a, the output alone; 3b, input to output on the whole bedroom. The living room only logs a held-out loss

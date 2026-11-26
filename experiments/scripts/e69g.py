@@ -147,7 +147,7 @@ def data(s: Loaded, reach: int, split: int) -> list[str]:
 
 def distance_panel(ax: plt.Axes, s: Loaded, world: np.ndarray, title: str) -> float:
     """Scatter a slab of a world cloud coloured by distance to GT99v (cm); mean."""
-    d = CM * nearest_distances(world, s.truth)
+    d = CM * nearest_distances(s.truth, world)
     cells = (
         (world - s.similarity[2]) @ s.similarity[1] / s.similarity[0] / s.scale - s.lo
     ) / s.cell
