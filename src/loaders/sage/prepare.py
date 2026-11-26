@@ -12,8 +12,10 @@ over n processes (one GPU each), and each refreshes `splits.yaml` with the rooms
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import logging
+import os
 import time
 import zlib
 from pathlib import Path
@@ -56,9 +58,10 @@ def done(cfg: SageConfig, name: str) -> bool:
 
 
 def prepare_room(cfg: SageConfig, folder: Path) -> tuple[Views, GroundTruth, dict, str]:
-    """Render one room: views, ground truth, SAGE labels and the device used."""
+    """Render one room: views, ground truth, SAGE labels and device, stage times."""
     from src.loaders.sage.render import render_views  # noqa: PLC0415  needs bpy
 
+    clock = [("start", time.perf_counter())]
     (layout_path,) = folder.glob("layout_*.json")
     layout = json.loads(layout_path.read_text())
     if len(layout["rooms"]) != 1:
@@ -75,15 +78,22 @@ def prepare_room(cfg: SageConfig, folder: Path) -> tuple[Views, GroundTruth, dic
         )
         for key, m in meshes.items()
     ]
+    clock.append(("assemble", time.perf_counter()))
     r = cfg.render
     seed = zlib.crc32(folder.name.encode()) ^ cfg.seed
     path = np.stack(camera_path(plan, meshes, r, seed, cfg.kit_root))
     picked = select_frames(path[:, :3, 3], r.num_frames, "uniform")
     cam_to_world = path[picked]
+    clock.append(("plan", time.perf_counter()))
     k = intrinsics(r.width, r.height, r.fov_x_deg)
     ids, depth = ray_cast(parts, k, cam_to_world, r.height, r.width)
+    clock.append(("ray cast", time.perf_counter()))
     room = layout["rooms"][0]["dimensions"]
     images, device = render_views(meshes, room, cam_to_world, r, kit(cfg.kit_root)[1])
+    clock.append(("render", time.perf_counter()))
+    stages = ", ".join(
+        f"{k} {t - t0:.0f} s" for (_, t0), (k, t) in itertools.pairwise(clock)
+    )
     views = Views(
         scene_id=folder.name,
         names=[f"path.{i:04d}" for i in picked],
@@ -94,7 +104,7 @@ def prepare_room(cfg: SageConfig, folder: Path) -> tuple[Views, GroundTruth, dic
     seen = set(np.unique(ids[ids >= 0]).tolist())
     gt = GroundTruth(ids, depth, {i: c for i, c in labels.nyu40.items() if i in seen})
     sage = {i: s for i, s in labels.sage.items() if i in seen}
-    return views, gt, sage, device
+    return views, gt, sage, f"{device} ({stages})"
 
 
 def main() -> None:
@@ -139,6 +149,10 @@ def main() -> None:
     splits = {"train": [n for n in names[:val] if done(cfg, n)],
               "val": [n for n in names[val:] if done(cfg, n)]}  # fmt: skip
     (cfg.output_root / "splits.yaml").write_text(yaml.safe_dump(splits))
+    logging.shutdown()
+    # bpy's teardown can spin for minutes after the last room (3080: 9+ min at 70% CPU
+    # after two rooms, not reproduced by a bare render); every file is closed by now
+    os._exit(0)
 
 
 if __name__ == "__main__":
