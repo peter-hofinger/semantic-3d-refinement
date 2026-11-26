@@ -10074,3 +10074,33 @@ Interim entry: the check that the plan puts before any table.
   docstring (issue #41) cites Pixal3D and DFusion in the same way. VolSplat's lifting (pixel features unprojected by
   predicted depth, averaged per voxel, Eq. 6, refined by a sparse 3D U-Net, §3.3) is the closest published match to this
   issue's fused grid and is now known to the issue.
+
+## E69j, result: under the regular cloud evaluation the child-vertex head's oracle is 0.60 cm on dev with the scored ground truth as targets (Déjà View 3.50) and 3.74 with 99-frame targets; the bedroom-trained E2 is at 27.70 (issue #69, 26.11.2026)
+- **What this is:** a re-scoring of existing outputs, because E69d to E69i score on their own protocol (99-frame GT, voxelized, in-box,
+  bedroom) and those numbers do not compare with the repo's usual ones. Nothing was trained and no hypothesis was written before the
+  run, so it describes; it tests nothing.
+- **Setting:** `cloud_eval` unchanged (`configs/e69f_eval.yaml`): the 20 views' GT pixels, every output point, Déjà View's one Umeyama
+  alignment, the mean over dev (3 scenes), MacBook Air M3. Clouds by `experiments/scripts/e69_regular.py`: **E2** (`overfit1_e2`,
+  trained on `ai_006_007` alone toward the 99-frame targets; E69g's lowest in-box run on its own scorer, not picked again here) and the
+  **oracle** of the two-level candidates (coarse reach 6, split 4, a perfect coarse stage) with the 99-frame (GT99) or the 20-view (GT20)
+  ground truth as targets. `uv run python -m experiments.scripts.e69_regular`, `uv run python -m src.analysis.cloud_eval --cfg
+  configs/e69f_eval.yaml --splits dev`, then `e69_regular --report <run.yaml>` (`experiments/results/e69f_eval_dev.yaml`; the report's
+  git hash is marked dirty, the tree holding this entry's own files).
+- **Result, Chamfer (accuracy / completeness) in cm:**
+
+  | cloud | `ai_010_007` | `ai_006_007` | `ai_044_001` | dev mean |
+  |---|---|---|---|---|
+  | Déjà View | 1.603 (2.199 / 1.006) | 1.846 (2.520 / 1.172) | 7.053 (9.312 / 4.795) | **3.501** (4.677 / 2.324) |
+  | oracle, GT20 targets | 0.442 (0.259 / 0.625) | 0.267 (0.168 / 0.365) | 1.105 (0.669 / 1.542) | **0.605** (0.365 / 0.844) |
+  | oracle, GT99 targets | 1.700 (2.722 / 0.678) | 1.600 (2.750 / 0.449) | 7.926 (14.180 / 1.672) | **3.742** (6.551 / 0.933) |
+  | E2, trained on the bedroom | 14.600 (1.629 / 27.572) | 7.108 (0.872 / 13.343) | 61.400 (4.029 / 118.772) | **27.703** (2.177 / 53.229) |
+
+- **Check:** Déjà View reproduces E69a's plan numbers on this cache (bedroom 1.846, dev 3.501). E2's bedroom cloud was generated again
+  and has 248 462 points against the saved 248 485 (MPS).
+- **Reading:** with the scored ground truth as its targets the head's ceiling is 5.8 times below Déjà View. With the 99-frame targets
+  the same head is above Déjà View on dev (3.74 against 3.50): surface the 20 views miss counts as an accuracy error here (6.55 against
+  4.68), so this score cannot reward completion. E2 is accurate where it places points (2.18 against 4.68) and misses most surface
+  (completeness 53.23 against 2.32), also on the bedroom it was trained on (7.11 against 1.85). "Not yet working" stands.
+- **Caveats:** one model, one seed; two of the three scenes are unseen by E2, so its dev mean is not a generalization test of a model
+  that works; no model toward the GT20 targets was trained to the end (E69g stopped `ovoxel-gt20`); every whole-scene output carries
+  E69i's mismatch between whole-grid and crop features; labels are not reported.

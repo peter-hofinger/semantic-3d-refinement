@@ -1,0 +1,15 @@
+# E69's child-vertex head under the regular evaluation of clouds (`src/analysis/cloud_eval.py`): the 20 views' GT pixels,
+# every output point, Déjà View's one Umeyama alignment, the mean over dev. The clouds are written by
+# `experiments/scripts/e69_regular.py`; E2 was trained on ai_006_007 only, the other two dev scenes are unseen by it.
+output_dir: runs
+root: data/processed/hypersim
+dataset: configs/hypersim.yaml
+views: views_n20_uniform_504
+backbone: dejaview_k16
+segmentation: sam3image-nyu40-t0.3
+vocabulary: hypersim
+variants:
+  - {name: Déjà View, kind: pixels}
+  - {name: Oracle GT99 targets, kind: cloud, file: e69j-oracle-gt99}
+  - {name: Oracle GT20 targets, kind: cloud, file: e69j-oracle-gt20}
+  - {name: Trained E2, kind: cloud, file: e69j-e2}

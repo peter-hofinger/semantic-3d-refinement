@@ -1,0 +1,72 @@
+git: e3fadc441779056f089f6b4c7bca2d5c94387770-dirty
+splits:
+  dev:
+    aggregate:
+      Déjà View:
+        accuracy_cm: 4.6768845981185265
+        completeness_cm: 2.3243975861531827
+        chamfer_cm: 3.5006410921358544
+      Oracle GT99 targets:
+        accuracy_cm: 6.550624799631503
+        completeness_cm: 0.9329113749142874
+        chamfer_cm: 3.741768087272895
+      Oracle GT20 targets:
+        accuracy_cm: 0.3652903482465188
+        completeness_cm: 0.8440430653805177
+        chamfer_cm: 0.6046667068135182
+      Trained E2:
+        accuracy_cm: 2.177002071312495
+        completeness_cm: 53.22890024616052
+        chamfer_cm: 27.70295115873651
+    scenes:
+      ai_010_007_cam_00:
+        Déjà View:
+          accuracy_cm: 2.1989900464561103
+          completeness_cm: 1.0064712718896673
+          chamfer_cm: 1.602730659172889
+        Oracle GT99 targets:
+          accuracy_cm: 2.721894243602824
+          completeness_cm: 0.6778618184538235
+          chamfer_cm: 1.6998780310283237
+        Oracle GT20 targets:
+          accuracy_cm: 0.2588801537525296
+          completeness_cm: 0.6250485998968418
+          chamfer_cm: 0.4419643768246857
+        Trained E2:
+          accuracy_cm: 1.6291838310227829
+          completeness_cm: 27.571787482789862
+          chamfer_cm: 14.600485656906322
+      ai_006_007_cam_00:
+        Déjà View:
+          accuracy_cm: 2.5200956324922528
+          completeness_cm: 1.171528699229441
+          chamfer_cm: 1.8458121658608468
+        Oracle GT99 targets:
+          accuracy_cm: 2.75027147638696
+          completeness_cm: 0.44914256988375767
+          chamfer_cm: 1.5997070231353587
+        Oracle GT20 targets:
+          accuracy_cm: 0.16777751852698747
+          completeness_cm: 0.3653876677074346
+          chamfer_cm: 0.266582593117211
+        Trained E2:
+          accuracy_cm: 0.8724802573784605
+          completeness_cm: 13.343317051057433
+          chamfer_cm: 7.107898654217947
+      ai_044_001_cam_00:
+        Déjà View:
+          accuracy_cm: 9.311568115407216
+          completeness_cm: 4.795192787340439
+          chamfer_cm: 7.053380451373828
+        Oracle GT99 targets:
+          accuracy_cm: 14.179708678904726
+          completeness_cm: 1.6717297364052812
+          chamfer_cm: 7.925719207655003
+        Oracle GT20 targets:
+          accuracy_cm: 0.6692133724600392
+          completeness_cm: 1.5416929285372767
+          chamfer_cm: 1.105453150498658
+        Trained E2:
+          accuracy_cm: 4.029342125536242
+          completeness_cm: 118.77159620463426
+          chamfer_cm: 61.400469165085255
