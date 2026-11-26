@@ -10104,3 +10104,8 @@ Interim entry: the check that the plan puts before any table.
 - **Caveats:** one model, one seed; two of the three scenes are unseen by E2, so its dev mean is not a generalization test of a model
   that works; no model toward the GT20 targets was trained to the end (E69g stopped `ovoxel-gt20`); every whole-scene output carries
   E69i's mismatch between whole-grid and crop features; labels are not reported.
+- **Figure** (`experiments/figures/e69_slide_trio_light.png`, `e69_slides trio --light`; looked at): the bedroom from one top-down
+  camera, the ceiling cut, every output point at one splat size and coloured by its distance to the 20 views' GT (0 to 5 cm). Déjà
+  View's floaters and part of its walls are dark; the GT20-target oracle is pale, with gaps where the views see nothing; E2 is pale
+  where it has points and most walls are missing. The images are the bedroom, the numbers under the names the dev means. A
+  presentation view of the whole room, not issue #7's views 18, 0, 12, 6.

@@ -1,4 +1,4 @@
-"""E69's slide-1 visuals in the TUM style: rung 0 coverage, rung 3a against 3b, a Q&A backup.
+"""E69's slide-1 visuals in the TUM style: coverage, 3a against 3b, a backup, a trio.
 
 Every number is read from E69f / E69g / E69i outputs already on disk; nothing is trained.
 `rung0`: in-box unseen GT99v covered by the candidates, Reach-4 against two-level H6, per
@@ -7,8 +7,13 @@ dollhouse camera, rung 3a (the latent table, candidate-centred) and rung 3b (E2)
 point coloured by its distance to GT99v; E2's gate and child recall come from one forward
 pass of the whole grid, as `generate` runs it. `backup`: GT99v with the in-box unseen points
 8-13 cells from Déjà View in orange, next to the H6 oracle in the error colours.
+`trio`: Déjà View, the H6 oracle with the 20 views' GT as targets and E2 side by side with
+their names and dev means, under the regular evaluation (`cloud_eval`): every output point,
+drawn at one splat size and coloured by its distance to the 20 views' GT pixels. The
+images are the bedroom (clouds of `e69_regular`); the number under each name is the mean
+Chamfer over the dev scenes (`e69f_eval_dev.yaml`).
 
-uv run python -m experiments.scripts.e69_slides rung0|rung3|backup
+uv run python -m experiments.scripts.e69_slides rung0|rung3|backup|trio [--light]
 """
 
 import argparse
@@ -21,6 +26,7 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import yaml
 from matplotlib.colors import LinearSegmentedColormap
 from scipy.ndimage import distance_transform_edt
 
@@ -45,6 +51,7 @@ RESULTS = Path("experiments/results")
 RUNS = Path("runs/e69f")
 BLUE, LIGHT, ORANGE = "#0065BD", "#64A0C8", "#E37222"
 INK, DARK, GRAY, GRID, ZONE = "#222222", "#555555", "#B3B3B3", "#E8E8E8", "#F5F6F8"
+MUTED = "#808080"  # the slide's footnote grey
 MAGMA = plt.get_cmap("magma")(
     np.linspace(0, 0.88, 256)
 )  # 0.88: the top stays off-white
@@ -290,25 +297,39 @@ def dollhouse(s: Loaded) -> tuple[Camera, np.ndarray, float]:
 
 
 def render(
-    cloud: np.ndarray, color: np.ndarray, camera: Camera, eye: np.ndarray, top: float
+    cloud: np.ndarray,
+    color: np.ndarray,
+    camera: Camera,
+    eye: np.ndarray,
+    top: float,
+    radius: float | None = None,
 ) -> np.ndarray:
-    """Splat a world cloud (N, 3) with colours (N, 3), lightly shaded; above `top` cut."""
+    """Splat a world cloud (N, 3) with colours (N, 3), lightly shaded; above `top` cut.
+
+    radius (m): every point is drawn, at this one splat size; None caps the cloud and
+    sizes each point by its neighbours' distance, which draws a stray point several
+    times larger than a surface point.
+    """
     keep = cloud[:, 2] < top
     c = prepare(
         cloud[keep],
         color[keep],
         np.zeros(int(keep.sum()), dtype=np.int64),
         np.random.default_rng(0),
+        **({} if radius is None else {"cap": int(keep.sum())}),
     )
     xyz = torch.from_numpy(c["points"]).float()
     shade = headlight(torch.from_numpy(c["normals"]).float(), xyz, eye)
     rgb = torch.from_numpy(c["rgb"]).float() * (0.55 + 0.45 * shade / 0.95)
-    return splat(xyz, rgb.clamp(0, 1), torch.from_numpy(c["radius"]).float(), camera)
+    size = torch.from_numpy(c["radius"]).float()
+    if radius is not None:
+        size = torch.full_like(size, radius)
+    return splat(xyz, rgb.clamp(0, 1), size, camera)
 
 
-def error_colors(s: Loaded, cloud: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return each point's distance to GT99v (cm) and its colour on the shared scale."""
-    d = CM * nearest_distances(s.truth, cloud)
+def error_colors(truth: np.ndarray, cloud: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return each point's distance to the GT `truth` (cm) and its shared-scale colour."""
+    d = CM * nearest_distances(truth, cloud)
     return d, ERROR(np.clip(d / VMAX, 0, 1))[:, :3]
 
 
@@ -375,7 +396,7 @@ def rung3(s: Loaded) -> list[str]:
     shots, means = [], []
     for name in (LATENT_3A, E2):
         cloud = cloud_of(s, name)
-        d, color = error_colors(s, cloud)
+        d, color = error_colors(s.truth, cloud)
         means.append(d.mean())
         shots.append(render(cloud, color, camera, eye, top))
     box = crop_box(shots)
@@ -469,7 +490,7 @@ def backup(s: Loaded) -> list[str]:
     gray = np.full((len(s.truth), 3), 0.80)
     gray[far] = mpl.colors.to_rgb(ORANGE)
     h6 = oracle(s, masks(s, 6)[2])[0]
-    err, color = error_colors(s, h6)
+    err, color = error_colors(s.truth, h6)
     shots = [
         render(s.truth[s.inside], gray[s.inside], camera, eye, top),
         render(h6, color, camera, eye, top),
@@ -519,10 +540,62 @@ def backup(s: Loaded) -> list[str]:
     ]
 
 
+def trio(s: Loaded) -> list[str]:
+    """Draw Déjà View, the GT20-target oracle and E2 under their `cloud_eval` dev means."""
+    report = yaml.safe_load((RESULTS / "e69f_eval_dev.yaml").read_text())
+    scores = report["splits"]["dev"]["aggregate"]
+    camera, eye, top = dollhouse(s)
+    panels = [
+        ("Déjà View", "Déjà View", s.dv),
+        ("Oracle ceiling", "Oracle GT20 targets", cloud_of(s, "e69j-oracle-gt20")),
+        ("Trained today", "Trained E2", cloud_of(s, "e69j-e2")),
+    ]
+    gt20 = s.gt_world[s.has]
+    shots = [
+        render(c, error_colors(gt20, c)[1], camera, eye, top, 0.6 * s.child_m)
+        for _, _, c in panels
+    ]
+    box = crop_box(shots)
+    width, height, side, gap = 12.2, 4.4, 3.5, 0.2  # inches, at the slide's size
+    base = 0.15  # room under the images for the colour bar's lowest label
+    fig = plt.figure(figsize=(width, height))
+    lines = []
+    for i, (shot, (title, variant, _)) in enumerate(zip(shots, panels, strict=True)):
+        x = 0.05 + i * (side + gap)
+        ax = fig.add_axes((x / width, base / height, side / width, side / height))
+        ax.imshow(shot[box], interpolation="lanczos")
+        ax.set_axis_off()
+        dev = f"dev {scores[variant]['chamfer_cm']:.2f} cm"
+        for y, text, size, tone in ((4.18, title, 16, INK), (3.86, dev, 12, MUTED)):
+            fig.text(
+                (x + side / 2) / width,
+                y / height,
+                text,
+                ha="center",
+                va="center",
+                fontsize=size,
+                color=tone,
+            )
+        lines.append(f"trio: {title}: {dev}")
+    left = 0.05 + 3 * side + 2 * gap + 0.2
+    bar = fig.colorbar(
+        mpl.cm.ScalarMappable(mpl.colors.Normalize(0, VMAX), ERROR),
+        cax=fig.add_axes((left / width, base / height, 0.14 / width, side / height)),
+    )
+    bar.outline.set_visible(False)
+    bar.set_ticks(
+        [0, VMAX / 2, VMAX],
+        labels=["0 cm", f"{VMAX / 2:g} cm", f"\u2265 {VMAX:.0f} cm"],
+    )
+    bar.ax.tick_params(labelsize=12, colors=INK, length=4, width=0.8)
+    fig.savefig(OUT / f"e69_slide_trio{SUFFIX}.png", dpi=300)
+    return lines
+
+
 def main() -> None:
     """Draw one figure and print the numbers it shows."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("figure", choices=["rung0", "rung3", "backup"])
+    parser.add_argument("figure", choices=["rung0", "rung3", "backup", "trio"])
     parser.add_argument(
         "--light", action="store_true", help="reversed scale: pale is close to the GT"
     )
@@ -537,7 +610,7 @@ def main() -> None:
         lines = rung0()
     else:
         s = load(for_arm(load_rung(CONFIG, "overfit1"), "ovoxel-gt99"), BEDROOM)
-        lines = rung3(s) if args.figure == "rung3" else backup(s)
+        lines = {"rung3": rung3, "backup": backup, "trio": trio}[args.figure](s)
     print("\n".join(lines))
 
 

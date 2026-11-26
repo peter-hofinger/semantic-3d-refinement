@@ -48,12 +48,16 @@ def id_colors(ids: np.ndarray) -> np.ndarray:
 
 
 def prepare(
-    points: np.ndarray, colors: np.ndarray, ids: np.ndarray, rng: np.random.Generator
+    points: np.ndarray,
+    colors: np.ndarray,
+    ids: np.ndarray,
+    rng: np.random.Generator,
+    cap: int = CAP,
 ) -> dict[str, np.ndarray]:
-    """Cap the cloud; return points, normals, splat radii and the colours of each look."""
+    """Cap the cloud at `cap` points; return points, normals, splat radii and the colours of each look."""
     keep = (
-        rng.choice(len(points), CAP, replace=False)
-        if len(points) > CAP
+        rng.choice(len(points), cap, replace=False)
+        if len(points) > cap
         else slice(None)
     )
     points, colors, ids = points[keep], colors[keep], ids[keep]
