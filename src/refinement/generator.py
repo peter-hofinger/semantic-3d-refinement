@@ -1,18 +1,19 @@
 """Generative volumetric refiner (issue #69): a point generator on the fused voxel grid.
 
-The per-view refiners and the volumetric refiner (`volume.py`, issue #41) and its
-filter can only move or drop Deja View's pixels. Here the fused cloud is voxelized as in
+The per-view refiners and the volumetric refiner (`volume.py`, issue #41) and its filter
+can only move or drop Deja View's pixels. Here the fused cloud is voxelized as in
 `volume.py` (log count, mean confidence and colour, spread, optional class histogram), a
-3D U-Net (as DFusion, Niu et al. 2022, puts one on fused depth maps) turns it into
-features, and a generator head turns the features into a new cloud, free of the pixels:
-it can lie where no pixel did and is not in their order. Five heads are compared
-(`KINDS`): a lattice of `split`^3 points in every voxel within `reach` cells of an
-occupied one (x = c + l + offset tanh(delta), an occupancy logit each); the same behind
-a coarse occupancy gate (SG-NN, Dai et al. 2020); an implicit field queried twice
-(ConvONet, Peng et al. 2020; Grad-PU, He et al. 2023); progressive splitting of a voxel
-into 2 parents and 8 children (SnowflakeNet, Xiang et al. 2021); and every input point
-seeding `copies` points (LiDiff, Nunes et al. 2024), whose untrained head returns the
-input bit for bit. The output is every point whose logit is positive.
+3D U-Net (DFusion, Niu et al. 2022, denoises a TSDF fused from depth maps with a
+UNet-like 3D CNN; checked against its abstract only) turns it into features, and a
+generator head turns the features into a new cloud, free of the pixels: it can lie where
+no pixel did and is not in their order. Five heads are compared (`KINDS`): a lattice of
+`split`^3 points in every voxel within `reach` cells of an occupied one (x = c + l +
+offset tanh(delta), an occupancy logit each); the same behind a coarse occupancy gate
+(SG-NN, Dai et al. 2020); an implicit field queried twice (ConvONet, Peng et al. 2020; a
+distance target as in Grad-PU, He et al. 2023); progressive splitting of a voxel into 2
+parents and 8 children (SnowflakeNet, Xiang et al. 2021); and every input point seeding
+`copies` points (LiDiff, Nunes et al. 2024), whose untrained head returns the input bit
+for bit. The output is every point whose logit is positive.
 
 The lattice is not decoration: points that start on one spot receive the same gradient
 and never separate. Every head starts at zero, so an untrained generator emits its
@@ -25,10 +26,11 @@ both over the points that can reach a surface only (a point can reach it if a
 ground-truth point lies within `offset` cells of its starting position on every axis),
 plus a cross-entropy of each point's logit against that reachability, weighted by the
 ratio of unreachable to reachable points (X69d). "render": the points of the crop drawn
-into the views with a soft depth test, supervised by the ground truth's depth maps (the
-loss of feed-forward splatting, VolSplat, Wang et al. 2025), no point matched to
-another. The ground truth is mapped into Deja View's frame by the evaluation's Umeyama
-fit (`volume.gt_in_frame`), so the model is trained for the frame it is scored in.
+into the views with a soft depth test, supervised by the ground truth's depth maps (a
+render loss as feed-forward splatting trains with one; VolSplat, Wang et al. 2025, §3.4,
+renders RGB and supervises it by MSE and LPIPS, not depth), no point matched to another.
+The ground truth is mapped into Deja View's frame by the evaluation's Umeyama fit
+(`volume.gt_in_frame`), so the model is trained for the frame it is scored in.
 
 E69c (kinds `ovoxel` and `latent`, loss `direct`): a child-vertex head. Two ideas are
 taken from TRELLIS.2 (Xiang et al. 2025, arXiv 2512.14692), nothing else of it: the
@@ -304,14 +306,14 @@ class Generator(UNet3d):
 class GatedGenerator(Generator):
     """The lattice generator plus a coarse occupancy gate (a sparse hierarchy).
 
-    SG-NN (Dai et al. 2020) completes a scene coarse to fine: each level decides which
-    voxels of the next hold a surface and prunes the rest. Here the U-Net's half-size
-    decoder level predicts, for each coarse voxel, whether any point of the voxels in it
-    can reach a surface (the gate), supervised on that; the fine head is the lattice
-    head of `Generator`, unchanged. While training the logits of the points are the fine
-    head's; evaluating, a point is kept only if its parent's gate is open as well (the
-    smaller of the two logits is positive). Unlike SG-NN the fine level does not see the
-    coarse prediction, only the shared U-Net features.
+    SG-NN (Dai et al. 2020, §5) completes a scene coarse to fine: each hierarchy level
+    predicts the occupancy of the next, and only voxels above 0.5 are kept there. Here
+    the U-Net's half-size decoder level predicts, for each coarse voxel, whether any
+    point of the voxels in it can reach a surface (the gate), supervised on that; the
+    fine head is the lattice head of `Generator`, unchanged. While training the logits
+    of the points are the fine head's; evaluating, a point is kept only if its parent's
+    gate is open as well (the smaller of the two logits is positive). Unlike SG-NN the
+    fine level does not see the coarse prediction, only the shared U-Net features.
     """
 
     def __init__(
@@ -353,9 +355,11 @@ class GatedGenerator(Generator):
 class ImplicitGenerator(UNet3d):
     """A field: a per-point head on trilinearly sampled U-Net features, queried twice.
 
-    As the conditional implicit networks of ConvONet (Peng et al. 2020) and POCO (Boulch
-    and Marlet 2022) read a feature grid at any position, and Grad-PU (He et al. 2023)
-    moves points onto a learned surface: every candidate starts at its lattice position
+    As ConvONet's decoder (Peng et al. 2020, §3.3) reads a feature volume at any point
+    by trilinear interpolation and a small MLP, and as Grad-PU (He et al. 2023, §3.2)
+    regresses each point's distance to the nearest ground-truth point (Grad-PU then
+    moves points down that distance's gradient; the move here is a predicted offset, the
+    alternative its §3.2 sets aside): every candidate starts at its lattice position
     (`split`^3 per voxel), a shared MLP reads the features at that position and moves
     it, and a second query at the moved position moves it again and regresses the
     distance to the nearest ground-truth point. The two moves are summed before the
@@ -426,18 +430,18 @@ class ImplicitGenerator(UNet3d):
 class SplitGenerator(UNet3d):
     """Progressive splitting: a voxel splits into 2 parent points, each into 4 children.
 
-    As SnowflakeNet (Xiang et al. 2021) grows a cloud by splitting every point into
-    children, one learned layer after another, with a loss at every level (here the
-    parents are supervised too, `coarse` in `Outputs`). The first split reads the
-    voxel's U-Net feature and a code for the parent's place in the voxel (the two
-    halves along x), and gives each parent its move, a score and a feature; the second
-    reads the parent's feature and move, and a code for the child's place in its half,
-    and gives the child its own move on top of its parent's: a child is its lattice
-    position plus offset * tanh(parent move + child move), so the reach stays the offset
-    and the children of one parent move together unless the second split says otherwise.
-    The
-    lattice is the lattice of `Generator`, in the same order, which needs `split` 2.
-    Unlike SnowflakeNet's skip-transformer there is no attention between the points.
+    As SnowflakeNet (Xiang et al. 2021, §3.2-3.4) grows a cloud by duplicating points
+    and moving each child by its own tanh-bounded displacement, one layer after another,
+    with a Chamfer loss at every level (here the parents are supervised too, `coarse` in
+    `Outputs`). The first split reads the voxel's U-Net feature and a code for the
+    parent's place in the voxel (the two halves along x), and gives each parent its
+    move, a score and a feature; the second reads the parent's feature and move, and a
+    code for the child's place in its half, and gives the child its own move on top of
+    its parent's: a child is its lattice position plus offset * tanh(parent move + child
+    move), so the reach stays the offset and the children of one parent move together
+    unless the second split says otherwise. The lattice is the lattice of `Generator`,
+    in the same order, which needs `split` 2. Unlike SnowflakeNet's skip-transformer
+    there is no attention between the points.
     """
 
     distance = False
@@ -529,15 +533,17 @@ class SeededGenerator(UNet3d):
     The lattice generators start from nothing and have to rebuild, from voxel features,
     the position a Deja View pixel already has to a fraction of a cell (X69b-X69m: none
     beat the points they were given, even on the scenes they trained on). Here the
-    points of the fused cloud are the seeds, as LiDiff (Nunes et al. 2024) copies the
-    scan's points and offsets them to diffuse new ones: seed s gives copy k at
-    s + offset tanh(delta_k) with a logit. A shared MLP reads the U-Net's feature at the
-    seed (trilinear), the seed's place in its voxel, its colour and confidence, and the
-    code of the copy. The head starts at zero with the logits on for copy 0 and off for
-    the others, so an untrained generator returns its input points bit for bit; training
-    moves them and can switch the other copies on where the input has holes. The points
-    are not tied to the pixels afterwards: the output is an unordered cloud scored
-    without correspondence.
+    points of the fused cloud are the seeds, as LiDiff (Nunes et al. 2024, §3.3) copies
+    the scan's points K times and diffuses local offsets of them; this head is one
+    deterministic step, closer to LiDiff's refinement network, which predicts offsets
+    per point (§3.5, after Lyu et al.): seed s gives copy k at s + offset tanh(delta_k)
+    with a logit. A shared MLP reads the U-Net's feature at the seed (trilinear), the
+    seed's place in its voxel, its colour and confidence, and the code of the copy. The
+    head starts at zero with the logits on for copy 0 and off for the others, so an
+    untrained generator returns its input points bit for bit; training moves them and
+    can switch the other copies on where the input has holes. The points are not tied to
+    the pixels afterwards: the output is an unordered cloud scored without
+    correspondence.
     """
 
     distance = False
@@ -709,13 +715,13 @@ def two_level(
 class LatentGenerator(nn.Module):
     """The auto-decoder of rung 3a: a free latent per voxel of one scene, the same head.
 
-    As DeepSDF (Park et al. 2019) fits one code per shape, here `table` (LATENT, Z, Y,
-    X) holds one code per voxel of one scene's grid and replaces the U-Net, so the head
-    is the only network. It has no input, only the memory of one scene; it shows whether
-    the head and the targets can reach the oracle before an encoder is asked to produce
-    the latent. The grid it reads is the data grid with the table appended
-    (`scene_grid`): the data channels give the candidates, the last LATENT channels the
-    codes.
+    As DeepSDF's auto-decoder (Park et al. 2019, §4.2) optimizes one code per training
+    shape jointly with the decoder, here `table` (LATENT, Z, Y, X) holds one code per
+    voxel of one scene's grid and replaces the U-Net, so the head is the only network.
+    It has no input, only the memory of one scene; it shows whether the head and the
+    targets can reach the oracle before an encoder is asked to produce the latent. The
+    grid it reads is the data grid with the table appended (`scene_grid`): the data
+    channels give the candidates, the last LATENT channels the codes.
     """
 
     distance = False

@@ -10,7 +10,7 @@ outside reach 4 lie: distance to Déjà View and whether any input view's frustu
 voxels; its in-box unseen coverage, the Chamfer of its oracle (the GT99 children of split
 4, the mean of their points) in-box and with Déjà View's out-of-box points passed through,
 its size, its candidates per 32-cell crop and its children's positive / negative ratio.
-Carving (space carving; SG-NN's known-free space, Dai et al. 2020) removes a voxel whose
+Carving (space carving: the free space the views see) removes a voxel whose
 centre lies, in some view, in front of Déjà View's depth at its pixel by more than one cell:
 
     free(x) = OR_v [ inside_v(x) and 0 < z_v(x) < D_v(pixel_v(x)) - cell ]

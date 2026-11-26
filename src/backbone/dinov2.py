@@ -1,12 +1,14 @@
 """DINOv2 patch features of the views, cached next to Deja View's (issue #69, E69c).
 
-Pixal3D (Li et al. 2026) conditions its 3D generator on DINOv2 (Oquab et al. 2023)
-features lifted into a pixel-aligned volume. Here each pixel's feature goes to the voxel
-of its Deja View point (its depth puts it on the surface) and is averaged over every
-point of the voxel (`volume.voxelize_features`). The cache holds what a view gives, the
-patch features f (V, h, w, 768) of DINOv2-B/14 (Apache-2.0) in float16, written as
-`<name>_<views>.npz` beside `dejaview_<views>.npz`. Refinement reads it and never runs
-DINOv2.
+Pixal3D (Li et al. 2026, §3.2.2-3.2.3) conditions its 3D generator on DINOv2 (Oquab et
+al. 2023) features lifted into a pixel-aligned volume: it projects every voxel into each
+view, samples upsampled multi-scale features there (so every voxel along a pixel's ray
+gets that pixel's feature) and averages them over views. Here instead each pixel's
+feature goes only to the voxel of its Deja View point (its depth puts it on the surface)
+and is averaged over every point of the voxel (`volume.voxelize_features`). The cache
+holds what a view gives, the patch features f (V, h, w, 768) of DINOv2-B/14 (Apache-2.0)
+in float16, written as `<name>_<views>.npz` beside `dejaview_<views>.npz`. Refinement
+reads it and never runs DINOv2.
 
 The 768 channels are reduced to `channels` by a PCA, x = W (f - mu), with W the top
 eigenvectors of the covariance of the patch features of the TRAIN split only: the dev

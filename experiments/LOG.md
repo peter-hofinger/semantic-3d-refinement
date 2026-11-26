@@ -10046,3 +10046,31 @@ Interim entry: the check that the plan puts before any table.
   2022), DeepSDF (Park et al. 2019), Pixal3D (Li et al. 2026).
 - **Rule from here on:** a paper is named in a plan or docstring only with the section the borrowed idea comes from, read
   when the plan is written; a paper not read is not named after.
+
+## Audit: every other paper the issue-69 code cites, checked against its text (issue #69, 26.11.2026)
+- **Scope:** the claims in `generator.py`, `backbone/dinov2.py`, `e69f_rung0.py` and the e69 configs, listed as unchecked by
+  the TRELLIS.2 correction above. `volume.py` (shared with issue #41) is not changed. One reader per paper, the arXiv HTML
+  text (the PDFs did not parse); for most papers only the first ~40 k characters came back verbatim, which covered every
+  section cited below.
+
+  | paper (section) | our claim | verdict | now written |
+  |---|---|---|---|
+  | SG-NN, Dai et al., CVPR 2020 (§5) | each level decides which voxels of the next hold a surface, prunes the rest | supported: each level predicts the next one's occupancy, kept above 0.5 | §5 and the 0.5 rule cited |
+  | SG-NN (§4) | carving uses "SG-NN's known-free space" | **not supported**: its loss is masked to target-observed voxels, not to known free space | the attribution removed |
+  | SG-NN | teacher-forces the fine level (in the earlier docstring) | not stated; it builds the next level from its own prediction | removed in the correction above |
+  | ConvONet, Peng et al., ECCV 2020 (§3.2-3.3) | reads a feature grid at any position | supported: trilinear interpolation of a feature volume, a small MLP; a 3D U-Net on the volume | §3.3 cited |
+  | POCO, Boulch and Marlet, CVPR 2022 (§3) | reads a feature grid at any position | **not supported**: per-point latents, attention over the k = 64 nearest input points, no grid | POCO removed |
+  | Grad-PU, He et al., CVPR 2023 (§3.2) | moves points onto a learned surface | **not supported** as worded: an unsigned point-to-point distance, points moved down its gradient; predicting an offset is the alternative its §3.2 sets aside | written as a distance target only; the head's offset move is ours |
+  | SnowflakeNet, Xiang et al., ICCV 2021 (§3.2-3.4) | splits points layer by layer, a loss at every level; no attention here, unlike its skip-transformer | supported: duplicated points each moved by a tanh-bounded displacement, Chamfer at every level (its first layer only moves the seeds) | sections cited |
+  | LiDiff (Nunes et al., arXiv 2403.13470, 2024; venue not in the text read) (§3.3, §3.5) | copies the scan's points and offsets them to diffuse new ones | supported (K copies, local noise offsets); our one-step head is closer to its refinement network, which predicts offsets per point (§3.5, after Lyu et al.) | both cited |
+  | VolSplat, Wang et al., arXiv 2509.19297 (§3.4) | the render loss is "the loss of feed-forward splatting" with depth supervision | **not supported**: it renders RGB, MSE + LPIPS, no depth supervision | our depth-and-coverage render loss is called ours |
+  | DeepSDF, Park et al., 2019 (§4.2) | one code per shape, the auto-decoder | supported: per-shape codes optimized jointly with the decoder; ours is one code per voxel | §4.2 cited |
+  | Pixal3D, Li et al., SIGGRAPH 2026 (§3.2.2-3.2.3) | DINOv2 features lifted into a pixel-aligned volume | supported (DINOv2, upsampled multi-scale); it projects every voxel into each view, so every voxel along a ray gets the pixel's feature, averaged over views; ours puts a pixel's feature only into its Déjà View point's voxel | the difference written |
+  | DINOv2 (code, weights, HF `facebook/dinov2-base`) | ViT-B/14, 768 channels, Apache-2.0, ImageNet mean / std | supported | unchanged |
+  | DFusion, Niu et al., Sensors 2022 | a 3D U-Net on fused depth maps | **abstract only**: a UNet-like 3D CNN denoises the TSDF fused from depth maps; the full text was behind a bot check (PMC) and a 403 (MDPI) | marked "checked against its abstract only" |
+
+- **Effect on results:** none; only the credit changes. Four claims were wrong (POCO, Grad-PU's surface, VolSplat's depth
+  loss, SG-NN's free space); none of them decided an experiment. Not in scope, left for its author: `volume.py`'s module
+  docstring (issue #41) cites Pixal3D and DFusion in the same way. VolSplat's lifting (pixel features unprojected by
+  predicted depth, averaged per voxel, Eq. 6, refined by a sparse 3D U-Net, §3.3) is the closest published match to this
+  issue's fused grid and is now known to the issue.
