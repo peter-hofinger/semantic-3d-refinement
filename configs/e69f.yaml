@@ -58,3 +58,5 @@ rungs:
   lr_probe_3e-4: {<<: *overfit1, steps: 300, eval_every: 300, lr: 3.0e-4}
   lr_probe_1e-3: {<<: *overfit1, steps: 300, eval_every: 300, lr: 1.0e-3}
   lr_probe_3e-3: {<<: *overfit1, steps: 300, eval_every: 300, lr: 3.0e-3}
+  # E69i: rung 3a closed, the latent table with crops centred on its R12 candidates, E1's budget
+  overfit1a_c: {train_scenes: [ai_006_007_cam_00], val_scenes: [ai_006_007_cam_00], predict_scenes: [ai_006_007_cam_00], select: train, steps: 4800, crop_centre: candidate, run: [latent-gt99]}

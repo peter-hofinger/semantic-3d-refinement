@@ -9897,3 +9897,37 @@ Interim entry: the check that the plan puts before any table.
   far more steps, remain, plus one this probe makes likelier: the children head learns the per-crop prior long
   before it learns any position, so the signal per crop (16^3 scored voxels, a few percent of them on a surface) may
   be what is too weak.
+
+## Plan: E69i = close rung 3a with candidate-centred crops; three diagnostics of why rung 3b completes nothing unseen (issue #69, 26.11.2026)
+- **Why:** E69g's brief said the children's logits rank well (E2's threshold sweep reaches 2.94 cm in-box), yet at
+  no threshold does E2's unseen completeness drop below Déjà View's 28.17 cm. A good ranking of the seen surface
+  and none of the unseen would explain both, and decides the fix for 3b: a loss on rare positives cannot help
+  children the input says nothing about. Nothing here changes the loss or the architecture, or reruns 3b.
+- **1. Rung 3a, closed:** `latent-gt99` (free latent per voxel, R12 candidates, rate 1e-2) with `crop_centre:
+  candidate` (rung `overfit1a_c`), 4 800 steps (E1's budget; ~50 min on MPS), seed 0; E69g's 1 200 point-centred
+  steps reached 0.46 cm in the voxels they trained with about 5 interior visits each, so this budget gives every
+  R12 voxel several. Gate unchanged (E69g): in-box Chamfer <= **0.70 cm** and child precision and recall >= 0.95 on
+  the whole bedroom. Logged: share of R12 candidate latents bit-identical to their seed-0 value (untouched),
+  in-box and pass-through Chamfer, unseen completeness. **Hypothesis:** untouched < 1 % and the gate passes.
+  *Refuted* by either number; a failure with untouched < 1 % is a head, target or rate problem, diagnosed here.
+- **2a. E2's children head** (`experiments/scripts/e69i.py autopsy`): the logits of the children of every coarse
+  candidate holding GT99v (the cells the loss sees, teacher-forced), split by coarse cell into seen-GT and
+  unseen-only cells: positive rate, ROC-AUC, PR-AUC, logit quantiles; once from the whole grid (as `generate`) and
+  once from 32-cell crops (as training; GroupNorm normalizes over its input, so the two can differ). Also the
+  occupied share per coarse cell against a random plane's. **Hypotheses:** (i) unseen-only ROC-AUC is at least
+  0.05 below seen; *refuted* if within 0.05. (ii) 7.6 % positives is the geometry of a surface (a plane through
+  an 8^3 block of children fills about 1 / 8 of it), not a masking bug; *refuted* if the per-cell share is far
+  below the plane's or the code scores children outside GT-holding coarse cells. (iii) whole-grid and crop logits
+  agree (mean difference < 0.1); *refuted* otherwise, which would make train and test see different features.
+- **2b. A far unseen crop** (`e69i.py crop`): the 32-cell crop whose interior holds the most in-box unseen-only GT
+  voxels 8-13 cells from Déjà View (inside the H6 fine candidates); its Déjà View voxels, in the crop and in the
+  U-Net's receptive field (theoretical and E2's effective one); then E69g's 500-step one-crop overfit
+  (`ovoxel-gt99`, widths 24/48/96, rate 1e-3) on it and on E69g's reference crop. No coordinates are added.
+  **Hypothesis:** the far crop fits as the reference did (child precision and recall >= 0.90 at step 500, unseen
+  children's recall >= 0.90). *Refuted* below that; then a fixed input cannot even be memorized there.
+- **2c. Visits** (`e69i.py visits`, crop draws only): scored-interior visits per voxel over 4 800 crops for
+  occupied unseen-only and seen GT voxels and empty H6 candidate voxels, point- (E1, E2, E3) and candidate-centred
+  (E1c), and for R12 candidates under 3a's draws. **Hypothesis:** under point-centred crops the far unseen GT
+  (8-13 cells) is never visited (median 0), under candidate-centred crops it is visited about as often as empty
+  candidate space. *Refuted* if point-centred crops visit it (median > 0).
+- **Stop:** report after these; no loss, architecture or full 3b run before the user chooses.
