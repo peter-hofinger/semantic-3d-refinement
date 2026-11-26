@@ -154,9 +154,8 @@ class GeneratorConfig:
     target: str = "gt20"  # "gt20": the input views' GT pixels; "gt99": E69d's GT99v
     box_percentile: float = 1.0  # the grid spans the percentile..100-percentile box ...
     box_pad: float = 0.05  # ... padded by this share, at the 1-99 % box's cell (E69f)
-    coarse_reach: int = (
-        0  # > 0: two-level candidates (`coarse_candidates`), not `reach`
-    )
+    coarse_reach: int = 0  # > 0: two-level candidates (`coarse_candidates`)
+    crop_centre: str = "point"  # "point": a random pixel's; "candidate" (`crop_window`)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1404,9 +1403,22 @@ def output_chamfer(
 def crop_window(
     pts: ScenePoints, grid: Tensor, cfg: GeneratorConfig, rng: np.random.Generator
 ) -> tuple[Tensor, np.ndarray, np.ndarray]:
-    """Return a random crop centred on a random point, with its corner and size."""
-    centre = pts.points[int(rng.integers(len(pts.points)))]
-    local = ((centre - pts.lo) / pts.cell).floor().long().cpu().numpy()
+    """Return a random crop, with its corner and size.
+
+    Centred on a random point, or (`crop_centre: candidate`) on a random voxel within
+    the candidates' reach of one: a crop's scored interior lies within margin cells of
+    its centre, so point-centred crops never score a candidate farther than that from
+    every point; E69g's latent table left 72 % of the bedroom's grid untrained, and the
+    floaters of its output were all there.
+    """
+    if cfg.crop_centre == "candidate":
+        reach = 2 * cfg.coarse_reach + 1 if cfg.coarse_reach else cfg.reach
+        zone = torch.nonzero(dilate(grid[0] > 0, reach))
+        local = zone[int(rng.integers(len(zone)))].flip(0).cpu().numpy()
+    else:
+        assert cfg.crop_centre == "point", cfg.crop_centre
+        centre = pts.points[int(rng.integers(len(pts.points)))]
+        local = ((centre - pts.lo) / pts.cell).floor().long().cpu().numpy()
     size = np.minimum(cfg.crop, pts.dims)  # x y z
     lo = np.clip(local - size // 2, 0, np.array(pts.dims) - size)
     if cfg.coarse_reach:  # coarse voxels of the crop are the scene's (sizes are x8)

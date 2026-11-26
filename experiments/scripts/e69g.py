@@ -26,7 +26,7 @@ import torch
 import yaml
 
 from experiments.scripts.e69e_rung0 import CM, score, to_world
-from experiments.scripts.e69f_rung0 import Loaded, load, oracle
+from experiments.scripts.e69f_rung0 import Loaded, dilate, load, oracle
 from src.device import best_device
 from src.evaluation.labeled import nearest_distances
 from src.refinement.generator import (
@@ -178,7 +178,11 @@ def score_model(s: Loaded, path: Path) -> list[str]:
     full = score(np.concatenate([world, out_dv]), s.truth, s.seen, side=s.child_m)
     dv_box = score(s.dv[s.dv_in], s.truth[s.inside], s.seen[s.inside], side=s.child_m)
     dv_full = score(s.dv, s.truth, s.seen, side=s.child_m)
-    fine = masks(s, cfg.coarse_reach)[2]
+    fine = (
+        masks(s, cfg.coarse_reach)[2]
+        if cfg.coarse_reach
+        else dilate((s.grid[0] > 0).numpy(), cfg.reach)
+    )
     ceiling = score(
         oracle(s, fine)[0], s.truth[s.inside], s.seen[s.inside], voxel=False
     )

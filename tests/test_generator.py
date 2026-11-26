@@ -32,6 +32,7 @@ from src.refinement.generator import (
     cloud_loss,
     coarse_candidates,
     crop_losses,
+    crop_window,
     dilate,
     direct_terms,
     distance_loss,
@@ -897,3 +898,22 @@ def test_training_whose_output_keeps_nothing_returns_its_last_state(
     )
     assert all(e["train"]["chamfer_cells"] == float("inf") for e in log)
     assert log[-1].get("best") and isinstance(model, OVoxelGenerator)
+
+
+def test_candidate_centred_crops_score_far_candidates_point_centred_do_not() -> None:
+    """A plane at z 8 of a 16-cell grid, reach 6: crops of 8 cells, a 2-cell rim.
+
+    Point-centred interiors stay within 2 cells of the plane; candidate-centred ones
+    also score voxels 5-6 cells away (the grid border clips the last crops).
+    """
+    pts = plane()
+    grid = voxelize(pts, semantics=False)
+    seen = {"point": set(), "candidate": set()}
+    for centre in seen:
+        cfg = config(crop=8, margin=2, reach=6, crop_centre=centre)
+        rng = np.random.default_rng(0)
+        for _ in range(300):
+            _, lo, _ = crop_window(pts, grid, cfg, rng)
+            seen[centre] |= set(range(int(lo[2]) + 2, int(lo[2]) + 6))
+    assert max(abs(z - 8) for z in seen["point"]) <= 4
+    assert {2, 13} <= seen["candidate"]

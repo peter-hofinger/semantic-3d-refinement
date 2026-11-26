@@ -51,3 +51,6 @@ rungs:
   overfit1_e1: &e1 {<<: *overfit1, steps: 4800}
   overfit1_e2: &e2 {<<: *e1, widths: [32, 64, 128], max_parameters: 1500000}
   overfit1_e3: {<<: *e2, cosine: true}
+  # E69g's amendment (LOG): crops centred on a voxel within the candidates' reach, not on a pixel, so the scored
+  # interiors reach the far candidates where the unseen surface lies
+  overfit1_e1c: {<<: *e1, crop_centre: candidate}

@@ -9767,3 +9767,30 @@ Interim entry: the check that the plan puts before any table.
   gate (in-box <= 0.70 cm against the R12 oracle, child precision and recall >= 0.95). 3b goes to its pre-registered
   E1 (4 800 steps, ~40 min, rate 1e-3 unchanged), gt99 first; the gate is unchanged (in-box <= 1.88 cm). If E1 fails,
   E2 and E3 follow as registered; a rate probe for the O-Voxel arm is not in them and would be a new entry.
+
+## E69g, rung 3a at 1e-2: the head, targets and scorer reach 0.46 cm wherever they were trained; the gate fails because point-centred crops never score 72 % of the grid, which is also where the unseen surface lies (26.11.2026)
+- **Run:** `latent-gt99`, rate 1e-2 (the amendment above), 1 200 steps, 770 s on MPS. Fixed error (crops centred on
+  Déjà View points) fell all run long: Chamfer 2.19 -> 0.20 cells, child precision / recall 0.37 / 0.03 -> 0.82 / 0.66.
+- **Whole bedroom** (`experiments/results/e69g_score_e69f-overfit1a-latent-gt99-s0.txt`, cm): in-box Chamfer
+  **4.275** (gate 0.70: **fails**; Déjà View 3.365, the reach-12 oracle 0.402), accuracy 7.185, completeness 1.365
+  (Déjà View 3.603), seen 0.986 (1.604), unseen 6.020 (28.167); pass-through 4.310 (Déjà View 3.521).
+- **Figure** `experiments/figures/e69g_e69f-overfit1a-latent-gt99-s0_ai_006_007.jpg` (one slab, distance to GT99v on
+  one 0-10 cm scale): every surface pale, i.e. within about 1 cm; the error is scattered single-voxel floaters in the
+  room and outside its walls.
+- **Diagnosis (exact):** Adam leaves an untrained latent bit-identical to its seed-0 initial value. 28.4 % of the
+  grid's latents changed. Of the 981 k output points, the 882 k in trained voxels lie a mean **0.46 cm** from GT99v
+  (0.0 % farther than 5 cm); the 99 k in untrained voxels a mean 57.6 cm (98.4 % farther than 5 cm). The floaters are
+  random codes decoded by the trained head. **So 3a's question (can the head and the targets reach the oracle?) is
+  answered yes where they were trained; its gate fails for a sampling reason.**
+- **The sampling reason, and why it matters beyond 3a:** `crop_window` centres a crop on a random Déjà View pixel,
+  and the scored interior lies within 8 cells (the margin) of the centre, so no voxel farther than about 8 cells
+  from every Déjà View point is ever supervised, by any arm. E69f's C3 put the missing unseen surface a median
+  8.2-12.8 cells from Déjà View. More steps (E1) cannot fix this; the O-Voxel arm's gate and children would be
+  extrapolating exactly where completion is needed. Fixed: `crop_centre: candidate` centres a crop on a random voxel
+  within the candidates' reach of Déjà View's (tested: point-centred interiors stay within the margin of the
+  surface, candidate-centred ones reach the far candidates).
+- **Amendment (before any further run):** after the running E1 (point-centred, as registered; it still answers
+  whether the bedroom near Déjà View's surface can be memorized), 3b reruns E1 with candidate-centred crops
+  (`overfit1_e1c`, 4 800 steps, ~45 min), same gate (in-box <= 1.88 cm). 3a is not rerun tonight: a free table
+  needs many visits per voxel, and candidate-centred crops spread 4 800 crops over ~2 M candidate voxels (~10 visits
+  each against the ~300 that one crop needed); its question is answered above, its gate stays failed and unwaived.
