@@ -1,0 +1,2 @@
+== e69f-overfit1a_c-latent-gt99-s0: codes never updated (bit-identical to seed 0)
+R12 candidate voxels 6.70 % of 2,115,446; occupied GT among them 0.00 %; outside the candidates 100.00 %

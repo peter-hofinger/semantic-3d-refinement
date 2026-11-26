@@ -1,0 +1,14 @@
+== ai_006_007_cam_00: scored-interior visits over 4,800 crops (seed 0)
+-- H6, candidate-centred (E1c)
+occupied unseen-only GT (H6 fine cand.)    voxels     9,086  visits mean   16.5  median    15  p10    9  never   0.0 %
+  of them 8-13 cells from Déjà View        voxels     1,732  visits mean   13.6  median    13  p10   10  never   0.0 %
+occupied seen GT (H6 fine cand.)           voxels    78,182  visits mean   17.4  median    16  p10   10  never   0.0 %
+empty H6 coarse-candidate voxels           voxels 2,083,044  visits mean   11.0  median    11  p10    1  never   7.7 %
+-- H6, point-centred (E1, E2, E3)
+occupied unseen-only GT (H6 fine cand.)    voxels     9,086  visits mean    6.9  median     2  p10    0  never  33.7 %
+  of them 8-13 cells from Déjà View        voxels     1,732  visits mean    0.5  median     0  p10    0  never  66.5 %
+occupied seen GT (H6 fine cand.)           voxels    78,182  visits mean   28.9  median    19  p10    5  never   0.5 %
+empty H6 coarse-candidate voxels           voxels 2,083,044  visits mean    9.3  median     1  p10    0  never  44.7 %
+-- R12, candidate-centred (rung 3a's latent)
+R12 candidate voxels                       voxels 2,115,446  visits mean   11.4  median    11  p10    1  never   6.7 %
+occupied GT in R12 candidates              voxels    87,143  visits mean   17.2  median    16  p10    9  never   0.0 %

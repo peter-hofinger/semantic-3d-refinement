@@ -1,0 +1,14 @@
+== ai_006_007_cam_00 e69f-overfit1_e2-ovoxel-gt99-s0: children of the 22,187 coarse candidates holding GT99v (of 22,612 GT-holding coarse cells, 98.1 % within coarse reach 6); forward 2.3 s whole, 6.7 s tiled
+positive rate 9.89 % of 11,359,744 children; per coarse cell: mean 9.89 %, median 10.94 %, p90 16.80 %; a random flat plane through a coarse cell: 12.47 %
+coarse cells holding seen GT 20,010, only unseen 2,177; occupied children holding a seen point 1,020,557 of 1,123,391
+-- logits from whole grid (as generate)
+all GT-holding coarse cells        children 11,359,744  positive  9.89 %  ROC-AUC 0.830  PR-AUC 0.353  recall@0 0.115  recall@-1 0.391  occupied p10/50/90 [-2.9, -1.28, 0.12]  empty [-8.58, -3.34, -1.2]
+seen coarse cells                  children 10,245,120  positive 10.27 %  ROC-AUC 0.841  PR-AUC 0.368  recall@0 0.123  recall@-1 0.417  occupied p10/50/90 [-2.78, -1.2, 0.18]  empty [-8.85, -3.55, -1.13]
+unseen-only coarse cells           children  1,114,624  positive  6.36 %  ROC-AUC 0.556  PR-AUC 0.071  recall@0 0.001  recall@-1 0.005  occupied p10/50/90 [-3.56, -2.48, -1.64]  empty [-4.16, -2.65, -1.65]
+occupied children by own points    seen: recall@0 0.126, median logit -1.17; unseen-only: recall@0 0.007, median logit -2.41
+-- logits from 32-cell crops (as training)
+all GT-holding coarse cells        children 11,359,744  positive  9.89 %  ROC-AUC 0.851  PR-AUC 0.408  recall@0 0.160  recall@-1 0.459  occupied p10/50/90 [-3.01, -1.12, 0.33]  empty [-9.15, -3.76, -1.16]
+seen coarse cells                  children 10,245,120  positive 10.27 %  ROC-AUC 0.861  PR-AUC 0.424  recall@0 0.171  recall@-1 0.489  occupied p10/50/90 [-2.79, -1.03, 0.37]  empty [-9.38, -4.05, -1.08]
+unseen-only coarse cells           children  1,114,624  positive  6.36 %  ROC-AUC 0.580  PR-AUC 0.077  recall@0 0.000  recall@-1 0.007  occupied p10/50/90 [-3.7, -2.84, -1.99]  empty [-4.48, -3.02, -2.05]
+occupied children by own points    seen: recall@0 0.176, median logit -1.00; unseen-only: recall@0 0.007, median logit -2.72
+tiled - whole logit: mean -0.307, sd 1.189, |diff| p50/p90 [0.493, 2.03]

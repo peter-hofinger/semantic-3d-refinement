@@ -9931,3 +9931,87 @@ Interim entry: the check that the plan puts before any table.
   (8-13 cells) is never visited (median 0), under candidate-centred crops it is visited about as often as empty
   candidate space. *Refuted* if point-centred crops visit it (median > 0).
 - **Stop:** report after these; no loss, architecture or full 3b run before the user chooses.
+
+## E69i, result: rung 3a fits the bedroom to 0.57 cm in-box but misses its child gate (0.85 / 0.83 against 0.95); E2 ranks unseen children at chance (ROC-AUC 0.56 against 0.84 seen); point-centred crops never scored two thirds of the far unseen surface (26.11.2026)
+- **1. Rung 3a** (`overfit1a_c`, 4 800 steps at 1e-2, candidate-centred, 4 644 s wall on MPS, about 25 min of it the
+  laptop asleep; `experiments/results/e69g_score_e69f-overfit1a_c-latent-gt99-s0.txt`, `e69i_untouched.txt`):
+
+  | bedroom, cm | in-box | acc | comp | seen comp | unseen comp | points | pass-through |
+  |---|---|---|---|---|---|---|---|
+  | Déjà View (baseline) | 3.365 | 3.127 | 3.603 | 1.604 | 28.167 | 1 865 703 | 3.521 |
+  | 3a, point-centred (E69g) | 4.275 | 7.185 | 1.365 | 0.986 | 6.020 | 981 k | 4.310 |
+  | **3a, candidate-centred** | **0.567** | 0.358 | 0.776 | 0.506 | **4.091** | 902 781 | **0.633** |
+  | R12 oracle (ceiling) | 0.402 | 0.186 | 0.617 | 0.308 | 4.425 | 1 122 394 | |
+
+  Whole-bedroom child precision / recall **0.850 / 0.833** (gate >= 0.95). Untouched codes: **6.70 %** of the 2.1 M
+  R12 candidates, 0.00 % of the occupied GT voxels among them (the visit count below predicted 6.7 % never visited:
+  all of them empty space at the crops' reach, where an untouched code decodes to noise only if the head says so).
+  Figure `experiments/figures/e69g_e69f-overfit1a_c-latent-gt99-s0_ai_006_007.jpg`: the floaters are gone, every wall
+  pale (within about 1 cm). Its unseen completeness beats the oracle's by 0.33 cm because the oracle keeps exact GT
+  vertices in R12 children only, while the output, voxelized at the child, also fills some neighbours; not a gain.
+- **Verdict on the hypothesis: refuted on both counts** (untouched 6.7 % > 1 %, child P / R < 0.95). **Gate: the
+  Chamfer half passes (0.567 <= 0.70), the child half fails.** Diagnosis at this rung: the untouched codes are empty
+  voxels, so they cost precision only where the trained head turns noise into a positive; recall 0.83 is the table
+  still fitting (fixed-crop recall 0.66 -> 0.85 over the run, rising at the stop). Not a target or scorer bug: the
+  Chamfer is within 0.17 cm of the oracle. Rung 3a's question (can the head and targets reach the oracle?) is
+  answered yes; the 0.95 child bar is not waived and stays failed.
+- **2a. E2's children head** (`e69i_autopsy.txt`; 22 187 GT-holding coarse candidates, 98.1 % of the GT-holding
+  coarse cells; 11.4 M children):
+  - *Masking (code):* `two_level` teacher-forces the fine candidates to the 2^3 voxels of every coarse candidate the
+    crop's GT occupies, and `direct_terms` takes the cross-entropy over all 64 children of those voxels in the scored
+    interior: the loss is masked to GT-holding coarse cells, as intended. *The positive rate:* 9.89 % over all of
+    them (E69g's 7.6 % was over the cells the gate opened), per coarse cell median 10.9 %, p90 16.8 %; a random flat
+    plane through a coarse cell fills 12.5 % of its 512 children. A surface is two-dimensional, so it fills about
+    one layer of eight, not a quarter to a half. **Hypothesis (ii) holds:** geometry, not a bug.
+  - *Seen against unseen* (logits from the whole grid, as `generate`):
+
+    | coarse cells | children | positive | ROC-AUC | PR-AUC | recall@0 | recall@-1 | occupied logit p10 / 50 / 90 | empty |
+    |---|---|---|---|---|---|---|---|---|
+    | holding seen GT (20 010) | 10.2 M | 10.27 % | **0.841** | 0.368 | 0.123 | 0.417 | -2.78 / -1.20 / 0.18 | -8.85 / -3.55 / -1.13 |
+    | only unseen GT (2 177) | 1.1 M | 6.36 % | **0.556** | 0.071 | 0.001 | 0.005 | -3.56 / -2.48 / -1.64 | -4.16 / -2.65 / -1.65 |
+
+    **Hypothesis (i) holds:** in unseen-only cells the occupied and empty logits overlap almost entirely (medians
+    -2.48 / -2.65); PR-AUC 0.071 is barely above the 0.064 base rate. That resolves the brief's contradiction: the
+    "good ranking" was the seen surface (90 % of the children); E2 has learned nothing about the unseen one.
+  - *Whole grid against 32-cell crops:* the crop-tiled logits differ by -0.31 on average (sd 1.19, |difference|
+    median 0.49, p90 2.03) and rank slightly better (ROC-AUC 0.851, recall@0 0.160). **Hypothesis (iii) refuted:**
+    GroupNorm's statistics over a 32^3 crop and over the 208 x 88 x 192 grid differ, so `generate` feeds the head
+    features it was not trained on. Not the cause of the unseen failure (AUC 0.58 tiled), but a train-test mismatch
+    every whole-scene score of the O-Voxel arm so far carries.
+- **2b. The far unseen crop** (`e69i_crop.txt`, `e69i_crop_1500.txt`): corner (138, 0, 130), at the floor's border;
+  237 far unseen GT voxels in its interior, a median 10.4 cells from Déjà View, a thin patch (principal spreads 1.2 /
+  2.6 / 5.2 cells); 5 192 of the interior's occupied children are unseen-only, 2 831 seen. Déjà View occupies 1 570
+  voxels of the crop (4.8 %; the reference crop 3 936), 447 in the interior. The theoretical receptive radius (an
+  upper bound, 29 cells for three levels) covers 1 567 of them; E2's effective field (gradient >= 1 % of its
+  maximum) is 31 114 of the 32 768 voxels, GroupNorm spreading it over the crop, and 1 372 Déjà View voxels; they
+  carry 2.1 % of the gradient against 4.8 % of the volume. **The input is in range; it says little.** Overfit,
+  `ovoxel-gt99`, widths 24/48/96, 1e-3, no coordinates added:
+
+  | step | far crop P / R | its unseen children's recall | its seen | reference crop P / R |
+  |---|---|---|---|---|
+  | 500 (registered) | 0.818 / 0.805 | **0.748** | 0.910 | 0.914 / 0.879 |
+  | 1 500 (extension, after the registered run) | 0.909 / 0.906 | 0.879 | 0.955 | 0.965 / 0.965 |
+
+  **Hypothesis refuted at 500 steps** (bar 0.90); the 1 500-step run was added after seeing it, to tell slow from
+  stuck: unseen recall rises 0.41 -> 0.77 -> 0.86 -> 0.88 at steps 300-1 500, so a fixed far crop is memorizable, at
+  about twice the steps of a Déjà View-rich one. Not a target or loss bug at the far surface.
+- **2c. Visits** (`e69i_visits.txt`; 4 800 draws, seed 0; scored-interior visits per voxel):
+
+  | voxels | candidate-centred (E1c) median / never | point-centred (E1, E2, E3) median / never |
+  |---|---|---|
+  | occupied unseen-only GT (9 086) | 15 / 0.0 % | 2 / 33.7 % |
+  | of them 8-13 cells from Déjà View (1 732) | 13 / 0.0 % | **0 / 66.5 %** |
+  | occupied seen GT (78 182) | 16 / 0.0 % | 19 / 0.5 % |
+  | empty H6 coarse-candidate space (2.08 M) | 11 / 7.7 % | 1 / 44.7 % |
+
+  **Hypothesis holds:** E2 (point-centred) never scored two thirds of the far unseen surface; candidate-centred
+  crops visit it as often as the seen surface (13 against 16). Under 3a's R12 draws 6.7 % of the candidates are never
+  visited, matching the untouched count.
+- **What follows for 3b (not run):** the unseen failure has two measured causes: E2's sampler never showed it most of
+  the far surface (2c), and where it did, the far input is sparse, so the far surface needs about twice the fitting
+  of the seen one (2b). E1c had the visits and still failed with the children underfit (E69g), so the sampler alone
+  is not enough; the loss on rare positives is the lesser suspect, since the far crop fits under the plain loss. And
+  every whole-scene score so far ran the U-Net on a grid it never saw at that size (2a, iii). The candidates for the
+  next 3b run, one at a time: (1) score with crop-tiled inference (no training; tests 2a-iii on E1c and E2);
+  (2) E1c's sampler with far more steps (each crop needs ~1 500 steps alone, the room ~100 interiors);
+  (3) normalization that does not depend on the input's size (e.g. GroupNorm replaced by a per-voxel norm).

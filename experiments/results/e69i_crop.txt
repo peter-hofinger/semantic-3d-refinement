@@ -1,0 +1,20 @@
+== far crop of ai_006_007_cam_00: corner (x y z) [138, 0, 130], 32^3 cells, interior 16^3
+far unseen GT voxels (8-13 cells from Déjà View, in H6 fine candidates) in the interior: 237; their distance to Déjà View median 10.4 cells; spread along their principal axes [1.2, 2.6, 5.2] cells (a wall: one small)
+Déjà View voxels in the crop 1,570 of 32,768 (4.79 %), in the interior 447
+theoretical receptive radius 29 cells (widths [24, 48, 96]): Déjà View voxels within it of a target, inside the crop 1,567
+effective field on e69f-overfit1_e2-ovoxel-gt99-s0 (|d logits / d input| >= 1 % of the largest): 31,114 voxels, of them Déjà View's 1,372; share of the gradient on Déjà View's voxels 0.021
+reference crop (E69g's, rng 3): corner [42, 20, 22], Déjà View voxels 3,936
+-- 500 steps on the far unseen crop, [24, 48, 96], rate 0.001
+step    0    0 s  occ 0.693  vertex 0.212  coarse 1.049  positive 0.084  precision 0.000  recall 0.000  seen 0.000 (2831)  unseen 0.000 (5192)
+step  100   17 s  occ 0.198  vertex 0.190  coarse 0.027  positive 0.084  precision 0.597  recall 0.054  seen 0.143 (2831)  unseen 0.006 (5192)
+step  200   40 s  occ 0.138  vertex 0.161  coarse 0.007  positive 0.084  precision 0.835  recall 0.423  seen 0.735 (2831)  unseen 0.253 (5192)
+step  300   62 s  occ 0.108  vertex 0.138  coarse 0.004  positive 0.084  precision 0.808  recall 0.630  seen 0.898 (2831)  unseen 0.484 (5192)
+step  400   80 s  occ 0.089  vertex 0.118  coarse 0.003  positive 0.084  precision 0.845  recall 0.691  seen 0.853 (2831)  unseen 0.602 (5192)
+step  500   98 s  occ 0.077  vertex 0.106  coarse 0.002  positive 0.084  precision 0.818  recall 0.805  seen 0.910 (2831)  unseen 0.748 (5192)
+-- 500 steps on the reference crop, [24, 48, 96], rate 0.001
+step    0    0 s  occ 0.693  vertex 0.192  coarse 1.075  positive 0.099  precision 0.000  recall 0.000  seen 0.000 (5830)  unseen 0.000 (0)
+step  100   17 s  occ 0.189  vertex 0.159  coarse 0.033  positive 0.099  precision 0.684  recall 0.122  seen 0.122 (5830)  unseen 0.000 (0)
+step  200   35 s  occ 0.095  vertex 0.123  coarse 0.004  positive 0.099  precision 0.825  recall 0.818  seen 0.818 (5830)  unseen 0.000 (0)
+step  300   53 s  occ 0.069  vertex 0.100  coarse 0.002  positive 0.099  precision 0.864  recall 0.864  seen 0.864 (5830)  unseen 0.000 (0)
+step  400   71 s  occ 0.060  vertex 0.086  coarse 0.002  positive 0.099  precision 0.882  recall 0.881  seen 0.881 (5830)  unseen 0.000 (0)
+step  500   88 s  occ 0.051  vertex 0.073  coarse 0.001  positive 0.099  precision 0.914  recall 0.879  seen 0.879 (5830)  unseen 0.000 (0)
