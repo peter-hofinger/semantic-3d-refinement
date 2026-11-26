@@ -9794,3 +9794,30 @@ Interim entry: the check that the plan puts before any table.
   (`overfit1_e1c`, 4 800 steps, ~45 min), same gate (in-box <= 1.88 cm). 3a is not rerun tonight: a free table
   needs many visits per voxel, and candidate-centred crops spread 4 800 crops over ~2 M candidate voxels (~10 visits
   each against the ~300 that one crop needed); its question is answered above, its gate stays failed and unwaived.
+
+## E69g, rung 3b E1 and E1c: both fail (in-box 12.96 and 11.42 cm against the gate's 1.88); what they keep is accurate (0.79-0.90 cm) but the children head is underfit, it keeps 11 % of the occupied children; the gate is not the limit (26.11.2026)
+- **Runs:** `ovoxel-gt99`, 4 800 steps at 1e-3, seed 0, MPS: E1 point-centred crops (as registered, 2 368 s), E1c
+  candidate-centred (the amendment, 2 879 s). Scores (`experiments/results/e69g_score_*.txt`, cm, bedroom):
+
+  | model | in-box Chamfer | acc | comp | seen comp | unseen comp | points | pass-through |
+  |---|---|---|---|---|---|---|---|
+  | Déjà View (baseline) | **3.365** | 3.127 | 3.603 | 1.604 | 28.167 | 1 865 703 | **3.521** |
+  | E1, point-centred | 12.962 | **0.794** | 25.130 | 21.458 | 70.245 | 176 842 | 13.381 |
+  | E1c, candidate-centred | 11.420 | 0.900 | 21.940 | 18.780 | 60.775 | 155 156 | 11.864 |
+  | H6 oracle (ceiling) | 0.392 | 0.186 | 0.597 | 0.308 | 4.161 | 1 123 391 | |
+
+  **Gate (in-box <= 1.88 cm) fails for both; both are worse than Déjà View.** Their accuracy (0.79 / 0.90 cm) is
+  4x better than Déjà View's 3.13, their completeness far worse: the models are conservative, not noisy.
+- **Curves** (TensorBoard `runs/e69f/overfit1_e1*/tb`): E1's train fixed error still falling at step 4 800 (Chamfer
+  0.95 -> 0.73 cells over the last 1 200 steps, child recall 0.19 -> 0.28); E1c's stays infinite (a crop keeps
+  nothing) until step 4 700, child recall <= 0.12: the same budget spread over ~10x the volume. Verdict (ladder):
+  train error high and still falling = underfitting, "bigger model or longer training".
+- **Which stage drops the surface (E1, whole bedroom, eval mode):** the gate opens 26 860 of 271 289 coarse
+  candidates; of the 22 187 that hold GT it opens **88.6 %** (precision 73.2 %). Inside the opened ones the children
+  head keeps 211 852 of 1 050 899 occupied children: **recall 11.1 %**, precision 55.2 %; the median logit of an
+  occupied child is -0.85 (10th / 90th percentile -1.62 / -0.04). The children head, not the gate, is the limit; on
+  one fixed crop the same head reached recall 0.90 in 500 steps, so the head can fit, the whole room is too much for
+  806 k parameters in 4 800 steps at 1e-3 (positives 7.6 % of the children of opened cells).
+- **Next, as registered:** E2 (widths 32/64/128, 1.4 M parameters, point-centred as E1 so that one thing changes),
+  running. Not registered and not run: a rate probe for the O-Voxel arm, and a decision threshold below 0 (the
+  logits of occupied children sit just under it).
