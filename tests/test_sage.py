@@ -18,6 +18,7 @@ from src.loaders.sage.scene import (
     opencv_pose,
     ray_cast,
 )
+from src.loaders.splits import scene_folders
 
 CFG = load_config(Path("configs/sage.yaml"))
 
@@ -153,3 +154,13 @@ def test_rooms_are_spread_evenly_and_seeded() -> None:
     assert select_rooms(names, 10, 3) == names[3::10]
     with pytest.raises(ValueError, match="asked for"):
         select_rooms(names, 101, 0)
+
+
+def test_both_split_formats_give_scene_folders(tmp_path: Path) -> None:
+    rooms = tmp_path / "splits.yaml"
+    rooms.write_text("train: [a, b]\nval: [c]\n")
+    assert scene_folders(rooms, ["val", "train"]) == {"val": ["c"], "train": ["a", "b"]}
+    with pytest.raises(ValueError, match="unknown splits"):
+        scene_folders(rooms, ["test"])
+    hypersim = scene_folders(Path("configs/hypersim.yaml"), ["dev"])["dev"]
+    assert "ai_006_007_cam_00" in hypersim

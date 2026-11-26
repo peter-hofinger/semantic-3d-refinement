@@ -69,10 +69,10 @@ from src.evaluation.labeled import (
 )
 from src.geometry import Geometry
 from src.loaders.ground_truth import GroundTruth
-from src.loaders.hypersim.config import load_config
 from src.loaders.hypersim.scene import NYU40
 from src.loaders.kitti360.scene import CLASSES as KITTI360
 from src.loaders.kitti360.scene import SKY
+from src.loaders.splits import scene_folders
 from src.loaders.views import Views
 from src.refinement.multiview import (
     RefineConfig,
@@ -150,11 +150,7 @@ def input_paths(raw: dict, name: str) -> dict[str, Path]:
 
 def split_scenes(raw: dict, splits: list[str]) -> dict[str, list[str]]:
     """Scene folders per split; every input must exist, as a gap would skew an aggregate."""
-    config = load_config(Path(raw["dataset"]))
-    scenes = {
-        split: [f"{s}_{c}" for s, c in config.scenes([split]).items()]
-        for split in splits
-    }
+    scenes = scene_folders(Path(raw["dataset"]), splits)
     missing = [
         str(path)
         for names in scenes.values()
