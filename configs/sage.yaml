@@ -1,0 +1,213 @@
+# SAGE-10k (issue #99): download, rendering and NYU40 classes. Paths are relative to the repo root.
+
+repo: nvidia/SAGE-10k
+revision: d425de49ff445fd3903d790a11461d23ffd0c7dd   # pinned dataset commit (scenes and kits)
+raw_root: data/sage/raw                 # unzipped rooms: <layout>/{layout_*.json, objects, materials}
+kit_root: data/third_party/sage         # the dataset's kits/ at the pinned revision (Apache-2.0)
+output_root: data/processed/sage        # views and ground truth (.npz), same format as Hypersim
+
+rooms: 100          # how many rooms to download and render (100 to 1000 planned; 50 MB each raw)
+held_out: 10        # the last rooms of the list: SAGE's val split, never trained on
+seed: 0             # which rooms (evenly spaced over the sorted list, offset by the seed) and camera paths
+
+render:
+  num_frames: 20            # views per room, evenly spaced along SAGE's camera path
+  path_frames: 300          # poses of the planned path (SAGE's default)
+  path_anchors: 25          # viewpoints the path visits (SAGE's default `complexity`)
+  width: 504
+  height: 378               # Hypersim's 4:3 at our 504 px long side
+  fov_x_deg: 60.0           # Hypersim's horizontal field of view; principal point centred
+  samples: 64               # Cycles samples per pixel, denoised
+  device: GPU               # GPU (OptiX/CUDA, Metal on a Mac) or CPU
+
+# NYU40 class of an object from its SAGE type ("floorlamp", "deskpen", "book_shelf"): the type is
+# lower-cased, digits and separators dropped, and cut into the longest known words from the left.
+# A word of a class in `props` wins over a furniture word, since glued types name the item and
+# where it stands ("deskpen", "bookshelfbook", "booksideboard"); among equals the last word wins.
+# Words mapped to null only help the cut ("coffee", "upper"). No known class word: otherprop.
+props: [books, paper, pillow, towel, clothes, bag, box, lamp, picture, mirror, television,
+        floor mat, whiteboard, otherprop]
+words:
+  # furniture
+  chair: chair
+  armchair: chair
+  recliner: chair
+  seat: chair
+  sofa: sofa
+  couch: sofa
+  loveseat: sofa
+  sectional: sofa
+  table: table
+  console: table
+  desk: desk
+  workbench: desk
+  nightstand: night stand
+  bedside: night stand
+  bed: bed
+  crib: bed
+  bunkbed: bed
+  cabinet: cabinet
+  cupboard: cabinet
+  wardrobe: cabinet
+  sideboard: cabinet
+  locker: cabinet
+  credenza: cabinet
+  armoire: cabinet
+  displaycase: cabinet
+  dresser: dresser
+  chest: dresser
+  drawer: dresser
+  bookshelf: bookshelf
+  bookcase: bookshelf
+  shelf: shelves
+  shelves: shelves
+  shelving: shelves
+  rack: shelves
+  counter: counter
+  countertop: counter
+  island: counter
+  bar: counter
+  door: door
+  window: window
+  blind: blinds
+  blinds: blinds
+  curtain: curtain
+  drape: curtain
+  drapes: curtain
+  showercurtain: shower curtain
+  refrigerator: refrigerator
+  fridge: refrigerator
+  toilet: toilet
+  sink: sink
+  bathtub: bathtub
+  tub: bathtub
+  bench: otherfurniture
+  stool: otherfurniture
+  ottoman: otherfurniture
+  pouf: otherfurniture
+  coatstand: otherfurniture
+  coatrack: otherfurniture
+  cart: otherfurniture
+  piano: otherfurniture
+  stove: otherfurniture
+  oven: otherfurniture
+  washer: otherfurniture
+  dryer: otherfurniture
+  dishwasher: otherfurniture
+  washingmachine: otherfurniture
+  podium: otherfurniture
+  easel: otherfurniture
+  # structure
+  column: otherstructure
+  pillar: otherstructure
+  beam: otherstructure
+  pipe: otherstructure
+  tile: otherstructure
+  panel: otherstructure
+  railing: otherstructure
+  fireplace: otherstructure
+  stairs: otherstructure
+  radiator: otherstructure
+  # props
+  book: books
+  books: books
+  notebook: books
+  magazine: books
+  volume: books
+  tome: books
+  cookbook: books
+  hardcover: books
+  folio: books
+  novel: books
+  binder: books
+  paper: paper
+  document: paper
+  newspaper: paper
+  pillow: pillow
+  cushion: pillow
+  towel: towel
+  clothes: clothes
+  shirt: clothes
+  jacket: clothes
+  dress: clothes
+  sweater: clothes
+  box: box
+  crate: box
+  carton: box
+  bag: bag
+  backpack: bag
+  handbag: bag
+  purse: bag
+  lamp: lamp
+  floorlamp: lamp
+  sconce: lamp
+  light: lamp
+  lighting: lamp
+  lightfixture: lamp
+  lantern: lamp
+  chandelier: lamp
+  pendant: lamp
+  picture: picture
+  painting: picture
+  art: picture
+  artwork: picture
+  artprint: picture
+  poster: picture
+  print: picture
+  frame: picture
+  pictureframe: picture
+  photo: picture
+  canvas: picture
+  tapestry: picture
+  mirror: mirror
+  tv: television
+  television: television
+  monitor: television
+  screen: television
+  rug: floor mat
+  carpet: floor mat
+  mat: floor mat
+  whiteboard: whiteboard
+  chalkboard: whiteboard
+  plant: otherprop
+  pottedplant: otherprop
+  cactus: otherprop
+  succulent: otherprop
+  fern: otherprop
+  pen: otherprop
+  pencil: otherprop
+  candle: otherprop
+  candleholder: otherprop
+  candlestick: otherprop
+  mug: otherprop
+  cup: otherprop
+  glass: otherprop
+  wineglass: otherprop
+  bottle: otherprop
+  plate: otherprop
+  bowl: otherprop
+  vase: otherprop
+  clock: otherprop
+  jar: otherprop
+  can: otherprop
+  basket: otherprop
+  speaker: otherprop
+  sign: otherprop
+  outlet: otherprop
+  statue: otherprop
+  sculpture: otherprop
+  figurine: otherprop
+  toy: otherprop
+  shoe: otherprop
+  # only help the cut
+  wall: null
+  floor: null
+  side: null
+  upper: null
+  lower: null
+  coffee: null
+  dining: null
+  kitchen: null
+  office: null
+  small: null
+  large: null
